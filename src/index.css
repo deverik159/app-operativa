@@ -1,0 +1,179 @@
+/* CSS de GPO VALLAS - extraído del HTML original */
+  :root{--bg:#0e1013;--panel:#16191f;--panel2:#1d2129;--line:#2a2f3a;--txt:#eef0f3;--muted:#98a1af;--accent:#ff5a3c;--accent2:#4f8cff;--ok:#22c55e;--warn:#f59e0b;--hi:#ef4444;--purple:#a78bfa}
+  *{box-sizing:border-box}html,body{margin:0}
+  /* Ningún elemento debe forzar scroll horizontal en la página. */
+  html,body{overflow-x:hidden;max-width:100%}
+  /* Claves como MX_EM_EV_EVA_01_0009 y las URLs no tienen espacios: sin esto
+     estiran su contenedor y desbordan la pantalla en móvil. */
+  body{overflow-wrap:anywhere;word-break:break-word}
+  /* Un hijo de flex no encoge por debajo de su contenido salvo min-width:0.
+     Es la causa clásica de desbordes con textos largos. */
+  .inc-top>div,.brand>div,.who>div{min-width:0}
+  img,video,canvas,svg{max-width:100%}
+  /* Las etiquetas cortas sí deben mantenerse en una línea. */
+  .pill,.tag,.btn{overflow-wrap:normal;word-break:normal}
+  body{background:var(--bg);color:var(--txt);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  button{font-family:inherit}
+  .btn{background:var(--accent);color:#151515;border:none;padding:11px 16px;border-radius:10px;font-weight:700;cursor:pointer;font-size:14px}
+  .btn:hover{filter:brightness(1.08)}.btn:disabled{opacity:.5;cursor:default}
+  .btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
+  .btn.sm{padding:7px 11px;font-size:13px}
+  .btn.ok{background:var(--ok)}.btn.warn{background:var(--warn)}.btn.hi{background:var(--hi);color:#fff}
+  select,input,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:10px 11px;border-radius:9px;font-size:14px;font-family:inherit;width:100%}
+  .pill{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap}
+  .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;background:#252b35;color:var(--muted)}
+  @keyframes pulseDot{0%,100%{transform:scale(1)}50%{transform:scale(1.22)}}
+  .badge-pulse{display:inline-block;animation:pulseDot 1.4s ease-in-out infinite}
+  .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(1200px 600px at 70% -10%,#2a1a14,transparent),var(--bg)}
+  .login-card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:28px;max-width:400px;width:100%}
+  .logo{width:52px;height:52px;border-radius:13px;background:linear-gradient(135deg,var(--accent),#ffb03c);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:26px;color:#101;margin-bottom:16px}
+  .login h1{margin:0 0 4px;font-size:22px}.login .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+  .field{margin-bottom:13px}.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}
+  .err{background:#3a1a1a;border:1px solid #5a2a2a;color:#ffb4b4;font-size:13px;padding:10px 12px;border-radius:10px;margin-bottom:14px}
+  .ok-msg{background:#16281c;border:1px solid #244a30;color:#a7e8bf;font-size:13px;padding:10px 12px;border-radius:10px;margin-bottom:14px}
+  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 18px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:11px;min-width:0;flex:1 1 auto;overflow:hidden}
+  .brand .logo{width:36px;height:36px;font-size:19px;margin:0;border-radius:10px;flex-shrink:0}
+  /* El título se recorta con puntos suspensivos en vez de empujar (y taparse
+     con) los botones de la derecha. */
+  .brand h1{font-size:15px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brand .sub{color:var(--muted);font-size:11px;white-space:nowrap}
+  /* Los controles de la derecha nunca se encogen: son objetivos táctiles. */
+  .who{display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .who .info{text-align:right;line-height:1.2}
+  .who .n{font-size:13px;font-weight:600}.who .r{font-size:11px;color:var(--muted)}
+  .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#fff}
+  .layout{display:flex;max-width:1280px;margin:0 auto}
+  .side{width:200px;flex-shrink:0;padding:16px 12px;border-right:1px solid var(--line);min-height:calc(100vh - 61px)}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;color:var(--muted);font-size:14px;font-weight:600}
+  .nav-item:hover{background:var(--panel2);color:var(--txt)}.nav-item.active{background:#241b17;color:var(--txt)}
+  .nav-item .badge{margin-left:auto;background:var(--accent);color:#151515;border-radius:20px;font-size:11px;padding:1px 7px;font-weight:800}
+  .main{flex:1;padding:20px;min-width:0}
+  h2.page{margin:0 0 3px;font-size:20px}.phint{color:var(--muted);font-size:13px;margin:0 0 18px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px}
+  .card .n{font-size:26px;font-weight:800}.card .l{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
+  .toolbar{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px}.toolbar .search{flex:1;min-width:150px}.toolbar select{width:auto}
+  .inc-list{display:grid;gap:11px}
+  .inc{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 15px}
+  .inc-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+  .inc .folio{font-size:12px;color:var(--muted);font-weight:800}.inc .titulo{font-weight:700;font-size:15px;margin:3px 0}
+  .inc .meta{color:var(--muted);font-size:12px;line-height:1.5}.inc .obs{font-size:13px;margin-top:7px;color:#c9cfd8}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+  .inc-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;border-top:1px solid var(--line);padding-top:11px}
+  .empty{text-align:center;color:var(--muted);padding:44px;background:var(--panel);border:1px dashed var(--line);border-radius:14px}
+  .loading{text-align:center;color:var(--muted);padding:60px}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;overflow:auto;z-index:60}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:100%;max-width:540px;padding:22px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+  .modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:6px}
+  .banner{background:#1a2436;border:1px solid #26344d;color:#bcd0f0;font-size:12px;padding:9px 12px;border-radius:10px;margin-bottom:16px}
+  /* ============================================================
+     MÓVIL / TABLET
+     El menú lateral se convierte en BARRA FIJA ABAJO (estilo app).
+     Ojo: solo debe existir UNA barra. Antes .side y .mobile-nav se
+     pintaban las dos, encimadas.
+     ============================================================ */
+  @media(max-width:780px){
+    .layout{display:block}
+    .main{padding:15px 12px 96px}
+    .brand .sub{display:none}
+    .who .info{display:none}
+    .row2{grid-template-columns:1fr}
+
+    /* La barra de arriba se compacta para que quepan los botones. */
+    .topbar{padding:10px 12px;gap:8px}
+    .brand h1{font-size:14px}
+    .who{gap:6px}
+    .avatar{width:30px;height:30px;font-size:12px}
+
+    /* Menú fijo abajo, siempre visible al hacer scroll. */
+    .side{position:fixed;bottom:0;left:0;right:0;width:auto;min-height:0;z-index:900;
+      border-right:none;border-top:1px solid var(--line);border-bottom:none;
+      padding:8px 10px;display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+      background:var(--panel);box-shadow:0 -2px 12px rgba(0,0,0,.4);
+      padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+    .side .nav-item{flex-shrink:0;white-space:nowrap;padding:8px 14px;flex-direction:column;
+      gap:3px;font-size:12px;text-align:center;min-width:64px}
+    .nav-item .badge{margin-left:0;position:absolute;transform:translate(22px,-6px)}
+    .side .nav-item{position:relative}
+
+    /* Los filtros se apilan: en una fila no caben y desbordan. */
+    .toolbar{gap:8px}
+    .toolbar .search{flex:1 1 100%;min-width:0}
+    .toolbar select{width:100%;flex:1 1 100%}
+
+    /* 16px evita que iOS haga zoom automático al enfocar un campo. */
+    select,input,textarea{font-size:16px}
+
+    /* Objetivos táctiles más grandes. */
+    .btn{padding:12px 16px}
+    .btn.sm{padding:9px 12px;font-size:13px}
+    .nav-item{min-height:44px}
+
+    /* Modales a pantalla casi completa: en 360px, 22px de padding por lado
+       se comen el contenido. */
+    .overlay{padding:10px 8px 24px}
+    .modal{padding:16px 14px;max-width:none;max-height:none}
+    .modal-actions{flex-wrap:wrap}
+    .modal-actions .btn{flex:1 1 auto}
+
+    .cards{grid-template-columns:1fr 1fr;gap:9px}
+    .card{padding:12px}
+    .card .n{font-size:22px}
+    .empty{padding:28px 16px}
+    .inc{padding:12px}
+    /* El estatus se va abajo en lugar de pelear por el ancho con el folio. */
+    .inc-top{flex-direction:column;gap:6px}
+    .inc-top>div:last-child{text-align:left !important}
+  }
+
+  /* Pantallas muy angostas (iPhone SE y similares). */
+  @media(max-width:380px){
+    .main{padding:12px 10px 96px}
+    .brand h1{font-size:13px}
+    .cards{gap:8px}
+    .card{padding:10px}
+    .card .n{font-size:20px}
+    .card .l{font-size:10px}
+  }
+
+  /* ===== Mapas (Fijación y Rutas) ===== */
+  #fijmap{height:460px;border-radius:14px;border:1px solid var(--line);position:sticky;top:16px}
+  .fij-split{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+
+  /* Leaflet pinta sus controles (zoom, atribución de OpenStreetMap) con
+     z-index 1000. Sin un contexto de apilamiento propio, ese 1000 se compara
+     contra TODA la página y los controles terminan encima de la leyenda de
+     rutas y de las tarjetas de KPIs.
+     `isolation:isolate` encierra esos z-index dentro del mapa; `z-index:0`
+     lo deja en la capa base para que nunca tape la interfaz de la app. */
+  #fijmap,.rutas-map{isolation:isolate;z-index:0;overflow:hidden}
+
+  /* La atribución de OpenStreetMap es obligatoria por licencia, pero no tiene
+     que estorbar: se compacta y se despega de la esquina para que no caiga
+     encima de los datos de la ruta. */
+  .leaflet-control-attribution{font-size:10px;padding:1px 6px;
+    background:rgba(14,16,19,.72) !important;color:var(--muted) !important;
+    border-radius:6px 0 0 0;max-width:60vw;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis}
+  .leaflet-control-attribution a{color:var(--muted) !important}
+
+  /* En una sola columna el mapa NO debe quedarse pegado (sticky): flotaría
+     sobre el contenido al hacer scroll. El corte es 900px, que es justo donde
+     .fij-split se colapsa a una columna.
+     CLAVE: se pasa a `relative`, NUNCA a `static`. Los controles de Leaflet
+     son `position:absolute` y se anclan al ancestro posicionado más cercano;
+     con `static` el mapa deja de serlo, los controles se escapan y el zoom y
+     la atribución terminan encima de las tarjetas de KPIs. */
+  @media(max-width:900px){
+    .fij-split{grid-template-columns:1fr}
+    #fijmap{height:300px;position:relative}
+    .rutas-map{position:relative !important;top:0 !important;height:340px !important}
+  }
+  @media(max-width:780px){
+    .rutas-map{height:300px !important}
+  }
+  .order-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#151515;font-weight:800;font-size:12px;flex-shrink:0}
+  .leaflet-container{background:#0e1013}
+  .route-pin{background:var(--accent);color:#151515;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;border:2px solid #151515}

@@ -1,0 +1,11 @@
+# Normaliza los saltos de línea entre macOS (LF) y Windows (CRLF).
+# Sin esto, cambiar de máquina marca TODOS los archivos como modificados.
+* text=auto eol=lf
+
+# Binarios: no tocar.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.xlsx binary
