@@ -24,6 +24,7 @@ import IncidenciasView from './modules/incidencias/IncidenciasView';
 import IndicadoresView from './modules/incidencias/IndicadoresView';
 import FijacionExternaView from './modules/fijacion-externa/FijacionExternaView';
 import RutasView from './modules/rutas/RutasView';
+import PautaView from './modules/pauta/PautaView';
 import UsuariosView from './modules/usuarios/UsuariosView';
 import type { UsuarioRol } from './types/db';
 
@@ -400,6 +401,16 @@ function Main({ session }: { session: Session }) {
       ic: '🗺️',
       t: 'Rutas de Monitoreo',
     },
+    // Trabajo de campo sobre la pauta. Lo ve también reparación/fijador:
+    // son quienes recorren la ruta, no solo quien la administra.
+    (has('manager') ||
+      has('coordinador') ||
+      has('reparacion') ||
+      has('fijador')) && {
+      k: 'pauta',
+      ic: '📋',
+      t: 'Pauta y Monitoreo',
+    },
     // Usuarios NO usa has(): solo el manager real, no por comodín.
     // La RLS (ur_manager_all / usr_write) exige manager de todos modos.
     misRoles.includes('manager') && { k: 'usuarios', ic: '👥', t: 'Usuarios' },
@@ -522,6 +533,11 @@ function Main({ session }: { session: Session }) {
                 puedeGestionar={has('manager') || has('coordinador')}
               />
             )}
+          {tab === 'pauta' && (
+            <PautaView
+              puedeImportar={has('manager') || has('coordinador')}
+            />
+          )}
           {tab === 'usuarios' && <UsuariosView />}
         </div>
       </div>

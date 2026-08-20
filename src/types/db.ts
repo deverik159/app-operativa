@@ -362,3 +362,74 @@ export interface StatsInc {
   noRep: number;
   efect: number;
 }
+
+// --- Pauta por catorcena (campañas y avance de monitoreo) ---
+
+/** Avance de una cara en la catorcena. Lo calcula la vista. */
+export type AvancePauta = 'PENDIENTE' | 'TOMADA' | 'COMPROBADA';
+
+/**
+ * Fila de `vw_pauta_ruta`: pauta del archivo + avance registrado en la app
+ * + coordenadas del inventario, ya resueltas.
+ */
+export interface PautaRuta {
+  id: number;
+  catorcena: number;
+  etiqueta: string | null;
+
+  site_id: string;
+  vendor_face_id: string;
+  cara: string | null;
+  direccion: string | null;
+  estado: string | null;
+  medio: string | null;
+
+  /** Valor tal cual del archivo: '1'..'8', 'PLAZA', 'EDOMEX'. */
+  ruta_clave: string | null;
+  /** Solo cuando ruta_clave es numérica. Las foráneas van en null. */
+  ruta_numero: number | null;
+  secuencia: number | null;
+
+  campana: string | null;
+  version: string | null;
+  campana_anterior: string | null;
+  /** NUEVO = hay que fijar. REPITE = el arte se queda. */
+  estatus: string | null;
+  corte: string | null;
+  contract_number: string | null;
+  orden_fijacion: string | null;
+  fecha_fijacion: string | null;
+
+  // Avance real (lo escribe la app; sobrevive a reimportar).
+  fecha_toma: string | null;
+  toma_por: string | null;
+  fecha_comprobacion: string | null;
+  comprobacion_por: string | null;
+  // Referencia histórica del archivo.
+  fecha_toma_archivo: string | null;
+  fecha_comprobacion_archivo: string | null;
+
+  avance: AvancePauta;
+
+  latitud: number | null;
+  longitud: number | null;
+  /** Ya calculado por la vista: si es false, no hay a dónde navegar. */
+  navegable: boolean;
+
+  ruta_monitoreo_id: number | null;
+}
+
+/** Fila de `vw_pauta_resumen`: totales por ruta y campaña. */
+export interface PautaResumen {
+  catorcena: number;
+  ruta_clave: string | null;
+  campana: string | null;
+  caras: number;
+  sitios: number;
+  nuevas: number;
+  repiten: number;
+  pendientes: number;
+  tomadas: number;
+  comprobadas: number;
+  sin_coordenadas: number;
+}
