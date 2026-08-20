@@ -410,6 +410,8 @@ export interface PautaRuta {
   fecha_comprobacion_archivo: string | null;
 
   avance: AvancePauta;
+  /** Cuántos archivos de evidencia lleva esta cara en esta catorcena. */
+  fotos: number;
 
   latitud: number | null;
   longitud: number | null;

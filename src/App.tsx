@@ -535,6 +535,7 @@ function Main({ session }: { session: Session }) {
             )}
           {tab === 'pauta' && (
             <PautaView
+              email={email}
               puedeImportar={has('manager') || has('coordinador')}
             />
           )}

@@ -17,6 +17,7 @@ import { sb } from '../../lib/supabase';
 import IrAqui from '../../components/IrAqui';
 import { tramosGoogleMaps } from '../../lib/navegacion';
 import ImportarPautaModal from './ImportarPautaModal';
+import RegistrarTomaModal from './RegistrarTomaModal';
 import type { PautaRuta } from '../../types/db';
 
 /** Tope de filas: el límite duro de Supabase es 1000 por consulta. */
@@ -46,15 +47,19 @@ type Sitio = {
 type Props = {
   /** coordinador/manager: puede importar la pauta. */
   puedeImportar: boolean;
+  /** Correo del usuario, para firmar la evidencia que sube. */
+  email: string;
 };
 
-function PautaView({ puedeImportar }: Props) {
+function PautaView({ puedeImportar, email }: Props) {
   const [filas, setFilas] = useState<PautaRuta[]>([]);
   const [catorcenas, setCatorcenas] = useState<number[]>([]);
   const [catSel, setCatSel] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [importar, setImportar] = useState(false);
+  /** Cara cuya toma se está registrando (abre el modal con cámara). */
+  const [tomaDe, setTomaDe] = useState<PautaRuta | null>(null);
 
   // Filtros
   const [fRuta, setFRuta] = useState('Todas');
@@ -229,12 +234,12 @@ function PautaView({ puedeImportar }: Props) {
   }, [visibles]);
 
   // --- Acciones de campo ---
-  /** Aplica el cambio en memoria para que el avance se vea al instante. */
-  const marcar = async (
-    fila: PautaRuta,
-    rpc: 'registrar_toma' | 'registrar_comprobacion'
-  ) => {
-    const { error } = await sb.rpc(rpc, {
+  /**
+   * Registra la comprobación (entrega del trabajo). No lleva fotos: la
+   * evidencia se capturó en la toma.
+   */
+  const comprobar = async (fila: PautaRuta) => {
+    const { error } = await sb.rpc('registrar_comprobacion', {
       p_catorcena: fila.catorcena,
       p_vendor_face_id: fila.vendor_face_id,
     });
@@ -244,18 +249,31 @@ function PautaView({ puedeImportar }: Props) {
     }
     const ahora = new Date().toISOString();
     setFilas((prev) =>
+      prev.map((f) =>
+        f.vendor_face_id === fila.vendor_face_id
+          ? { ...f, fecha_comprobacion: ahora, avance: 'COMPROBADA' }
+          : f
+      )
+    );
+  };
+
+  /**
+   * La toma quedó registrada en el modal. Se refleja en memoria para que el
+   * avance se vea al instante, sin recargar toda la catorcena.
+   */
+  const tomaRegistrada = (vendorFaceId: string) => {
+    const ahora = new Date().toISOString();
+    setFilas((prev) =>
       prev.map((f) => {
-        if (f.vendor_face_id !== fila.vendor_face_id) return f;
-        if (rpc === 'registrar_toma') {
-          // La RPC no pisa una toma anterior: aquí se refleja igual.
-          const fecha = f.fecha_toma || ahora;
-          return {
-            ...f,
-            fecha_toma: fecha,
-            avance: f.fecha_comprobacion ? 'COMPROBADA' : 'TOMADA',
-          };
-        }
-        return { ...f, fecha_comprobacion: ahora, avance: 'COMPROBADA' };
+        if (f.vendor_face_id !== vendorFaceId) return f;
+        // La RPC no pisa una toma anterior: aquí se respeta igual.
+        return {
+          ...f,
+          fecha_toma: f.fecha_toma || ahora,
+          toma_por: f.toma_por || email,
+          fotos: f.fotos + 1,
+          avance: f.fecha_comprobacion ? 'COMPROBADA' : 'TOMADA',
+        };
       })
     );
   };
@@ -577,18 +595,21 @@ function PautaView({ puedeImportar }: Props) {
                         marginTop: 8,
                       }}
                     >
-                      {!f.fecha_toma && (
-                        <button
-                          className="btn ghost sm"
-                          onClick={() => marcar(f, 'registrar_toma')}
-                        >
-                          📷 Registrar toma
-                        </button>
-                      )}
+                      {/* Mismo patrón que Incidencias: la acción abre un
+                          modal con cámara y galería, no guarda a ciegas. */}
+                      <button
+                        className={f.fecha_toma ? 'btn ghost sm' : 'btn sm'}
+                        onClick={() => setTomaDe(f)}
+                      >
+                        📷{' '}
+                        {f.fecha_toma
+                          ? `Evidencia${f.fotos ? ` (${f.fotos})` : ''}`
+                          : 'Registrar toma'}
+                      </button>
                       {f.fecha_toma && !f.fecha_comprobacion && (
                         <button
                           className="btn ok sm"
-                          onClick={() => marcar(f, 'registrar_comprobacion')}
+                          onClick={() => comprobar(f)}
                         >
                           ✓ Comprobar
                         </button>
@@ -607,6 +628,15 @@ function PautaView({ puedeImportar }: Props) {
             </div>
           ))}
         </div>
+      )}
+
+      {tomaDe && (
+        <RegistrarTomaModal
+          fila={tomaDe}
+          email={email}
+          onClose={() => setTomaDe(null)}
+          onRegistrada={tomaRegistrada}
+        />
       )}
 
       {importar && (
