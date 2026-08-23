@@ -77,7 +77,13 @@ function IrAqui({ destino, size = 'sm' }: Props) {
         padding: '10px 14px',
       }}
     >
-      <span style={{ fontSize: 22, flexShrink: 0 }}>{icono}</span>
+      {/* Solo se reserva el espacio si de verdad hay algo que dibujar: un
+          icono vacío dejaría una sangría fantasma en la fila. */}
+      {icono ? (
+        <span style={{ fontSize: 22, flexShrink: 0, lineHeight: 1 }}>
+          {icono}
+        </span>
+      ) : null}
       <span style={{ minWidth: 0 }}>
         <span style={{ display: 'block', fontWeight: 700 }}>{texto}</span>
         <span
@@ -136,7 +142,10 @@ function IrAqui({ destino, size = 'sm' }: Props) {
               {opcion('🚗', 'Waze', 'Con alertas de tráfico', urlWaze(d))}
               {esApple() &&
                 opcion(
-                  '',
+                  // Emoji, NO el carácter del logo de Apple (U+F8FF): ese es
+                  // de "Área de Uso Privado" y solo tiene glifo con la fuente
+                  // de Apple. En el navegador se dibuja vacío.
+                  '🍎',
                   'Apple Maps',
                   'App de mapas del iPhone',
                   urlAppleMaps(d)

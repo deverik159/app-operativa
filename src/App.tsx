@@ -20,11 +20,13 @@ import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY } from './lib/constants';
 import { initials } from './lib/helpers';
 import { useNotificaciones } from './lib/useNotificaciones';
 import CampanaNotifs from './components/CampanaNotifs';
+import BotonPush from './components/BotonPush';
 import IncidenciasView from './modules/incidencias/IncidenciasView';
 import IndicadoresView from './modules/incidencias/IndicadoresView';
 import FijacionExternaView from './modules/fijacion-externa/FijacionExternaView';
 import RutasView from './modules/rutas/RutasView';
 import PautaView from './modules/pauta/PautaView';
+import BioboxView from './modules/biobox/BioboxView';
 import UsuariosView from './modules/usuarios/UsuariosView';
 import type { UsuarioRol } from './types/db';
 
@@ -411,6 +413,19 @@ function Main({ session }: { session: Session }) {
       ic: '📋',
       t: 'Pauta y Monitoreo',
     },
+    // Revisión de máquinas Biobox. La lista es a propósito más amplia que la
+    // de Pauta: además de quien administra y quien repara, revisa el
+    // monitorista (reportante) —es quien levanta la incidencia desde el
+    // checklist— y el fijador, que recorre las mismas rutas.
+    (has('manager') ||
+      has('coordinador') ||
+      has('reparacion') ||
+      has('reportante') ||
+      has('fijador')) && {
+      k: 'biobox',
+      ic: '♻️',
+      t: 'Máquinas Biobox',
+    },
     // Usuarios NO usa has(): solo el manager real, no por comodín.
     // La RLS (ur_manager_all / usr_write) exige manager de todos modos.
     misRoles.includes('manager') && { k: 'usuarios', ic: '👥', t: 'Usuarios' },
@@ -450,6 +465,7 @@ function Main({ session }: { session: Session }) {
           >
             ↻
           </button>
+          <BotonPush email={email} />
           <CampanaNotifs
             notifs={notifs.notifs}
             noLeidas={notifs.noLeidas}
@@ -537,6 +553,13 @@ function Main({ session }: { session: Session }) {
             <PautaView
               email={email}
               puedeImportar={has('manager') || has('coordinador')}
+            />
+          )}
+          {tab === 'biobox' && (
+            <BioboxView
+              email={email}
+              misDep={misDep}
+              puedeConfigurar={has('manager') || has('coordinador')}
             />
           )}
           {tab === 'usuarios' && <UsuariosView />}

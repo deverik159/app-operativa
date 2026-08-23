@@ -339,6 +339,152 @@ NO en `responsable_de_cuadrilla`. El estado real vive en `estado`
 Marcar fijado sube fotos a Storage y llama a `marcar_fijacion_externa`, que
 escribe en `externo.fijacion`. **Confirmado funcionando** en pruebas de agosto.
 
+### 4.5. Máquinas Biobox (hoja de vida / revisión)
+
+`src/modules/biobox/` — `BioboxView` + `RevisionModal` + `HistorialModal` +
+`ChecklistConfigModal`.
+
+Mismo patrón de campo que Pauta (ruta → paradas → navegación por tramos), pero
+lo que se registra es una **revisión contra checklist**, no una foto de
+campaña.
+
+**El checklist es catálogo, no código.** `checklist_plantillas` /
+`checklist_puntos` se editan desde la app (⚙️ Checklist, solo coordinación).
+Si los puntos vivieran en el código, cada ajuste operativo sería un
+despliegue. La plantilla sembrada para Biobox es un **punto de partida**: 17
+puntos en 4 grupos (Estructura, Publicidad, Operación, Entorno), armados con
+lo que se puede revisar a simple vista. Se esperan cambios.
+
+**Cada respuesta guarda una COPIA del texto del punto**
+(`revision_respuestas.punto_texto`). No es redundancia por descuido: el
+checklist se edita con el tiempo y una revisión de hace seis meses tiene que
+seguir leyéndose tal como se contestó. Guardar solo el `punto_id` haría que
+renombrar un punto reescribiera el pasado.
+
+**Una anomalía NO es una incidencia.** Marcarla deja constancia en la
+revisión; convertirla en incidencia es una casilla aparte. Si fuera
+automático, una máquina grafiteada visitada cuatro veces generaría cuatro
+incidencias abiertas del mismo problema. Cuando sí se levanta, se inserta en
+`incidencias` con **exactamente los mismos campos que NuevaInc** (incluido el
+auto-ruteo fuera de horario del validador), así que hereda folio, SLA,
+notificaciones y flujo de validación sin código nuevo. La foto de la anomalía
+se escribe en `revision_evidencias` **y** en `evidencias` con
+`etapa='reporte'`: sin lo segundo, quien atiende la incidencia por el flujo
+normal la vería sin un solo archivo.
+
+**Ligar el punto con el catálogo es lo que da valor.**
+`checklist_puntos.incidencia_sugerida` empata con
+`catalogo_incidencias.detalle`; de ahí salen área, impacto/nivel, origen y
+tipo. Sin esa liga todo funciona, pero el revisor tiene que elegir del
+catálogo completo a mano.
+
+**El orden por default de la lista no es la secuencia de la ruta** sino el
+abandono: nunca revisadas primero, luego las más viejas. La secuencia sirve
+para *recorrer*; el abandono para *decidir a qué ruta ir*. Se cambia con el
+selector.
+
+`revision_respuestas` tiene el UPDATE acotado **a nivel de columna**
+(`grant update (incidencia_record_id)`). Con el GRANT de tabla completa,
+cualquier sesión podía mandar un PATCH y borrar una anomalía de una revisión
+vieja. La política RLS sola no alcanzaba.
+
+---
+
+### 4.6. Importación de rutas desde My Maps (KML)
+
+`src/lib/kml.ts` + `src/modules/rutas/ImportarKmlModal.tsx`, botón
+**🗺️ Importar mapa (KML)** en Rutas de Monitoreo. Cada **capa** (`<Folder>`)
+se vuelve una ruta; cada **marcador**, una parada.
+
+No hay API pública para leer un mapa de My Maps: se exporta el KML
+(⋮ → Descargar KML → marcar *"Exportar a un archivo .KML"*, si no sale .kmz
+comprimido y no se puede leer) y se sube.
+
+**Lo delicado son los nombres.** Los marcadores se llaman `Leibnitz - 116`:
+esquina y, tras un guion, un número.
+
+**Ese número NO es `site_legacy_id`.** `site_legacy_id` es el *nombre* que la
+operación le da a la máquina (`ALBERCA OLÍMPICA`, `AMSTERDAM LAREDO`). El
+número del mapa es el **sufijo de `site_id`**:
+
+```
+"Alberca Olímpica - 99"  →  MX_CM_BB_MEC_0099  ("ALBERCA OLÍMPICA")
+"Alfonso Reyes - 102"    →  MX_CM_BB_MED_0102  ("ALFONSO REYES")
+```
+
+Comprobado 10/10 contra la muestra del diagnóstico. Eso deja **dos señales
+independientes** por marcador —número y nombre— más la distancia. `alta` exige
+que dos coincidan; una sola señal no pasa de `media`; y cuando número y nombre
+se contradicen, baja a `baja` diciendo cuál apunta a dónde en vez de elegir en
+silencio.
+
+Pero los nombres los escribió gente distinta durante meses y el mapa real
+tiene:
+
+| Caso | Qué hace el parser |
+|---|---|
+| `Leibnitz - 116` | ID confiable → empate `alta` |
+| `Masarayk Moliere- 91` | guion pegado, igual lo toma → `alta` |
+| `Masaryk Taine 34` | sin guion → **dudoso**, se resuelve por cercanía |
+| `OXXO Héroes de 47` | el 47 es de la CALLE → dudoso, cercanía manda |
+| `116` (solo el número) | dudoso; se confirma con el nombre o la distancia |
+| `Nicolas Romero - UCL0002` | ID no numérico, funciona igual |
+| `OXXO Apolonia` | sin ID → solo cercanía |
+
+Solo se toma como ID lo que sigue a un guion. Un número suelto al final es
+**dudoso**, y si además apunta a una máquina que está a kilómetros, se
+**descarta por completo**: `OXXO Héroes de 47` sí empata con la máquina 47,
+pero está a 58 km — el 47 es de la calle. Descartándolo, el marcador se
+resuelve por nombre o cercanía, que es lo que de verdad lo identifica. Un
+número *confiable* que queda lejos sí se conserva, marcado `baja`: ahí el dato
+existe y alguien tiene que mirarlo. Por eso hay vista previa con nivel de
+confianza y motivo por fila, y la importación es una decisión.
+
+Detalles que costaron un bug cada uno:
+
+- La llave de cada marcador es un **índice**, no el nombre. En el mapa real
+  hay homónimos incluso en la misma capa (`Ejercito Nacional`); con llave por
+  nombre, desmarcar uno desmarcaba el otro.
+- `ruta_ubicaciones` tiene `UNIQUE(site_id)`, así que dos marcadores
+  apuntando a la misma máquina no crean dos paradas: el segundo **mueve** la
+  primera de ruta. Se bloquea al incluir y se deduplica en el payload.
+- `importar_rutas_capas` recibe `p_conservar`: los `site_id` que venían en el
+  mapa pero no se importaron (desmarcados u omitidos por segmento). Sin eso,
+  la limpieza opcional los sacaría de su ruta, que es lo contrario de lo que
+  promete la casilla.
+- Las rutas se identifican **por nombre** dentro del segmento, y conservan su
+  número y color al reimportar. Renumerar dejaría el histórico apuntando a
+  rutas que cambiaron de identidad.
+- El modal se renderiza **antes** del `if (loading)` de RutasView: si no, al
+  terminar la importación el spinner lo desmontaba y su pantalla de resultado
+  —con los avisos de omitidas y sobrantes— nunca se veía.
+
+**El tipo de medio va por parada, no por importación.** Biobox tiene 125
+máquinas Digital y 77 Impreso, y las capas del mapa son *geográficas*: una
+ruta lleva de las dos. Pero el trigger `ruta_ubic_valida_segmento` exige que
+la ubicación coincida con el tipo de medio de su ruta, así que **una ruta
+mixta hoy no puede existir**.
+
+En vez de aflojar ese trigger —que también cuida a Ecovallas— cada parada
+entra a la ruta de *su* segmento. Si la capa es homogénea se crea una sola
+ruta y no se nota nada; si viene mezclada quedan dos filas en
+`rutas_monitoreo` con el mismo nombre y distinto tipo. **BioboxView agrupa por
+NOMBRE**, no por `ruta_id`, así que el monitorista sigue viendo una sola ruta:
+la partición es interna y no le llega.
+
+De ahí que `vw_revision_ubicaciones` exponga **dos** campos de tipo:
+`tipo_medio` (el del segmento de la ruta) y `medio` (el de la máquina, de
+inventario). El segundo es el que decide qué checklist se usa y qué se escribe
+en la incidencia — y por eso hay **dos plantillas sembradas**: una para
+máquinas impresas (lona, arte, vitrina, iluminación) y otra para digitales
+(pantalla, contenido en reproducción, conectividad). Un checklist común
+obligaría a marcar N/A la mitad de los puntos en cada visita, y un punto que
+casi siempre es N/A deja de leerse.
+
+**Salvo eso, Biobox no necesitó cambios de esquema para rutas**:
+`rutas_monitoreo` ya estaba segmentada y el selector de RutasView ya ofrecía
+Biobox.
+
 ---
 
 ## 5. ARCHIVOS SQL
@@ -352,6 +498,12 @@ escribe en `externo.fijacion`. **Confirmado funcionando** en pruebas de agosto.
 | `diagnostico_notificaciones.sql` | referencia, solo lectura |
 | `verificar_mis_notificaciones.sql` | referencia, solo lectura |
 | `diagnostico_pauta_cobertura.sql` | referencia, solo lectura |
+| `pauta_evidencias.sql` | ⏳ pendiente de aplicar |
+| `push_suscripciones.sql` | ⏳ pendiente (cambiar `CAMBIA-ESTE-SECRETO` antes) |
+| `revisiones_schema.sql` | ⏳ pendiente — checklist, revisiones, vista y RPC |
+| `importar_rutas_capas.sql` | ⏳ pendiente — aplicar DESPUÉS de revisiones_schema |
+| `diagnostico_biobox.sql` | referencia, solo lectura — ✅ ya corrido |
+| `diagnostico_biobox_2.sql` | referencia, solo lectura — pendiente |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
@@ -453,6 +605,27 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 - **Probar el módulo Pauta con datos reales**: importar la CAT 16, recorrerla
   desde celular, y confirmar que al reimportar el avance de campo sobrevive.
 - Decidir qué hacer con `AREAS_RESP` (§7).
+- **Biobox, en este orden**:
+  1. Correr `diagnostico_biobox_2.sql`. Lo que falta de ahí: el listado de
+     `detalle` del catálogo de incidencias (para ligar los puntos del
+     checklist) y confirmar que ningún número de máquina se repite entre
+     las 202.
+  2. Aplicar `revisiones_schema.sql`, luego `importar_rutas_capas.sql`.
+  3. Exportar el KML del mapa e importarlo desde Rutas de Monitoreo con la
+     unidad Biobox. Revisar la vista previa antes de confirmar: los empates
+     `baja` y `ninguna` vienen desmarcados a propósito.
+  4. Ajustar los dos checklists sembrados (⚙️ Checklist, con selector
+     Impreso/Digital) y **ligar cada punto con su incidencia del catálogo**
+     — es lo que hace que una anomalía salga con área y SLA correctos sin
+     que el revisor sepa nada de eso.
+  5. Revisar una máquina real desde el celular, de punta a punta.
+  6. Decidir qué hacer con `bitacoras`: ya existe, tiene la misma forma
+     (estado + observaciones + una evidencia + liga a incidencia) y viene
+     del módulo de Bitácora que se descartó. Si trae historia, conviene
+     mostrarla dentro de la hoja de vida en vez de dejarla huérfana.
+- Los 4 marcadores de la capa `Biobox` del mapa (`Escato`, `Cov Vallas`,
+  `Mas Espacio`, `Placove`) parecen proveedores o bodegas, no máquinas.
+  Decidir si se importan como ruta o se dejan fuera.
 
 ### 9.2. Despliegue
 - GitHub + Vercel, con las variables de entorno del proyecto. Por ahora se

@@ -12,6 +12,7 @@
 -- Igual que pauta_monitoreo, NO se toca al reimportar la catorcena: es trabajo
 -- de campo, no dato del archivo.
 --
+-- Es seguro re-ejecutar este archivo completo: todo es idempotente.
 -- Aplicar después de pauta_schema.sql.
 -- ============================================================
 
@@ -25,7 +26,7 @@ create table if not exists pauta_evidencias (
   tipo            text,          -- 'foto' | 'video'
   url             text not null,
   path            text,          -- ruta en Storage, para poder borrar el archivo
-  /** Texto libre del monitorista: "toma larga", "cara norte"… */
+  -- Texto libre del monitorista: "toma larga", "cara norte"…
   referencia      text,
   subido_por      text,
   creado_en       timestamptz default now()
@@ -65,8 +66,18 @@ create policy pev_del on pauta_evidencias for delete
 -- ------------------------------------------------------------
 -- Vista actualizada: agrega el conteo de fotos
 -- ------------------------------------------------------------
--- Se reemplaza vw_pauta_ruta para incluir `fotos`, y así la lista de campo
--- puede mostrar cuánta evidencia lleva cada cara sin una consulta extra.
+-- OJO CON EL ORDEN DE LAS COLUMNAS.
+--
+-- `create or replace view` en Postgres exige que las columnas existentes
+-- conserven su NOMBRE, su TIPO y su POSICIÓN. Solo se pueden AGREGAR columnas
+-- nuevas AL FINAL. Si se intenta insertar una en medio, Postgres lo interpreta
+-- como un cambio de nombre y falla con:
+--
+--   ERROR: cannot change name of view column "latitud" to "fotos"
+--
+-- Por eso `fotos` va como ÚLTIMA columna, después de ruta_monitoreo_id, y no
+-- junto a los demás campos de avance donde encajaría mejor por legibilidad.
+-- El frontend consulta por nombre, así que la posición no le afecta.
 create or replace view vw_pauta_ruta as
 select
   p.id,
@@ -103,36 +114,42 @@ select
     else 'PENDIENTE'
   end as avance,
 
-  -- Cuántos archivos de evidencia lleva esta cara en esta catorcena.
-  coalesce(ev.n, 0) as fotos,
-
   inv.latitud,
   inv.longitud,
   (inv.latitud is not null and inv.longitud is not null) as navegable,
 
-  ru.ruta_id as ruta_monitoreo_id
+  ru.ruta_id as ruta_monitoreo_id,
+
+  -- COLUMNA NUEVA — tiene que ir al final (ver la nota de arriba).
+  coalesce(ev.n, 0) as fotos
 
 from pautas p
 left join pauta_monitoreo m
        on m.catorcena = p.catorcena
       and m.vendor_face_id = p.vendor_face_id
 left join lateral (
-  select count(*) as n
-  from pauta_evidencias e
-  where e.catorcena = p.catorcena
-    and e.vendor_face_id = p.vendor_face_id
-) ev on true
-left join lateral (
   select latitud, longitud
   from inventario
   where vendor_face_id = p.vendor_face_id
   limit 1
 ) inv on true
-left join ruta_ubicaciones ru on ru.site_id = p.site_id;
+left join ruta_ubicaciones ru on ru.site_id = p.site_id
+left join lateral (
+  select count(*) as n
+  from pauta_evidencias e
+  where e.catorcena = p.catorcena
+    and e.vendor_face_id = p.vendor_face_id
+) ev on true;
 
 
 -- ------------------------------------------------------------
 -- Verificación
 -- ------------------------------------------------------------
 select count(*) as evidencias_pauta from pauta_evidencias;
+
+-- Debe traer la columna `fotos` en 0.
 select vendor_face_id, avance, fotos from vw_pauta_ruta limit 5;
+
+-- Y vw_pauta_resumen debe seguir funcionando: depende de vw_pauta_ruta y
+-- por eso NO se puede hacer DROP de la vista, solo REPLACE.
+select * from vw_pauta_resumen limit 3;

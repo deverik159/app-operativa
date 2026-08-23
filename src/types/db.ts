@@ -435,3 +435,133 @@ export interface PautaResumen {
   comprobadas: number;
   sin_coordenadas: number;
 }
+
+// --- Módulo de revisiones / hoja de vida (Biobox) ---
+
+/** Cómo quedó un punto del checklist. */
+export type ValorRespuesta = 'ok' | 'anomalia' | 'na';
+
+/** Estado general de la máquina al cerrar la revisión. */
+export type EstadoMaquina = 'operando' | 'con_falla' | 'fuera_de_linea';
+
+/** tabla `checklist_plantillas`. */
+export interface ChecklistPlantilla {
+  id: number;
+  nombre: string;
+  unidad_negocio: string;
+  tipo_medio: string | null;
+  descripcion: string | null;
+  activa: boolean;
+  creada_por: string | null;
+  creada_en: string | null;
+}
+
+/** tabla `checklist_puntos`. */
+export interface ChecklistPunto {
+  id: number;
+  plantilla_id: number;
+  orden: number;
+  grupo: string | null;
+  texto: string;
+  ayuda: string | null;
+  /** Empata con catalogo_incidencias.detalle. NULL = el revisor elige. */
+  incidencia_sugerida: string | null;
+  exige_foto_anomalia: boolean;
+  critico: boolean;
+  activo: boolean;
+}
+
+/** tabla `revisiones`. */
+export interface Revision {
+  id: number;
+  plantilla_id: number | null;
+  site_id: string;
+  vendor_face_id: string | null;
+  unidad_negocio: string | null;
+  nombre_maquina: string | null;
+  direccion: string | null;
+  ruta_id: number | null;
+  revisado_por: string | null;
+  revisado_en: string | null;
+  lat: number | null;
+  lng: number | null;
+  estado_maquina: EstadoMaquina | string | null;
+  observaciones: string | null;
+  puntos_ok: number;
+  puntos_anomalia: number;
+  puntos_na: number;
+  creado_en: string | null;
+}
+
+/** tabla `revision_respuestas`. */
+export interface RevisionRespuesta {
+  id: number;
+  revision_id: number;
+  punto_id: number | null;
+  /** Copia del texto del punto al momento de contestar. Ver el SQL. */
+  punto_texto: string;
+  grupo: string | null;
+  orden: number | null;
+  valor: ValorRespuesta;
+  nota: string | null;
+  incidencia_record_id: string | null;
+}
+
+/** tabla `revision_evidencias`. */
+export interface RevisionEvidencia {
+  id: number;
+  revision_id: number;
+  respuesta_id: number | null;
+  tipo: string | null;
+  url: string;
+  path: string | null;
+  referencia: string | null;
+  subido_por: string | null;
+  creado_en: string | null;
+}
+
+/**
+ * Fila de `vw_revision_ubicaciones`: una máquina de una ruta, con
+ * coordenadas y el resumen de su última revisión.
+ */
+export interface UbicacionRevision {
+  ubicacion_id: number;
+  ruta_id: number;
+  ruta_numero: number;
+  ruta_nombre: string | null;
+  ruta_color: string;
+  unidad_negocio: string;
+  /**
+   * Tipo de medio del SEGMENTO de la ruta. No confundir con `medio`.
+   * Biobox mezcla Digital e Impreso en un mismo recorrido geográfico, y por
+   * el trigger `ruta_ubic_valida_segmento` esa ruta queda partida en dos
+   * filas con el mismo nombre. Para agrupar, se usa el nombre.
+   */
+  tipo_medio: string;
+  ruta_activa: boolean;
+  site_id: string;
+  secuencia: number | null;
+
+  vendor_face_id: string | null;
+  site_legacy_id: string | null;
+  direccion: string | null;
+  municipio: string | null;
+  estado: string | null;
+  tipo_mueble: string | null;
+  /**
+   * Tipo de medio de la MÁQUINA, de inventario. Éste es el que decide qué
+   * checklist se usa y qué se escribe en la incidencia.
+   */
+  medio: string | null;
+  latitud: number | null;
+  longitud: number | null;
+  navegable: boolean;
+
+  revision_id: number | null;
+  ultima_revision: string | null;
+  ultimo_revisor: string | null;
+  estado_maquina: string | null;
+  puntos_anomalia: number | null;
+  /** NULL = nunca se ha revisado. */
+  dias_sin_revision: number | null;
+}

@@ -8,6 +8,7 @@ import L from 'leaflet';
 import * as XLSX from 'xlsx';
 import { sb } from '../../lib/supabase';
 import IrAqui from '../../components/IrAqui';
+import ImportarKmlModal from './ImportarKmlModal';
 import { tramosGoogleMaps, esNavegable } from '../../lib/navegacion';
 import { convexHull } from '../../lib/convexHull';
 import type { Pt } from '../../lib/convexHull';
@@ -60,6 +61,9 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
   // Importación de archivo
   const [importando, setImportando] = useState(false);
   const [resultadoImport, setResultadoImport] = useState<string>('');
+  // Importación desde el KML de My Maps (rutas por capa). Es un modal aparte
+  // porque necesita vista previa: el empate con inventario no es exacto.
+  const [kmlAbierto, setKmlAbierto] = useState(false);
   // Detalle de ruta (modal con listado de ubicaciones)
   const [detalleRuta, setDetalleRuta] = useState<Resumen | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -389,10 +393,28 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
     setTimeout(ajustar, 250);
   }, [porRuta, loading]);
 
+  // El modal de KML se dibuja ANTES de esta salida temprana, y por eso vive
+  // en las dos ramas. Si solo estuviera abajo, al terminar de importar
+  // pasaría esto: el modal llama a cargar(), `loading` se pone en true, este
+  // return desmonta el modal, se pierde su pantalla de resultado —con los
+  // avisos de omitidas y sobrantes— y al volver reaparece pidiendo archivo,
+  // como si no hubiera pasado nada. Invita a importar dos veces.
+  const modalKml = kmlAbierto ? (
+    <ImportarKmlModal
+      unidad={unidad}
+      onClose={() => setKmlAbierto(false)}
+      onImportado={(resumen) => {
+        setResultadoImport('Importación desde el mapa: ' + resumen);
+        cargar();
+      }}
+    />
+  ) : null;
+
   if (loading)
     return (
       <div className="loading" style={{ textAlign: 'center', color: 'var(--muted)', padding: 60 }}>
         Cargando rutas…
+        {modalKml}
       </div>
     );
 
@@ -448,7 +470,18 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
             />
           </label>
         )}
+        {puedeGestionar && (
+          <button
+            className="btn sm ghost"
+            onClick={() => setKmlAbierto(true)}
+            title="Las capas del mapa de My Maps se convierten en rutas"
+          >
+            🗺️ Importar mapa (KML)
+          </button>
+        )}
       </div>
+
+      {modalKml}
 
       {resultadoImport && (
         <div

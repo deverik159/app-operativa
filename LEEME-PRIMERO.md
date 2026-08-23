@@ -1,167 +1,90 @@
-# GPO VALLAS — Central de Operaciones
+# Central de Operaciones GPO VALLAS — cómo levantar el proyecto
 
-Proyecto **Vite + React 18 + TypeScript**. Migración completa del HTML original.
+Este zip es el proyecto **completo y al día**: incidencias, usuarios, KPIs,
+fijación externa, rutas de monitoreo, pauta y el módulo nuevo de Biobox.
+
+No trae `node_modules` ni `dist` (se generan) ni `.env.local` (tiene tus
+llaves). Todo lo demás está.
 
 ---
 
-## Arrancar en macOS
+## 1. Instalar
 
-### 1. Node.js
+Descomprime **reemplazando la carpeta completa**. No copies archivos sueltos:
+este proyecto ya se rompió dos veces por eso —una carpeta que no existía en
+destino deja imports colgando y la app arranca en blanco, sin decir por qué.
 
-Necesitas **Node 18 o superior** (recomendado 20 LTS). Verifica:
+Si prefieres conservar la carpeta vieja, renómbrala en vez de mezclarla:
 
 ```bash
-node -v
+mv app-operativa app-operativa-vieja
+# descomprime el zip como app-operativa
 ```
 
-Si no lo tienes, la vía más limpia en Mac:
+## 2. Recuperar tu `.env.local`
+
+**Es lo único que el zip no trae, y sin él la app no conecta.** Cópialo de la
+carpeta vieja, o créalo desde la plantilla:
 
 ```bash
-# con Homebrew
-brew install node
-
-# o con nvm, si manejas varias versiones
-nvm install 20 && nvm use 20
+cp app-operativa-vieja/.env.local app-operativa/.env.local
+# o bien:
+cp .env.example .env.local     # y pega la anon key
 ```
 
-> No hay que instalar Vite aparte: viene como dependencia del proyecto y se
-> instala con `npm install`.
+Lleva dos variables: `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`. La anon
+key está en Supabase → Project Settings → API → *anon public*.
 
-### 2. Dependencias
+`VITE_VAPID_PUBLIC_KEY` puede quedar vacía: las notificaciones push aún no
+están configuradas. El botón 🔕 de la barra lo dirá.
+
+## 3. Correr
 
 ```bash
-cd gpo-vallas
 npm install
+npm run dev          # HTTPS, necesario para el GPS en red local
 ```
 
-### 3. Credenciales
+Abre **https://localhost:5173**. El navegador va a advertir por el
+certificado: es autofirmado, acepta y sigue.
 
-Copia la plantilla y pega tu anon key real de Supabase:
+Desde el celular, en la misma red, escribe la dirección **completa**:
+`https://TU-IP:5173` — con `https://`, no solo la IP. Si no levanta:
 
 ```bash
-cp .env.example .env.local
-```
-
-Abre `.env.local` y reemplaza `PEGA_AQUI_TU_ANON_KEY`.
-
-La encuentras en Supabase → Project Settings → API → **anon public**.
-
-> `.env.local` está en `.gitignore` a propósito: **nunca** se sube al repo.
-> Por eso este paquete no lo incluye — hay que crearlo en cada máquina.
-
-### 4. Correr
-
-```bash
-npm run dev        # HTTPS  → el GPS funciona
-npm run dev:http   # HTTP   → sin GPS, por si el certificado estorba
+npm run dev:http     # sin HTTPS; el GPS deja de funcionar
 ```
 
 ---
 
-## Sobre el HTTPS y el GPS
+## Estado de la base de datos
 
-La geolocalización del navegador **solo funciona en orígenes seguros**:
-`https://` o `localhost`. Por eso `npm run dev` levanta con un certificado
-autofirmado.
+El código de este zip espera que **ya estén aplicados**:
 
-**Al probar desde el celular hay que escribir el `https://` completo.** Si
-escribes solo la IP, el navegador asume `http://`, el servidor TLS corta la
-conexión y verás *"se interrumpió la conexión"* — parece un problema de red
-pero no lo es.
-
-```
-https://192.168.X.X:5173     ← así
-192.168.X.X:5173             ← así NO
-```
-
-La primera vez cada dispositivo avisa *"conexión no privada"*. En Chrome:
-**Configuración avanzada → Continuar**. En Safari: **Mostrar detalles →
-Visitar este sitio web**. Pasa una sola vez por dispositivo.
-
----
-
-## Trabajar entre Mac y Windows
-
-Pasarse el proyecto en ZIP funciona una vez, pero **se desincroniza rápido**:
-en cuanto edites en las dos máquinas vas a tener versiones distintas sin saber
-cuál es la buena.
-
-Lo correcto es un repositorio Git:
-
-```bash
-git init
-git add .
-git commit -m "Migración completa a Vite + React + TypeScript"
-git remote add origin https://github.com/TU-USUARIO/app-operativa.git
-git push -u origin main
-```
-
-Después, en cada máquina: `git pull` al empezar, `git push` al terminar.
-
-`.gitignore` ya excluye `node_modules`, `dist` y `.env.local`. Cada máquina
-corre su propio `npm install` y tiene su propio `.env.local`.
-
-**Ojo con los saltos de línea:** Windows usa CRLF y macOS LF. Sin control,
-cada `git status` marcaría todos los archivos como modificados. El archivo
-`.gitattributes` incluido lo normaliza.
-
----
-
-## Estructura
-
-```
-src/
-  App.tsx                  → sesión, login (correo y Google), navegación
-  index.css                → todos los estilos, incluido el responsive
-  lib/
-    supabase.ts            → cliente único (lee de .env.local)
-    constants.ts           → catálogos, colores, roles, horario del validador
-    helpers.ts             → SLA, distancias, etiquetas de cara, área efectiva
-    storage.ts             → subida de archivos al bucket `evidencias`
-    navegacion.ts          → enlaces a Google Maps / Waze / Apple Maps
-    useNotificaciones.ts   → campana y globitos de chat
-    haversine.ts           → distancias y ordenamiento por cercanía
-    convexHull.ts          → áreas sombreadas de las rutas en el mapa
-  types/db.ts              → tipos del esquema, verificados contra la base
-  components/              → IncCard, CampanaNotifs, SubirArchivos, IrAqui…
-  modules/
-    incidencias/           → vista + 8 modales + KPIs
-    rutas/                 → rutas de monitoreo con mapa y navegación
-    fijacion-externa/      → módulo conectado al sistema externo por FDW
-    usuarios/              → alta de usuarios y asignación de roles
-```
-
-### Archivos sin uso
-
-Estos quedaron de etapas anteriores y **hoy no los importa nadie**:
-
-- `src/components/Dashboard.tsx` — la pestaña Indicadores usa `KpiView`.
-  (En el HTML original tampoco se usaba.)
-- `src/components/FlujoFotos.tsx` — lo reemplazó `SubirArchivos.tsx`.
-- `src/components/Mapa.tsx` — `RutasView` tiene su propio mapa.
-
-Se pueden borrar sin romper nada. Se dejaron por si sirven de base para el
-módulo de fijación interna.
-
----
-
-## SQL incluido
-
-Van aparte porque se aplican a mano en el SQL Editor de Supabase:
-
-| Archivo | Qué hace |
+| Archivo | Para qué |
 |---|---|
-| `notificar_area_asignada.sql` | **Pendiente de aplicar.** Trigger que avisa al área cuando se le dirige una incidencia (`assigned_area`). Sin esto, esa asignación no notifica a nadie. |
-| `diagnostico_incidencias.sql` | Consultas de verificación del esquema. Solo lectura. |
-| `diagnostico_notificaciones.sql` | Diagnóstico de la campana y los triggers. Solo lectura. |
-| `verificar_mis_notificaciones.sql` | Qué notificaciones le tocan a cada correo. Solo lectura. |
+| `pauta_schema.sql`, `importar_pauta.sql` | módulo Pauta |
+| `notificar_area_asignada.sql` | notificaciones del área asignada |
+| `revisiones_schema.sql` | checklist y revisiones de Biobox |
+| `importar_rutas_capas.sql` | importar rutas desde el KML |
+
+**Pendientes de aplicar** (la app funciona sin ellos, pero esas partes no):
+
+| Archivo | Qué se cae sin él |
+|---|---|
+| `pauta_evidencias.sql` | subir fotos al registrar una toma |
+| `push_suscripciones.sql` | notificaciones push (ver `GUIA-PUSH.md`) |
+
+Para comprobar que lo de Biobox quedó bien: corre `verificar_biobox.sql`, que
+es solo lectura y va diciendo qué debe salir en cada bloque.
 
 ---
 
-## Pendientes
+## Por dónde seguir
 
-- Aplicar `notificar_area_asignada.sql`.
-- Habilitar Google en Supabase → Authentication → Providers, y dar de alta las
-  URLs de redirect (incluida la de red local con `https://`).
-- Importar el archivo de campañas para el seguimiento de rutas (fase 2).
-- Despliegue en Vercel con las variables de entorno del proyecto.
+`HANDOFF-COMPLETO-GPOVALLAS.md` tiene el detalle de todo: esquema, decisiones
+de diseño y por qué, deuda técnica conocida y la lista de pendientes (§9).
+
+Lo inmediato de Biobox: importar el mapa de My Maps desde **Rutas de
+Monitoreo → 🗺️ Importar mapa (KML)** y ligar los puntos del checklist con el
+catálogo de incidencias desde **Máquinas Biobox → ⚙️ Checklist**.
