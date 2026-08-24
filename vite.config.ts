@@ -23,9 +23,19 @@ import react from '@vitejs/plugin-react';
 //
 // En producción (Vercel) el HTTPS es real y nada de esto aplica.
 // ============================================================
-export default defineConfig(async ({ mode }) => {
+export default defineConfig(async ({ command, mode }) => {
+  // `command` vale 'serve' al desarrollar y 'build' al compilar.
+  //
+  // POR QUÉ IMPORTA: sin este filtro, al construir para Vercel también se
+  // cargaba el plugin del certificado autofirmado y se imprimía el aviso de
+  // "escribe la dirección COMPLETA" en el log del despliegue — un mensaje
+  // sobre desarrollo local, en medio de un build de producción, que confunde
+  // a quien lee el log buscando el error de verdad.
+  //
+  // Un plugin de TLS para desarrollo no tiene nada que hacer en un build.
+  const enDesarrollo = command === 'serve';
   // `npm run dev:http` arranca con --mode http y se salta el certificado.
-  const usarHttps = mode !== 'http';
+  const usarHttps = enDesarrollo && mode !== 'http';
   const plugins = [react()];
 
   if (usarHttps) {
@@ -45,7 +55,7 @@ export default defineConfig(async ({ mode }) => {
           '     Para activarlo:  npm install\n'
       );
     }
-  } else {
+  } else if (enDesarrollo) {
     console.log(
       '\n  🌐 Modo HTTP (sin certificado). Desde el celular:\n' +
         '     http://TU-IP:5173\n' +

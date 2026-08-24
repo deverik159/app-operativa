@@ -9,6 +9,10 @@
     "preview": "vite preview",
     "dev:http": "vite --mode http"
   },
+  "_comentario_allowScripts": "npm 12 deja de ejecutar los scripts de instalación por omisión. esbuild NECESITA su postinstall para bajar su binario nativo; sin él, `vite build` truena. Hoy el aviso de npm es informativo (los scripts todavía corren), así que esto es preparación, no urgencia.",
+  "allowScripts": {
+    "esbuild": true
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
     "leaflet": "^1.9.4",
