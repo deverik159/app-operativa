@@ -63,7 +63,18 @@
   .inc-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;border-top:1px solid var(--line);padding-top:11px}
   .empty{text-align:center;color:var(--muted);padding:44px;background:var(--panel);border:1px dashed var(--line);border-radius:14px}
   .loading{text-align:center;color:var(--muted);padding:60px}
-  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;overflow:auto;z-index:60}
+  /* z-index 960 y no 60: el menú inferior de celular es `position:fixed`
+     con z-index 900, así que con 60 el menú quedaba ENCIMA del modal y
+     tapaba justo el botón de "Agregar esta incidencia al reporte". */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;overflow:auto;z-index:960}
+
+  /* Paneles flotantes de la barra superior (campana y menú de usuario).
+     En escritorio cuelgan del botón; en celular se vuelven una hoja de
+     ancho completo — ver la media query de 780px. */
+  .panel-flotante{position:absolute;right:0;top:42px;width:320px;max-height:400px;overflow:auto;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;z-index:40;
+    box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .panel-flotante.angosto{width:250px;max-height:none}
   .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:100%;max-width:540px;padding:22px}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
   .modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:6px}
@@ -81,10 +92,35 @@
     .who .info{display:none}
     .row2{grid-template-columns:1fr}
 
+    /* En celular la barra se queda SOLO con el logo. El título completo
+       ("Central de Operaciones · GPO VALLAS") se comía el ancho y dejaba a
+       los botones de la derecha amontonados contra el borde. El logo ya
+       identifica la app, y el nombre está en la pestaña del navegador y en
+       el icono de la pantalla de inicio. */
+    .brand h1{display:none}
+    .brand{flex:0 0 auto}
+    /* "Salir" se va al menú del avatar: ahí no compite por espacio. */
+    .solo-escritorio{display:none}
+
     /* La barra de arriba se compacta para que quepan los botones. */
     .topbar{padding:10px 12px;gap:8px}
-    .brand h1{font-size:14px}
     .who{gap:6px}
+
+    /* Los paneles de la barra superior se anclaban al botón con un ancho
+       fijo de 320px. En un teléfono eso los empujaba fuera del borde
+       izquierdo y el texto salía cortado. Aquí dejan de colgar del botón
+       y pasan a ser una hoja del ancho de la pantalla. */
+    .panel-flotante,
+    .panel-flotante.angosto{
+      position:fixed;left:8px;right:8px;top:58px;width:auto;
+      max-height:70vh;overflow:auto}
+
+    /* Con un modal abierto se esconde el menú inferior. El usuario está en
+       una tarea enfocada —capturando una incidencia— y el menú solo tapa
+       los botones de guardar. Vuelve solo al cerrar el modal.
+       `:has()` no existe en navegadores viejos; por eso el modal además
+       sube su z-index por encima del menú (ver .overlay). */
+    body:has(.overlay) .side{display:none}
     .avatar{width:30px;height:30px;font-size:12px}
 
     /* Menú fijo abajo, siempre visible al hacer scroll. */
@@ -131,7 +167,6 @@
   /* Pantallas muy angostas (iPhone SE y similares). */
   @media(max-width:380px){
     .main{padding:12px 10px 96px}
-    .brand h1{font-size:13px}
     .cards{gap:8px}
     .card{padding:10px}
     .card .n{font-size:20px}

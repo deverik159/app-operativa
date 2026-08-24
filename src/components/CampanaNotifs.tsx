@@ -3,7 +3,8 @@
 // La campana 🔔 de la barra superior con su panel desplegable.
 // Solo presentación: el estado vive en useNotificaciones().
 // ============================================================
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
+import { useClickFuera } from '../lib/useClickFuera';
 import type { Notificacion } from '../types/db';
 
 type Props = {
@@ -25,8 +26,14 @@ function CampanaNotifs({
 }: Props) {
   const [abierto, setAbierto] = useState(false);
 
+  // El ref envuelve al botón Y al panel: ver la nota en useClickFuera sobre
+  // por qué el botón no puede quedar fuera.
+  const caja = useRef<HTMLDivElement>(null);
+  const cerrar = useCallback(() => setAbierto(false), []);
+  useClickFuera(caja, abierto, cerrar);
+
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative' }} ref={caja}>
       <button
         className="btn ghost sm"
         onClick={() => setAbierto((v) => !v)}
@@ -55,21 +62,11 @@ function CampanaNotifs({
       </button>
 
       {abierto && (
-        <div
-          style={{
-            position: 'absolute',
-            right: 0,
-            top: '42px',
-            width: 320,
-            maxHeight: 400,
-            overflow: 'auto',
-            background: 'var(--panel)',
-            border: '1px solid var(--line)',
-            borderRadius: 12,
-            zIndex: 40,
-            boxShadow: '0 8px 24px rgba(0,0,0,.5)',
-          }}
-        >
+        // El tamaño y la posición viven en CSS (.panel-flotante) porque en
+        // celular cambian por completo: dejan de colgar del botón y pasan a
+        // ser una hoja del ancho de la pantalla. Con estilos en línea no se
+        // podía aplicar la media query.
+        <div className="panel-flotante">
           <div
             style={{
               display: 'flex',
