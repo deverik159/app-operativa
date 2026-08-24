@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import { sb } from '../../lib/supabase';
 import IrAqui from '../../components/IrAqui';
 import ImportarKmlModal from './ImportarKmlModal';
+import ImportarRutasExcelModal from './ImportarRutasExcelModal';
 import { tramosGoogleMaps, esNavegable } from '../../lib/navegacion';
 import { convexHull } from '../../lib/convexHull';
 import type { Pt } from '../../lib/convexHull';
@@ -64,6 +65,9 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
   // Importación desde el KML de My Maps (rutas por capa). Es un modal aparte
   // porque necesita vista previa: el empate con inventario no es exacto.
   const [kmlAbierto, setKmlAbierto] = useState(false);
+  // Importación desde el Excel de operación (clave + responsable). Para
+  // Biobox éste es el camino bueno: identifica por clave, no por nombre.
+  const [excelRutasAbierto, setExcelRutasAbierto] = useState(false);
   // Detalle de ruta (modal con listado de ubicaciones)
   const [detalleRuta, setDetalleRuta] = useState<Resumen | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -399,16 +403,29 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
   // return desmonta el modal, se pierde su pantalla de resultado —con los
   // avisos de omitidas y sobrantes— y al volver reaparece pidiendo archivo,
   // como si no hubiera pasado nada. Invita a importar dos veces.
-  const modalKml = kmlAbierto ? (
-    <ImportarKmlModal
-      unidad={unidad}
-      onClose={() => setKmlAbierto(false)}
-      onImportado={(resumen) => {
-        setResultadoImport('Importación desde el mapa: ' + resumen);
-        cargar();
-      }}
-    />
-  ) : null;
+  const modalKml = (
+    <>
+      {kmlAbierto && (
+        <ImportarKmlModal
+          unidad={unidad}
+          onClose={() => setKmlAbierto(false)}
+          onImportado={(resumen) => {
+            setResultadoImport('Importación desde el mapa: ' + resumen);
+            cargar();
+          }}
+        />
+      )}
+      {excelRutasAbierto && (
+        <ImportarRutasExcelModal
+          onClose={() => setExcelRutasAbierto(false)}
+          onImportado={(resumen) => {
+            setResultadoImport('Importación desde el Excel: ' + resumen);
+            cargar();
+          }}
+        />
+      )}
+    </>
+  );
 
   if (loading)
     return (
@@ -472,9 +489,18 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
         )}
         {puedeGestionar && (
           <button
+            className="btn sm"
+            onClick={() => setExcelRutasAbierto(true)}
+            title="Una fila por máquina: clave y responsable. Empata por clave exacta."
+          >
+            🧾 Importar rutas (Excel)
+          </button>
+        )}
+        {puedeGestionar && (
+          <button
             className="btn sm ghost"
             onClick={() => setKmlAbierto(true)}
-            title="Las capas del mapa de My Maps se convierten en rutas"
+            title="Las capas del mapa de My Maps se convierten en rutas. Empata por nombre, menos preciso que el Excel."
           >
             🗺️ Importar mapa (KML)
           </button>

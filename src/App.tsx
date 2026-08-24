@@ -21,6 +21,7 @@ import { initials } from './lib/helpers';
 import { useNotificaciones } from './lib/useNotificaciones';
 import CampanaNotifs from './components/CampanaNotifs';
 import BotonPush from './components/BotonPush';
+import MenuUsuario from './components/MenuUsuario';
 import IncidenciasView from './modules/incidencias/IncidenciasView';
 import IndicadoresView from './modules/incidencias/IndicadoresView';
 import FijacionExternaView from './modules/fijacion-externa/FijacionExternaView';
@@ -499,8 +500,23 @@ function Main({ session }: { session: Session }) {
                 ROLE_LABEL[role]}
             </div>
           </div>
-          <div className="avatar">{initials(nombre)}</div>
-          <button className="btn ghost sm" onClick={() => sb.auth.signOut()}>
+          {/* El avatar es el único lugar donde el rol se puede consultar
+              desde el celular: ahí `.who .info` se oculta por espacio. */}
+          <MenuUsuario
+            nombre={nombre}
+            email={email}
+            iniciales={initials(nombre)}
+            role={role}
+            misRoles={misRoles}
+            misDep={misDep}
+            onSalir={() => sb.auth.signOut()}
+          />
+          {/* En celular «Salir» vive dentro del menú del avatar: aquí solo
+              ocupaba espacio en la barra más apretada. */}
+          <button
+            className="btn ghost sm solo-escritorio"
+            onClick={() => sb.auth.signOut()}
+          >
             Salir
           </button>
         </div>

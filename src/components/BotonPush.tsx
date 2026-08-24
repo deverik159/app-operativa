@@ -76,7 +76,11 @@ function BotonPush({ email }: { email: string }) {
             : 'Activar notificaciones en este dispositivo'
         }
       >
-        {activo ? '🔔✓' : '🔕'}
+        {/* Deliberadamente NO es una campana. La campana de al lado son las
+            notificaciones que ya tienes; esto otro es un ajuste DEL APARATO:
+            si este teléfono o esta computadora recibe avisos cuando la app
+            está cerrada. Dos campanas juntas se leían como lo mismo. */}
+        {activo ? '📲' : '📵'}
       </button>
 
       {abierto && (
