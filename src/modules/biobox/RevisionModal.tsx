@@ -28,6 +28,7 @@ import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import { AREAS_AUTORUTEO } from '../../lib/constants';
 import { fueraHorarioValidador } from '../../lib/helpers';
 import SubirArchivos from '../../components/SubirArchivos';
+import { catalogoUnico, llaveCatalogo } from '../../lib/catalogo';
 import type {
   UbicacionRevision,
   ChecklistPlantilla,
@@ -168,7 +169,16 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
       setMarcas(ini);
 
       if (cat.error) setAviso('No se pudo cargar el catálogo de incidencias.');
-      else setCatalogo((cat.data as CatalogoIncidencia[]) || []);
+      else
+        // Una fila por incidencia. Entre las copias gana la del tipo de
+        // mueble de ESTA máquina, que es de donde salen el área y el nivel
+        // con los que nacería la incidencia.
+        setCatalogo(
+          catalogoUnico(
+            (cat.data as CatalogoIncidencia[]) || [],
+            ubic.tipo_mueble
+          )
+        );
 
       setCargando(false);
     })();
@@ -755,7 +765,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                                   ¿Qué incidencia del catálogo es?
                                 </option>
                                 {catalogo.map((c) => (
-                                  <option key={c.detalle} value={c.detalle}>
+                                  <option key={llaveCatalogo(c)} value={c.detalle}>
                                     {c.detalle}
                                     {c.area ? ` — ${c.area}` : ''}
                                   </option>

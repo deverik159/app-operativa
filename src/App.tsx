@@ -13,7 +13,7 @@
 // remonta: se conservan la lista, los filtros y la búsqueda, igual que en el
 // HTML (donde todo vivía en App).
 // ============================================================
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY } from './lib/constants';
@@ -333,6 +333,16 @@ function Main({ session }: { session: Session }) {
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState('dashboard');
   const [focoRecordId, setFocoRecordId] = useState('');
+  /**
+   * Identidad estable para el callback del foco.
+   *
+   * Iba como flecha en línea (`onFocoAplicado={() => setFocoRecordId('')}`),
+   * y eso creaba una función NUEVA en cada render de App. Como el efecto que
+   * la consume la lleva en su lista de dependencias, se re-disparaba en cada
+   * render —y App re-renderiza cada 25 s por el sondeo de notificaciones—.
+   * Con `useCallback` el efecto corre cuando debe: al cambiar el foco.
+   */
+  const limpiarFoco = useCallback(() => setFocoRecordId(''), []);
   const [nuevaAbierta, setNuevaAbierta] = useState(false);
   // Contador que dispara la recarga de incidencias desde el botón ↻.
   const [recargarSignal, setRecargarSignal] = useState(0);
@@ -530,7 +540,7 @@ function Main({ session }: { session: Session }) {
                 onChatLeido={notifs.marcarChatLeido}
                 onRecargarNotifs={notifs.recargar}
                 focoRecordId={focoRecordId}
-                onFocoAplicado={() => setFocoRecordId('')}
+                onFocoAplicado={limpiarFoco}
                 nuevaAbierta={nuevaAbierta}
                 onCerrarNueva={() => setNuevaAbierta(false)}
                 recargarSignal={recargarSignal}

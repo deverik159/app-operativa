@@ -108,6 +108,14 @@ function IncidenciasView({
   const [fEstado, setFEstado] = useState('Todos');
   const [fArea, setFArea] = useState('Todas');
   const [soloMias, setSoloMias] = useState(false);
+  /** Rango de fechas de captura. Vacío = sin límite por ese lado. */
+  const [fDesde, setFDesde] = useState('');
+  const [fHasta, setFHasta] = useState('');
+
+  /** record_id resaltado tras llegar desde una notificación. */
+  const [resaltado, setResaltado] = useState('');
+  /** Aviso cuando la notificación apunta a algo que este rol no puede ver. */
+  const [avisoFoco, setAvisoFoco] = useState('');
 
   // Modales. El alta (NuevaInc) NO tiene estado propio: la controla App,
   // porque el botón que la abre vive en el menú lateral.
@@ -186,16 +194,58 @@ function IncidenciasView({
   // el folio viejo en el buscador, borrando lo que el usuario escribiera.
   useEffect(() => {
     if (!focoRecordId) return;
+    // Mientras la lista no haya cargado, no se decide nada: se reintenta al
+    // siguiente cambio de `items`. `loading` es la señal fiable; `length===0`
+    // no lo es, porque una lista legítimamente vacía se veía igual que una
+    // que todavía no llega.
+    if (loading) return;
+
     const it = items.find((i) => i.record_id === focoRecordId);
-    // Si la lista aún no carga, se reintenta al siguiente cambio de items.
-    if (!it && items.length === 0) return;
-    setQ(it?.folio || '');
+
+    if (!it) {
+      // ANTES: se hacía `setQ(it?.folio || '')`, o sea que se limpiaba el
+      // buscador y no se avisaba nada. Desde afuera eso es idéntico a "el
+      // clic no hizo nada", que es justo como se sentía.
+      //
+      // Que no aparezca casi siempre significa que la RLS no se la muestra
+      // a este rol: te notifican de algo que no puedes abrir.
+      setAvisoFoco(
+        'La notificación apunta a una incidencia que tu rol no puede ver. ' +
+          'Pídele a un manager que te dé acceso, o que te la reasigne.'
+      );
+      onFocoAplicado?.();
+      return;
+    }
+
+    // Se limpia TODO lo que podría esconderla, incluidas las fechas.
+    setAvisoFoco('');
+    setQ(it.folio || '');
     setFUN('Todas');
     setFArea('Todas');
     setFEstado('Todos');
+    setFDesde('');
+    setFHasta('');
     setSoloMias(false);
+    setResaltado(focoRecordId);
     onFocoAplicado?.();
-  }, [focoRecordId, items, onFocoAplicado]);
+  }, [focoRecordId, items, loading, onFocoAplicado]);
+
+  /**
+   * Lleva la tarjeta resaltada a la vista y apaga el resalte a los 4 s.
+   *
+   * Sin esto, "ir a la incidencia" solo escribía el folio en el buscador.
+   * Si la lista ya estaba filtrada por ese folio, la pantalla no cambiaba
+   * ni un pixel y parecía que el clic se había perdido.
+   */
+  useEffect(() => {
+    if (!resaltado) return;
+    const el = document.getElementById('inc-' + resaltado);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const t = setTimeout(() => setResaltado(''), 4000);
+    return () => clearTimeout(t);
+    // Solo depende de `resaltado`: los efectos corren después de que el DOM
+    // ya se pintó, así que la tarjeta existe cuando esto se ejecuta.
+  }, [resaltado]);
 
   // Botón ↻ de la barra superior. Se compara contra el valor previo para no
   // recargar de más en el montaje (ahí los datos ya vienen frescos).
@@ -208,17 +258,53 @@ function IncidenciasView({
   }, [recargarSignal, cargar]);
 
   // --- Filtrado ---
-  /** Lo accionable para el rol: qué le toca hacer ahora. */
-  const bandeja = useMemo(
-    () =>
-      items.filter((i) => {
-        if (role === 'validador')
-          return i.estatus === 'por_validar' || i.estatus === 'reparado';
-        if (role === 'reparacion') return i.estatus === 'en_proceso';
+  /**
+   * Lo accionable: qué le toca hacer ahora.
+   *
+   * OJO: esto mira `misRoles` (TODOS sus roles), no `role` (el principal).
+   * Antes miraba solo `role`, y eso borraba a quien tiene dos.
+   *
+   * El caso que lo destapó: una persona con `reportante` + `reparacion`.
+   * `ROLE_PRIORITY` pone `reparacion` por encima, así que su `role` era
+   * 'reparacion', y la bandeja de reparación solo muestra `en_proceso`.
+   * Capturaba una incidencia —que nace `por_validar`—, se guardaba bien,
+   * y desaparecía de su pantalla sin ningún error. Parecía que no se
+   * había guardado. Estaba guardada; su mitad reportante no tenía bandeja.
+   *
+   * Con varios roles las condiciones se SUMAN: le toca lo de todos.
+   */
+  const bandeja = useMemo(() => {
+    const tiene = (r: string) => misRoles.includes(r);
+
+    // Manager, coordinador y viewer no tienen bandeja acotada: ven todo.
+    // Se conserva tal cual estaba.
+    if (tiene('manager') || tiene('coordinador') || tiene('viewer'))
+      return items;
+
+    const yo = (email || '').toLowerCase();
+
+    return items.filter((i) => {
+      if (
+        tiene('validador') &&
+        (i.estatus === 'por_validar' || i.estatus === 'reparado')
+      )
         return true;
-      }),
-    [items, role]
-  );
+
+      if (tiene('reparacion') && i.estatus === 'en_proceso') return true;
+
+      // Al reportante le toca lo suyo que fue rechazado: es lo único que
+      // puede accionar (la política inc_upd_reportante solo lo deja editar
+      // en 'por_validar' y 'rechazada').
+      if (
+        tiene('reportante') &&
+        (i.captured_by || '').toLowerCase() === yo &&
+        i.estatus === 'rechazada'
+      )
+        return true;
+
+      return false;
+    });
+  }, [items, misRoles, email]);
 
   // El badge de "Mi bandeja" vive en el menú (App), pero solo aquí se sabe
   // cuántas hay: se reporta hacia arriba.
@@ -252,6 +338,18 @@ function IncidenciasView({
       )
         return false;
       if (fEstado !== 'Todos' && i.estatus !== fEstado) return false;
+      // Rango de fechas de captura. `fecha_reporte` es un timestamp ISO en
+      // UTC; los inputs date dan 'YYYY-MM-DD'. Comparar los primeros 10
+      // caracteres evita convertir zonas horarias y que un reporte de las
+      // 11 p.m. se cuente como del día siguiente.
+      if (i.fecha_reporte) {
+        const dia = i.fecha_reporte.slice(0, 10);
+        if (fDesde && dia < fDesde) return false;
+        if (fHasta && dia > fHasta) return false;
+      } else if (fDesde || fHasta) {
+        // Sin fecha no se puede afirmar que caiga en el rango.
+        return false;
+      }
       if (
         soloMias &&
         (i.asignado_tecnico_email || '').toLowerCase() !== email.toLowerCase()
@@ -264,7 +362,19 @@ function IncidenciasView({
       }
       return true;
     });
-  }, [items, bandeja, modo, q, fUN, fArea, fEstado, soloMias, email]);
+  }, [
+    items,
+    bandeja,
+    modo,
+    q,
+    fUN,
+    fArea,
+    fEstado,
+    fDesde,
+    fHasta,
+    soloMias,
+    email,
+  ]);
 
   // --- Acciones ---
   /** Aplica un patch en memoria para no recargar toda la lista. */
@@ -410,7 +520,24 @@ function IncidenciasView({
       alert('No se pudo crear: ' + error.message);
       return;
     }
-    const creadas = ((data as Incidencia[]) || rows) as Incidencia[];
+    // No basta con que no haya `error`. Si la RLS deja INSERTAR pero no
+    // deja LEER de vuelta la fila recién creada, PostgREST responde 200 con
+    // un arreglo vacío. El código anterior hacía `(data || rows)`, y como
+    // `[]` es truthy en JS, se quedaba con el arreglo vacío: no se agregaba
+    // nada a la lista y no se avisaba nada. Silencio total.
+    const devueltas = (data as Incidencia[] | null) ?? [];
+    if (devueltas.length !== rows.length) {
+      alert(
+        `Se guardaron ${devueltas.length} de ${rows.length} reportes. ` +
+          'Refresca con ↻ y verifica en Incidencias antes de volver a capturar, ' +
+          'para no duplicar.'
+      );
+    }
+    // Si la base no devolvió nada legible, se muestran las filas locales:
+    // más vale enseñar lo que se mandó que dejar la pantalla en blanco.
+    const creadas = (
+      devueltas.length ? devueltas : rows
+    ) as Incidencia[];
 
     // Cada grupo sube SUS archivos y los liga SOLO a sus caras. Así, en un
     // sitio con varias fallas, se sabe qué foto corresponde a cuál.
@@ -458,7 +585,16 @@ function IncidenciasView({
           subido_por: email,
           referencia: g.carasLabel || null,
         }));
-        await sb.from('evidencias').insert(evrows);
+        // Antes esta línea iba sin destructurar: el error se tiraba a la
+        // basura. La foto quedaba en Storage, la fila no se creaba, y la
+        // galería salía vacía sin explicación.
+        const { error: evErr } = await sb.from('evidencias').insert(evrows);
+        if (evErr) {
+          alert(
+            'La incidencia se creó, pero no se pudo registrar una evidencia: ' +
+              evErr.message
+          );
+        }
       }
     }
 
@@ -474,6 +610,11 @@ function IncidenciasView({
   return (
     <>
       {err && <div className="err">{err}</div>}
+      {avisoFoco && (
+        <div className="err" onClick={() => setAvisoFoco('')} role="alert">
+          {avisoFoco} <span style={{ opacity: 0.7 }}>(clic para cerrar)</span>
+        </div>
+      )}
 
       <h2 className="page">{modo === 'bandeja' ? 'Mi bandeja' : 'Incidencias'}</h2>
       <p className="phint">
@@ -507,12 +648,51 @@ function IncidenciasView({
         </select>
         <select value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
           <option value="Todos">Todos</option>
-          {Object.entries(EST_LABEL).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
+          {/* `reportado` sale del selector: es un estatus heredado que ya
+              no produce el flujo (todo nace en `por_validar` o, con
+              auto-ruteo, en `en_proceso`). Se queda en EST_LABEL porque
+              hay filas viejas que aún lo traen y deben seguir mostrando
+              su etiqueta; lo que se quita es la OPCIÓN de filtrar por él,
+              que solo servía para devolver una lista vacía. */}
+          {Object.entries(EST_LABEL)
+            .filter(([k]) => k !== 'reportado')
+            .map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
         </select>
+        {/* Rango de fechas de captura. */}
+        <input
+          type="date"
+          className="fecha"
+          value={fDesde}
+          max={fHasta || undefined}
+          onChange={(e) => setFDesde(e.target.value)}
+          title="Capturadas desde"
+          style={{ width: 'auto' }}
+        />
+        <input
+          type="date"
+          className="fecha"
+          value={fHasta}
+          min={fDesde || undefined}
+          onChange={(e) => setFHasta(e.target.value)}
+          title="Capturadas hasta"
+          style={{ width: 'auto' }}
+        />
+        {(fDesde || fHasta) && (
+          <button
+            className="btn ghost sm"
+            onClick={() => {
+              setFDesde('');
+              setFHasta('');
+            }}
+            title="Quitar el filtro de fechas"
+          >
+            ✕ fechas
+          </button>
+        )}
         {(misRoles.includes('reparacion') || misRoles.includes('manager')) && (
           <label
             style={{
@@ -540,8 +720,23 @@ function IncidenciasView({
       ) : (
         <div className="inc-list">
           {visibles.map((i) => (
-            <IncCard
+            // El id y el envoltorio son lo que permite hacer scroll hasta la
+            // tarjeta y resaltarla al llegar desde una notificación.
+            <div
               key={i.record_id}
+              id={'inc-' + i.record_id}
+              style={
+                resaltado === i.record_id
+                  ? {
+                      outline: '2px solid var(--accent)',
+                      outlineOffset: 3,
+                      borderRadius: 14,
+                      transition: 'outline-color .3s',
+                    }
+                  : undefined
+              }
+            >
+            <IncCard
               i={i}
               can={can}
               role={role}
@@ -565,6 +760,7 @@ function IncidenciasView({
               slaMap={slaMap}
               nChat={chatCounts[i.record_id] || 0}
             />
+            </div>
           ))}
         </div>
       )}

@@ -16,6 +16,7 @@
 // ============================================================
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
+import { catalogoUnico, llaveCatalogo } from '../../lib/catalogo';
 import type {
   ChecklistPlantilla,
   ChecklistPunto,
@@ -72,7 +73,9 @@ function ChecklistConfigModal({ unidad, tipo, email, onClose }: Props) {
       setCargando(false);
       return;
     }
-    setCatalogo((cat.data as CatalogoIncidencia[]) || []);
+    // Se colapsa aquí, una sola vez, en vez de en cada render del select.
+    // El catálogo trae la misma incidencia repetida por tipo de medio.
+    setCatalogo(catalogoUnico((cat.data as CatalogoIncidencia[]) || []));
 
     const p = ((pl.data as ChecklistPlantilla[]) || [])[0] || null;
     setPlantilla(p);
@@ -394,7 +397,7 @@ function ChecklistConfigModal({ unidad, tipo, email, onClose }: Props) {
                     >
                       <option value="">— sin incidencia ligada —</option>
                       {catalogo.map((c) => (
-                        <option key={c.detalle} value={c.detalle}>
+                        <option key={llaveCatalogo(c)} value={c.detalle}>
                           {c.detalle}
                           {c.area ? ` (${c.area})` : ''}
                         </option>
