@@ -7,7 +7,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import { caraLabel } from '../../lib/helpers';
-import type { Incidencia, Mensaje } from '../../types/db';
+import {
+  validarAdjunto,
+  subirAdjunto,
+  MAX_VIDEO_SEG,
+} from '../../lib/adjuntosChat';
+import type { Incidencia, Mensaje, ChatAdjunto } from '../../types/db';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 type Props = {
@@ -23,6 +28,27 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const boxRef = useRef<HTMLDivElement>(null);
 
+  /** Adjuntos del hilo, agrupados por mensaje. */
+  const [adjuntos, setAdjuntos] = useState<Record<number, ChatAdjunto[]>>({});
+  /** Archivo elegido y aún no enviado. */
+  const [pendiente, setPendiente] = useState<File | null>(null);
+  const [subiendo, setSubiendo] = useState(false);
+  const [errAdj, setErrAdj] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const cargarAdjuntos = async () => {
+    const { data } = await sb
+      .from('chat_adjuntos')
+      .select('*')
+      .eq('record_id', inc.record_id)
+      .order('creado_en');
+    const m: Record<number, ChatAdjunto[]> = {};
+    ((data as ChatAdjunto[]) || []).forEach((a) => {
+      (m[a.mensaje_id] ||= []).push(a);
+    });
+    setAdjuntos(m);
+  };
+
   // Realtime y el INSERT propio pueden entregar el mismo mensaje: se
   // deduplica por id para no pintarlo dos veces.
   const add = (m: Mensaje) =>
@@ -37,6 +63,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
         .eq('record_id', inc.record_id)
         .order('creado_en');
       setMsgs((data as Mensaje[]) || []);
+      await cargarAdjuntos();
       setLoading(false);
 
       ch = sb
@@ -52,6 +79,10 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
           (p) => {
             const m = p.new as Mensaje;
             add(m);
+            // Realtime solo trae el mensaje. Sus adjuntos se insertan justo
+            // después, en otra tabla, así que se vuelven a leer con un
+            // respiro para no llegar antes que el INSERT del otro lado.
+            setTimeout(cargarAdjuntos, 600);
             // Si el mensaje es de alguien más y yo tengo el chat abierto,
             // ya lo estoy viendo: se marca leído.
             if ((m.autor_email || '').toLowerCase() !== (email || '').toLowerCase()) {
@@ -78,28 +109,80 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
     if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
   }, [msgs, loading]);
 
+  /** Valida el archivo elegido ANTES de dejar enviarlo. */
+  const elegirArchivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setErrAdj('');
+    const problema = await validarAdjunto(f);
+    if (problema) {
+      setErrAdj(problema);
+      return;
+    }
+    setPendiente(f);
+  };
+
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault();
     const t = texto.trim();
-    if (!t) return;
+    // Se puede mandar solo un archivo, sin texto.
+    if (!t && !pendiente) return;
+
+    const archivo = pendiente;
     // Se limpia de inmediato para que se sienta ágil; si falla, se restaura.
     setTexto('');
-    const { data, error } = await sb
-      .from('mensajes')
-      .insert({
-        record_id: inc.record_id,
-        autor_email: email,
-        autor_nombre: nombre,
-        texto: t,
-      })
-      .select()
-      .single();
-    if (error) {
-      alert('No se pudo enviar: ' + error.message);
+    setPendiente(null);
+    setErrAdj('');
+    if (archivo) setSubiendo(true);
+
+    try {
+      // ORDEN IMPORTANTE: primero sube el archivo, luego crea el mensaje.
+      // Al revés, un fallo de subida dejaría un mensaje vacío colgado en el
+      // hilo sin forma de saber que le faltaba algo.
+      const subido = archivo
+        ? await subirAdjunto(archivo, inc.record_id)
+        : null;
+
+      const { data, error } = await sb
+        .from('mensajes')
+        .insert({
+          record_id: inc.record_id,
+          autor_email: email,
+          autor_nombre: nombre,
+          texto: t || (subido?.tipo === 'video' ? '🎬 Video' : '📷 Foto'),
+        })
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      const msg = data as Mensaje;
+      add(msg);
+
+      if (subido) {
+        const { error: eAdj } = await sb.from('chat_adjuntos').insert({
+          record_id: inc.record_id,
+          mensaje_id: msg.id,
+          tipo: subido.tipo,
+          url: subido.url,
+          path: subido.path,
+          nombre: subido.nombre,
+          bytes: subido.bytes,
+          subido_por: email,
+        });
+        // El mensaje ya existe: no se aborta, pero se avisa. Callarlo dejaría
+        // al usuario creyendo que mandó una foto que nadie va a ver.
+        if (eAdj) setErrAdj('El mensaje se envió, pero el archivo no quedó ligado: ' + eAdj.message);
+        else await cargarAdjuntos();
+      }
+    } catch (ex) {
+      const m = ex instanceof Error ? ex.message : String(ex);
+      setErrAdj('No se pudo enviar: ' + m);
       setTexto(t);
-      return;
+      if (archivo) setPendiente(archivo);
+    } finally {
+      setSubiendo(false);
     }
-    if (data) add(data as Mensaje);
   };
 
   return (
@@ -184,6 +267,64 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                     >
                       {m.texto}
                     </div>
+
+                    {(adjuntos[m.id] || []).map((a) =>
+                      a.purgado_en ? (
+                        // El archivo ya se borró. Se dice explícitamente en
+                        // vez de dejar un hueco: quien lee el hilo meses
+                        // después debe entender que ahí HUBO algo, y por qué
+                        // ya no está.
+                        <div
+                          key={a.id}
+                          style={{
+                            marginTop: 6,
+                            fontSize: 11,
+                            opacity: 0.65,
+                            fontStyle: 'italic',
+                          }}
+                        >
+                          📎 {a.tipo === 'video' ? 'Video' : 'Foto'} eliminado
+                          al cerrar la incidencia
+                        </div>
+                      ) : a.tipo === 'video' ? (
+                        <video
+                          key={a.id}
+                          src={a.url}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          style={{
+                            marginTop: 6,
+                            width: '100%',
+                            maxHeight: 240,
+                            borderRadius: 8,
+                            background: '#000',
+                          }}
+                        />
+                      ) : (
+                        <a
+                          key={a.id}
+                          href={a.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <img
+                            src={a.url}
+                            alt={a.nombre || 'foto'}
+                            loading="lazy"
+                            style={{
+                              marginTop: 6,
+                              width: '100%',
+                              maxHeight: 240,
+                              objectFit: 'cover',
+                              borderRadius: 8,
+                              display: 'block',
+                            }}
+                          />
+                        </a>
+                      )
+                    )}
+
                     <div
                       style={{
                         fontSize: 10,
@@ -206,16 +347,91 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
             🔒 Incidencia cerrada — el chat es de solo lectura.
           </div>
         ) : (
-          <form onSubmit={enviar} style={{ display: 'flex', gap: 8 }}>
-            <input
-              value={texto}
-              onChange={(e) => setTexto(e.target.value)}
-              placeholder="Escribe un mensaje…"
-            />
-            <button className="btn" type="submit">
-              Enviar
-            </button>
-          </form>
+          <>
+            {errAdj && (
+              <div
+                className="err"
+                style={{ marginBottom: 8 }}
+                onClick={() => setErrAdj('')}
+              >
+                {errAdj}
+              </div>
+            )}
+
+            {pendiente && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 8,
+                  padding: '7px 10px',
+                  background: 'var(--panel2)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 10,
+                  fontSize: 12,
+                }}
+              >
+                <span>
+                  {pendiente.type.startsWith('video') ? '🎬' : '📷'}
+                </span>
+                <span
+                  style={{
+                    flex: 1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {pendiente.name}
+                </span>
+                <span style={{ color: 'var(--muted)' }}>
+                  {(pendiente.size / 1024 / 1024).toFixed(1)} MB
+                </span>
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={() => setPendiente(null)}
+                  title="Quitar"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            <form onSubmit={enviar} style={{ display: 'flex', gap: 8 }}>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*,video/*"
+                onChange={elegirArchivo}
+                style={{ display: 'none' }}
+              />
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => fileRef.current?.click()}
+                disabled={subiendo}
+                title={`Foto o video de máximo ${MAX_VIDEO_SEG} s`}
+              >
+                📎
+              </button>
+              <input
+                value={texto}
+                onChange={(e) => setTexto(e.target.value)}
+                placeholder={pendiente ? 'Comentario (opcional)…' : 'Escribe un mensaje…'}
+                disabled={subiendo}
+              />
+              <button className="btn" type="submit" disabled={subiendo}>
+                {subiendo ? 'Subiendo…' : 'Enviar'}
+              </button>
+            </form>
+
+            <p className="phint" style={{ marginTop: 6, fontSize: 11 }}>
+              Los archivos del chat se borran al cerrar la incidencia. Para
+              evidencia que deba conservarse, usa 📎 Evidencia.
+            </p>
+          </>
         )}
 
         <div className="modal-actions" style={{ marginTop: 10 }}>

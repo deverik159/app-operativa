@@ -154,6 +154,29 @@ export interface Mensaje {
   creado_en: string;
 }
 
+/**
+ * tabla `chat_adjuntos` — fotos y videos cortos del chat.
+ *
+ * Son TEMPORALES: un proceso diario los borra de Storage cuando la incidencia
+ * cierra. La fila sobrevive con `purgado_en` lleno, para poder mostrar
+ * "archivo eliminado" en el hilo en vez de un hueco sin explicación.
+ * La evidencia que debe perdurar va por 📎 Evidencia, a `evidencias`.
+ */
+export interface ChatAdjunto {
+  id: number;
+  record_id: string;
+  mensaje_id: number;
+  tipo: 'foto' | 'video';
+  url: string;
+  path: string;
+  nombre: string | null;
+  bytes: number | null;
+  subido_por: string;
+  creado_en: string;
+  /** Con fecha = el archivo ya no existe en Storage. */
+  purgado_en: string | null;
+}
+
 /** tabla `notificaciones` — alimenta la campana y el globito de chat. */
 export interface Notificacion {
   id: number;
