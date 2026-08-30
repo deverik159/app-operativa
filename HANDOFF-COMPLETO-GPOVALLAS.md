@@ -154,7 +154,11 @@ viejo, donde todo vivía en `App`.
 **Columnas de `incidencias` que el frontend NO debe mandar** — las llenan
 triggers: `folio` (`set_folio`), `catorcena`/`semana`/`plaza`/`latitud`/
 `longitud` (`set_derivados`), `sla_reparacion_inicio`/`sla_validacion_inicio`
-(`set_sla`), y el paso automático a `en_proceso` (`inc_auto_en_proceso`).
+(`set_sla`). El trigger `inc_auto_en_proceso` se ELIMINÓ el 30-ago-2026
+(ver `fix_auto_en_proceso.sql`): pisaba el estatus de la app y mandaba todo
+lo capturado en fin de semana directo a `en_proceso`. El estatus inicial lo
+decide solo el frontend (auto-ruteo únicamente Digital fuera de horario;
+Biobox siempre `por_validar`).
 
 ### 3.2. `area_responsable` vs `assigned_area` — CLAVE
 

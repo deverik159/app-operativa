@@ -63,7 +63,13 @@ export type EstadoFijacionExterna = 'PENDIENTE' | 'COMPLETO' | 'RESUELTO';
  *                            ENTRAR a 'en_proceso' y también si cambia
  *                            `area_responsable` estando ya en 'en_proceso'.
  *   sla_validacion_inicio  → set_sla, al entrar a 'reparado'.
- *   estatus 'en_proceso'   → inc_auto_en_proceso, BEFORE INSERT.
+ *
+ * TRIGGER ELIMINADO (30-ago-2026): inc_auto_en_proceso (BEFORE INSERT)
+ * pisaba el estatus que mandaba la app y TODO lo capturado en fin de
+ * semana caía directo en 'en_proceso'. El estatus inicial lo decide SOLO
+ * el frontend: Nueva incidencia auto-rutea únicamente Digital fuera de
+ * horario; la revisión de Biobox manda siempre 'por_validar'.
+ * Ver fix_auto_en_proceso.sql.
  *
  * LO QUE MANDA EL FRONTEND, aunque parezca derivado: direccion, municipio,
  * plaza, medio, tipo_mueble y nombre_biobox. Se copian de `inventario` al
