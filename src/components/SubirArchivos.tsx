@@ -172,7 +172,11 @@ function SubirArchivos({
             disabled={disabled || procesando}
             onClick={() => camRef.current?.click()}
           >
-            <span style={{ fontSize: 17 }}>📷</span>{' '}
+            {procesando ? (
+              <span className="spinner" />
+            ) : (
+              <span style={{ fontSize: 17 }}>📷</span>
+            )}{' '}
             {procesando ? 'Procesando…' : 'Tomar foto'}
           </button>
         )}

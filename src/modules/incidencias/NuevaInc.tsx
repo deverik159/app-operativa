@@ -1038,6 +1038,7 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
             onClick={guardar}
             disabled={busy || nGuardar === 0 || faltaEvidencia}
           >
+            {busy && <span className="spinner" />}
             {busy ? 'Guardando…' : `Guardar reporte (${nGuardar})`}
           </button>
         </div>

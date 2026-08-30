@@ -340,6 +340,7 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
                 <div
                   style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}
                 >
+                  <span className="spinner" />
                   Subiendo…
                 </div>
               )}

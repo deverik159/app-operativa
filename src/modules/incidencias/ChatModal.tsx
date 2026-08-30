@@ -450,6 +450,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 disabled={subiendo}
               />
               <button className="btn" type="submit" disabled={subiendo}>
+                {subiendo && <span className="spinner" />}
                 {subiendo ? 'Subiendo…' : 'Enviar'}
               </button>
             </form>

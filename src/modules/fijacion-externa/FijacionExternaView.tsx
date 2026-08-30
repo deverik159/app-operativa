@@ -708,7 +708,14 @@ function FijacionExternaView({
                 onClick={confirmarFijado}
                 disabled={guardando}
               >
-                {guardando ? 'Guardando…' : 'Confirmar fijado'}
+                {guardando && <span className="spinner" />}
+                {/* "Subiendo fotos" solo cuando de verdad hay fotos que
+                    subir; con "sin foto" marcado solo se guarda el registro. */}
+                {guardando
+                  ? fotos.length > 0
+                    ? 'Subiendo fotos…'
+                    : 'Guardando…'
+                  : 'Confirmar fijado'}
               </button>
             </div>
           </div>

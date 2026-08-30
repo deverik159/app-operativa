@@ -61,6 +61,14 @@
   .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;background:#252b35;color:var(--muted)}
   @keyframes pulseDot{0%,100%{transform:scale(1)}50%{transform:scale(1.22)}}
   .badge-pulse{display:inline-block;animation:pulseDot 1.4s ease-in-out infinite}
+  /* Círculo giratorio minimalista para "subiendo/procesando". Hereda el
+     color del texto (currentColor): junto a texto gris sale gris, dentro
+     de un botón naranja sale oscuro, sin variantes. */
+  @keyframes girar{to{transform:rotate(360deg)}}
+  .spinner{display:inline-block;width:13px;height:13px;flex-shrink:0;
+    border:2px solid currentColor;border-top-color:transparent;
+    border-radius:50%;animation:girar .7s linear infinite;
+    vertical-align:-2px;margin-right:7px}
   .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(1200px 600px at 70% -10%,#2a1a14,transparent),var(--bg)}
   .login-card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:28px;max-width:400px;width:100%}
   .logo{width:52px;height:52px;border-radius:13px;background:linear-gradient(135deg,var(--accent),#ffb03c);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:26px;color:#101;margin-bottom:16px}

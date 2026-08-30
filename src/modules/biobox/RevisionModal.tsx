@@ -901,6 +901,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
               </button>
               {!guardado && (
                 <button className="btn" onClick={guardar} disabled={guardando}>
+                  {guardando && <span className="spinner" />}
                   {guardando ? paso || 'Guardando…' : '💾 Guardar revisión'}
                 </button>
               )}

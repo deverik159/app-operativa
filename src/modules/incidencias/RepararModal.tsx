@@ -324,6 +324,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                 <div
                   style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}
                 >
+                  <span className="spinner" />
                   Subiendo…
                 </div>
               )}
@@ -392,6 +393,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
             onClick={guardar}
             disabled={busy || cargandoEv || subiendoRep}
           >
+            {(busy || subiendoRep) && <span className="spinner" />}
             {busy
               ? 'Guardando…'
               : subiendoRep

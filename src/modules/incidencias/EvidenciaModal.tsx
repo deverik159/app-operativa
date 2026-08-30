@@ -280,6 +280,7 @@ function EvidenciaModal({
             </div>
             {subiendo && (
               <div className="banner" style={{ marginBottom: 12 }}>
+                <span className="spinner" />
                 Subiendo…
               </div>
             )}
