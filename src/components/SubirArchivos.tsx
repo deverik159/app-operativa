@@ -192,13 +192,17 @@ function SubirArchivos({
         </button>
       </div>
 
-      {/* Inputs reales, ocultos: los botones de arriba los disparan. */}
+      {/* Inputs reales, ocultos: los botones de arriba los disparan.
+          El de cámara acepta SOLO imagen y una a la vez: en Android,
+          `capture` con un accept mixto (image + video) o con `multiple`
+          abre el selector de archivos en vez de la cámara — "Tomar foto"
+          se comportaba igual que "Galería". El video sigue entrando por
+          Galería. */}
       <input
         ref={camRef}
         type="file"
-        accept={accept}
+        accept={accept.includes('image') ? 'image/*' : accept}
         capture="environment"
-        multiple={multiple}
         onChange={manejar}
         disabled={disabled}
         style={{ display: 'none' }}

@@ -23,6 +23,7 @@
 // base y rompería el flujo del validador al aprobar.
 // ============================================================
 import { sb } from './supabase';
+import { detalleMaquina } from './estadoMaquina';
 
 /** Lo mínimo que la regla necesita comparar de cada fila por crear. */
 export type FilaDuplicable = {
@@ -70,4 +71,41 @@ export async function duplicadasEnProceso<T extends FilaDuplicable>(
       return d ? { fila: f, folio: d.folio } : null;
     })
     .filter(Boolean) as Duplicada<T>[];
+}
+
+/**
+ * La MISMA regla, pero para un sitio/máquina y a través de la RPC
+ * `estado_maquina` (security definer).
+ *
+ * POR QUÉ NO BASTA duplicadasEnProceso() AQUÍ: esa consulta `incidencias`
+ * directo, y la RLS le enseña al operador de campo solo lo de SU área. La
+ * incidencia de Digital que lleva semanas en proceso en esta máquina era
+ * INVISIBLE para la consulta del monitorista → la regla nunca bloqueaba y
+ * cada revisión volvía a levantarla (Erik, 30-ago-2026). La RPC ve todo lo
+ * abierto del sitio — es la misma fuente del panel "abiertas" que el propio
+ * revisor tiene enfrente.
+ *
+ * La cara (clave_medio) es única por cara física, así que dentro de un
+ * sitio basta cara + incidencia: unidad y medio ya vienen dados por la
+ * máquina.
+ */
+export async function duplicadasEnProcesoDeSitio(
+  siteId: string,
+  porCrear: { clave_medio: string | null; nombre_incidencia: string | null }[]
+): Promise<{ nombre_incidencia: string | null; folio: string | null }[]> {
+  if (!porCrear.length) return [];
+  const { filas } = await detalleMaquina(siteId);
+  return porCrear
+    .map((f) => {
+      const d = filas.find(
+        (x) =>
+          x.estatus === 'en_proceso' &&
+          x.clave_medio === f.clave_medio &&
+          x.nombre_incidencia === f.nombre_incidencia
+      );
+      return d
+        ? { nombre_incidencia: f.nombre_incidencia, folio: d.folio }
+        : null;
+    })
+    .filter(Boolean) as { nombre_incidencia: string | null; folio: string | null }[];
 }

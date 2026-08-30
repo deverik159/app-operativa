@@ -25,9 +25,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
-import { AREAS_AUTORUTEO } from '../../lib/constants';
-import { fueraHorarioValidador, idCorto } from '../../lib/helpers';
-import { duplicadasEnProceso } from '../../lib/duplicados';
+import { idCorto } from '../../lib/helpers';
+import { duplicadasEnProcesoDeSitio } from '../../lib/duplicados';
 import SubirArchivos from '../../components/SubirArchivos';
 import { catalogoParaMuebles, llaveCatalogo } from '../../lib/catalogo';
 import EstadoMaquinaPanel from './EstadoMaquinaPanel';
@@ -312,22 +311,21 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
       return;
     }
 
-    // ══ REGLA DE DUPLICIDAD ══ La misma de "Nueva incidencia"
-    // (lib/duplicados.ts): si la incidencia ya está 'en_proceso' para esta
-    // máquina, no se levanta otra. Este flujo se la brincaba y cada revisión
-    // volvía a reportar la misma anomalía sin aviso. Se verifica ANTES de
-    // subir nada: la revisión completa sigue siendo válida — lo que estorba
-    // es solo la palomita de "Levantar incidencia" en esos puntos.
+    // ══ REGLA DE DUPLICIDAD ══ La misma de "Nueva incidencia", pero por la
+    // RPC del sitio (duplicadasEnProcesoDeSitio): la consulta directa a
+    // `incidencias` pasaba por la RLS del revisor, que le esconde lo de
+    // otras áreas — la duplicada existente era invisible y la regla nunca
+    // bloqueaba. Se verifica ANTES de subir nada: la revisión completa
+    // sigue siendo válida — lo que estorba es solo la palomita de
+    // "Levantar incidencia" en esos puntos.
     if (aLevantar.length > 0) {
       setGuardando(true);
       setPaso('Verificando duplicados…');
-      const dups = await duplicadasEnProceso(
+      const dups = await duplicadasEnProcesoDeSitio(
+        ubic.site_id,
         aLevantar.map((p) => ({
-          punto: p,
           clave_medio: ubic.vendor_face_id,
           nombre_incidencia: marcas[p.id].incidencia,
-          unidad_negocio: unidad,
-          medio,
         }))
       );
       setGuardando(false);
@@ -337,10 +335,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
           'Esta incidencia ya está reportada y en proceso para esta ' +
             'máquina; no hace falta levantarla otra vez:\n' +
             dups
-              .map(
-                (d) =>
-                  `• ${d.fila.nombre_incidencia} → folio ${d.folio || '—'}`
-              )
+              .map((d) => `• ${d.nombre_incidencia} → folio ${d.folio || '—'}`)
               .join('\n') +
             '\nDesmarca "Levantar incidencia" en ese punto y vuelve a ' +
             'guardar: la anomalía y su foto SÍ quedan en la revisión.'
@@ -470,15 +465,16 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
         .map((p) => {
           const cat = catalogo.find((c) => c.detalle === marcas[p.id].incidencia);
           if (!cat) return null;
-          // Fuera del horario del validador, las áreas de auto-ruteo entran
-          // directo a en_proceso. Mismo criterio que en Nueva incidencia.
-          const auto =
-            AREAS_AUTORUTEO.includes(cat.area || '') && fueraHorarioValidador();
+          // SIEMPRE 'por_validar': aquí no aplica el auto-ruteo fuera de
+          // horario de Nueva incidencia (Erik, 30-ago-2026). Lo que nace de
+          // un checklist lo captura personal de campo y debe pasar primero
+          // por el validador — brincárselo a 'en_proceso' saltaba el paso
+          // de validación y encima ensuciaba la regla de duplicidad.
           return {
             ...base,
             record_id: idCorto(),
-            estatus: (auto ? 'en_proceso' : 'por_validar') as EstatusInc,
-            requiere_prevalidacion: auto,
+            estatus: 'por_validar' as EstatusInc,
+            requiere_prevalidacion: false,
 
             unidad_negocio: unidad,
             clave_sitio: ubic.site_id,
