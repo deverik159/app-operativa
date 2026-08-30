@@ -18,6 +18,7 @@
 // datos podría copiarlos a mano. El control real de qué ve cada quien sigue
 // siendo la RLS; esto controla qué tan fácil es llevárselo en bloque.
 // ============================================================
+import { useMemo, useState } from 'react';
 import { EST_COLOR, EST_LABEL } from '../../lib/constants';
 import {
   caraLabel,
@@ -95,7 +96,93 @@ function exportar(items: Incidencia[]) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+/** El orden del flujo, no el alfabético: "Por validar" antes que "Cerrada". */
+const EST_ORDEN = Object.keys(EST_LABEL);
+
+/**
+ * Columnas de la tabla. `valor` es lo que se compara al ordenar por esa
+ * columna — no siempre lo que se pinta (el estatus ordena por su lugar en
+ * el flujo; "En proceso" por horas numéricas).
+ */
+const COLUMNAS: {
+  titulo: string;
+  k: string;
+  valor: (i: Incidencia) => string | number | null;
+}[] = [
+  { titulo: 'Folio', k: 'folio', valor: (i) => i.folio || i.record_id },
+  {
+    titulo: 'Estatus',
+    k: 'estatus',
+    valor: (i) => {
+      const idx = EST_ORDEN.indexOf(i.estatus);
+      return idx === -1 ? EST_ORDEN.length : idx;
+    },
+  },
+  { titulo: 'Unidad', k: 'unidad', valor: (i) => i.unidad_negocio || '' },
+  {
+    titulo: 'Incidencia',
+    k: 'incidencia',
+    valor: (i) => i.nombre_incidencia || '',
+  },
+  { titulo: 'Cara', k: 'cara', valor: (i) => caraLabel(i.clave_medio) || '' },
+  { titulo: 'Sitio', k: 'sitio', valor: (i) => i.clave_sitio || '' },
+  { titulo: 'Municipio', k: 'municipio', valor: (i) => i.municipio },
+  {
+    titulo: 'Repara',
+    k: 'repara',
+    valor: (i) => i.assigned_area || i.area_responsable,
+  },
+  { titulo: 'Nivel', k: 'nivel', valor: (i) => i.nivel },
+  { titulo: 'Capturada', k: 'capturada', valor: (i) => i.fecha_reporte },
+  {
+    titulo: 'Por',
+    k: 'por',
+    valor: (i) => (i.captured_by || '').split('@')[0] || null,
+  },
+  { titulo: '⏳ En proceso', k: 'proceso', valor: (i) => horasEnProceso(i) },
+  {
+    titulo: 'Reparó',
+    k: 'reparo',
+    valor: (i) => (i.repaired_by_email || '').split('@')[0] || null,
+  },
+];
+
 function TablaIncidencias({ items, puedeExportar }: Props) {
+  /** null = el orden en que llegan de IncidenciasView (más reciente arriba). */
+  const [orden, setOrden] = useState<{ k: string; asc: boolean } | null>(null);
+
+  const clickOrden = (k: string) =>
+    setOrden((prev) =>
+      prev?.k === k ? { k, asc: !prev.asc } : { k, asc: true }
+    );
+
+  const filas = useMemo(() => {
+    if (!orden) return items;
+    const col = COLUMNAS.find((c) => c.k === orden.k);
+    if (!col) return items;
+    const dir = orden.asc ? 1 : -1;
+    return [...items].sort((x, y) => {
+      const a = col.valor(x);
+      const b = col.valor(y);
+      // Los vacíos SIEMPRE al final, suba o baje el orden: "sin municipio"
+      // encabezando la tabla no le sirve a nadie.
+      const aVacio = a == null || a === '';
+      const bVacio = b == null || b === '';
+      if (aVacio && bVacio) return 0;
+      if (aVacio) return 1;
+      if (bVacio) return -1;
+      const r =
+        typeof a === 'number' && typeof b === 'number'
+          ? a - b
+          : // numeric: "ECO-9" antes que "ECO-10", como espera un humano.
+            String(a).localeCompare(String(b), 'es', {
+              numeric: true,
+              sensitivity: 'base',
+            });
+      return r * dir;
+    });
+  }, [items, orden]);
+
   return (
     <div>
       <div
@@ -148,34 +235,44 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
         >
           <thead>
             <tr>
-              {[
-                'Folio', 'Estatus', 'Unidad', 'Incidencia', 'Cara', 'Sitio',
-                'Municipio', 'Repara', 'Nivel', 'Capturada', 'Por',
-                '⏳ En proceso', 'Reparó',
-              ].map((h) => (
-                <th
-                  key={h}
-                  style={{
-                    position: 'sticky',
-                    top: 0,
-                    background: 'var(--panel2)',
-                    textAlign: 'left',
-                    padding: '9px 10px',
-                    borderBottom: '1px solid var(--line)',
-                    fontSize: 11,
-                    textTransform: 'uppercase',
-                    letterSpacing: '.04em',
-                    color: 'var(--muted)',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
+              {COLUMNAS.map((c) => {
+                const activa = orden?.k === c.k;
+                return (
+                  <th
+                    key={c.k}
+                    onClick={() => clickOrden(c.k)}
+                    title={`Ordenar por ${c.titulo}`}
+                    style={{
+                      position: 'sticky',
+                      top: 0,
+                      background: 'var(--panel2)',
+                      textAlign: 'left',
+                      padding: '9px 10px',
+                      borderBottom: '1px solid var(--line)',
+                      fontSize: 11,
+                      textTransform: 'uppercase',
+                      letterSpacing: '.04em',
+                      color: activa ? 'var(--txt)' : 'var(--muted)',
+                      whiteSpace: 'nowrap',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {c.titulo}
+                    {/* La flecha solo en la columna activa; en las demás un
+                        ⇅ tenue avisa que el encabezado se puede tocar. */}
+                    {activa ? (
+                      <span> {orden!.asc ? '▲' : '▼'}</span>
+                    ) : (
+                      <span style={{ opacity: 0.35 }}> ⇅</span>
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {items.map((i) => {
+            {filas.map((i) => {
               const enProc = horasEnProceso(i);
               return (
                 <tr key={i.record_id}>
@@ -199,7 +296,12 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
                     {i.nombre_incidencia}
                   </td>
                   <td style={celda}>{caraLabel(i.clave_medio)}</td>
-                  <td style={celda}>{i.clave_sitio}</td>
+                  {/* nowrap en Sitio/Por/Reparó: el overflow-wrap:anywhere
+                      global partía la clave y los correos a media palabra
+                      ("MX_EM_EV_E / VA_01_0009"). La tabla ya scrollea de
+                      lado dentro de su contenedor, así que aquí no hay
+                      motivo para quebrar tokens. */}
+                  <td style={{ ...celda, ...sinQuiebre }}>{i.clave_sitio}</td>
                   <td style={celda}>{i.municipio || '—'}</td>
                   <td style={celda}>
                     {i.assigned_area || i.area_responsable || '—'}
@@ -208,7 +310,7 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
                   <td style={{ ...celda, whiteSpace: 'nowrap' }}>
                     {fecha(i.fecha_reporte)}
                   </td>
-                  <td style={celda}>
+                  <td style={{ ...celda, ...sinQuiebre }}>
                     {(i.captured_by || '—').split('@')[0]}
                   </td>
                   <td
@@ -224,7 +326,7 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
                   >
                     {enProc != null ? fmtHoras(enProc) : '—'}
                   </td>
-                  <td style={celda}>
+                  <td style={{ ...celda, ...sinQuiebre }}>
                     {(i.repaired_by_email || '—').split('@')[0]}
                   </td>
                 </tr>
@@ -241,6 +343,13 @@ const celda: React.CSSProperties = {
   padding: '8px 10px',
   borderBottom: '1px solid var(--line)',
   verticalAlign: 'top',
+};
+
+/** Anula el quiebre agresivo heredado del body (ver comentario en Sitio). */
+const sinQuiebre: React.CSSProperties = {
+  whiteSpace: 'nowrap',
+  overflowWrap: 'normal',
+  wordBreak: 'normal',
 };
 
 export default TablaIncidencias;

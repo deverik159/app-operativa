@@ -510,6 +510,20 @@ function BioboxView({ email, misDep, puedeConfigurar }: Props) {
                           </span>
                         )}
                       </div>
+                      {/* La clave completa (MX_CM_BB_MED_0122) en su propio
+                          renglón: es como se identifica la máquina en
+                          inventario e incidencias. */}
+                      {u.site_legacy_id && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--muted)',
+                            marginTop: 1,
+                          }}
+                        >
+                          {u.site_id}
+                        </div>
+                      )}
                       <div
                         style={{
                           fontSize: 12,
