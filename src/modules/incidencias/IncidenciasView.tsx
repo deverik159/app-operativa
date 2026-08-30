@@ -23,6 +23,7 @@ import {
   idCorto,
 } from '../../lib/helpers';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
+import { duplicadasEnProceso } from '../../lib/duplicados';
 import IncCard from '../../components/IncCard';
 import NuevaInc from './NuevaInc';
 import type { PresetNueva, GrupoReporte } from './NuevaInc';
@@ -554,58 +555,23 @@ function IncidenciasView({
 
     const rows = gruposConId.flatMap((g) => g.filas);
 
-    // ══ REGLA DE DUPLICIDAD (Erik, 29-ago-2026) ══
-    // Misma unidad + mismo medio + misma incidencia + MISMA CARA, y la
-    // existente sigue 'en_proceso' → no se captura otra. La cara es la que
-    // acota: dos vallas distintas con grafiti son dos trabajos distintos.
-    //
-    // Solo bloquea contra 'en_proceso', literal a como se pidió: una que
-    // siga 'por_validar' no bloquea — ese duplicado lo caza el validador,
-    // que ahora ve la foto en la tarjeta.
-    //
-    // Es una verificación de mejor esfuerzo del lado del cliente: si dos
-    // personas capturan lo mismo en el mismo segundo, pasan las dos. Para
-    // esta operación es suficiente; un candado duro necesitaría un índice
-    // único parcial en la base y rompería el flujo del validador al aprobar.
-    const carasNuevas = [
-      ...new Set(rows.map((r) => r.clave_medio).filter(Boolean)),
-    ] as string[];
-    const nombresNuevos = [
-      ...new Set(rows.map((r) => r.nombre_incidencia).filter(Boolean)),
-    ] as string[];
-    if (carasNuevas.length && nombresNuevos.length) {
-      const { data: abiertas } = await sb
-        .from('incidencias')
-        .select('folio,nombre_incidencia,clave_medio,unidad_negocio,medio')
-        .eq('estatus', 'en_proceso')
-        .in('clave_medio', carasNuevas)
-        .in('nombre_incidencia', nombresNuevos);
-      const choques = rows
-        .map((r) => {
-          const d = ((abiertas as Incidencia[] | null) || []).find(
-            (x) =>
-              x.clave_medio === r.clave_medio &&
-              x.nombre_incidencia === r.nombre_incidencia &&
-              x.unidad_negocio === r.unidad_negocio &&
-              (x.medio || '') === (r.medio || '')
-          );
-          return d ? { fila: r, folio: d.folio } : null;
-        })
-        .filter(Boolean) as { fila: (typeof rows)[0]; folio: string | null }[];
-      if (choques.length) {
-        alert(
-          'Esta incidencia ya se encuentra registrada y en proceso, no es ' +
-            'necesario capturar una nueva.\n\n' +
-            choques
-              .map(
-                (c) =>
-                  `• ${c.fila.nombre_incidencia} (cara ${c.fila.clave_medio}) → folio ${c.folio || '—'}`
-              )
-              .join('\n') +
-            '\n\nQuita esa partida del reporte para guardar el resto.'
-        );
-        return;
-      }
+    // ══ REGLA DE DUPLICIDAD ══ La regla y su porqué viven en
+    // lib/duplicados.ts, compartida con el flujo de Biobox (revisión →
+    // levantar incidencia): antes ese flujo se la brincaba y duplicaba.
+    const choques = await duplicadasEnProceso(rows);
+    if (choques.length) {
+      alert(
+        'Esta incidencia ya se encuentra registrada y en proceso, no es ' +
+          'necesario capturar una nueva.\n\n' +
+          choques
+            .map(
+              (c) =>
+                `• ${c.fila.nombre_incidencia} (cara ${c.fila.clave_medio}) → folio ${c.folio || '—'}`
+            )
+            .join('\n') +
+          '\n\nQuita esa partida del reporte para guardar el resto.'
+      );
+      return;
     }
 
     const { data, error } = await sb.from('incidencias').insert(rows).select();

@@ -27,6 +27,7 @@ import { sb } from '../../lib/supabase';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import { AREAS_AUTORUTEO } from '../../lib/constants';
 import { fueraHorarioValidador, idCorto } from '../../lib/helpers';
+import { duplicadasEnProceso } from '../../lib/duplicados';
 import SubirArchivos from '../../components/SubirArchivos';
 import { catalogoParaMuebles, llaveCatalogo } from '../../lib/catalogo';
 import EstadoMaquinaPanel from './EstadoMaquinaPanel';
@@ -309,6 +310,43 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
           (faltanFotos.length > 2 ? '…' : '')
       );
       return;
+    }
+
+    // ══ REGLA DE DUPLICIDAD ══ La misma de "Nueva incidencia"
+    // (lib/duplicados.ts): si la incidencia ya está 'en_proceso' para esta
+    // máquina, no se levanta otra. Este flujo se la brincaba y cada revisión
+    // volvía a reportar la misma anomalía sin aviso. Se verifica ANTES de
+    // subir nada: la revisión completa sigue siendo válida — lo que estorba
+    // es solo la palomita de "Levantar incidencia" en esos puntos.
+    if (aLevantar.length > 0) {
+      setGuardando(true);
+      setPaso('Verificando duplicados…');
+      const dups = await duplicadasEnProceso(
+        aLevantar.map((p) => ({
+          punto: p,
+          clave_medio: ubic.vendor_face_id,
+          nombre_incidencia: marcas[p.id].incidencia,
+          unidad_negocio: unidad,
+          medio,
+        }))
+      );
+      setGuardando(false);
+      setPaso('');
+      if (dups.length > 0) {
+        setErr(
+          'Esta incidencia ya está reportada y en proceso para esta ' +
+            'máquina; no hace falta levantarla otra vez:\n' +
+            dups
+              .map(
+                (d) =>
+                  `• ${d.fila.nombre_incidencia} → folio ${d.folio || '—'}`
+              )
+              .join('\n') +
+            '\nDesmarca "Levantar incidencia" en ese punto y vuelve a ' +
+            'guardar: la anomalía y su foto SÍ quedan en la revisión.'
+        );
+        return;
+      }
     }
 
     setGuardando(true);
@@ -609,7 +647,12 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
             No depende de que el checklist cargue — se pinta aparte. */}
         <EstadoMaquinaPanel siteId={ubic.site_id} />
 
-        {err && <div className="err">{err}</div>}
+        {/* pre-line: el aviso de duplicados lista folios en renglones. */}
+        {err && (
+          <div className="err" style={{ whiteSpace: 'pre-line' }}>
+            {err}
+          </div>
+        )}
         {aviso && <div className="banner">{aviso}</div>}
 
         {cargando ? (
@@ -895,6 +938,17 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
               )}
             </div>
 
+            {/* El error también AQUÍ: quien toca Guardar está al fondo de un
+                checklist largo y el aviso de arriba queda fuera de pantalla
+                — parecía que el botón no hacía nada. */}
+            {err && (
+              <div
+                className="err"
+                style={{ whiteSpace: 'pre-line', marginTop: 10 }}
+              >
+                {err}
+              </div>
+            )}
             <div className="modal-actions">
               <button className="btn ghost" onClick={onClose} disabled={guardando}>
                 {guardado ? 'Cerrar' : 'Cancelar'}
