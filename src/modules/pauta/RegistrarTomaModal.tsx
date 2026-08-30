@@ -158,7 +158,14 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
     <div
       className="overlay"
       onClick={(e) => {
-        if ((e.target as HTMLElement).className === 'overlay') onClose();
+        // Mientras sube fotos o guarda, un roce en el overlay no debe cerrar
+        // el modal: dejaría la subida a medias sin confirmación.
+        if (
+          (e.target as HTMLElement).className === 'overlay' &&
+          !subiendo &&
+          !guardando
+        )
+          onClose();
       }}
     >
       <div className="modal">
@@ -309,13 +316,15 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
                         >
                           {ev.referencia || ''}
                         </span>
-                        <span
+                        <button
+                          type="button"
+                          className="btn-icono"
                           onClick={() => borrar(ev)}
+                          aria-label="Eliminar evidencia"
                           title="Eliminar"
-                          style={{ cursor: 'pointer', flexShrink: 0 }}
                         >
                           🗑
-                        </span>
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -339,7 +348,11 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
         </div>
 
         <div className="modal-actions">
-          <button className="btn ghost" onClick={onClose}>
+          <button
+            className="btn ghost"
+            onClick={onClose}
+            disabled={subiendo || guardando}
+          >
             {yaRegistrada ? 'Cerrar' : 'Cancelar'}
           </button>
           {!yaRegistrada && (

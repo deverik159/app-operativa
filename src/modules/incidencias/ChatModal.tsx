@@ -12,6 +12,7 @@ import {
   subirAdjunto,
   MAX_VIDEO_SEG,
 } from '../../lib/adjuntosChat';
+import { comprimirImagen } from '../../lib/comprimirImagen';
 import type { Incidencia, Mensaje, ChatAdjunto } from '../../types/db';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
@@ -109,12 +110,34 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
     if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight;
   }, [msgs, loading]);
 
+  /**
+   * Baja al final SOLO si el usuario ya estaba (casi) al final: los adjuntos
+   * llegan ~600 ms después del mensaje y sus imágenes cargan asíncronas — el
+   * contenido crecía por debajo del scroll y la foto del último mensaje
+   * quedaba oculta bajo el pliegue, como si "no hubiera llegado nada". Pero
+   * si el usuario subió a leer el historial, no hay que jalarlo.
+   */
+  const pegarAbajo = () => {
+    const box = boxRef.current;
+    if (!box) return;
+    const cerca = box.scrollHeight - box.scrollTop - box.clientHeight < 160;
+    if (cerca) box.scrollTop = box.scrollHeight;
+  };
+  useEffect(pegarAbajo, [adjuntos]);
+
   /** Valida el archivo elegido ANTES de dejar enviarlo. */
   const elegirArchivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
+    const original = e.target.files?.[0];
     e.target.value = '';
-    if (!f) return;
+    if (!original) return;
     setErrAdj('');
+    // Comprimir ANTES de validar: las fotos de un iPhone reciente pasan de
+    // 5 MB con frecuencia y el límite las rechazaba sin ofrecer salida.
+    // Comprimida (~1600px JPEG) una foto normal queda muy por debajo del
+    // tope, que ahora solo frena lo genuinamente incomprimible.
+    const f = original.type.startsWith('image/')
+      ? await comprimirImagen(original)
+      : original;
     const problema = await validarAdjunto(f);
     if (problema) {
       setErrAdj(problema);
@@ -192,9 +215,11 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
         if ((e.target as HTMLElement).className === 'overlay') onClose();
       }}
     >
+      {/* La altura vive en .modal-chat (index.css): necesita el fallback
+          vh→dvh por declaración doble, que un style inline no puede dar. */}
       <div
-        className="modal"
-        style={{ display: 'flex', flexDirection: 'column', maxHeight: '80vh' }}
+        className="modal modal-chat"
+        style={{ display: 'flex', flexDirection: 'column' }}
       >
         <h2 style={{ margin: '0 0 3px' }}>Chat de la incidencia</h2>
         <p className="phint" style={{ marginBottom: 10 }}>
@@ -293,6 +318,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                           controls
                           playsInline
                           preload="metadata"
+                          onLoadedMetadata={pegarAbajo}
                           style={{
                             marginTop: 6,
                             width: '100%',
@@ -312,6 +338,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                             src={a.url}
                             alt={a.nombre || 'foto'}
                             loading="lazy"
+                            onLoad={pegarAbajo}
                             style={{
                               marginTop: 6,
                               width: '100%',

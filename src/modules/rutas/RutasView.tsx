@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import * as XLSX from 'xlsx';
 import { sb } from '../../lib/supabase';
+import { candadoTactil } from '../../lib/mapaTactil';
 import IrAqui from '../../components/IrAqui';
 import ImportarKmlModal from './ImportarKmlModal';
 import ImportarRutasExcelModal from './ImportarRutasExcelModal';
@@ -337,6 +338,8 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
         [19.43, -99.13],
         11
       );
+      // En táctil, un dedo desplaza la página y no el mapa (ver mapaTactil).
+      candadoTactil(mapObj.current);
       L.tileLayer(
         'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
         { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }
@@ -480,7 +483,7 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
             {importando ? 'Importando…' : '📥 Importar archivo'}
             <input
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
               style={{ display: 'none' }}
               onChange={onArchivoImport}
               disabled={importando}
@@ -653,29 +656,24 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
         </>
       )}
 
+      {/* .overlay/.modal del CSS global, no un overlay a mano: el casero
+          centraba con flex SIN scroll — con el teclado abierto en un
+          teléfono, el botón Guardar quedaba cortado e inalcanzable — y al
+          no llevar la clase .overlay tampoco se ocultaba el menú inferior. */}
       {editando && (
         <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,.6)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 20,
+          className="overlay"
+          onClick={(e) => {
+            if (
+              (e.target as HTMLElement).className === 'overlay' &&
+              !guardando
+            )
+              setEditando(null);
           }}
-          onClick={() => setEditando(null)}
         >
           <div
-            style={{
-              background: 'var(--panel)',
-              border: '1px solid var(--line)',
-              borderRadius: 16,
-              padding: 20,
-              maxWidth: 440,
-              width: '100%',
-            }}
+            className="modal"
+            style={{ maxWidth: 440 }}
             onClick={(e) => e.stopPropagation()}
           >
             <div
@@ -689,7 +687,11 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
               <h3 style={{ margin: 0 }}>
                 {editando.id ? 'Editar ruta' : 'Nueva ruta'}
               </h3>
-              <button className="btn sm ghost" onClick={() => setEditando(null)}>
+              <button
+                className="btn sm ghost"
+                onClick={() => setEditando(null)}
+                disabled={guardando}
+              >
                 ✕
               </button>
             </div>
@@ -829,32 +831,21 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
         </div>
       )}
 
+      {/* Mismo cambio que el modal de edición: .overlay scrollea completo,
+          así una ruta de 40 paradas se recorre con el scroll de la página
+          en vez de una lista interna encajonada en 85vh (que en iPhone,
+          con la barra de Safari visible, se pasaba del alto real). */}
       {detalleRuta && (
         <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,.6)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 20,
+          className="overlay"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).className === 'overlay')
+              setDetalleRuta(null);
           }}
-          onClick={() => setDetalleRuta(null)}
         >
           <div
-            style={{
-              background: 'var(--panel)',
-              border: '1px solid var(--line)',
-              borderRadius: 16,
-              padding: 20,
-              maxWidth: 620,
-              width: '100%',
-              maxHeight: '85vh',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
+            className="modal"
+            style={{ maxWidth: 620 }}
             onClick={(e) => e.stopPropagation()}
           >
             <div

@@ -18,6 +18,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
 import IrAqui from '../../components/IrAqui';
+import { resumenMaquinas, HORAS_ALARMA } from '../../lib/estadoMaquina';
+import type { MapaResumen } from '../../lib/estadoMaquina';
+import { fmtHoras } from '../../lib/helpers';
 import { tramosGoogleMaps } from '../../lib/navegacion';
 import { UNIDADES_BIOBOX } from '../../lib/constants';
 import RevisionModal from './RevisionModal';
@@ -73,6 +76,13 @@ function BioboxView({ email, misDep, puedeConfigurar }: Props) {
   const [busca, setBusca] = useState('');
   const [soloPendientes, setSoloPendientes] = useState(false);
 
+  /**
+   * Lo que cada máquina trae abierto. Se pide con UNA sola llamada para toda
+   * la lista, no una por máquina: son doscientas y el distintivo tardaría más
+   * en aparecer que la lista completa.
+   */
+  const [estado, setEstado] = useState<MapaResumen>({});
+
   const [revisando, setRevisando] = useState<UbicacionRevision | null>(null);
   const [historial, setHistorial] = useState<UbicacionRevision | null>(null);
   const [configurando, setConfigurando] = useState(false);
@@ -87,6 +97,16 @@ function BioboxView({ email, misDep, puedeConfigurar }: Props) {
     if (error) setErr('No se pudieron cargar las máquinas: ' + error.message);
     else setUbics((data as UbicacionRevision[]) || []);
     setCargando(false);
+
+    // Después de pintar la lista, no antes. Si esto tardara o fallara, la
+    // lista ya está en pantalla y utilizable: `resumenMaquinas` nunca lanza y
+    // devuelve un mapa vacío, así que lo único que se pierde es el adorno.
+    const ids = [
+      ...new Set(
+        ((data as UbicacionRevision[]) || []).map((u) => u.site_id).filter(Boolean)
+      ),
+    ] as string[];
+    setEstado(await resumenMaquinas(ids));
   };
 
   useEffect(() => {
@@ -466,7 +486,15 @@ function BioboxView({ email, misDep, puedeConfigurar }: Props) {
                       flexWrap: 'wrap',
                     }}
                   >
-                    <div style={{ minWidth: 0, flex: 1 }}>
+                    {/* `flex: 1` (base 0) dejaba que este bloque se encogiera
+                        por debajo de su contenido, mientras el grupo de
+                        botones —que NO encoge— se quedaba con casi todo el
+                        ancho. En el celular la dirección terminaba en una
+                        columna de una palabra por renglón.
+                        Con una base de 220px, cuando no caben los dos, el
+                        contenedor (que tiene flex-wrap) manda los botones al
+                        renglón de abajo en vez de estrujar el texto. */}
+                    <div style={{ minWidth: 0, flex: '1 1 220px' }}>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>
                         {u.site_legacy_id ? `#${u.site_legacy_id}` : u.site_id}
                         {u.secuencia != null && (
@@ -565,6 +593,43 @@ function BioboxView({ email, misDep, puedeConfigurar }: Props) {
                             {u.puntos_anomalia === 1 ? '' : 's'}
                           </span>
                         )}
+
+                        {/* LO QUE LA MÁQUINA TRAE ABIERTO. Aquí y no solo
+                            dentro de Revisar: el operador lo ve ANTES de
+                            bajarse del carro, y si va de paso sin revisar,
+                            igual se entera. */}
+                        {(() => {
+                          const e = estado[u.site_id];
+                          if (!e) return null;
+                          const alarma = (e.horas_peor ?? 0) > HORAS_ALARMA;
+                          return (
+                            <span
+                              className="tag"
+                              style={{
+                                color: alarma ? '#ef4444' : '#f97316',
+                                borderColor: alarma ? '#ef4444' : '#f97316',
+                                fontWeight: alarma ? 700 : 400,
+                              }}
+                              title={
+                                'Abiertas: ' + e.abiertas +
+                                (e.areas ? ' · Áreas: ' + e.areas : '') +
+                                (e.horas_peor != null
+                                  ? ' · La peor lleva ' + fmtHoras(e.horas_peor)
+                                  : '')
+                              }
+                            >
+                              {alarma ? '🔴' : '⚠'} {e.abiertas} abierta
+                              {e.abiertas === 1 ? '' : 's'}
+                              {e.horas_peor != null
+                                ? ' · ' + fmtHoras(e.horas_peor)
+                                : ''}
+                              {/* Las áreas van EN el texto y no solo en el
+                                  title: los tooltips no existen en táctil y
+                                  el monitorista es usuario de celular. */}
+                              {e.areas ? ' · ' + e.areas : ''}
+                            </span>
+                          );
+                        })()}
 
                         {!u.navegable && (
                           <span className="tag" title="No hay coordenadas en inventario">

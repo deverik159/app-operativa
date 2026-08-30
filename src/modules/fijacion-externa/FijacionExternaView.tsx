@@ -7,6 +7,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import { sb } from '../../lib/supabase';
+import { candadoTactil } from '../../lib/mapaTactil';
+import { prepararArchivos } from '../../lib/comprimirImagen';
 
 // --- Tipos ---
 type Registro = {
@@ -52,6 +54,8 @@ function FijacionExternaView({
   const mapRef = useRef<HTMLDivElement>(null);
   const mapObj = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
+  /** Con qué lista se encuadró el mapa por última vez (ver efecto del mapa). */
+  const ultimoEncuadre = useRef<RegistroConCoords[] | null>(null);
   const BUCKET = 'evidencias';
 
   const abrirFijado = (r: Registro) => {
@@ -62,23 +66,40 @@ function FijacionExternaView({
     setErr('');
   };
   const cerrarFijado = () => {
+    // Liberar los previews: sin revoke, una cuadrilla que fija 20 registros
+    // con 3-4 fotos de 12MP acumulaba blobs a resolución completa toda la
+    // sesión — en un Android de gama baja terminaba en recarga de pestaña.
+    setFotos((prev) => {
+      prev.forEach((f) => URL.revokeObjectURL(f.preview));
+      return [];
+    });
     setFijando(null);
-    setFotos([]);
     setSinFoto(false);
     setMotivo('');
   };
 
-  const onFotos = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const nuevas = files.map((f) => ({
+    e.target.value = '';
+    if (!files.length) return;
+    // Comprimir al elegir, igual que SubirArchivos: menos memoria retenida
+    // en el modal y subidas de ~400 KB en vez de 8 MB por datos móviles.
+    const { listos, rechazos } = await prepararArchivos(files);
+    if (rechazos.length) alert('No se agregaron:\n\n' + rechazos.join('\n'));
+    const nuevas = listos.map((f) => ({
       file: f,
       preview: URL.createObjectURL(f),
     }));
     setFotos((prev) => [...prev, ...nuevas]);
-    e.target.value = '';
   };
   const quitarFoto = (i: number) =>
-    setFotos((prev) => prev.filter((_, idx) => idx !== i));
+    setFotos((prev) =>
+      prev.filter((f, idx) => {
+        if (idx !== i) return true;
+        URL.revokeObjectURL(f.preview);
+        return false;
+      })
+    );
 
   const cargar = async (estadoSel?: string) => {
     setLoading(true);
@@ -204,9 +225,22 @@ function FijacionExternaView({
     setMostrar(BLOQUE);
   }, [q, fEstado]);
 
-  // Las tarjetas que se muestran (paginadas)
-  const visibles = conCoords.slice(0, mostrar);
-  const hayMas = conCoords.length > mostrar;
+  /**
+   * Número de pin en el mapa por id. Solo lo tienen los registros con
+   * coordenadas; sirve para que la tarjeta y el pin compartan número.
+   */
+  const pinPorId = useMemo(() => {
+    const m = new Map<string, number>();
+    conCoords.forEach((r, idx) => m.set(r.id, idx + 1));
+    return m;
+  }, [conCoords]);
+
+  // Las tarjetas que se muestran (paginadas). Se pagina sobre TODOS los
+  // filtrados, tengan o no coordenadas: marcar fijado no necesita ubicación,
+  // y paginar sobre conCoords hacía desaparecer de la lista los registros
+  // cuya clave no cruza con el inventario — la cuadrilla no podía cerrarlos.
+  const visibles = filtrados.slice(0, mostrar);
+  const hayMas = filtrados.length > mostrar;
 
   // Mapa
   useEffect(() => {
@@ -220,10 +254,14 @@ function FijacionExternaView({
       layerRef.current = null;
     }
     if (!mapObj.current) {
-      mapObj.current = L.map(mapRef.current, { zoomControl: true }).setView(
-        [19.43, -99.13],
-        11
-      );
+      // preferCanvas: los puntos ligeros (circleMarker) se pintan en canvas,
+      // no como nodos DOM — miles de registros congelaban un teléfono.
+      mapObj.current = L.map(mapRef.current, {
+        zoomControl: true,
+        preferCanvas: true,
+      }).setView([19.43, -99.13], 11);
+      // En táctil, un dedo desplaza la página y no el mapa (ver mapaTactil).
+      candadoTactil(mapObj.current);
       L.tileLayer(
         'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
         { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }
@@ -232,32 +270,51 @@ function FijacionExternaView({
     if (layerRef.current) mapObj.current.removeLayer(layerRef.current);
     const grp = L.layerGroup();
     const latlngs: [number, number][] = [];
+    // Pin numerado (nodo DOM) SOLO para las tarjetas visibles: con miles de
+    // registros, un div por marcador congelaba el mapa en el teléfono. El
+    // resto se pinta como punto de canvas, igual de consultable con un tap.
+    const idsVisibles = new Set(visibles.map((v) => v.id));
     conCoords.forEach((r, idx) => {
       latlngs.push([r.lat, r.lng]);
-      const icon = L.divIcon({
-        className: '',
-        html: `<div class="route-pin">${idx + 1}</div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      });
-      L.marker([r.lat, r.lng], { icon })
-        .bindPopup(
-          `<b>${r.clave || ''}</b><br>${r.direccion || '(sin dirección)'}<br>${r.campana || ''}`
-        )
-        .addTo(grp);
+      const popup = `<b>${r.clave || ''}</b><br>${r.direccion || '(sin dirección)'}<br>${r.campana || ''}`;
+      if (idsVisibles.has(r.id)) {
+        const icon = L.divIcon({
+          className: '',
+          html: `<div class="route-pin">${idx + 1}</div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        });
+        L.marker([r.lat, r.lng], { icon }).bindPopup(popup).addTo(grp);
+      } else {
+        L.circleMarker([r.lat, r.lng], {
+          radius: 5,
+          color: '#ff5a3c',
+          weight: 1,
+          fillColor: '#ff5a3c',
+          fillOpacity: 0.55,
+        })
+          .bindPopup(popup)
+          .addTo(grp);
+      }
     });
     grp.addTo(mapObj.current);
     layerRef.current = grp;
+    // Encuadrar SOLO cuando cambian los datos (filtro/búsqueda). Este efecto
+    // también corre al dar "Ver más" (cambia `visibles` para promover pines),
+    // y ahí re-encuadrar le quitaría al usuario su zoom y su posición.
+    const debeEncuadrar = ultimoEncuadre.current !== conCoords;
+    ultimoEncuadre.current = conCoords;
     const ajustar = () => {
       if (!mapObj.current) return;
       mapObj.current.invalidateSize();
+      if (!debeEncuadrar) return;
       if (latlngs.length === 1) mapObj.current.setView(latlngs[0], 15);
       else if (latlngs.length > 1)
         mapObj.current.fitBounds(latlngs, { padding: [40, 40], maxZoom: 15 });
     };
     ajustar();
     setTimeout(ajustar, 250);
-  }, [conCoords, loading]);
+  }, [conCoords, visibles, loading]);
 
   if (loading)
     return (
@@ -346,7 +403,7 @@ function FijacionExternaView({
               No hay registros pendientes con los filtros actuales.
             </div>
           )}
-          {visibles.map((r, idx) => (
+          {visibles.map((r) => (
             <div className="inc" key={r.id}>
               <div
                 className="inc-top"
@@ -358,7 +415,19 @@ function FijacionExternaView({
                 }}
               >
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <span className="order-badge">{idx + 1}</span>
+                  {/* Sin coordenadas no hay pin en el mapa: el badge lo dice
+                      con un ✕ en gris en vez de inventar un número. */}
+                  {pinPorId.has(r.id) ? (
+                    <span className="order-badge">{pinPorId.get(r.id)}</span>
+                  ) : (
+                    <span
+                      className="order-badge"
+                      style={{ background: 'var(--line)', color: 'var(--muted)' }}
+                      title="Sin ubicación en el mapa"
+                    >
+                      ✕
+                    </span>
+                  )}
                   <div>
                     <div className="folio">{r.clave}</div>
                     <div className="titulo">
@@ -403,14 +472,16 @@ function FijacionExternaView({
                   paddingTop: 11,
                 }}
               >
-                <a
-                  className="btn sm ghost"
-                  href={`https://maps.google.com/?q=${r.lat},${r.lng}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  📍 Maps
-                </a>
+                {r.latitud != null && r.longitud != null && (
+                  <a
+                    className="btn sm ghost"
+                    href={`https://maps.google.com/?q=${r.latitud},${r.longitud}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    📍 Maps
+                  </a>
+                )}
                 {r.estado === 'PENDIENTE' && (
                   <button className="btn sm ok" onClick={() => abrirFijado(r)}>
                     Marcar fijado
@@ -425,11 +496,11 @@ function FijacionExternaView({
                 className="btn ghost sm"
                 onClick={() => setMostrar((m) => m + BLOQUE)}
               >
-                Ver más ({conCoords.length - mostrar} restantes)
+                Ver más ({filtrados.length - mostrar} restantes)
               </button>
             </div>
           )}
-          {conCoords.length > 0 && (
+          {filtrados.length > 0 && (
             <div
               style={{
                 textAlign: 'center',
@@ -438,7 +509,7 @@ function FijacionExternaView({
                 paddingBottom: 4,
               }}
             >
-              Mostrando {visibles.length} de {conCoords.length}
+              Mostrando {visibles.length} de {filtrados.length}
             </div>
           )}
         </div>
@@ -455,31 +526,29 @@ function FijacionExternaView({
         ></div>
       </div>
 
+      {/* .overlay/.modal del CSS global. El overlay casero centraba con
+          flex y el modal se acotaba a 90vh: cuando las fotos lo hacían más
+          alto que la pantalla, el encabezado (con el ✕) se recortaba por
+          arriba SIN forma de scrollear hasta él. Además, un tap en el fondo
+          cerraba tirando las fotos elegidas — ahora solo cierra si no hay
+          nada capturado ni una subida en curso. */}
       {fijando && (
         <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,.6)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 20,
+          className="overlay"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).className !== 'overlay') return;
+            if (guardando) return;
+            if (
+              (fotos.length > 0 || motivo.trim()) &&
+              !confirm('Tienes una captura a medias. ¿Descartarla?')
+            )
+              return;
+            cerrarFijado();
           }}
-          onClick={cerrarFijado}
         >
           <div
-            style={{
-              background: 'var(--panel)',
-              border: '1px solid var(--line)',
-              borderRadius: 16,
-              padding: 20,
-              maxWidth: 520,
-              width: '100%',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
+            className="modal"
+            style={{ maxWidth: 520 }}
             onClick={(e) => e.stopPropagation()}
           >
             <div
@@ -499,7 +568,11 @@ function FijacionExternaView({
                 </div>
                 <h3 style={{ margin: '3px 0' }}>Marcar como fijado</h3>
               </div>
-              <button className="btn sm ghost" onClick={cerrarFijado}>
+              <button
+                className="btn sm ghost"
+                onClick={cerrarFijado}
+                disabled={guardando}
+              >
                 ✕
               </button>
             </div>

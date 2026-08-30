@@ -3,7 +3,6 @@
 // Tarjeta de una incidencia con sus acciones. Traducido del HTML.
 // ============================================================
 import {
-  AREAS_ASIGNABLES,
   EST_COLOR,
   EST_LABEL,
   NIVEL_COLOR,
@@ -18,17 +17,18 @@ export type ModoReasign = 'solicitar' | 'aprobar';
 type IncCardProps = {
   i: Incidencia;
   can: CanInc;
-  role: string;
   email: string;
   onEstatus: (recordId: string, estatus: EstatusInc) => void;
   onRepair: (i: Incidencia) => void;
   onEvidence: (i: Incidencia) => void;
   onChat: (i: Incidencia) => void;
   onReassign: (i: Incidencia, mode: ModoReasign) => void;
-  onAsignar: (i: Incidencia) => void;
-  onAsignarArea: (i: Incidencia) => void;
+  /** Corrección del validador: cambia qué incidencia es, según el catálogo. */
+  onCorregir: (i: Incidencia) => void;
   onEdit: (i: Incidencia) => void;
   onRechazarRep: (i: Incidencia) => void;
+  /** Primera foto del reporte. La tarjeta la enseña sin abrir la galería. */
+  foto?: string | null;
   onPrevalidar: (i: Incidencia) => void;
   onDescartar: (i: Incidencia) => void;
   slaMap: SlaMap;
@@ -38,17 +38,16 @@ type IncCardProps = {
 function IncCard({
   i,
   can,
-  role,
   email,
   onEstatus,
   onRepair,
   onEvidence,
   onChat,
   onReassign,
-  onAsignar,
-  onAsignarArea,
+  onCorregir,
   onEdit,
   onRechazarRep,
+  foto,
   onPrevalidar,
   onDescartar,
   slaMap,
@@ -62,20 +61,24 @@ function IncCard({
   // del área que dice el catálogo.
   const areaReal = areaEfectiva(i);
   const redirigida = tieneAreaRedirigida(i);
-  const asignable =
-    can.asignarTecnico &&
-    i.estatus === 'en_proceso' &&
-    AREAS_ASIGNABLES.includes(areaReal);
-  // Solo tiene sentido dirigir el trabajo mientras siga abierta.
-  const puedeAsignarArea =
-    can.asignarArea && !['cerrada', 'no_reparado'].includes(i.estatus);
   const mio =
     (i.captured_by || '').toLowerCase() === (email || '').toLowerCase();
-  const puedeEditar = can.validar
-    ? activa
-    : role === 'reportante' &&
-      mio &&
-      ['por_validar', 'rechazada'].includes(i.estatus);
+
+  // EDITAR es del REPORTANTE, sobre lo suyo y solo mientras la base se lo
+  // permita (política inc_upd_reportante: por_validar y rechazada).
+  //
+  // OJO con `can.crear` en vez de `role === 'reportante'`: `role` es el rol
+  // PRINCIPAL, el que gana por ROLE_PRIORITY. Quien tiene reportante +
+  // reparación acaba con role='reparacion' y perdía el botón sobre sus
+  // propias capturas — el mismo defecto que ya nos costó la bandeja de Dulce.
+  // `can.crear` mira TODOS sus roles.
+  const puedeEditar =
+    !!can.crear && mio && ['por_validar', 'rechazada'].includes(i.estatus);
+
+  // CORREGIR es del VALIDADOR: cambia la clasificación contra el catálogo.
+  // Mientras la incidencia siga viva; una cerrada ya no se reclasifica.
+  const puedeCorregir = !!can.validar && activa;
+
   const slaRep =
     i.estatus === 'en_proceso' && i.sla_reparacion_inicio
       ? slaInfo(
@@ -127,6 +130,21 @@ function IncCard({
         </div>
       </div>
       {i.observaciones && <div className="obs">“{i.observaciones}”</div>}
+      {/* La foto del reporte, abajo del encabezado (pliego petitorio,
+          ago-2026): el validador decide viendo, no abriendo la galería.
+          El tamaño lo gobierna .inc-foto en index.css — en celular toma el
+          ancho completo de la tarjeta, en escritorio se acota, y el
+          object-fit:cover evita que una foto vertical de celular estire la
+          tarjeta tres pantallas. Clic = galería completa. */}
+      {foto && (
+        <img
+          className="inc-foto"
+          src={foto}
+          alt={'Evidencia del reporte ' + (i.folio || '')}
+          loading="lazy"
+          onClick={() => onEvidence(i)}
+        />
+      )}
       <div className="chips">
         {i.nivel && (
           <span
@@ -139,6 +157,15 @@ function IncCard({
             Nivel {i.nivel}
           </span>
         )}
+        {i.lado && (
+          <span
+            className="tag"
+            style={{ background: '#a78bfa22', color: '#a78bfa' }}
+            title="Lado de la cara reportada"
+          >
+            🧭 Cara {i.lado}
+          </span>
+        )}
         {i.tipo && <span className="tag">{i.tipo}</span>}
         {i.origen && <span className="tag">Origen: {i.origen}</span>}
         {i.area_responsable && <span className="tag">→ {i.area_responsable}</span>}
@@ -149,14 +176,6 @@ function IncCard({
             title="Área que realmente repara (el catálogo decía otra)"
           >
             🛠 Repara: {i.assigned_area}
-          </span>
-        )}
-        {i.asignado_tecnico && (
-          <span
-            className="tag"
-            style={{ background: '#22c55e22', color: '#22c55e' }}
-          >
-            👷 {i.asignado_tecnico}
           </span>
         )}
         {i.campania && <span className="tag">🎯 {i.campania}</span>}
@@ -278,33 +297,28 @@ function IncCard({
             🔀 Revisar reasignación
           </button>
         )}
-        {puedeAsignarArea && (
-          <button className="btn ghost sm" onClick={() => onAsignarArea(i)}>
-            🛠 {redirigida ? 'Cambiar área que repara' : 'Asignar área'}
-          </button>
-        )}
-        {asignable && (
-          <button className="btn ghost sm" onClick={() => onAsignar(i)}>
-            👷 {i.asignado_tecnico ? 'Reasignar técnico' : 'Asignar técnico'}
+        {puedeCorregir && (
+          <button className="btn ghost sm" onClick={() => onCorregir(i)}>
+            🧭 Corrección
           </button>
         )}
       </div>
       {can.validar && i.estatus === 'por_validar' && (
         <div className="inc-actions">
+          {/* UN SOLO BOTÓN. Estuvo partido en "Validar" y "Validar y asignar"
+              mientras existió la asignación de técnico; al quitarse ésta, la
+              segunda mitad se quedó sin nada que hacer.
+
+              El rechazo tampoco está aquí: ver la nota del final. */}
           <button
             className="btn ok sm"
             onClick={() => onEstatus(i.record_id, 'en_proceso')}
           >
-            ✓ Aprobar y asignar
-          </button>
-          <button
-            className="btn hi sm"
-            onClick={() => onEstatus(i.record_id, 'rechazada')}
-          >
-            ✕ Rechazar
+            ✓ Validar incidencia
           </button>
         </div>
       )}
+
       {prevalidacionPend && (
         <div style={{ marginTop: 9 }}>
           <span
@@ -350,3 +364,64 @@ function IncCard({
 }
 
 export default IncCard;
+
+// ============================================================
+// NOTA — POR QUÉ YA NO HAY "RECHAZAR" EN LA VALIDACIÓN DE CAPTURA
+// ============================================================
+// Se quitó a petición de Erik el 26-ago-2026, con el argumento de que ya
+// existe un rechazo en la etapa de reparación. Son dos cosas distintas y vale
+// la pena que quede escrito, porque la diferencia se nota hasta que estorba:
+//
+//   Rechazar reparación (sigue ahí)  El trabajo se hizo mal. Regresa al ÁREA
+//                                    para que lo rehaga. Estado: en_proceso.
+//
+//   Rechazar captura (se quitó)      El reporte está mal: sitio equivocado,
+//                                    duplicado, o no es una incidencia.
+//                                    Regresaba al REPORTANTE. Estado:
+//                                    rechazada.
+//
+// CONSECUENCIA: `rechazada` ya no se puede alcanzar desde la app. Con eso
+// quedan sin uso el botón ✏️ Editar del reportante en ese estado, y la rama
+// de aviso `rechazada` que se agregó en `ajustes_incidencias_base.sql`.
+// Ninguna de las dos estorba —hay filas viejas en ese estado y la RLS lo
+// sigue permitiendo— pero tampoco se van a ejercitar.
+//
+// Y queda una pregunta abierta: qué hace el validador con un reporte que está
+// mal. Hoy sus únicas salidas son aprobarlo —y meterle carga a un área por
+// algo que no existe, que además le cuenta en los indicadores— o dejarlo en
+// `por_validar` para siempre. Si eso empieza a doler, la vuelta es traer este
+// botón con otro nombre ("↩ Devolver al reportante"), no inventar un estado
+// nuevo: el flujo completo ya existe del otro lado.
+
+// ============================================================
+// NOTA — SE QUITÓ TODO LO DE ASIGNAR TÉCNICO (ago-2026)
+// ============================================================
+// Por decisión de Erik. La razón de fondo: eran DOS modelos distintos
+// conviviendo, y el segundo es el que la operación necesita.
+//
+//   MODELO VIEJO — la persona.  Un coordinador reparte incidencias entre
+//     técnicos de tres áreas (AREAS_ASIGNABLES). El trabajo "es de alguien".
+//
+//   MODELO NUEVO — la máquina.  El operador llega a su sitio y ve TODO lo
+//     abierto ahí, sea de quien sea. Si le toca, lo repara; si no, va con
+//     quien le toca y pregunta por qué sigue detenido. El trabajo "es del
+//     área", y la máquina es de su operador.
+//
+// Con los dos encendidos, una incidencia podía estar asignada a un técnico y
+// al mismo tiempo ser responsabilidad del operador del sitio, sin que ninguno
+// de los dos supiera cuál de las dos cosas mandaba.
+//
+// QUÉ SE QUITÓ: el botón, el modal, el chip 👷, el filtro "Mis asignadas", la
+// constante AREAS_ASIGNABLES y el segundo botón de validar.
+//
+// QUÉ NO SE TOCÓ, y por qué:
+//   · Las columnas `asignado_tecnico`, `asignado_tecnico_email`,
+//     `asignado_por`, `asignado_en` y `assigned_to` siguen en la base con lo
+//     que ya tenían. Borrarlas perdería el histórico de quién estuvo asignado
+//     a qué, que es dato real aunque el flujo cambie.
+//   · El trigger `notificar_tecnico` queda DESACTIVADO, no borrado
+//     (ver quitar_asignacion_tecnico.sql). Reactivarlo es una línea.
+//   · `repaired_by_email` no tiene nada que ver con esto y sigue igual: es
+//     quien REGISTRÓ la reparación, y de ahí sale "Quién repara más". Que el
+//     operador arregle algo y se le cuente sigue funcionando exactamente
+//     igual que antes.

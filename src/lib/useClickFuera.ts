@@ -17,17 +17,29 @@
 import { useEffect } from 'react';
 import type { RefObject } from 'react';
 
+/**
+ * Acepta UN ref o VARIOS. Los varios existen por los portales: cuando el
+ * panel se monta en document.body (ver la nota de CampanaNotifs), deja de
+ * ser hijo del ref del botón en el DOM, y con un solo ref cada toque DENTRO
+ * del panel contaría como "fuera" y lo cerraría. Con dos refs —el botón y el
+ * panel— tocar cualquiera de los dos cuenta como adentro.
+ */
 export function useClickFuera(
-  ref: RefObject<HTMLElement | null>,
+  refs:
+    | RefObject<HTMLElement | null>
+    | Array<RefObject<HTMLElement | null>>,
   activo: boolean,
   cerrar: () => void
 ) {
   useEffect(() => {
     if (!activo) return;
+    const lista = Array.isArray(refs) ? refs : [refs];
 
     const alTocar = (e: MouseEvent | TouchEvent) => {
-      const el = ref.current;
-      if (el && !el.contains(e.target as Node)) cerrar();
+      const dentro = lista.some(
+        (r) => r.current && r.current.contains(e.target as Node)
+      );
+      if (!dentro) cerrar();
     };
     const alTeclear = (e: KeyboardEvent) => {
       if (e.key === 'Escape') cerrar();
@@ -41,5 +53,6 @@ export function useClickFuera(
       document.removeEventListener('touchstart', alTocar);
       document.removeEventListener('keydown', alTeclear);
     };
-  }, [ref, activo, cerrar]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activo, cerrar]);
 }

@@ -427,7 +427,7 @@ function ImportarRutasExcelModal({ onClose, onImportado }: Props) {
                   : '📄 Elige primero la unidad'}
               <input
                 type="file"
-                accept=".xlsx,.xls"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 style={{ display: 'none' }}
                 onChange={onArchivo}
                 disabled={leyendo || !unidad}

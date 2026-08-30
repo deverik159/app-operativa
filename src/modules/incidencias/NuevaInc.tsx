@@ -9,10 +9,20 @@
 // fotos y se ligan solo a las caras de esa falla. Así, en un sitio con varias
 // incidencias, se sabe qué foto corresponde a qué cara.
 // ============================================================
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
-import { UNIDADES, NIVEL_COLOR } from '../../lib/constants';
+import {
+  UNIDADES,
+  NIVEL_COLOR,
+  LADOS,
+  UNIDADES_CON_LADO,
+} from '../../lib/constants';
 import { caraLabel, distKm } from '../../lib/helpers';
+import {
+  catalogoParaMuebles,
+  llaveCatalogo,
+  filtrarCatalogo,
+} from '../../lib/catalogo';
 import SubirArchivos from '../../components/SubirArchivos';
 import type {
   CatalogoIncidencia,
@@ -81,8 +91,12 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
   const [site, setSite] = useState<Sitio | null>(null);
   const [caras, setCaras] = useState<InventarioItem[]>([]);
   const [selCaras, setSelCaras] = useState<string[]>([]);
-  const [catOpts, setCatOpts] = useState<CatalogoIncidencia[]>([]);
+  /** El catálogo TAL CUAL viene de la base, con todas sus copias. */
+  const [catCrudo, setCatCrudo] = useState<CatalogoIncidencia[]>([]);
   const [catSel, setCatSel] = useState<CatalogoIncidencia | null>(null);
+  const [catBusca, setCatBusca] = useState('');
+  /** Lado de la cara. Solo aplica en las unidades de UNIDADES_CON_LADO. */
+  const [lado, setLado] = useState('');
   const [campania, setCampania] = useState('');
   const [obs, setObs] = useState('');
   const [nombreBiobox, setNombreBiobox] = useState('');
@@ -240,23 +254,25 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
   useEffect(() => {
     let active = true;
     setCatSel(null);
+    setCatBusca('');
+    setLado('');
     (async () => {
+      // ANTES: aquí se colapsaba por `detalle` con un Set y se conservaba LA
+      // PRIMERA fila que devolviera Postgres. Como el catálogo repite la
+      // misma incidencia con distinta área según el medio, el área con la que
+      // nacía el reporte dependía del orden de la consulta — "Arte con
+      // grafiti" podía salir a Digital estando en una cara impresa.
+      //
+      // Ahora se guarda el catálogo COMPLETO y el colapso se hace abajo, ya
+      // sabiendo qué caras se marcaron. `select('*')` porque `tipo_medio`
+      // puede o no existir en la tabla y pedirla por nombre daría 400.
       const { data } = await sb
         .from('catalogo_incidencias')
-        .select('detalle,area,impacto,origen,tipo,tipo_mueble')
+        .select('*')
         .ilike('unidad_negocio', un)
         .limit(1000);
       if (!active) return;
-      const seen = new Set<string>();
-      const opts: CatalogoIncidencia[] = [];
-      ((data as CatalogoIncidencia[]) || []).forEach((r) => {
-        if (r.detalle && !seen.has(r.detalle)) {
-          seen.add(r.detalle);
-          opts.push(r);
-        }
-      });
-      opts.sort((a, b) => a.detalle.localeCompare(b.detalle));
-      setCatOpts(opts);
+      setCatCrudo((data as CatalogoIncidencia[]) || []);
     })();
     return () => {
       active = false;
@@ -354,6 +370,56 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
     if (editandoId === id) limpiarEditor();
   };
 
+  /**
+   * El catálogo ya colapsado para ESTAS caras.
+   *
+   * El medio sale de las caras marcadas; si todavía no hay ninguna marcada,
+   * del sitio (todas las caras de un sitio suelen compartir medio). Cuando el
+   * sitio mezcla impreso y digital y hay caras de los dos marcadas, se deja
+   * sin preferencia de medio a propósito: no hay una respuesta correcta, y
+   * elegir una al azar sería peor que mostrar las dos entradas del catálogo
+   * y dejar que quien captura escoja. Por eso la etiqueta trae el área.
+   */
+  /**
+   * Las opciones que le tocan a las caras marcadas.
+   *
+   * El mueble sale de las caras marcadas; si todavía no hay ninguna, de todas
+   * las del sitio. Se RESTRINGE, no se prefiere: dentro de un mueble cada
+   * incidencia existe una sola vez, así que el área ya viene decidida y no
+   * hay nada que adivinar. Ver lib/catalogo.ts.
+   */
+  const cat = useMemo(() => {
+    const marcadas = caras.filter((c) => selCaras.includes(c.vendor_face_id));
+    const base = marcadas.length ? marcadas : caras;
+    return catalogoParaMuebles(
+      catCrudo,
+      base.map((c) => c.tipo_mueble)
+    );
+  }, [catCrudo, caras, selCaras]);
+
+  const catOpts = cat.opciones;
+
+  /** Lo que se ve en el desplegable tras aplicar el buscador. */
+  const catVisibles = useMemo(() => {
+    const base = filtrarCatalogo(catOpts, catBusca);
+    // La opción elegida nunca desaparece de la lista: si el buscador la
+    // filtrara, el <select> mostraría otra como seleccionada y se guardaría
+    // una incidencia distinta de la que se está viendo.
+    if (catSel && !base.some((o) => llaveCatalogo(o) === llaveCatalogo(catSel)))
+      return [catSel, ...base];
+    return base;
+  }, [catOpts, catBusca, catSel]);
+
+  /** ¿La partida mezcla muebles? Entonces una misma falla puede ir a dos áreas. */
+  const mezclaMuebles = useMemo(() => {
+    const marcadas = caras.filter((c) => selCaras.includes(c.vendor_face_id));
+    const base = marcadas.length ? marcadas : caras;
+    return new Set(base.map((c) => c.tipo_mueble).filter(Boolean)).size > 1;
+  }, [caras, selCaras]);
+
+  /** ¿Esta unidad tiene dos caras por estructura? */
+  const pideLado = UNIDADES_CON_LADO.includes(un);
+
   const totalRows = lineas.reduce((s, l) => s + l.caras.length, 0);
   const unaCara = caras.length === 1;
   // Con una sola cara no se usan partidas: la incidencia elegida es el reporte.
@@ -399,6 +465,15 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
       return;
     }
 
+    // El lado va con el REPORTE completo, no con cada partida: se captura una
+    // vez arriba y baja a todas las filas. Si estuviera por partida habría que
+    // repetirlo en cada falla del mismo sitio, que es la forma más rápida de
+    // que alguien lo deje mal en la tercera.
+    if (pideLado && !lado) {
+      alert('En ' + un + ' hay que decir de qué lado es la cara.');
+      return;
+    }
+
     setBusy(true);
     // Un grupo por partida. Dentro de cada grupo, producto partida × cara →
     // una fila de incidencias por cara, todas compartiendo las mismas fotos.
@@ -426,6 +501,7 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
           tipo: l.cat.tipo,
           campania: l.campania || null,
           observaciones: l.obs || null,
+          lado: pideLado ? lado : null,
         };
       }),
     }));
@@ -433,11 +509,30 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
     setBusy(false);
   };
 
+  /** ¿Hay captura que se perdería al cerrar? */
+  const hayCaptura =
+    lineas.length > 0 || filesLinea.length > 0 || !!catSel || !!obs.trim();
+
+  /**
+   * Cierre con seguro. En celular el overlay deja franjas de unos 8px a los
+   * lados del modal: un roce ahí tiraba un reporte con N partidas y fotos
+   * tomadas en campo, sin preguntar. Y mientras guarda, no se cierra.
+   */
+  const cerrarSeguro = () => {
+    if (busy) return;
+    if (
+      hayCaptura &&
+      !confirm('Tienes un reporte a medio capturar. ¿Descartarlo?')
+    )
+      return;
+    onClose();
+  };
+
   return (
     <div
       className="overlay"
       onClick={(e) => {
-        if ((e.target as HTMLElement).className === 'overlay') onClose();
+        if ((e.target as HTMLElement).className === 'overlay') cerrarSeguro();
       }}
     >
       <div className="modal">
@@ -588,6 +683,25 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
           </div>
         )}
 
+        {/* El lado va aquí arriba, junto al sitio, y no dentro de cada
+            partida: es una característica de a DÓNDE se fue, igual que la
+            clave, no de qué se encontró. */}
+        {site && pideLado && (
+          <div className="field">
+            <label>Lado de la cara</label>
+            <select value={lado} onChange={(e) => setLado(e.target.value)}>
+              <option value="">— Selecciona —</option>
+              {LADOS.map((x) => (
+                <option key={x}>{x}</option>
+              ))}
+            </select>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+              En {un} la estructura tiene dos caras. Sin esto el técnico llega
+              sin saber a cuál va.
+            </div>
+          </div>
+        )}
+
         {site && esBiobox && (
           <div className="field">
             <label>Nombre del Biobox (del inventario)</label>
@@ -692,22 +806,53 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
             </div>
 
             <div className="field">
-              <label>Incidencia (catálogo · {catOpts.length} opciones)</label>
+              <label>
+                Incidencia (catálogo · {catVisibles.length} de {catOpts.length})
+              </label>
+              <input
+                placeholder="Buscar por incidencia o por área…"
+                value={catBusca}
+                onChange={(e) => setCatBusca(e.target.value)}
+                style={{ marginBottom: 8 }}
+              />
               <select
-                value={catSel ? catSel.detalle : ''}
+                value={catSel ? llaveCatalogo(catSel) : ''}
                 onChange={(e) =>
                   setCatSel(
-                    catOpts.find((o) => o.detalle === e.target.value) || null
+                    catOpts.find((o) => llaveCatalogo(o) === e.target.value) ||
+                      null
                   )
                 }
               >
                 <option value="">— Selecciona —</option>
-                {catOpts.map((o) => (
-                  <option key={o.detalle} value={o.detalle}>
+                {catVisibles.map((o) => (
+                  <option key={llaveCatalogo(o)} value={llaveCatalogo(o)}>
                     {o.detalle}
+                    {o.area ? ` (${o.area})` : ''}
                   </option>
                 ))}
               </select>
+              {catBusca && catVisibles.length === 0 && (
+                <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
+                  Nada coincide con “{catBusca}”.
+                </div>
+              )}
+              {cat.sinCatalogo.length > 0 && (
+                <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
+                  ⚠️ El catálogo no tiene entradas para el mueble{' '}
+                  <b>{cat.sinCatalogo.join(', ')}</b>, así que abajo salen
+                  TODAS las incidencias y el área no viene decidida. Revisa el
+                  área que trae la opción entre paréntesis antes de guardar.
+                </div>
+              )}
+              {mezclaMuebles && cat.restringido && (
+                <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
+                  ⚠️ Marcaste caras de muebles distintos. Una misma falla puede
+                  tocarle a áreas diferentes según el mueble — por eso hay
+                  opciones repetidas con distinta área entre paréntesis. Si es
+                  el caso, conviene capturarlas como dos partidas.
+                </div>
+              )}
             </div>
 
             {catSel && (
@@ -883,7 +1028,9 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
         )}
 
         <div className="modal-actions">
-          <button className="btn ghost" onClick={onClose}>
+          {/* Mismo seguro que el fondo: Cancelar junto a Guardar en un
+              teléfono se toca por error, y tira las fotos de campo. */}
+          <button className="btn ghost" onClick={cerrarSeguro}>
             Cancelar
           </button>
           <button

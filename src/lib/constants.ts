@@ -75,7 +75,8 @@ export const AREAS_RESP = [
   'TI',
 ];
 
-export const AREAS_ASIGNABLES = ['Mantenimiento', 'Fijación', 'Implementaciones'];
+// AREAS_ASIGNABLES se retiró en ago-2026 junto con la asignación a técnico.
+// Decidía en qué áreas aparecía el botón; sin botón, no decide nada.
 export const DEPARTAMENTOS_REPORTE = ['Monitoreo', 'Operaciones', 'SRD', 'PPD'];
 export const TIPOS = [
   'Vandalismo',
@@ -85,6 +86,21 @@ export const TIPOS = [
 ];
 
 export const SLA_VALIDADOR_HORAS = 24;
+
+/**
+ * Lado de la cara reportada. En Vía Verde una misma estructura tiene cara
+ * norte y cara sur, y sin este dato el técnico llega sin saber a cuál va.
+ */
+export const LADOS = ['Norte', 'Sur', 'Ambas'] as const;
+
+/**
+ * Unidades donde se pregunta el lado.
+ *
+ * Vive aquí y no en la base a propósito: la columna `incidencias.lado` es
+ * general, y la decisión de dónde tiene sentido preguntarla es de producto.
+ * Agregar una unidad es editar esta línea, no migrar la tabla.
+ */
+export const UNIDADES_CON_LADO = ['Vía Verde'];
 
 // ============================================================
 // Auto-ruteo fuera del horario del validador

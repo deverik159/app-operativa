@@ -15,6 +15,7 @@ import {
   estaInstalada,
 } from '../lib/push';
 import type { EstadoPush } from '../lib/push';
+import { esIOS as esIOSLib } from '../lib/plataforma';
 
 function BotonPush({ email }: { email: string }) {
   const [estado, setEstado] = useState<EstadoPush | null>(null);
@@ -60,7 +61,7 @@ function BotonPush({ email }: { email: string }) {
     }
   };
 
-  const esIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const esIOS = esIOSLib();
 
   return (
     <>
@@ -86,13 +87,16 @@ function BotonPush({ email }: { email: string }) {
       {abierto && (
         <div
           className="overlay"
-          style={{ alignItems: 'center' }}
           onClick={(e) => {
             if ((e.target as HTMLElement).className.includes('overlay'))
               setAbierto(false);
           }}
         >
-          <div className="modal" style={{ maxWidth: 420 }}>
+          {/* margin:auto centra COMO alignItems:center, pero sin su defecto:
+              cuando el modal es más alto que la pantalla, con align-items el
+              desborde superior queda fuera de alcance; con margin auto el
+              overlay scrollea completo. */}
+          <div className="modal" style={{ maxWidth: 420, margin: 'auto 0' }}>
             <h2 style={{ margin: '0 0 3px' }}>Notificaciones en el celular</h2>
             <p className="phint">
               Para enterarte sin tener que abrir la app.

@@ -20,6 +20,7 @@ import {
   slaHoras,
   fueraHorarioValidador,
   areaEfectiva,
+  idCorto,
 } from '../../lib/helpers';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import IncCard from '../../components/IncCard';
@@ -31,9 +32,9 @@ import EvidenciaModal from './EvidenciaModal';
 import ChatModal from './ChatModal';
 import ReasignModal from './ReasignModal';
 import type { ModoReasign } from './ReasignModal';
-import AsignarTecnicoModal from './AsignarTecnicoModal';
-import AsignarAreaModal from './AsignarAreaModal';
 import EditModal from './EditModal';
+import CorreccionModal from './CorreccionModal';
+import TablaIncidencias from './TablaIncidencias';
 import MotivoModal from './MotivoModal';
 import type {
   CanInc,
@@ -98,6 +99,14 @@ function IncidenciasView({
   onBandejaCount,
 }: Props) {
   const [items, setItems] = useState<Incidencia[]>([]);
+  /** record_id → url de la PRIMERA foto del reporte, para la tarjeta. */
+  const [fotos, setFotos] = useState<Record<string, string>>({});
+  /**
+   * Tarjetas o tabla. La tabla es la trazabilidad completa (pliego
+   * petitorio); solo se ofrece en modo 'todas' — en la bandeja lo que
+   * importa es accionar, no barrer.
+   */
+  const [vista, setVista] = useState<'tarjetas' | 'tabla'>('tarjetas');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [slaMap, setSlaMap] = useState<SlaMap>({});
@@ -107,7 +116,6 @@ function IncidenciasView({
   const [fUN, setFUN] = useState('Todas');
   const [fEstado, setFEstado] = useState('Todos');
   const [fArea, setFArea] = useState('Todas');
-  const [soloMias, setSoloMias] = useState(false);
   /** Rango de fechas de captura. Vacío = sin límite por ese lado. */
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
@@ -127,9 +135,8 @@ function IncidenciasView({
     inc: Incidencia;
     mode: ModoReasign;
   } | null>(null);
-  const [asignarOf, setAsignarOf] = useState<Incidencia | null>(null);
-  const [areaOf, setAreaOf] = useState<Incidencia | null>(null);
   const [editOf, setEditOf] = useState<Incidencia | null>(null);
+  const [corrigiendo, setCorrigiendo] = useState<Incidencia | null>(null);
   const [motivoOf, setMotivoOf] = useState<MotivoPend | null>(null);
 
   // --- Permisos ---
@@ -140,19 +147,19 @@ function IncidenciasView({
   );
   const esSoloViewer =
     misRoles.length > 0 && misRoles.every((r) => r === 'viewer');
-  // OJO con asignarTecnico y asignarArea: ambos hacen UPDATE sobre
-  // incidencias, y en la base SOLO existen políticas de UPDATE para manager,
-  // validador, reparacion y reportante. NO hay inc_upd_coordinador. Si se
-  // gatearan por 'coordinador', el botón aparecería y el guardado afectaría
-  // 0 filas sin lanzar error — falla silenciosa. Por eso van con validador.
+  // `asignarArea` ya no existe. Se quitó junto con AsignarAreaModal: hacía lo
+  // mismo que Reasignar —el área dice "esto no es mío, va para allá"— pero
+  // sin motivo y sin pasar por el validador, escribiendo `assigned_area` de
+  // frente. Dos botones que se leen igual acaban usándose al azar, y ahí los
+  // indicadores de carga por área dejan de significar algo. El flujo único es
+  // Reasignar. Las filas que ya traen `assigned_area` se siguen respetando:
+  // `areaEfectiva` la lee y la tarjeta la enseña con el chip 🛠 Repara.
   const can: CanInc = {
     crear: has('reportante'),
     validar: has('validador'),
     reparar: has('reparacion') || has('coordinador'),
     reasignar: has('reparacion') || has('coordinador'),
     aprobarReasign: has('validador'),
-    asignarTecnico: has('validador'),
-    asignarArea: has('validador'),
   };
 
   // --- Carga ---
@@ -167,6 +174,29 @@ function IncidenciasView({
     if (error) setErr('incidencias: ' + error.message);
     setItems((data as Incidencia[]) || []);
     setLoading(false);
+
+    // La foto del reporte, para pintarla en la tarjeta (pliego petitorio,
+    // ago-2026). Va DESPUÉS de soltar el loading: la lista se usa igual sin
+    // fotos, y así no se le cobra la espera.
+    //
+    // Una sola consulta para toda la lista, no una por tarjeta. Se pide en
+    // orden descendente y el mapa se sobreescribe al iterar: la última
+    // escritura por record_id es la foto MÁS VIEJA — la primera que se subió
+    // al reportar, que es la que cuenta la historia.
+    const { data: evs } = await sb
+      .from('evidencias')
+      .select('record_id,url')
+      .eq('tipo', 'foto')
+      .eq('etapa', 'reporte')
+      .order('creado_en', { ascending: false })
+      .limit(2000);
+    const m: Record<string, string> = {};
+    ((evs as { record_id: string | null; url: string }[]) || []).forEach(
+      (e) => {
+        if (e.record_id) m[e.record_id] = e.url;
+      }
+    );
+    setFotos(m);
   }, []);
 
   useEffect(() => {
@@ -225,7 +255,6 @@ function IncidenciasView({
     setFEstado('Todos');
     setFDesde('');
     setFHasta('');
-    setSoloMias(false);
     setResaltado(focoRecordId);
     onFocoAplicado?.();
   }, [focoRecordId, items, loading, onFocoAplicado]);
@@ -292,25 +321,41 @@ function IncidenciasView({
 
       if (tiene('reparacion') && i.estatus === 'en_proceso') return true;
 
-      // Al reportante le toca lo suyo que fue rechazado: es lo único que
-      // puede accionar (la política inc_upd_reportante solo lo deja editar
-      // en 'por_validar' y 'rechazada').
-      if (
-        tiene('reportante') &&
-        (i.captured_by || '').toLowerCase() === yo &&
-        i.estatus === 'rechazada'
-      )
+      // El reportante ve TODO lo suyo, en cualquier estatus. Antes solo veía
+      // lo rechazado —lo accionable— y el efecto fue que capturaba y su
+      // reporte desaparecía de su pantalla: no tenía DÓNDE ver en qué va
+      // (pliego petitorio, ago-2026). El badge del menú sigue contando solo
+      // lo accionable, para que no infle.
+      if (tiene('reportante') && (i.captured_by || '').toLowerCase() === yo)
         return true;
 
       return false;
     });
   }, [items, misRoles, email]);
 
-  // El badge de "Mi bandeja" vive en el menú (App), pero solo aquí se sabe
-  // cuántas hay: se reporta hacia arriba.
+  // El badge de "Mi bandeja" cuenta solo lo ACCIONABLE, no lo visible. La
+  // bandeja del reportante ahora enseña todas sus capturas; si el badge las
+  // contara todas, marcaría "12" permanentes y dejaría de significar "te
+  // toca hacer algo".
+  const accionables = useMemo(() => {
+    const tiene = (r: string) => misRoles.includes(r);
+    if (tiene('manager') || tiene('coordinador') || tiene('viewer'))
+      return bandeja.length;
+    const yo = (email || '').toLowerCase();
+    return items.filter(
+      (i) =>
+        (tiene('validador') &&
+          (i.estatus === 'por_validar' || i.estatus === 'reparado')) ||
+        (tiene('reparacion') && i.estatus === 'en_proceso') ||
+        (tiene('reportante') &&
+          (i.captured_by || '').toLowerCase() === yo &&
+          i.estatus === 'rechazada')
+    ).length;
+  }, [items, bandeja.length, misRoles, email]);
+
   useEffect(() => {
-    onBandejaCount?.(bandeja.length);
-  }, [bandeja.length, onBandejaCount]);
+    onBandejaCount?.(accionables);
+  }, [accionables, onBandejaCount]);
 
   // Áreas elegibles al dirigir una incidencia: las del catálogo MÁS las que
   // ya existen en los datos (Urban, Imprenta, Op. Bio Box… no están en
@@ -350,14 +395,9 @@ function IncidenciasView({
         // Sin fecha no se puede afirmar que caiga en el rango.
         return false;
       }
-      if (
-        soloMias &&
-        (i.asignado_tecnico_email || '').toLowerCase() !== email.toLowerCase()
-      )
-        return false;
       if (q) {
         const s =
-          `${i.folio} ${i.nombre_incidencia} ${i.direccion} ${i.campania} ${i.asignado_tecnico || ''}`.toLowerCase();
+          `${i.folio} ${i.nombre_incidencia} ${i.direccion} ${i.campania}`.toLowerCase();
         if (!s.includes(q.toLowerCase())) return false;
       }
       return true;
@@ -372,8 +412,6 @@ function IncidenciasView({
     fEstado,
     fDesde,
     fHasta,
-    soloMias,
-    email,
   ]);
 
   // --- Acciones ---
@@ -507,7 +545,7 @@ function IncidenciasView({
         return {
           ...d,
           ...base,
-          record_id: crypto.randomUUID().slice(0, 8),
+          record_id: idCorto(),
           estatus: (auto ? 'en_proceso' : 'por_validar') as EstatusInc,
           requiere_prevalidacion: auto,
         };
@@ -515,6 +553,61 @@ function IncidenciasView({
     }));
 
     const rows = gruposConId.flatMap((g) => g.filas);
+
+    // ══ REGLA DE DUPLICIDAD (Erik, 29-ago-2026) ══
+    // Misma unidad + mismo medio + misma incidencia + MISMA CARA, y la
+    // existente sigue 'en_proceso' → no se captura otra. La cara es la que
+    // acota: dos vallas distintas con grafiti son dos trabajos distintos.
+    //
+    // Solo bloquea contra 'en_proceso', literal a como se pidió: una que
+    // siga 'por_validar' no bloquea — ese duplicado lo caza el validador,
+    // que ahora ve la foto en la tarjeta.
+    //
+    // Es una verificación de mejor esfuerzo del lado del cliente: si dos
+    // personas capturan lo mismo en el mismo segundo, pasan las dos. Para
+    // esta operación es suficiente; un candado duro necesitaría un índice
+    // único parcial en la base y rompería el flujo del validador al aprobar.
+    const carasNuevas = [
+      ...new Set(rows.map((r) => r.clave_medio).filter(Boolean)),
+    ] as string[];
+    const nombresNuevos = [
+      ...new Set(rows.map((r) => r.nombre_incidencia).filter(Boolean)),
+    ] as string[];
+    if (carasNuevas.length && nombresNuevos.length) {
+      const { data: abiertas } = await sb
+        .from('incidencias')
+        .select('folio,nombre_incidencia,clave_medio,unidad_negocio,medio')
+        .eq('estatus', 'en_proceso')
+        .in('clave_medio', carasNuevas)
+        .in('nombre_incidencia', nombresNuevos);
+      const choques = rows
+        .map((r) => {
+          const d = ((abiertas as Incidencia[] | null) || []).find(
+            (x) =>
+              x.clave_medio === r.clave_medio &&
+              x.nombre_incidencia === r.nombre_incidencia &&
+              x.unidad_negocio === r.unidad_negocio &&
+              (x.medio || '') === (r.medio || '')
+          );
+          return d ? { fila: r, folio: d.folio } : null;
+        })
+        .filter(Boolean) as { fila: (typeof rows)[0]; folio: string | null }[];
+      if (choques.length) {
+        alert(
+          'Esta incidencia ya se encuentra registrada y en proceso, no es ' +
+            'necesario capturar una nueva.\n\n' +
+            choques
+              .map(
+                (c) =>
+                  `• ${c.fila.nombre_incidencia} (cara ${c.fila.clave_medio}) → folio ${c.folio || '—'}`
+              )
+              .join('\n') +
+            '\n\nQuita esa partida del reporte para guardar el resto.'
+        );
+        return;
+      }
+    }
+
     const { data, error } = await sb.from('incidencias').insert(rows).select();
     if (error) {
       alert('No se pudo crear: ' + error.message);
@@ -622,7 +715,9 @@ function IncidenciasView({
           ? 'Por validar y reparaciones por aprobar.'
           : modo === 'bandeja' && role === 'reparacion'
             ? 'Asignadas a tu área.'
-            : 'Todo lo que tu rol puede ver (filtrado por seguridad).'}
+            : modo === 'bandeja'
+              ? 'Aquí puedes consultar todo lo relacionado a tus incidencias reportadas. Lo rechazado es lo que te toca corregir.'
+              : 'Todo lo que tu rol puede ver (filtrado por seguridad).'}
       </p>
 
       <div className="toolbar">
@@ -632,8 +727,12 @@ function IncidenciasView({
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        {/* Cada filtro dice QUÉ filtra en su primera opción: sin eso, tres
+            selects que dicen "Todas / Todas / Todos" no se distinguen
+            (pliego petitorio). El value se queda igual: es el que comparan
+            los filtros. */}
         <select value={fUN} onChange={(e) => setFUN(e.target.value)}>
-          <option>Todas</option>
+          <option value="Todas">Unidad: todas</option>
           {UNIDADES.map((u) => (
             <option key={u}>{u}</option>
           ))}
@@ -647,7 +746,7 @@ function IncidenciasView({
           ))}
         </select>
         <select value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
-          <option value="Todos">Todos</option>
+          <option value="Todos">Estatus: todos</option>
           {/* `reportado` sale del selector: es un estatus heredado que ya
               no produce el flujo (todo nace en `por_validar` o, con
               auto-ruteo, en `en_proceso`). Se queda en EST_LABEL porque
@@ -662,25 +761,31 @@ function IncidenciasView({
               </option>
             ))}
         </select>
-        {/* Rango de fechas de captura. */}
-        <input
-          type="date"
-          className="fecha"
-          value={fDesde}
-          max={fHasta || undefined}
-          onChange={(e) => setFDesde(e.target.value)}
-          title="Capturadas desde"
-          style={{ width: 'auto' }}
-        />
-        <input
-          type="date"
-          className="fecha"
-          value={fHasta}
-          min={fDesde || undefined}
-          onChange={(e) => setFHasta(e.target.value)}
-          title="Capturadas hasta"
-          style={{ width: 'auto' }}
-        />
+        {/* Rango de fechas de captura. Etiqueta VISIBLE y no solo `title`:
+            los tooltips no existen en táctil, y en iOS un input date vacío
+            no pinta placeholder — eran dos pastillas en blanco idénticas. */}
+        <label className="filtro-fecha">
+          <span>Desde</span>
+          <input
+            type="date"
+            className="fecha"
+            value={fDesde}
+            max={fHasta || undefined}
+            onChange={(e) => setFDesde(e.target.value)}
+            title="Capturadas desde"
+          />
+        </label>
+        <label className="filtro-fecha">
+          <span>Hasta</span>
+          <input
+            type="date"
+            className="fecha"
+            value={fHasta}
+            min={fDesde || undefined}
+            onChange={(e) => setFHasta(e.target.value)}
+            title="Capturadas hasta"
+          />
+        </label>
         {(fDesde || fHasta) && (
           <button
             className="btn ghost sm"
@@ -693,30 +798,26 @@ function IncidenciasView({
             ✕ fechas
           </button>
         )}
-        {(misRoles.includes('reparacion') || misRoles.includes('manager')) && (
-          <label
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 13,
-              color: 'var(--muted)',
-              whiteSpace: 'nowrap',
-            }}
+        {modo === 'todas' && (
+          <button
+            className="btn ghost sm"
+            onClick={() =>
+              setVista((v) => (v === 'tarjetas' ? 'tabla' : 'tarjetas'))
+            }
+            title="Cambiar entre tarjetas y tabla de trazabilidad"
           >
-            <input
-              type="checkbox"
-              style={{ width: 'auto' }}
-              checked={soloMias}
-              onChange={(e) => setSoloMias(e.target.checked)}
-            />
-            Mis asignadas
-          </label>
+            {vista === 'tarjetas' ? '▦ Ver tabla' : '🗂 Ver tarjetas'}
+          </button>
         )}
       </div>
 
       {visibles.length === 0 ? (
         <div className="empty">Sin incidencias para mostrar.</div>
+      ) : modo === 'todas' && vista === 'tabla' ? (
+        <TablaIncidencias
+          items={visibles}
+          puedeExportar={has('coordinador')}
+        />
       ) : (
         <div className="inc-list">
           {visibles.map((i) => (
@@ -739,8 +840,8 @@ function IncidenciasView({
             <IncCard
               i={i}
               can={can}
-              role={role}
               email={email}
+              foto={fotos[i.record_id]}
               onEstatus={cambiarEstatus}
               onRepair={setRepairing}
               onEvidence={setEvidenceOf}
@@ -749,8 +850,7 @@ function IncidenciasView({
                 onChatLeido(inc.record_id);
               }}
               onReassign={(inc, mode) => setReassignOf({ inc, mode })}
-              onAsignar={setAsignarOf}
-              onAsignarArea={setAreaOf}
+              onCorregir={setCorrigiendo}
               onEdit={setEditOf}
               onRechazarRep={(inc) =>
                 setMotivoOf({ inc, kind: 'rechazo_rep' })
@@ -784,15 +884,6 @@ function IncidenciasView({
           onSave={(p) => guardarReparacion(repairing, p)}
         />
       )}
-      {evidenceOf && (
-        <EvidenciaModal
-          inc={evidenceOf}
-          email={email}
-          esValidador={has('validador')}
-          esSoloViewer={esSoloViewer}
-          onClose={() => setEvidenceOf(null)}
-        />
-      )}
       {chatOf && (
         <ChatModal
           inc={chatOf}
@@ -817,27 +908,13 @@ function IncidenciasView({
           }}
         />
       )}
-      {asignarOf && (
-        <AsignarTecnicoModal
-          inc={asignarOf}
-          email={email}
-          onClose={() => setAsignarOf(null)}
-          onDone={() => {
-            setAsignarOf(null);
-            // Alcance 'sitio' toca filas que no están en memoria: se recarga.
-            cargar();
-            setTimeout(onRecargarNotifs, 400);
-          }}
-        />
-      )}
-      {areaOf && (
-        <AsignarAreaModal
-          inc={areaOf}
-          areas={areasElegibles}
-          onClose={() => setAreaOf(null)}
+      {corrigiendo && (
+        <CorreccionModal
+          inc={corrigiendo}
+          onClose={() => setCorrigiendo(null)}
           onDone={(rid, patch) => {
             patchInc(rid, patch);
-            setAreaOf(null);
+            setCorrigiendo(null);
             setTimeout(onRecargarNotifs, 400);
           }}
         />
@@ -845,11 +922,29 @@ function IncidenciasView({
       {editOf && (
         <EditModal
           inc={editOf}
+          onAbrirEvidencia={setEvidenceOf}
           onClose={() => setEditOf(null)}
           onDone={(rid, patch) => {
             patchInc(rid, patch);
             setEditOf(null);
+            // Vuelve a `por_validar`: al validador le tiene que llegar.
+            setTimeout(onRecargarNotifs, 400);
           }}
+        />
+      )}
+      {/* LA EVIDENCIA VA HASTA EL FINAL A PROPÓSITO. Todos los modales usan
+          la misma clase `.overlay` y por tanto el mismo z-index, así que
+          manda el orden del DOM: el último se pinta encima. Como la galería
+          se puede abrir DESDE la edición del reportante, tiene que quedar
+          arriba — si se montara antes, se abriría por debajo y parecería que
+          el botón no hizo nada. */}
+      {evidenceOf && (
+        <EvidenciaModal
+          inc={evidenceOf}
+          email={email}
+          esValidador={has('validador')}
+          esSoloViewer={esSoloViewer}
+          onClose={() => setEvidenceOf(null)}
         />
       )}
       {motivoOf && (

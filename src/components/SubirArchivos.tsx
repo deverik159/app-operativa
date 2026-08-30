@@ -15,6 +15,7 @@
 // mismo.
 // ============================================================
 import { useRef, useState, useEffect } from 'react';
+import { prepararArchivos } from '../lib/comprimirImagen';
 
 type Props = {
   /** Recibe los archivos elegidos. Se acumulan en el padre, no aquí. */
@@ -133,12 +134,22 @@ function SubirArchivos({
   const galRef = useRef<HTMLInputElement>(null);
   // Se calcula una vez: el tipo de puntero no cambia durante la sesión.
   const [tactil] = useState(usaTactil);
+  const [procesando, setProcesando] = useState(false);
 
-  const manejar = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const manejar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    if (files.length) onFiles(files);
     // Permite volver a elegir el MISMO archivo (si no, onChange no dispara).
     e.target.value = '';
+    if (!files.length) return;
+    // Comprimir/validar AQUÍ, al elegir — no al guardar. Antes una foto de
+    // iPhone de 8 MB (o un video que rebasaba el bucket) se descubría hasta
+    // el final de la revisión, y el error tumbaba TODO el guardado con un
+    // mensaje de "mala señal" que invitaba a reintentar en vano.
+    setProcesando(true);
+    const { listos, rechazos } = await prepararArchivos(files);
+    setProcesando(false);
+    if (rechazos.length) alert('No se agregaron:\n\n' + rechazos.join('\n'));
+    if (listos.length) onFiles(listos);
   };
 
   const estiloBoton: React.CSSProperties = {
@@ -158,17 +169,18 @@ function SubirArchivos({
             type="button"
             className="btn"
             style={estiloBoton}
-            disabled={disabled}
+            disabled={disabled || procesando}
             onClick={() => camRef.current?.click()}
           >
-            <span style={{ fontSize: 17 }}>📷</span> Tomar foto
+            <span style={{ fontSize: 17 }}>📷</span>{' '}
+            {procesando ? 'Procesando…' : 'Tomar foto'}
           </button>
         )}
         <button
           type="button"
           className="btn ghost"
           style={estiloBoton}
-          disabled={disabled}
+          disabled={disabled || procesando}
           onClick={() => galRef.current?.click()}
         >
           <span style={{ fontSize: 17 }}>🖼️</span>{' '}

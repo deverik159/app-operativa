@@ -9,6 +9,8 @@
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { slaHoras } from '../../lib/helpers';
+import { cargarNombres } from '../../lib/nombres';
+import type { MapaNombres } from '../../lib/nombres';
 import KpiView from './KpiView';
 import type { Incidencia, SlaArea, SlaMap } from '../../types/db';
 
@@ -18,19 +20,24 @@ const LIMITE_INCIDENCIAS = 1000;
 function IndicadoresView() {
   const [items, setItems] = useState<Incidencia[]>([]);
   const [slaMap, setSlaMap] = useState<SlaMap>({});
+  const [nombres, setNombres] = useState<MapaNombres>({});
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
 
   useEffect(() => {
     (async () => {
-      const [{ data, error }, { data: slas }] = await Promise.all([
+      const [{ data, error }, { data: slas }, mapaNombres] = await Promise.all([
         sb
           .from('incidencias')
           .select('*')
           .order('fecha_reporte', { ascending: false })
           .limit(LIMITE_INCIDENCIAS),
         sb.from('sla_areas').select('area,sla_horas'),
+        // Nunca falla: si la RLS corta las tablas de personas, vuelve vacío y
+        // los rankings caen al usuario del correo.
+        cargarNombres(),
       ]);
+      setNombres(mapaNombres);
       if (error) setErr('incidencias: ' + error.message);
       setItems((data as Incidencia[]) || []);
 
@@ -53,7 +60,7 @@ function IndicadoresView() {
   return (
     <>
       {err && <div className="err">{err}</div>}
-      <KpiView items={items} slaMap={slaMap} />
+      <KpiView items={items} slaMap={slaMap} nombres={nombres} />
     </>
   );
 }

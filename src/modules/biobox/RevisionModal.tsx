@@ -26,9 +26,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import { AREAS_AUTORUTEO } from '../../lib/constants';
-import { fueraHorarioValidador } from '../../lib/helpers';
+import { fueraHorarioValidador, idCorto } from '../../lib/helpers';
 import SubirArchivos from '../../components/SubirArchivos';
-import { catalogoUnico, llaveCatalogo } from '../../lib/catalogo';
+import { catalogoParaMuebles, llaveCatalogo } from '../../lib/catalogo';
+import EstadoMaquinaPanel from './EstadoMaquinaPanel';
 import type {
   UbicacionRevision,
   ChecklistPlantilla,
@@ -170,14 +171,15 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
 
       if (cat.error) setAviso('No se pudo cargar el catálogo de incidencias.');
       else
-        // Una fila por incidencia. Entre las copias gana la del tipo de
-        // mueble de ESTA máquina, que es de donde salen el área y el nivel
-        // con los que nacería la incidencia.
+        // Una fila por incidencia, ACOTADA al mueble de esta máquina. Es de
+        // donde salen el área y el nivel con los que nacería la incidencia,
+        // y el mismo `detalle` cambia de área según el mueble: "Adicional
+        // dañado" en Ecovallas Fijas es Mantenimiento y en Ecovallas Digital
+        // es Digital. Ver lib/catalogo.ts.
         setCatalogo(
-          catalogoUnico(
-            (cat.data as CatalogoIncidencia[]) || [],
-            ubic.tipo_mueble
-          )
+          catalogoParaMuebles((cat.data as CatalogoIncidencia[]) || [], [
+            ubic.tipo_mueble,
+          ]).opciones
         );
 
       setCargando(false);
@@ -274,7 +276,8 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     const { error } = await sb.storage
       .from(BUCKET_EVIDENCIAS)
       .upload(path, f, { upsert: false });
-    if (error) return null;
+    // El motivo real importa: "Payload too large" no se arregla con señal.
+    if (error) throw new Error(`${f.name}: ${error.message}`);
     return {
       tipo,
       path,
@@ -321,17 +324,22 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     }[] = [];
     for (const p of anomalias) {
       for (const f of marcas[p.id].files) {
-        const r = await subirUno(f, 'anomalia');
-        if (!r) {
+        try {
+          const r = await subirUno(f, 'anomalia');
+          subidos.push({ punto_id: p.id, ...r });
+        } catch (ex: any) {
           setGuardando(false);
           setPaso('');
+          // Se dice CUÁL archivo y POR QUÉ: el mensaje anterior culpaba a la
+          // señal siempre, y con un archivo demasiado grande el usuario
+          // reintentaba en vano lo mismo.
           setErr(
-            'No se pudo subir una foto. No se guardó nada: vuelve a intentar ' +
-              'cuando tengas mejor señal.'
+            'No se pudo subir una foto (' +
+              (ex?.message || ex) +
+              '). No se guardó nada: revisa el archivo o la señal e intenta de nuevo.'
           );
           return;
         }
-        subidos.push({ punto_id: p.id, ...r });
       }
     }
 
@@ -430,7 +438,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
             AREAS_AUTORUTEO.includes(cat.area || '') && fueraHorarioValidador();
           return {
             ...base,
-            record_id: crypto.randomUUID().slice(0, 8),
+            record_id: idCorto(),
             estatus: (auto ? 'en_proceso' : 'por_validar') as EstatusInc,
             requiere_prevalidacion: auto,
 
@@ -594,6 +602,12 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
           {ubic.tipo_mueble && <span className="tag">{ubic.tipo_mueble}</span>}
           {ubic.municipio && <span className="tag">{ubic.municipio}</span>}
         </div>
+
+        {/* QUÉ TRAE ABIERTO ESTA MÁQUINA. Va ANTES del checklist a propósito:
+            si el operador se entera después de contestar los 23 puntos, ya
+            volvió a levantar la incidencia que llevaba dos meses reportada.
+            No depende de que el checklist cargue — se pinta aparte. */}
+        <EstadoMaquinaPanel siteId={ubic.site_id} />
 
         {err && <div className="err">{err}</div>}
         {aviso && <div className="banner">{aviso}</div>}

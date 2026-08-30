@@ -52,10 +52,28 @@ export type EstadoFijacionExterna = 'PENDIENTE' | 'COMPLETO' | 'RESUELTO';
  * tabla `incidencias`. PK = `record_id` (text, no uuid: se genera con
  * crypto.randomUUID().slice(0,8)).
  *
- * Varias columnas las llena la base por trigger, NO el frontend:
- *   folio (set_folio), catorcena/semana/plaza/latitud/longitud (set_derivados),
- *   sla_reparacion_inicio / sla_validacion_inicio (set_sla),
- *   estatus en_proceso automático (inc_auto_en_proceso).
+ * QUÉ LLENA LA BASE Y QUÉ NO. Verificado leyendo las funciones el
+ * 26-ago-2026; el comentario anterior estaba equivocado y por eso se deja
+ * escrito el detalle:
+ *
+ *   folio                  → set_folio,  BEFORE INSERT
+ *   semana, catorcena      → set_derivados, BEFORE INSERT. Solo eso, y solo
+ *                            si vienen en null. NO toca la ubicación.
+ *   sla_reparacion_inicio  → set_sla, BEFORE INSERT + UPDATE. Se reinicia al
+ *                            ENTRAR a 'en_proceso' y también si cambia
+ *                            `area_responsable` estando ya en 'en_proceso'.
+ *   sla_validacion_inicio  → set_sla, al entrar a 'reparado'.
+ *   estatus 'en_proceso'   → inc_auto_en_proceso, BEFORE INSERT.
+ *
+ * LO QUE MANDA EL FRONTEND, aunque parezca derivado: direccion, municipio,
+ * plaza, medio, tipo_mueble y nombre_biobox. Se copian de `inventario` al
+ * capturar (NuevaInc) y hay que volver a copiarlos si alguien cambia la
+ * clave de sitio o la cara (EditModal). Nada del lado del servidor los
+ * recalcula.
+ *
+ * COLUMNAS MUERTAS: `latitud` y `longitud`. Ningún trigger las escribe y
+ * ningún componente las lee — la navegación sale de `inventario`. Solo traen
+ * dato en filas migradas del sistema viejo.
  */
 export interface Incidencia {
   record_id: string;
@@ -92,6 +110,13 @@ export interface Incidencia {
   nivel: Nivel | string | null;
   origen: string | null;
   tipo: string | null;
+  /**
+   * 'Norte' | 'Sur' | 'Ambas'. Solo se captura en las unidades de
+   * UNIDADES_CON_LADO (hoy Vía Verde). NULL en el resto y en todo lo
+   * capturado antes de ago-2026. La base tiene un CHECK que solo acepta esos
+   * tres valores o NULL — ver incidencias_lado.sql.
+   */
+  lado: string | null;
   captured_by: string | null;
 
   // Flujo
@@ -106,6 +131,12 @@ export interface Incidencia {
   validator_at: string | null;
 
   // Asignación de área / técnico
+  /**
+   * ── Columnas del flujo de asignación a técnico, retirado en ago-2026 ──
+   * Ya nada las escribe. Se conservan con lo que tenían porque son histórico
+   * real de quién estuvo asignado a qué. Ver quitar_asignacion_tecnico.sql y
+   * la nota al final de components/IncCard.tsx.
+   */
   assigned_to: string | null;
   assigned_area: string | null;
   asignado_tecnico: string | null;
@@ -221,7 +252,13 @@ export interface Evidencia {
   referencia: string | null;
 }
 
-/** tabla `tecnicos` — catálogo por área para AsignarTecnicoModal. */
+/**
+ * tabla `tecnicos` — padrón de campo por área.
+ *
+ * Ya no se usa para asignar (ese flujo se quitó en ago-2026), pero sigue
+ * viva: de aquí salen los nombres del ranking "Quién repara más" en los
+ * indicadores. Ver lib/nombres.ts.
+ */
 export interface Tecnico {
   id: number;
   nombre: string;
@@ -239,6 +276,16 @@ export interface CatalogoIncidencia {
   origen: string | null;
   tipo: string | null;
   tipo_mueble: string | null;
+  /**
+   * Opcional a propósito: no está confirmado que la tabla tenga esta columna
+   * hoy. Por eso las consultas del catálogo usan `select('*')` — pedirla por
+   * nombre daría error 400 de PostgREST si no existe, y el modal se quedaría
+   * en blanco. Con `*` viene si está y no estorba si no.
+   *
+   * Cuando existe, es el criterio con MÁS peso para desempatar entre copias
+   * de la misma incidencia: es el que decide el área. Ver lib/catalogo.ts.
+   */
+  tipo_medio?: string | null;
   unidad_negocio?: string | null;
 }
 
@@ -368,9 +415,6 @@ export interface CanInc {
   reparar?: boolean;
   reasignar?: boolean;
   aprobarReasign?: boolean;
-  asignarTecnico?: boolean;
-  /** Dirigir la incidencia al área que de verdad la va a reparar. */
-  asignarArea?: boolean;
 }
 
 /** Horas de SLA por área en minúsculas. Ej: { mantenimiento: 48 }. */

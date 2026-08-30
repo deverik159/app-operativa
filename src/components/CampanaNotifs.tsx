@@ -4,6 +4,7 @@
 // Solo presentación: el estado vive en useNotificaciones().
 // ============================================================
 import { useState, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useClickFuera } from '../lib/useClickFuera';
 import type { Notificacion } from '../types/db';
 
@@ -26,11 +27,40 @@ function CampanaNotifs({
 }: Props) {
   const [abierto, setAbierto] = useState(false);
 
-  // El ref envuelve al botón Y al panel: ver la nota en useClickFuera sobre
-  // por qué el botón no puede quedar fuera.
+  // ── Dos pestañas: Incidencias y Mensajes (pliego petitorio, ago-2026) ──
+  // El problema real: 50 mensajes de un chat entierran el aviso de una
+  // incidencia nueva. Se parte por `evento`: 'chat' a su pestaña, TODO lo
+  // demás a Incidencias — así un evento nuevo que se invente mañana cae en
+  // Incidencias en vez de desaparecer, que es el lado seguro del default.
+  const [pestana, setPestana] = useState<'incidencias' | 'chat'>('incidencias');
+  const deChat = notifs.filter((n) => n.evento === 'chat');
+  const deIncidencias = notifs.filter((n) => n.evento !== 'chat');
+  const noLeidasChat = deChat.filter((n) => !n.leida).length;
+  const noLeidasInc = deIncidencias.filter((n) => !n.leida).length;
+  const visibles = pestana === 'chat' ? deChat : deIncidencias;
+
+  // ══ POR QUÉ EL PANEL VA EN UN PORTAL (bug de iPhone, ago-2026) ══
+  //
+  // El panel vivía dentro de la barra superior, que es `position:sticky`, y
+  // en celular el CSS lo volvía `position:fixed`. En Chrome eso funciona; en
+  // Safari de iOS un fixed ADENTRO de un sticky es un bug conocido: el panel
+  // se PINTA donde debe, pero su área táctil queda donde estaría sin el
+  // fixed — sobre todo con la página ya scrolleada. Resultado: pestañas
+  // visibles que no responden al tacto. Se comprobó que en Chromium con
+  // touch emulado sí funcionaban, lo que acotó el problema a Safari.
+  //
+  // El portal monta el panel directamente en <body>: sin ancestro sticky,
+  // el fixed es fixed de verdad y el área táctil coincide con lo pintado.
+  //
+  // Consecuencias que el portal arrastra, ya resueltas:
+  //   · el panel deja de ser hijo DOM del botón → useClickFuera recibe DOS
+  //     refs (botón y panel), si no, tocar el panel lo cerraría.
+  //   · deja de heredar el contexto de apilamiento de la barra → su z-index
+  //     ahora compite con el menú inferior (900) y debe ganarle: 950 en CSS.
   const caja = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const cerrar = useCallback(() => setAbierto(false), []);
-  useClickFuera(caja, abierto, cerrar);
+  useClickFuera([caja, panel], abierto, cerrar);
 
   return (
     <div style={{ position: 'relative' }} ref={caja}>
@@ -61,12 +91,13 @@ function CampanaNotifs({
         )}
       </button>
 
-      {abierto && (
+      {abierto &&
+        createPortal(
         // El tamaño y la posición viven en CSS (.panel-flotante) porque en
         // celular cambian por completo: dejan de colgar del botón y pasan a
         // ser una hoja del ancho de la pantalla. Con estilos en línea no se
         // podía aplicar la media query.
-        <div className="panel-flotante">
+        <div className="panel-flotante" ref={panel}>
           <div
             style={{
               display: 'flex',
@@ -84,13 +115,72 @@ function CampanaNotifs({
             )}
           </div>
 
+          {/* Cada pestaña trae SU contador de no leídas: es lo que evita que
+              el chat entierre a las incidencias — aunque estés parado en
+              Mensajes, el numerito de Incidencias te avisa. */}
+          <div
+            style={{
+              display: 'flex',
+              borderBottom: '1px solid var(--line)',
+            }}
+          >
+            {(
+              [
+                ['incidencias', 'Incidencias', noLeidasInc],
+                ['chat', 'Mensajes', noLeidasChat],
+              ] as const
+            ).map(([k, t, n]) => (
+              <button
+                key={k}
+                onClick={() => setPestana(k)}
+                style={{
+                  flex: 1,
+                  background: 'none',
+                  border: 'none',
+                  // El subrayado activo es un box-shadow interno y NO un
+                  // borderBottom: mezclar `border` (atajo) con `borderBottom`
+                  // (propiedad suelta) en estilos de React está documentado
+                  // como fuente de actualizaciones impredecibles entre
+                  // renders — justo lo que un toggle no puede permitirse.
+                  boxShadow:
+                    pestana === k
+                      ? 'inset 0 -2px 0 var(--accent)'
+                      : 'none',
+                  color: pestana === k ? 'var(--txt)' : 'var(--muted)',
+                  font: 'inherit',
+                  fontSize: 13,
+                  fontWeight: pestana === k ? 700 : 400,
+                  padding: '9px 0',
+                  cursor: 'pointer',
+                }}
+              >
+                {t}
+                {n > 0 && (
+                  <span
+                    style={{
+                      marginLeft: 6,
+                      background: 'var(--accent)',
+                      color: '#151515',
+                      borderRadius: 20,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      padding: '0 5px',
+                    }}
+                  >
+                    {n}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
           {error ? (
             // Distinguir "falló la consulta" de "no hay nada": si no, un
             // bloqueo de RLS se ve igual que una bandeja tranquila.
             <div className="err" style={{ margin: 12 }}>
               {error}
             </div>
-          ) : notifs.length === 0 ? (
+          ) : visibles.length === 0 ? (
             <div
               style={{
                 padding: 20,
@@ -99,10 +189,12 @@ function CampanaNotifs({
                 textAlign: 'center',
               }}
             >
-              Sin notificaciones.
+              {pestana === 'chat'
+                ? 'Sin mensajes de chat.'
+                : 'Sin avisos de incidencias.'}
             </div>
           ) : (
-            notifs.map((n) => (
+            visibles.map((n) => (
               <div
                 key={n.id}
                 onClick={() => {
@@ -126,7 +218,8 @@ function CampanaNotifs({
               </div>
             ))
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

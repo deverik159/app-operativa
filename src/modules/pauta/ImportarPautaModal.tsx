@@ -240,7 +240,11 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
     <div
       className="overlay"
       onClick={(e) => {
-        if ((e.target as HTMLElement).className === 'overlay') onClose();
+        // Con la RPC corriendo NO se cierra: un roce en la franja lateral
+        // del overlay dejaba la importación a ciegas — la catorcena SÍ se
+        // reemplazaba en el servidor pero el usuario nunca veía el resultado.
+        if ((e.target as HTMLElement).className === 'overlay' && !importando)
+          onClose();
       }}
     >
       <div className="modal">
@@ -255,7 +259,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
           <label>Archivo de pauta (.xlsx)</label>
           <input
             type="file"
-            accept=".xlsx,.xls"
+            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             onChange={abrirArchivo}
             disabled={leyendo || importando}
           />
@@ -389,7 +393,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
         )}
 
         <div className="modal-actions">
-          <button className="btn ghost" onClick={onClose}>
+          <button className="btn ghost" onClick={onClose} disabled={importando}>
             {resultado ? 'Cerrar' : 'Cancelar'}
           </button>
           {!resultado && (

@@ -12,6 +12,7 @@
 // no dejarlo con un botón que no responde.
 // ============================================================
 import { sb } from './supabase';
+import { esIOS } from './plataforma';
 
 export type EstadoPush =
   | 'no-soportado'      // el navegador no tiene Web Push
@@ -21,11 +22,6 @@ export type EstadoPush =
   | 'activo';           // suscrito y funcionando
 
 const VAPID = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
-
-/** ¿Es iPhone o iPad? */
-function esIOS(): boolean {
-  return /iPhone|iPad|iPod/i.test(navigator.userAgent);
-}
 
 /** ¿La app está corriendo instalada (no en una pestaña del navegador)? */
 export function estaInstalada(): boolean {

@@ -127,7 +127,10 @@ function UsuariosView() {
     cargar();
   };
 
-  const delRole = async (id: number) => {
+  const delRole = async (id: number, etiqueta: string) => {
+    // confirm como en delUser: en táctil, un roce al hacer scroll caía en
+    // el ✕ y borraba permisos RLS al instante y sin aviso.
+    if (!confirm(`¿Quitar el rol "${etiqueta}"?`)) return;
     const { error } = await sb.from('usuario_roles').delete().eq('id', id);
     if (error) alert(error.message);
     else cargar();
@@ -269,13 +272,26 @@ function UsuariosView() {
                     {r.unidad_negocio ? ` · ${r.unidad_negocio}` : ''}
                     {r.medio ? ` · ${r.medio}` : ''}
                     {r.departamento ? ` · ${r.departamento}` : ''}
-                    <span
-                      onClick={() => delRole(r.id)}
+                    <button
+                      type="button"
+                      className="btn-icono"
+                      onClick={() => delRole(r.id, ROLE_LABEL[r.rol] || r.rol)}
+                      aria-label="Quitar este rol"
                       title="Quitar este rol"
-                      style={{ marginLeft: 6, cursor: 'pointer', fontWeight: 800 }}
+                      style={{
+                        // Dentro del pill: área táctil amplia sin engordar
+                        // el chip — el padding negativo la expande hacia
+                        // afuera del renglón.
+                        minWidth: 32,
+                        minHeight: 32,
+                        margin: '-8px 0 -8px 2px',
+                        fontSize: 13,
+                        fontWeight: 800,
+                        color: 'inherit',
+                      }}
                     >
                       ✕
-                    </span>
+                    </button>
                   </span>
                 ))}
               </div>

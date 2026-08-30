@@ -8,6 +8,8 @@
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { AREAS_RESP } from '../../lib/constants';
+import { idCorto } from '../../lib/helpers';
+import type { CatalogoIncidencia } from '../../types/db';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
 import type { Incidencia, Reasignacion } from '../../types/db';
@@ -24,6 +26,32 @@ type Props = {
 
 function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
   const [busy, setBusy] = useState(false);
+
+  // Las áreas elegibles salen del CATÁLOGO, no de la constante AREAS_RESP.
+  // La constante trae 7 áreas; el catálogo real tiene más — Adm. Comercial,
+  // MKT, Op. Bio Box, Urban… — y quien reasignaba no encontraba la suya
+  // (pliego petitorio, ago-2026: "falta el área de Adm. Comercial").
+  // AREAS_RESP se queda como semilla por si el catálogo no carga.
+  const [areas, setAreas] = useState<string[]>([...AREAS_RESP]);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const { data } = await sb
+        .from('catalogo_incidencias')
+        .select('area')
+        .limit(1000);
+      if (!vivo || !data) return;
+      const set = new Set<string>(AREAS_RESP);
+      (data as Pick<CatalogoIncidencia, 'area'>[]).forEach((r) => {
+        const a = (r.area || '').trim();
+        if (a) set.add(a);
+      });
+      setAreas([...set].sort());
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   // --- modo solicitar ---
   const [areaDestino, setAreaDestino] = useState(
@@ -79,7 +107,7 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       }
     }
 
-    const rid = crypto.randomUUID().slice(0, 8);
+    const rid = idCorto();
     const { error } = await sb.from('reasignaciones').insert({
       reassign_id: rid,
       record_id: inc.record_id,
@@ -176,9 +204,11 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
                 value={areaDestino}
                 onChange={(e) => setAreaDestino(e.target.value)}
               >
-                {AREAS_RESP.filter((a) => a !== inc.area_responsable).map((a) => (
-                  <option key={a}>{a}</option>
-                ))}
+                {areas
+                  .filter((a) => a !== inc.area_responsable)
+                  .map((a) => (
+                    <option key={a}>{a}</option>
+                  ))}
               </select>
             </div>
             <div className="field">

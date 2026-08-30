@@ -13,6 +13,7 @@
 // todos los roles) y la salida.
 // ============================================================
 import { useState, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useClickFuera } from '../lib/useClickFuera';
 import { ROLE_LABEL, ROLE_ICON } from '../lib/constants';
 
@@ -39,9 +40,13 @@ function MenuUsuario({
   onSalir,
 }: Props) {
   const [abierto, setAbierto] = useState(false);
+  // Portal + dos refs, por la misma razón que CampanaNotifs: en iOS un
+  // panel fixed dentro de la barra sticky pinta bien pero puede no recibir
+  // los toques. Ver la nota larga en ese componente.
   const caja = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const cerrar = useCallback(() => setAbierto(false), []);
-  useClickFuera(caja, abierto, cerrar);
+  useClickFuera([caja, panel], abierto, cerrar);
 
   return (
     <div style={{ position: 'relative' }} ref={caja}>
@@ -56,8 +61,9 @@ function MenuUsuario({
         {iniciales}
       </button>
 
-      {abierto && (
-        <div role="menu" className="panel-flotante angosto">
+      {abierto &&
+        createPortal(
+          <div role="menu" className="panel-flotante angosto" ref={panel}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--line)' }}>
             <div style={{ fontSize: 14, fontWeight: 700 }}>{nombre}</div>
             <div
@@ -137,6 +143,10 @@ function MenuUsuario({
               className="btn ghost sm"
               style={{ width: '100%' }}
               onClick={() => {
+                // La confirmación de salir NO va aquí: vive en el `salir()`
+                // de App, que comparten este botón y el de la barra de
+                // escritorio. Si se confirmara aquí también, quien salga por
+                // el menú respondería la pregunta dos veces.
                 cerrar();
                 onSalir();
               }}
@@ -144,7 +154,8 @@ function MenuUsuario({
               Salir
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

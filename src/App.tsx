@@ -28,6 +28,7 @@ import FijacionExternaView from './modules/fijacion-externa/FijacionExternaView'
 import RutasView from './modules/rutas/RutasView';
 import PautaView from './modules/pauta/PautaView';
 import BioboxView from './modules/biobox/BioboxView';
+import DisponibilidadView from './modules/inventario/DisponibilidadView';
 import UsuariosView from './modules/usuarios/UsuariosView';
 import type { UsuarioRol } from './types/db';
 
@@ -352,6 +353,51 @@ function Main({ session }: { session: Session }) {
 
   const notifs = useNotificaciones();
 
+  /** Enfoca una incidencia llegada por push: pestaña "todas" + foco. */
+  const enfocarDesdePush = useCallback(
+    (recordId: string) => {
+      setTab('todas');
+      setFocoRecordId(recordId);
+      notifs.recargar();
+    },
+    // notifs.recargar es estable (useCallback en useNotificaciones).
+    [notifs.recargar]
+  );
+
+  /**
+   * Tocar una notificación push CON la app ya abierta.
+   *
+   * El service worker enfoca la ventana y manda este mensaje
+   * (sw.js → notificationclick). Sin este listener, el postMessage caía al
+   * vacío: la app solo pasaba al frente, sin navegar a la incidencia y con
+   * la campana desactualizada hasta el siguiente sondeo (25 s).
+   */
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMsg = (e: MessageEvent) => {
+      if (e.data?.tipo !== 'notificacion-abierta') return;
+      if (e.data.record_id) enfocarDesdePush(e.data.record_id);
+      else notifs.recargar();
+    };
+    navigator.serviceWorker.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg);
+  }, [enfocarDesdePush, notifs.recargar]);
+
+  /**
+   * Tocar una notificación push con la app CERRADA: el SW abre la app con
+   * `?record=...` en la URL (no puede hacer postMessage a una ventana que
+   * aún no existe). Se lee una vez al montar y se limpia la URL para que un
+   * refresh no re-enfoque una incidencia vieja.
+   */
+  useEffect(() => {
+    const record = new URLSearchParams(window.location.search).get('record');
+    if (!record) return;
+    window.history.replaceState(null, '', window.location.pathname);
+    enfocarDesdePush(record);
+    // Solo al montar: el parámetro llega únicamente en el arranque.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     (async () => {
       const { data, error } = await sb
@@ -377,6 +423,25 @@ function Main({ session }: { session: Session }) {
 
   // manager es comodín: puede lo que puede cualquier otro rol.
   const has = (r: string) => misRoles.includes(r) || misRoles.includes('manager');
+
+  /**
+   * LA confirmación de salir vive AQUÍ, una sola vez, y los dos botones que
+   * cierran sesión —el del menú del avatar y el de la barra de escritorio—
+   * llaman a esta misma función.
+   *
+   * La primera versión puso el confirm dentro de MenuUsuario, y el botón de
+   * escritorio quedó sin él: mismo texto, mismo icono, distinta conducta
+   * según por dónde salieras (lo cachó Erik, 29-ago-2026). Cuando una
+   * conducta tiene que ser idéntica en dos lugares, no se copia — se
+   * centraliza, y el gemelo no puede volver a divergir.
+   *
+   * La pantalla de "sin acceso" NO usa esto a propósito: ahí cerrar sesión
+   * es la salida esperada y preguntarlo solo estorbaría.
+   */
+  const salir = () => {
+    if (!confirm('¿Deseas salir de la app?')) return;
+    sb.auth.signOut();
+  };
 
   const esTabIncidencias = tab === 'bandeja' || tab === 'todas';
 
@@ -404,6 +469,15 @@ function Main({ session }: { session: Session }) {
       t: 'Incidencias',
     },
     { k: 'dashboard', ic: '📊', t: 'Indicadores' },
+    // Disponibilidad es para COMERCIAL, que hoy no tiene rol propio. Se
+    // abre a viewer además de manager y coordinador: viewer es el rol con
+    // el que entra quien solo consulta. Si algún día existe un rol
+    // `comercial`, se agrega aquí y nada más.
+    (has('manager') || has('coordinador') || has('viewer')) && {
+      k: 'disponibilidad',
+      ic: '🔎',
+      t: 'Disponibilidad',
+    },
     (has('manager') || has('reparacion') || has('coordinador')) && {
       k: 'fijacion_externa',
       ic: '📎',
@@ -509,14 +583,11 @@ function Main({ session }: { session: Session }) {
             role={role}
             misRoles={misRoles}
             misDep={misDep}
-            onSalir={() => sb.auth.signOut()}
+            onSalir={salir}
           />
           {/* En celular «Salir» vive dentro del menú del avatar: aquí solo
               ocupaba espacio en la barra más apretada. */}
-          <button
-            className="btn ghost sm solo-escritorio"
-            onClick={() => sb.auth.signOut()}
-          >
+          <button className="btn ghost sm solo-escritorio" onClick={salir}>
             Salir
           </button>
         </div>
@@ -564,6 +635,7 @@ function Main({ session }: { session: Session }) {
               />
             )}
             {tab === 'dashboard' && <IndicadoresView />}
+            {tab === 'disponibilidad' && <DisponibilidadView />}
             {tab === 'fijacion_externa' && (
               <FijacionExternaView
                 email={email}

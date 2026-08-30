@@ -45,7 +45,9 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const destino = (event.notification.data && event.notification.data.url) || '/';
+  const datos = event.notification.data || {};
+  const destino = datos.url || '/';
+  const recordId = datos.record_id || null;
 
   event.waitUntil(
     (async () => {
@@ -57,12 +59,24 @@ self.addEventListener('notificationclick', (event) => {
       for (const v of ventanas) {
         if ('focus' in v) {
           await v.focus();
-          // Se le avisa a la app para que refresque la campana al instante.
-          v.postMessage({ tipo: 'notificacion-abierta', url: destino });
+          // Se le avisa a la app para que navegue a la incidencia y refresque
+          // la campana. App.tsx escucha este mensaje (useEffect en Main).
+          v.postMessage({
+            tipo: 'notificacion-abierta',
+            url: destino,
+            record_id: recordId,
+          });
           return;
         }
       }
-      await self.clients.openWindow(destino);
+      // App cerrada: el record_id viaja en la URL para que App.tsx lo lea al
+      // arrancar y enfoque la incidencia. Sin esto, abrir desde la
+      // notificación aterrizaba en la portada como si nada.
+      const url = recordId
+        ? destino + (destino.includes('?') ? '&' : '?') + 'record=' +
+          encodeURIComponent(recordId)
+        : destino;
+      await self.clients.openWindow(url);
     })()
   );
 });

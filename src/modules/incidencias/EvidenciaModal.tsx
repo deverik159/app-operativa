@@ -78,13 +78,15 @@ function PieEvidencia({
         {partes.length > 0 && <> {partes.join(' · ')}</>}
       </span>
       {onBorrar && (
-        <span
+        <button
+          type="button"
+          className="btn-icono"
           onClick={onBorrar}
+          aria-label="Eliminar evidencia"
           title="Eliminar"
-          style={{ cursor: 'pointer', flexShrink: 0 }}
         >
           🗑
-        </span>
+        </button>
       )}
     </div>
   );
@@ -178,7 +180,9 @@ function EvidenciaModal({
       const { data: pub } = sb.storage
         .from(BUCKET_EVIDENCIAS)
         .getPublicUrl(path);
-      await sb.from('evidencias').insert({
+      // El error del insert se avisa: si la fila no se crea, el archivo
+      // queda en Storage pero la galería sale vacía y el usuario resube.
+      const { error: insErr } = await sb.from('evidencias').insert({
         record_id: inc.record_id,
         etapa: etapaUsar,
         tipo,
@@ -187,6 +191,10 @@ function EvidenciaModal({
         subido_por: email,
         referencia: ref || null,
       });
+      if (insErr)
+        alert(
+          f.name + ' se subió pero no se pudo registrar: ' + insErr.message
+        );
     }
 
     setSubiendo(false);
@@ -214,7 +222,9 @@ function EvidenciaModal({
     <div
       className="overlay"
       onClick={(e) => {
-        if ((e.target as HTMLElement).className === 'overlay') onClose();
+        // Mientras sube archivos, un roce en el fondo no debe cerrar.
+        if ((e.target as HTMLElement).className === 'overlay' && !subiendo)
+          onClose();
       }}
     >
       <div className="modal">

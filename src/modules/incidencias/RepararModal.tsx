@@ -119,7 +119,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
       }
       const url = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path).data
         .publicUrl;
-      const { data } = await sb
+      const { data, error: insErr } = await sb
         .from('evidencias')
         .insert({
           record_id: inc.record_id,
@@ -131,6 +131,12 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
         })
         .select()
         .single();
+      // Sin avisar el error, el archivo quedaba en Storage pero la fila no:
+      // la galería salía vacía "sin explicación" y el técnico resubía.
+      if (insErr) {
+        alert('La foto se subió pero no se pudo registrar: ' + insErr.message);
+        continue;
+      }
       if (data) setEvRep((prev) => [...prev, data as Evidencia]);
     }
 
@@ -195,7 +201,14 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
     <div
       className="overlay"
       onClick={(e) => {
-        if ((e.target as HTMLElement).className === 'overlay') onClose();
+        // Con una subida o el guardado en curso, un roce en el fondo no
+        // debe cerrar: dejaría archivos a medias.
+        if (
+          (e.target as HTMLElement).className === 'overlay' &&
+          !busy &&
+          !subiendoRep
+        )
+          onClose();
       }}
     >
       <div className="modal">
@@ -364,15 +377,26 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
         )}
 
         <div className="modal-actions">
-          <button className="btn ghost" onClick={onClose}>
+          <button
+            className="btn ghost"
+            onClick={onClose}
+            disabled={busy || subiendoRep}
+          >
             Cancelar
           </button>
+          {/* subiendoRep también bloquea: en 4G una foto tarda, y guardar a
+              media subida cerraba el modal perdiendo los archivos restantes
+              (o soltaba el alert falso de "adjunta al menos una foto"). */}
           <button
             className="btn warn"
             onClick={guardar}
-            disabled={busy || cargandoEv}
+            disabled={busy || cargandoEv || subiendoRep}
           >
-            {busy ? 'Guardando…' : '🔧 Guardar reparación'}
+            {busy
+              ? 'Guardando…'
+              : subiendoRep
+                ? 'Subiendo fotos…'
+                : '🔧 Guardar reparación'}
           </button>
         </div>
       </div>

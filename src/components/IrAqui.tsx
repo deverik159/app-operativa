@@ -27,6 +27,7 @@ import {
   esNavegable,
 } from '../lib/navegacion';
 import type { Destino } from '../lib/navegacion';
+import { esIOS } from '../lib/plataforma';
 
 type Props = {
   destino: { lat?: number | null; lng?: number | null; nombre?: string | null };
@@ -35,10 +36,7 @@ type Props = {
 };
 
 /** ¿Es iPhone/iPad? Solo ahí tiene sentido ofrecer Apple Maps. */
-function esApple(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  return /iPhone|iPad|iPod/i.test(navigator.userAgent);
-}
+const esApple = esIOS;
 
 function IrAqui({ destino, size = 'sm' }: Props) {
   const [abierto, setAbierto] = useState(false);
@@ -115,16 +113,17 @@ function IrAqui({ destino, size = 'sm' }: Props) {
       {abierto && (
         <div
           className="overlay"
-          style={{ alignItems: 'center' }}
           onClick={(e) => {
             e.stopPropagation();
             if ((e.target as HTMLElement).className.includes('overlay'))
               setAbierto(false);
           }}
         >
+          {/* margin:auto y no alignItems:center en el overlay: centra igual
+              pero deja scrollear si el menú creciera más que la pantalla. */}
           <div
             className="modal"
-            style={{ maxWidth: 380 }}
+            style={{ maxWidth: 380, margin: 'auto 0' }}
             onClick={(e) => e.stopPropagation()}
           >
             <h2 style={{ margin: '0 0 3px', fontSize: 18 }}>¿Cómo te llevo?</h2>

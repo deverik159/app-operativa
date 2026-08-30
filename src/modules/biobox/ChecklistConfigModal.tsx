@@ -363,13 +363,15 @@ function ChecklistConfigModal({ unidad, tipo, email, onClose }: Props) {
                       placeholder="Qué se revisa"
                       style={{ flex: 1, minWidth: 170 }}
                     />
-                    <span
+                    <button
+                      type="button"
+                      className="btn-icono"
                       onClick={() => quitar(f)}
+                      aria-label="Quitar del checklist"
                       title="Quitar del checklist"
-                      style={{ cursor: 'pointer', flexShrink: 0, padding: '0 4px' }}
                     >
                       🗑
-                    </span>
+                    </button>
                   </div>
 
                   <div

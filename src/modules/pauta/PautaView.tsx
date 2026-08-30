@@ -278,8 +278,21 @@ function PautaView({ puedeImportar, email }: Props) {
     );
   };
 
-  const fmt = (d: string | null) =>
-    d ? new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }) : '';
+  /**
+   * `fecha_fijacion` es columna `date` y llega como "2026-08-04".
+   * `new Date('2026-08-04')` es medianoche UTC: en México (UTC-6) el
+   * toLocaleDateString la pintaba como "03 ago" — un día antes, siempre.
+   * Las fechas-solas se anclan a mediodía LOCAL para que ningún huso las
+   * mueva de día; los timestamptz (traen hora) siguen igual.
+   */
+  const fmt = (d: string | null) => {
+    if (!d) return '';
+    const soloFecha = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+    const fecha = soloFecha
+      ? new Date(+soloFecha[1], +soloFecha[2] - 1, +soloFecha[3], 12)
+      : new Date(d);
+    return fecha.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+  };
 
   // --- Render ---
   if (loading) return <div className="loading">Cargando pauta…</div>;
@@ -370,37 +383,54 @@ function PautaView({ puedeImportar, email }: Props) {
             ({campanasRuta.length}) — toca para filtrar
           </div>
           <div className="chips">
+            {/* "Toca para filtrar" es LA interacción de esta vista: son
+                botones con altura táctil real, no pills de 24px que en un
+                teléfono se fallaban con el dedo. */}
             {campanasRuta.map(([c, n]) => {
               const on = fCampanas.includes(c);
               return (
-                <span
+                <button
+                  type="button"
                   key={c}
                   onClick={() => toggleCampana(c)}
                   className="pill"
                   style={{
                     cursor: 'pointer',
+                    border: 'none',
+                    font: 'inherit',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: '8px 12px',
+                    minHeight: 36,
                     background: on ? 'var(--accent)' : '#252b35',
                     color: on ? '#151515' : 'var(--muted)',
                     whiteSpace: 'normal',
+                    textAlign: 'left',
                   }}
                 >
                   {c} · {n}
-                </span>
+                </button>
               );
             })}
             {fCampanas.length > 0 && (
-              <span
+              <button
+                type="button"
                 onClick={() => setFCampanas([])}
                 className="pill"
                 style={{
                   cursor: 'pointer',
+                  font: 'inherit',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: '8px 12px',
+                  minHeight: 36,
                   background: 'transparent',
                   color: 'var(--muted)',
                   border: '1px solid var(--line)',
                 }}
               >
                 ✕ limpiar
-              </span>
+              </button>
             )}
           </div>
         </div>
