@@ -425,6 +425,18 @@ function Main({ session }: { session: Session }) {
   const has = (r: string) => misRoles.includes(r) || misRoles.includes('manager');
 
   /**
+   * ¿Este usuario pertenece a la unidad Biobox? El módulo de máquinas es DE
+   * esa unidad: quien solo opera Ecovallas/Vía Verde no tiene nada que hacer
+   * ahí (Erik, ago-2026). Una fila sin unidad (= todas) o el manager pasan.
+   * Cubre "Biobox" y "Biobox Perú" con el mismo prefijo.
+   */
+  const enBiobox =
+    misRoles.includes('manager') ||
+    (roles || []).some(
+      (r) => !r.unidad_negocio || /^biobox/i.test(r.unidad_negocio.trim())
+    );
+
+  /**
    * LA confirmación de salir vive AQUÍ, una sola vez, y los dos botones que
    * cierran sesión —el del menú del avatar y el de la barra de escritorio—
    * llaman a esta misma función.
@@ -519,11 +531,12 @@ function Main({ session }: { session: Session }) {
       has('coordinador') ||
       has('reparacion') ||
       has('reportante') ||
-      has('fijador')) && {
-      k: 'biobox',
-      ic: '♻️',
-      t: 'Máquinas Biobox',
-    },
+      has('fijador')) &&
+      enBiobox && {
+        k: 'biobox',
+        ic: '♻️',
+        t: 'Máquinas Biobox',
+      },
     // Usuarios NO usa has(): solo el manager real, no por comodín.
     // La RLS (ur_manager_all / usr_write) exige manager de todos modos.
     misRoles.includes('manager') && { k: 'usuarios', ic: '👥', t: 'Usuarios' },
