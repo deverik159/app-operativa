@@ -48,14 +48,29 @@ type Resumen = {
   inhabilitadas: number;
 };
 
-function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
+/** Unidades que tienen rutas. Se intersecta con las del usuario. */
+const UNIDADES_CON_RUTAS = ['Ecovallas', 'Biobox', 'Vía Verde'];
+
+function RutasView({
+  puedeGestionar,
+  unidades,
+}: {
+  puedeGestionar: boolean;
+  /** Unidades del usuario (App): acota qué rutas puede ver y tocar. */
+  unidades: string[];
+}) {
+  // El coordinador de una sola unidad ve SOLO las rutas de la suya; el
+  // selector le ofrece únicamente sus opciones (Erik, ago-2026).
+  const unidadesVisibles = UNIDADES_CON_RUTAS.filter((u) =>
+    unidades.includes(u)
+  );
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [ubics, setUbics] = useState<Ubic[]>([]);
   const [resumen, setResumen] = useState<Resumen[]>([]);
   const [rutaFoco, setRutaFoco] = useState<number | null>(null); // null = todas
-  // Segmento activo: por ahora solo Ecovallas Impreso. Preparado para más.
-  const [unidad, setUnidad] = useState('Ecovallas');
+  // Unidad + medio activos. Arranca en la primera unidad del usuario.
+  const [unidad, setUnidad] = useState(unidadesVisibles[0] || 'Ecovallas');
   const [tipo, setTipo] = useState('Impreso');
   // Gestión de rutas (crear/editar)
   const [editando, setEditando] = useState<Partial<Resumen> | null>(null);
@@ -228,7 +243,7 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
       setResultadoImport(
         `Importación lista: ${res.ubicaciones_procesadas} ubicaciones procesadas, ${res.rutas_creadas} rutas creadas` +
           (res.omitidas > 0
-            ? `, ${res.omitidas} omitidas (no coincidían con el segmento ${unidad}/${tipo} o no existen en inventario).`
+            ? `, ${res.omitidas} omitidas (no coincidían con ${unidad}/${tipo} o no existen en inventario).`
             : '.')
       );
       setImportando(false);
@@ -446,7 +461,7 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
       </p>
 
       <div className="toolbar">
-        <span className="tag">Segmento:</span>
+        <span className="tag">Unidad de negocio:</span>
         <select
           style={{ width: 'auto' }}
           value={unidad}
@@ -455,9 +470,11 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
             setRutaFoco(null);
           }}
         >
-          <option value="Ecovallas">Ecovallas</option>
-          <option value="Biobox">Biobox</option>
-          <option value="Vía Verde">Vía Verde</option>
+          {unidadesVisibles.map((u) => (
+            <option key={u} value={u}>
+              {u}
+            </option>
+          ))}
         </select>
         <select
           style={{ width: 'auto' }}
@@ -779,7 +796,7 @@ function RutasView({ puedeGestionar }: { puedeGestionar: boolean }) {
                   padding: '8px 10px',
                 }}
               >
-                Segmento: <b>{editando.unidad_negocio}</b> ·{' '}
+                Unidad: <b>{editando.unidad_negocio}</b> ·{' '}
                 <b>{editando.tipo_medio}</b>
                 {!editando.id && ' (del filtro actual)'}
               </div>

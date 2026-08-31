@@ -16,7 +16,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
-import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY } from './lib/constants';
+import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES } from './lib/constants';
 import { initials } from './lib/helpers';
 import { useNotificaciones } from './lib/useNotificaciones';
 import CampanaNotifs from './components/CampanaNotifs';
@@ -425,6 +425,36 @@ function Main({ session }: { session: Session }) {
   const has = (r: string) => misRoles.includes(r) || misRoles.includes('manager');
 
   /**
+   * Unidades del usuario, para acotar módulos y filtros. Una fila sin
+   * unidad (= todas), el manager o el viewer abren la lista completa.
+   */
+  const misUnidades =
+    misRoles.includes('manager') ||
+    misRoles.includes('viewer') ||
+    (roles || []).some((r) => !r.unidad_negocio)
+      ? UNIDADES
+      : UNIDADES.filter((u) =>
+          (roles || []).some(
+            (r) => (r.unidad_negocio || '').toLowerCase() === u.toLowerCase()
+          )
+        );
+
+  /**
+   * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas
+   * IMPRESO (Erik, ago-2026): los ve quien tenga alguna fila en esa unidad
+   * cuyo medio no lo excluya. `medio` solo existe en filas de validador
+   * (null = ambos medios), así que a los demás roles solo se les pide la
+   * unidad. Fila sin unidad = todas; manager pasa.
+   */
+  const enEcovallasImpreso =
+    misRoles.includes('manager') ||
+    (roles || []).some(
+      (r) =>
+        (!r.unidad_negocio || /^ecovallas$/i.test(r.unidad_negocio.trim())) &&
+        (!r.medio || /^impreso$/i.test(r.medio.trim()))
+    );
+
+  /**
    * ¿Este usuario pertenece a la unidad Biobox? El módulo de máquinas es DE
    * esa unidad: quien solo opera Ecovallas/Vía Verde no tiene nada que hacer
    * ahí (Erik, ago-2026). Una fila sin unidad (= todas) o el manager pasan.
@@ -503,11 +533,13 @@ function Main({ session }: { session: Session }) {
       ic: '🔎',
       t: 'Disponibilidad',
     },
-    (has('manager') || has('reparacion') || has('coordinador')) && {
-      k: 'fijacion_externa',
-      ic: '📎',
-      t: 'Fijación Externa',
-    },
+    // Fijación Externa es operación de Ecovallas Impreso.
+    (has('manager') || has('reparacion') || has('coordinador')) &&
+      enEcovallasImpreso && {
+        k: 'fijacion_externa',
+        ic: '📎',
+        t: 'Fijación Externa',
+      },
     (has('manager') || has('coordinador')) && {
       k: 'rutas',
       ic: '🗺️',
@@ -515,14 +547,16 @@ function Main({ session }: { session: Session }) {
     },
     // Trabajo de campo sobre la pauta. Lo ve también reparación/fijador:
     // son quienes recorren la ruta, no solo quien la administra.
+    // Pauta y Monitoreo también es de Ecovallas Impreso.
     (has('manager') ||
       has('coordinador') ||
       has('reparacion') ||
-      has('fijador')) && {
-      k: 'pauta',
-      ic: '📋',
-      t: 'Pauta y Monitoreo',
-    },
+      has('fijador')) &&
+      enEcovallasImpreso && {
+        k: 'pauta',
+        ic: '📋',
+        t: 'Pauta y Monitoreo',
+      },
     // Revisión de máquinas Biobox. La lista es a propósito más amplia que la
     // de Pauta: además de quien administra y quien repara, revisa el
     // monitorista (reportante) —es quien levanta la incidencia desde el
@@ -672,6 +706,7 @@ function Main({ session }: { session: Session }) {
             {tab === 'rutas' && (
               <RutasView
                 puedeGestionar={has('manager') || has('coordinador')}
+                unidades={misUnidades}
               />
             )}
           {tab === 'pauta' && (
