@@ -239,6 +239,14 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
             {/* Solo el nivel: tipo (Imponderable…) y origen se guardan para
                 los KPIs pero dejan de mostrarse (Erik, 30-ago-2026). */}
             Nivel {inc.nivel || '—'}
+            {inc.reasignada_de && (
+              <>
+                <br />
+                <span style={{ color: '#a78bfa' }}>
+                  🔁 Reasignada: antes pertenecía a {inc.reasignada_de}
+                </span>
+              </>
+            )}
             {inc.observaciones && (
               <>
                 <br />

@@ -110,6 +110,13 @@ export interface Incidencia {
   fecha_reporte: string | null;
   hora_reporte: string | null;
   area_reportante: string | null;
+  /**
+   * Área responsable ANTERIOR cuando llegó aquí por una reasignación
+   * aprobada; NULL = nunca fue reasignada. La escribe la app al aprobar y
+   * el trigger trg_notificar_reasignacion_aprobada la rellena si faltara
+   * (ver notificar_reasignacion_aprobada.sql, 30-ago-2026).
+   */
+  reasignada_de: string | null;
   nombre_incidencia: string | null;
   observaciones: string | null;
   campania: string | null;

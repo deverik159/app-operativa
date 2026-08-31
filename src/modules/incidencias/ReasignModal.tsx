@@ -216,9 +216,16 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       return;
     }
 
-    // Aprobar mueve el área; rechazar solo quita la bandera.
+    // Aprobar mueve el área; rechazar solo quita la bandera. `reasignada_de`
+    // deja el rastro visible de que antes era de otra área (el trigger de la
+    // base también lo rellena, pero mandarlo aquí actualiza la lista local
+    // al instante vía onDone).
     const patch: Partial<Incidencia> = aprobar
-      ? { area_responsable: req.area_destino, reasignacion_pendiente: false }
+      ? {
+          area_responsable: req.area_destino,
+          reasignacion_pendiente: false,
+          reasignada_de: req.area_origen || null,
+        }
       : { reasignacion_pendiente: false };
 
     // Si la solicitud trae la incidencia nueva, aprobar RECLASIFICA: el

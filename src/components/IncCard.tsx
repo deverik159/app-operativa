@@ -169,6 +169,17 @@ function IncCard({
         {/* tipo (Imponderable…) y origen ya no se muestran en la tarjeta:
             se siguen guardando para los KPIs (Erik, 30-ago-2026). */}
         {i.area_responsable && <span className="tag">→ {i.area_responsable}</span>}
+        {/* Rastro visible de la reasignación: quien la recibe ve de un
+            vistazo que antes le pertenecía a otra área. */}
+        {i.reasignada_de && (
+          <span
+            className="pill"
+            style={{ background: '#a78bfa22', color: '#a78bfa' }}
+            title={`Reasignada: antes pertenecía a ${i.reasignada_de}`}
+          >
+            🔁 Antes: {i.reasignada_de}
+          </span>
+        )}
         {redirigida && (
           <span
             className="pill"
