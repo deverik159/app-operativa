@@ -125,6 +125,24 @@ function IncidenciasView({
    *     respaldo si la reparación no trajo foto;
    *   - todo lo demás → la primera foto del reporte.
    */
+  /**
+   * Unidades de negocio del usuario, para acotar el filtro y el alta.
+   * Una fila con unidad null (= todas) o el comodín manager/viewer abren
+   * la lista completa; si no, solo las unidades de sus filas de rol.
+   */
+  const misUnidades = useMemo(() => {
+    const todas =
+      misRoles.includes('manager') ||
+      misRoles.includes('viewer') ||
+      rolesDetalle.some((r) => !r.unidad_negocio);
+    if (todas || rolesDetalle.length === 0) return UNIDADES;
+    return UNIDADES.filter((u) =>
+      rolesDetalle.some(
+        (r) => (r.unidad_negocio || '').toLowerCase() === u.toLowerCase()
+      )
+    );
+  }, [misRoles, rolesDetalle]);
+
   const fotoDe = (i: Incidencia): string | undefined => {
     if (i.reasignacion_pendiente && fotos.reasign[i.record_id])
       return fotos.reasign[i.record_id];
@@ -779,7 +797,13 @@ function IncidenciasView({
         </div>
       )}
 
-      <h2 className="page">{modo === 'bandeja' ? 'Mi bandeja' : 'Incidencias'}</h2>
+      <h2 className="page">
+        {modo === 'bandeja'
+          ? has('validador') || has('reparacion')
+            ? 'Mis pendientes'
+            : 'Mi bandeja'
+          : 'Incidencias'}
+      </h2>
       <p className="phint">
         {modo === 'bandeja' && role === 'validador'
           ? 'Por validar y reparaciones por aprobar.'
@@ -801,9 +825,11 @@ function IncidenciasView({
             selects que dicen "Todas / Todas / Todos" no se distinguen
             (pliego petitorio). El value se queda igual: es el que comparan
             los filtros. */}
+        {/* Solo las unidades del usuario: a quien reporta únicamente en
+            Ecovallas, ofrecerle Biobox solo produce filtros vacíos. */}
         <select value={fUN} onChange={(e) => setFUN(e.target.value)}>
           <option value="Todas">Unidad: todas</option>
-          {UNIDADES.map((u) => (
+          {misUnidades.map((u) => (
             <option key={u}>{u}</option>
           ))}
         </select>
@@ -939,6 +965,7 @@ function IncidenciasView({
       {(nuevaAbierta || presetNew) && (
         <NuevaInc
           preset={presetNew}
+          unidades={misUnidades}
           onClose={() => {
             onCerrarNueva?.();
             setPresetNew(null);

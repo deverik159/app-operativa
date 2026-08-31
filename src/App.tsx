@@ -460,10 +460,23 @@ function Main({ session }: { session: Session }) {
     (has('validador') || has('reparacion') || has('reportante')) && {
       k: 'bandeja',
       ic: '📥',
-      t: 'Mi bandeja',
+      // Para quien ACCIONA (validador/técnico) la bandeja es su lista de
+      // trabajo y así se llama: "Mis pendientes" — lo cerrado se consulta
+      // en Incidencias. El reportante puro conserva "Mi bandeja": la suya
+      // enseña TODAS sus capturas, no solo lo accionable (Erik, ago-2026).
+      t:
+        has('validador') || has('reparacion')
+          ? 'Mis pendientes'
+          : 'Mi bandeja',
       badge: bandejaCount,
     },
-    (has('manager') || has('validador') || has('coordinador')) && {
+    // El técnico también entra a Incidencias: ahí vive su HISTORIAL — las
+    // reparadas y cerradas de sus áreas, que la bandeja de pendientes ya no
+    // enseña. Sin esto, al cerrar una orden la perdía de vista para siempre.
+    (has('manager') ||
+      has('validador') ||
+      has('coordinador') ||
+      has('reparacion')) && {
       k: 'todas',
       ic: '🗂️',
       t: 'Incidencias',

@@ -82,10 +82,17 @@ type Props = {
   /** El padre inserta las filas de cada grupo y sube sus archivos. */
   onSave: (grupos: GrupoReporte[]) => Promise<void>;
   preset?: PresetNueva | null;
+  /**
+   * Unidades que este usuario puede reportar (de sus filas de rol; null =
+   * todas). El selector solo ofrece estas: quien reporta únicamente en
+   * Ecovallas no tiene por qué capturar en Biobox (Erik, ago-2026).
+   */
+  unidades?: string[];
 };
 
-function NuevaInc({ onClose, onSave, preset }: Props) {
-  const [un, setUn] = useState(preset?.un || 'Ecovallas');
+function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
+  const misUnidades = unidades && unidades.length ? unidades : UNIDADES;
+  const [un, setUn] = useState(preset?.un || misUnidades[0]);
   const [siteQuery, setSiteQuery] = useState('');
   const [siteOpts, setSiteOpts] = useState<Sitio[]>([]);
   const [site, setSite] = useState<Sitio | null>(null);
@@ -549,7 +556,7 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
             onChange={(e) => setUn(e.target.value)}
             disabled={lineas.length > 0}
           >
-            {UNIDADES.map((x) => (
+            {misUnidades.map((x) => (
               <option key={x}>{x}</option>
             ))}
           </select>
