@@ -483,10 +483,11 @@ function PautaView({ puedeImportar, email }: Props) {
       </div>
 
       {/* Navegación del recorrido filtrado, por tramos de 10 paradas.
-          Solo la ve el coordinador/manager (mismo permiso que Importar) y
-          nace plegada: es material de inducción para quien no se sabe la
-          ruta, no del día a día. */}
-      {puedeImportar && tramos.length > 0 && (
+          Nace plegada: es material de inducción para quien no se sabe la
+          ruta, no del día a día. El toggle lo ve cualquiera (Erik,
+          ago-2026): así el monitorista nuevo lo prende desde su propio
+          celular sin depender del coordinador. */}
+      {tramos.length > 0 && (
         <div style={{ marginBottom: 14 }}>
           <button
             type="button"
