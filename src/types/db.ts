@@ -433,6 +433,12 @@ export interface CanInc {
   crear?: boolean;
   validar?: boolean;
   reparar?: boolean;
+  /**
+   * ¿Puede reparar ESTA incidencia? Afina `reparar` por área: el rol dice
+   * si trae la llave; el departamento, de qué puerta es. La calcula
+   * IncidenciasView con las filas reales de usuario_roles.
+   */
+  reparaEn?: (i: Incidencia) => boolean;
   reasignar?: boolean;
   aprobarReasign?: boolean;
 }

@@ -60,6 +60,11 @@ function IncCard({
   // Mantenimiento, los técnicos que aplican son los de Mantenimiento, no los
   // del área que dice el catálogo.
   const areaReal = areaEfectiva(i);
+  // Reparar exige rol Y área. `reparaEn` llega de IncidenciasView con los
+  // departamentos reales del usuario; si no viene, se conserva el
+  // comportamiento por rol de siempre.
+  const puedeReparar =
+    !!can.reparar && (can.reparaEn ? can.reparaEn(i) : true);
   const redirigida = tieneAreaRedirigida(i);
   const mio =
     (i.captured_by || '').toLowerCase() === (email || '').toLowerCase();
@@ -340,7 +345,7 @@ function IncCard({
           </span>
         </div>
       )}
-      {can.reparar && i.estatus === 'en_proceso' && prevalidacionPend && (
+      {puedeReparar && i.estatus === 'en_proceso' && prevalidacionPend && (
         <div className="inc-actions">
           <button className="btn ok sm" onClick={() => onPrevalidar(i)}>
             ✓ Prevalidar
@@ -350,7 +355,7 @@ function IncCard({
           </button>
         </div>
       )}
-      {can.reparar && i.estatus === 'en_proceso' && !prevalidacionPend && (
+      {puedeReparar && i.estatus === 'en_proceso' && !prevalidacionPend && (
         <div className="inc-actions">
           <button className="btn warn sm" onClick={() => onRepair(i)}>
             🔧 Registrar reparación

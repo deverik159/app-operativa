@@ -621,6 +621,7 @@ function Main({ session }: { session: Session }) {
                 nombre={nombre}
                 misRoles={misRoles}
                 misDep={misDep}
+                rolesDetalle={roles || []}
                 role={role}
                 modo={tab === 'bandeja' ? 'bandeja' : 'todas'}
                 chatCounts={notifs.chatCounts}

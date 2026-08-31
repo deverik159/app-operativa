@@ -45,6 +45,7 @@ import type {
   SlaMap,
   SlaArea,
   TipoEvidencia,
+  UsuarioRol,
 } from '../../types/db';
 
 /** Tope de filas por consulta: el límite duro de Supabase es 1000. */
@@ -62,6 +63,8 @@ type Props = {
   misRoles: string[];
   /** Departamentos del usuario; el primero se usa como area_reportante. */
   misDep: string[];
+  /** Filas completas de usuario_roles: rol + unidad + departamento. */
+  rolesDetalle: UsuarioRol[];
   modo: ModoVista;
   /** Rol principal (el de mayor prioridad). Lo usa IncCard. */
   role: string;
@@ -87,6 +90,7 @@ function IncidenciasView({
   nombre,
   misRoles,
   misDep,
+  rolesDetalle,
   modo,
   role,
   chatCounts,
@@ -155,10 +159,43 @@ function IncidenciasView({
   // indicadores de carga por área dejan de significar algo. El flujo único es
   // Reasignar. Las filas que ya traen `assigned_area` se siguen respetando:
   // `areaEfectiva` la lee y la tarjeta la enseña con el chip 🛠 Repara.
+  /**
+   * ¿Puede ESTE usuario reparar ESTA incidencia?
+   *
+   * `can.reparar` dice si trae la llave (rol); esto dice de qué puerta es
+   * (departamento). Sin este filtro, un técnico de Instalaciones veía el
+   * botón de reparar en TODO lo `en_proceso` que su RLS le dejara ver — y
+   * con más de un rol (p. ej. técnico + validador) la RLS además deja pasar
+   * el update aunque el área no sea la suya: las políticas se evalúan con OR.
+   *
+   * Reglas, las mismas que usan los triggers notificar_* de la base:
+   *   - manager: todas las áreas.
+   *   - fila de reparacion/coordinador con departamento null = todas las
+   *     áreas; unidad_negocio null = todas las unidades.
+   *   - se compara contra el área EFECTIVA (assigned_area manda).
+   */
+  const reparaEn = useCallback(
+    (i: Incidencia) => {
+      if (misRoles.includes('manager')) return true;
+      const area = areaEfectiva(i).trim().toLowerCase();
+      const unidad = (i.unidad_negocio || '').trim().toLowerCase();
+      return rolesDetalle.some(
+        (r) =>
+          (r.rol === 'reparacion' || r.rol === 'coordinador') &&
+          (!r.departamento || r.departamento.trim().toLowerCase() === area) &&
+          (!r.unidad_negocio ||
+            !unidad ||
+            r.unidad_negocio.trim().toLowerCase() === unidad)
+      );
+    },
+    [misRoles, rolesDetalle]
+  );
+
   const can: CanInc = {
     crear: has('reportante'),
     validar: has('validador'),
     reparar: has('reparacion') || has('coordinador'),
+    reparaEn,
     reasignar: has('reparacion') || has('coordinador'),
     aprobarReasign: has('validador'),
   };
@@ -320,7 +357,8 @@ function IncidenciasView({
       )
         return true;
 
-      if (tiene('reparacion') && i.estatus === 'en_proceso') return true;
+      if (tiene('reparacion') && i.estatus === 'en_proceso' && reparaEn(i))
+        return true;
 
       // El reportante ve TODO lo suyo, en cualquier estatus. Antes solo veía
       // lo rechazado —lo accionable— y el efecto fue que capturaba y su
@@ -332,7 +370,7 @@ function IncidenciasView({
 
       return false;
     });
-  }, [items, misRoles, email]);
+  }, [items, misRoles, email, reparaEn]);
 
   // El badge de "Mi bandeja" cuenta solo lo ACCIONABLE, no lo visible. La
   // bandeja del reportante ahora enseña todas sus capturas; si el badge las
@@ -347,12 +385,12 @@ function IncidenciasView({
       (i) =>
         (tiene('validador') &&
           (i.estatus === 'por_validar' || i.estatus === 'reparado')) ||
-        (tiene('reparacion') && i.estatus === 'en_proceso') ||
+        (tiene('reparacion') && i.estatus === 'en_proceso' && reparaEn(i)) ||
         (tiene('reportante') &&
           (i.captured_by || '').toLowerCase() === yo &&
           i.estatus === 'rechazada')
     ).length;
-  }, [items, bandeja.length, misRoles, email]);
+  }, [items, bandeja.length, misRoles, email, reparaEn]);
 
   useEffect(() => {
     onBandejaCount?.(accionables);
@@ -459,12 +497,23 @@ function IncidenciasView({
       repaired_by_email: email,
       repaired_at: new Date().toISOString(),
     };
-    const { error } = await sb
+    const { data, error } = await sb
       .from('incidencias')
       .update(patch)
-      .eq('record_id', inc.record_id);
+      .eq('record_id', inc.record_id)
+      .select('record_id');
     if (error) {
       alert('No se pudo guardar la reparación: ' + error.message);
+      return;
+    }
+    // La RLS no lanza error cuando el update no te toca: afecta 0 filas y
+    // regresa "éxito". Sin esta verificación la app pintaba la incidencia
+    // como reparada aunque la base no hubiera guardado nada.
+    if (!data || data.length === 0) {
+      alert(
+        'No se guardó: esta incidencia no pertenece a tu área, ' +
+          'o tu rol no permite repararla.'
+      );
       return;
     }
     patchInc(inc.record_id, patch);
