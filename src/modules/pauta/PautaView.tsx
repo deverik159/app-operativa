@@ -58,6 +58,29 @@ function PautaView({ puedeImportar, email }: Props) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [importar, setImportar] = useState(false);
+  /**
+   * Guías de ruta (tramos de Google Maps) APAGADAS por omisión: en el día a
+   * día el monitorista ya se sabe el recorrido y los botones solo empujaban
+   * la lista hacia abajo. Se prenden cuando va alguien nuevo a la ruta
+   * (Erik, ago-2026). La elección se recuerda POR DISPOSITIVO en
+   * localStorage — no es configuración compartida: cada teléfono decide.
+   */
+  const [verGuias, setVerGuias] = useState(() => {
+    try {
+      return localStorage.getItem('pauta_ver_guias') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleGuias = () =>
+    setVerGuias((v) => {
+      try {
+        localStorage.setItem('pauta_ver_guias', v ? '0' : '1');
+      } catch {
+        // Modo privado o storage bloqueado: el toggle vive solo esta sesión.
+      }
+      return !v;
+    });
   /** Cara cuya toma se está registrando (abre el modal con cámara). */
   const [tomaDe, setTomaDe] = useState<PautaRuta | null>(null);
 
@@ -459,45 +482,60 @@ function PautaView({ puedeImportar, email }: Props) {
         </div>
       </div>
 
-      {/* Navegación del recorrido filtrado, por tramos de 10 paradas. */}
-      {tramos.length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            gap: 6,
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            marginBottom: 14,
-          }}
-        >
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {tramos.length === 1
-              ? 'Navegar el recorrido:'
-              : `Navegar por tramos (${tramos.length}):`}
-          </span>
-          {tramos.map((t) => (
-            <a
-              key={t.desde}
-              className="btn sm"
-              href={t.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ textDecoration: 'none' }}
+      {/* Navegación del recorrido filtrado, por tramos de 10 paradas.
+          Solo la ve el coordinador/manager (mismo permiso que Importar) y
+          nace plegada: es material de inducción para quien no se sabe la
+          ruta, no del día a día. */}
+      {puedeImportar && tramos.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={toggleGuias}
+            aria-expanded={verGuias}
+          >
+            {verGuias ? '▾' : '▸'} 🗺️ Guías de ruta (Google Maps)
+          </button>
+          {verGuias && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 6,
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                marginTop: 8,
+              }}
             >
-              🗺️{' '}
-              {tramos.length === 1
-                ? 'Abrir en Google Maps'
-                : `Paradas ${t.desde}–${t.hasta}`}
-            </a>
-          ))}
-          {stats.sinCoord > 0 && (
-            <span
-              className="pill"
-              style={{ background: '#f59e0b22', color: '#f59e0b' }}
-              title="Sin coordenadas en inventario: no se puede navegar"
-            >
-              ⚠ {stats.sinCoord} sin ubicación
-            </span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {tramos.length === 1
+                  ? 'Navegar el recorrido:'
+                  : `Navegar por tramos (${tramos.length}):`}
+              </span>
+              {tramos.map((t) => (
+                <a
+                  key={t.desde}
+                  className="btn sm"
+                  href={t.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ textDecoration: 'none' }}
+                >
+                  🗺️{' '}
+                  {tramos.length === 1
+                    ? 'Abrir en Google Maps'
+                    : `Paradas ${t.desde}–${t.hasta}`}
+                </a>
+              ))}
+              {stats.sinCoord > 0 && (
+                <span
+                  className="pill"
+                  style={{ background: '#f59e0b22', color: '#f59e0b' }}
+                  title="Sin coordenadas en inventario: no se puede navegar"
+                >
+                  ⚠ {stats.sinCoord} sin ubicación
+                </span>
+              )}
+            </div>
           )}
         </div>
       )}
