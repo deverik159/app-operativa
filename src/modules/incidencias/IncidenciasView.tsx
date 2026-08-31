@@ -104,8 +104,34 @@ function IncidenciasView({
   onBandejaCount,
 }: Props) {
   const [items, setItems] = useState<Incidencia[]>([]);
-  /** record_id → url de la PRIMERA foto del reporte, para la tarjeta. */
-  const [fotos, setFotos] = useState<Record<string, string>>({});
+  /**
+   * Fotos para la tarjeta, por record_id. La tarjeta enseña LA foto que
+   * cuenta la historia del momento (ajuste de Erik, ago-2026):
+   *   reporte    → la PRIMERA subida al reportar
+   *   reparacion → la MÁS RECIENTE de la reparación (el resultado final)
+   *   reasign    → la evidencia de la solicitud de reasignación pendiente
+   */
+  const [fotos, setFotos] = useState<{
+    reporte: Record<string, string>;
+    reparacion: Record<string, string>;
+    reasign: Record<string, string>;
+  }>({ reporte: {}, reparacion: {}, reasign: {} });
+
+  /**
+   * La foto que le toca a la tarjeta según su momento:
+   *   - reasignación pendiente → la evidencia de la solicitud, que es lo
+   *     que el validador está decidiendo;
+   *   - reparado/cerrada → la foto de la reparación, con la del reporte de
+   *     respaldo si la reparación no trajo foto;
+   *   - todo lo demás → la primera foto del reporte.
+   */
+  const fotoDe = (i: Incidencia): string | undefined => {
+    if (i.reasignacion_pendiente && fotos.reasign[i.record_id])
+      return fotos.reasign[i.record_id];
+    if (i.estatus === 'reparado' || i.estatus === 'cerrada')
+      return fotos.reparacion[i.record_id] || fotos.reporte[i.record_id];
+    return fotos.reporte[i.record_id];
+  };
   /**
    * Tarjetas o tabla. La tabla es la trazabilidad completa (pliego
    * petitorio); solo se ofrece en modo 'todas' — en la bandeja lo que
@@ -213,28 +239,50 @@ function IncidenciasView({
     setItems((data as Incidencia[]) || []);
     setLoading(false);
 
-    // La foto del reporte, para pintarla en la tarjeta (pliego petitorio,
-    // ago-2026). Va DESPUÉS de soltar el loading: la lista se usa igual sin
-    // fotos, y así no se le cobra la espera.
+    // Las fotos de la tarjeta (pliego petitorio, ago-2026). Van DESPUÉS de
+    // soltar el loading: la lista se usa igual sin fotos, y así no se le
+    // cobra la espera.
     //
-    // Una sola consulta para toda la lista, no una por tarjeta. Se pide en
-    // orden descendente y el mapa se sobreescribe al iterar: la última
-    // escritura por record_id es la foto MÁS VIEJA — la primera que se subió
-    // al reportar, que es la que cuenta la historia.
-    const { data: evs } = await sb
-      .from('evidencias')
-      .select('record_id,url')
-      .eq('tipo', 'foto')
-      .eq('etapa', 'reporte')
-      .order('creado_en', { ascending: false })
-      .limit(2000);
-    const m: Record<string, string> = {};
-    ((evs as { record_id: string | null; url: string }[]) || []).forEach(
-      (e) => {
-        if (e.record_id) m[e.record_id] = e.url;
+    // Una sola consulta para toda la lista, no una por tarjeta. Viene en
+    // orden descendente y cada etapa elige distinto:
+    //   - reporte: el mapa se SOBREESCRIBE al iterar → queda la más VIEJA,
+    //     la primera que se subió al reportar;
+    //   - reparación: solo la PRIMERA escritura por record_id → queda la
+    //     más RECIENTE, que es el estado final del trabajo.
+    // La evidencia de reasignación no vive en `evidencias`: viaja como URL
+    // en `reasignaciones.evidencia`, y solo importa la solicitud abierta.
+    const [{ data: evs }, { data: reasEv }] = await Promise.all([
+      sb
+        .from('evidencias')
+        .select('record_id,url,etapa')
+        .eq('tipo', 'foto')
+        .in('etapa', ['reporte', 'reparacion'])
+        .order('creado_en', { ascending: false })
+        .limit(3000),
+      sb
+        .from('reasignaciones')
+        .select('record_id,evidencia')
+        .eq('estado', 'Solicitada')
+        .not('evidencia', 'is', null)
+        .limit(500),
+    ]);
+    const mReporte: Record<string, string> = {};
+    const mReparacion: Record<string, string> = {};
+    (
+      (evs as { record_id: string | null; url: string; etapa: string }[]) ||
+      []
+    ).forEach((e) => {
+      if (!e.record_id) return;
+      if (e.etapa === 'reporte') mReporte[e.record_id] = e.url;
+      else if (!mReparacion[e.record_id]) mReparacion[e.record_id] = e.url;
+    });
+    const mReasign: Record<string, string> = {};
+    ((reasEv as { record_id: string; evidencia: string }[]) || []).forEach(
+      (r) => {
+        if (!mReasign[r.record_id]) mReasign[r.record_id] = r.evidencia;
       }
     );
-    setFotos(m);
+    setFotos({ reporte: mReporte, reparacion: mReparacion, reasign: mReasign });
   }, []);
 
   useEffect(() => {
@@ -351,9 +399,14 @@ function IncidenciasView({
     const yo = (email || '').toLowerCase();
 
     return items.filter((i) => {
+      // Al validador le toca también REVISAR las reasignaciones pendientes:
+      // viven en 'en_proceso' y sin esta condición jamás caían en su
+      // bandeja, aunque el botón "Revisar reasignación" es suyo.
       if (
         tiene('validador') &&
-        (i.estatus === 'por_validar' || i.estatus === 'reparado')
+        (i.estatus === 'por_validar' ||
+          i.estatus === 'reparado' ||
+          i.reasignacion_pendiente)
       )
         return true;
 
@@ -384,7 +437,9 @@ function IncidenciasView({
     return items.filter(
       (i) =>
         (tiene('validador') &&
-          (i.estatus === 'por_validar' || i.estatus === 'reparado')) ||
+          (i.estatus === 'por_validar' ||
+            i.estatus === 'reparado' ||
+            i.reasignacion_pendiente)) ||
         (tiene('reparacion') && i.estatus === 'en_proceso' && reparaEn(i)) ||
         (tiene('reportante') &&
           (i.captured_by || '').toLowerCase() === yo &&
@@ -856,7 +911,7 @@ function IncidenciasView({
               i={i}
               can={can}
               email={email}
-              foto={fotos[i.record_id]}
+              foto={fotoDe(i)}
               onEstatus={cambiarEstatus}
               onRepair={setRepairing}
               onEvidence={setEvidenceOf}
