@@ -870,12 +870,8 @@ function NuevaInc({ onClose, onSave, preset }: Props) {
                 >
                   Nivel {(catSel.impacto || '').trim() || '—'}
                 </span>
-                <span className="tag">
-                  Origen: <b>{catSel.origen || '—'}</b>
-                </span>
-                <span className="tag">
-                  Tipo: <b>{catSel.tipo || '—'}</b>
-                </span>
+                {/* Origen y tipo (Imponderable…) se derivan y guardan igual,
+                    pero ya no se enseñan junto al nivel (Erik, 30-ago-2026). */}
               </div>
             )}
 

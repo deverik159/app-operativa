@@ -185,9 +185,9 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
         {errCat && <div className="err">{errCat}</div>}
 
         <div className="banner" style={{ marginBottom: 14 }}>
-          Aquí se corrige <b>qué incidencia es</b>. El nivel, el origen, el tipo
-          y el área responsable los pone el catálogo — por eso salen de solo
-          lectura y cambian solos al elegir otra entrada.
+          Aquí se corrige <b>qué incidencia es</b>. El nivel y el área
+          responsable los pone el catálogo — por eso salen de solo lectura y
+          cambian solos al elegir otra entrada.
         </div>
 
         <div className="field">
@@ -239,12 +239,10 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
           </div>
         </div>
 
+        {/* Origen y tipo se siguen recalculando y guardando con el patch;
+            solo dejaron de mostrarse (Erik, 30-ago-2026). */}
         <div className="row2">
           <Derivado label="Nivel" valor={nivelNuevo} />
-          <Derivado label="Origen" valor={(sel?.origen || '').trim()} />
-        </div>
-        <div className="row2">
-          <Derivado label="Tipo" valor={(sel?.tipo || '').trim()} />
           <Derivado label="Área responsable" valor={areaNueva} />
         </div>
 

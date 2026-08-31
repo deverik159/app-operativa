@@ -234,6 +234,13 @@ export interface Reasignacion {
   unidad_negocio: string | null;
   area_origen: string | null;
   area_destino: string;
+  /**
+   * Entrada del catálogo propuesta al solicitar (detalle). Al aprobar, la
+   * incidencia se reclasifica con ella. NULL en solicitudes viejas, que
+   * solo movían el área. Columna agregada el 30-ago-2026
+   * (reasignacion_incidencia.sql).
+   */
+  nueva_incidencia: string | null;
   motivo: string | null;
   evidencia: string | null;
   solicitado_por: string | null;

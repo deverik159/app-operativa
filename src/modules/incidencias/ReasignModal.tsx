@@ -4,11 +4,25 @@
 //   'solicitar' — el área actual pide moverla a otra (deja la incidencia
 //                 con reasignacion_pendiente=true).
 //   'aprobar'   — el validador revisa la solicitud abierta y la resuelve.
+//
+// CÓMO SE PIDE (Erik, 30-ago-2026): eligiendo del CATÁLOGO qué incidencia
+// es en realidad — no eligiendo el área a mano. El área destino la decide
+// el catálogo con la entrada elegida, igual que en el alta y en la
+// corrección del validador: así nunca se pide mover "Apagado" a un área
+// que el catálogo jamás produciría. Al aprobar, la incidencia se
+// reclasifica (nombre + nivel + origen + tipo + área) y hasta entonces le
+// llega al técnico del área nueva. Requiere la columna
+// `reasignaciones.nueva_incidencia` (ver reasignacion_incidencia.sql).
 // ============================================================
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
-import { AREAS_RESP } from '../../lib/constants';
 import { idCorto } from '../../lib/helpers';
+import {
+  catalogoParaMuebles,
+  llaveCatalogo,
+  filtrarCatalogo,
+} from '../../lib/catalogo';
+import type { OpcionesCatalogo } from '../../lib/catalogo';
 import type { CatalogoIncidencia } from '../../types/db';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
@@ -27,38 +41,61 @@ type Props = {
 function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
   const [busy, setBusy] = useState(false);
 
-  // Las áreas elegibles salen del CATÁLOGO, no de la constante AREAS_RESP.
-  // La constante trae 7 áreas; el catálogo real tiene más — Adm. Comercial,
-  // MKT, Op. Bio Box, Urban… — y quien reasignaba no encontraba la suya
-  // (pliego petitorio, ago-2026: "falta el área de Adm. Comercial").
-  // AREAS_RESP se queda como semilla por si el catálogo no carga.
-  const [areas, setAreas] = useState<string[]>([...AREAS_RESP]);
+  // --- modo solicitar: la incidencia nueva se elige del catálogo, con el
+  // mismo picker del alta y de la corrección; el área destino la trae la
+  // entrada elegida, no se escoge a mano. ---
+  const [cat, setCat] = useState<OpcionesCatalogo>({
+    opciones: [],
+    restringido: false,
+    sinCatalogo: [],
+  });
+  const [cargandoCat, setCargandoCat] = useState(mode === 'solicitar');
+  const [errCat, setErrCat] = useState('');
+  const [llave, setLlave] = useState('');
+  const [busca, setBusca] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+
   useEffect(() => {
+    if (mode !== 'solicitar') return;
     let vivo = true;
     (async () => {
-      const { data } = await sb
+      const { data, error } = await sb
         .from('catalogo_incidencias')
-        .select('area')
+        .select('*')
+        .ilike('unidad_negocio', inc.unidad_negocio || '%')
         .limit(1000);
-      if (!vivo || !data) return;
-      const set = new Set<string>(AREAS_RESP);
-      (data as Pick<CatalogoIncidencia, 'area'>[]).forEach((r) => {
-        const a = (r.area || '').trim();
-        if (a) set.add(a);
-      });
-      setAreas([...set].sort());
+      if (!vivo) return;
+      if (error) setErrCat('No se pudo cargar el catálogo: ' + error.message);
+      // Restringido al mueble de esta cara, como en el alta: ahí cada
+      // incidencia existe una vez y el área ya viene decidida.
+      setCat(
+        catalogoParaMuebles((data as CatalogoIncidencia[]) || [], [
+          inc.tipo_mueble,
+        ])
+      );
+      setCargandoCat(false);
     })();
     return () => {
       vivo = false;
     };
-  }, []);
+  }, [mode, inc.unidad_negocio, inc.tipo_mueble]);
 
-  // --- modo solicitar ---
-  const [areaDestino, setAreaDestino] = useState(
-    AREAS_RESP.find((a) => a !== inc.area_responsable) || AREAS_RESP[0]
+  const sel = useMemo(
+    () => cat.opciones.find((c) => llaveCatalogo(c) === llave) || null,
+    [cat, llave]
   );
-  const [motivo, setMotivo] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+
+  // La opción elegida nunca desaparece de la lista aunque el buscador ya no
+  // la encuentre: si no, el select mostraría otra como seleccionada.
+  const visibles = useMemo(() => {
+    const base = filtrarCatalogo(cat.opciones, busca);
+    if (sel && !base.some((c) => llaveCatalogo(c) === llave))
+      return [sel, ...base];
+    return base;
+  }, [cat, busca, sel, llave]);
+
+  const areaDestino = (sel?.area || '').trim();
 
   // --- modo aprobar ---
   const [req, setReq] = useState<Reasignacion | null>(null);
@@ -84,6 +121,19 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
   }, []);
 
   const solicitar = async () => {
+    if (!sel) {
+      alert('Elige del catálogo qué incidencia es en realidad.');
+      return;
+    }
+    if (areaDestino && areaDestino === (inc.area_responsable || '')) {
+      alert(
+        'Esa incidencia pertenece a la misma área actual (' +
+          areaDestino +
+          '): no hay nada que reasignar. Si solo está mal clasificada ' +
+          'dentro de tu área, pídele la corrección al validador.'
+      );
+      return;
+    }
     if (!motivo.trim()) {
       alert('Escribe el motivo de la reasignación.');
       return;
@@ -115,6 +165,9 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       unidad_negocio: inc.unidad_negocio,
       area_origen: inc.area_responsable,
       area_destino: areaDestino,
+      // La entrada del catálogo que se propone: al aprobar, la incidencia
+      // se reclasifica con ella (nombre + nivel + origen + tipo + área).
+      nueva_incidencia: sel!.detalle,
       motivo,
       evidencia: evidenciaUrl,
       solicitado_por: email,
@@ -168,6 +221,28 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       ? { area_responsable: req.area_destino, reasignacion_pendiente: false }
       : { reasignacion_pendiente: false };
 
+    // Si la solicitud trae la incidencia nueva, aprobar RECLASIFICA: el
+    // nombre viaja en la solicitud y los derivados (nivel/origen/tipo) se
+    // leen del catálogo AL APROBAR — la misma regla de CorreccionModal: los
+    // campos derivados nunca se escriben a mano. Si la entrada ya no existe
+    // en el catálogo, se aplican solo nombre y área, sin inventar el resto.
+    if (aprobar && req.nueva_incidencia) {
+      patch.nombre_incidencia = req.nueva_incidencia;
+      const { data: catRows } = await sb
+        .from('catalogo_incidencias')
+        .select('*')
+        .eq('detalle', req.nueva_incidencia)
+        .eq('area', req.area_destino)
+        .ilike('unidad_negocio', req.unidad_negocio || '%')
+        .limit(1);
+      const entrada = ((catRows as CatalogoIncidencia[]) || [])[0];
+      if (entrada) {
+        patch.nivel = (entrada.impacto || '').trim() || null;
+        patch.origen = (entrada.origen || '').trim() || null;
+        patch.tipo = (entrada.tipo || '').trim() || null;
+      }
+    }
+
     const { error: e2 } = await sb
       .from('incidencias')
       .update(patch)
@@ -198,19 +273,78 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
 
         {mode === 'solicitar' ? (
           <>
-            <div className="field">
-              <label>Reasignar al área</label>
-              <select
-                value={areaDestino}
-                onChange={(e) => setAreaDestino(e.target.value)}
-              >
-                {areas
-                  .filter((a) => a !== inc.area_responsable)
-                  .map((a) => (
-                    <option key={a}>{a}</option>
-                  ))}
-              </select>
+            {errCat && <div className="err">{errCat}</div>}
+            <div className="banner" style={{ marginBottom: 14 }}>
+              Elige <b>qué incidencia es en realidad</b>: el área a la que se
+              reasigna la decide el catálogo con esa entrada. El validador
+              tiene que aprobarla — hasta entonces le llega al técnico del
+              área nueva.
             </div>
+            <div className="field">
+              <label>
+                Incidencia (del catálogo · {visibles.length} de{' '}
+                {cat.opciones.length}
+                {cat.restringido ? ` · ${inc.tipo_mueble}` : ''})
+              </label>
+              {cargandoCat ? (
+                <div className="loading">Cargando catálogo…</div>
+              ) : (
+                <>
+                  <input
+                    placeholder="Buscar por incidencia o por área…"
+                    value={busca}
+                    onChange={(e) => setBusca(e.target.value)}
+                    style={{ marginBottom: 8 }}
+                  />
+                  <select
+                    value={llave}
+                    onChange={(e) => setLlave(e.target.value)}
+                  >
+                    <option value="">— Selecciona —</option>
+                    {visibles.map((c) => (
+                      <option key={llaveCatalogo(c)} value={llaveCatalogo(c)}>
+                        {c.detalle}
+                        {c.area ? ` (${c.area})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {busca && visibles.length === 0 && (
+                    <div
+                      style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}
+                    >
+                      Nada coincide con “{busca}”.
+                    </div>
+                  )}
+                </>
+              )}
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                Ahora dice: “{inc.nombre_incidencia || '—'}”
+              </div>
+            </div>
+
+            {sel && (
+              <div
+                className="banner"
+                style={{
+                  marginBottom: 12,
+                  ...(areaDestino === (inc.area_responsable || '')
+                    ? { background: '#3a2e12', borderColor: '#6a5520', color: '#ffdf9e' }
+                    : {}),
+                }}
+              >
+                {areaDestino === (inc.area_responsable || '') ? (
+                  <>
+                    ⚠️ Esa incidencia pertenece a <b>{areaDestino || '—'}</b>,
+                    la misma área actual: no hay nada que reasignar.
+                  </>
+                ) : (
+                  <>
+                    Se reasignará a: <b>{areaDestino || '—'}</b> (lo decide el
+                    catálogo).
+                  </>
+                )}
+              </div>
+            )}
             <div className="field">
               <label>Motivo</label>
               <textarea
@@ -260,6 +394,16 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
                 <b>{req.area_origen || '—'}</b> →{' '}
                 <b style={{ color: '#a78bfa' }}>{req.area_destino}</b>
               </div>
+              {req.nueva_incidencia && (
+                <div>
+                  Se reclasificará como:{' '}
+                  <b>{req.nueva_incidencia}</b>
+                  <span style={{ color: 'var(--muted)' }}>
+                    {' '}
+                    (hoy dice “{inc.nombre_incidencia || '—'}”)
+                  </span>
+                </div>
+              )}
               <div style={{ color: 'var(--muted)' }}>
                 Solicita: {req.solicitado_por}
               </div>

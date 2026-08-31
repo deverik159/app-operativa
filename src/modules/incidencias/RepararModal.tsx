@@ -236,8 +236,9 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
             <br />
             {inc.direccion}
             <br />
-            Nivel {inc.nivel || '—'} · {inc.tipo || '—'} · Origen{' '}
-            {inc.origen || '—'}
+            {/* Solo el nivel: tipo (Imponderable…) y origen se guardan para
+                los KPIs pero dejan de mostrarse (Erik, 30-ago-2026). */}
+            Nivel {inc.nivel || '—'}
             {inc.observaciones && (
               <>
                 <br />

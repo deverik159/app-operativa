@@ -166,8 +166,8 @@ function IncCard({
             🧭 Cara {i.lado}
           </span>
         )}
-        {i.tipo && <span className="tag">{i.tipo}</span>}
-        {i.origen && <span className="tag">Origen: {i.origen}</span>}
+        {/* tipo (Imponderable…) y origen ya no se muestran en la tarjeta:
+            se siguen guardando para los KPIs (Erik, 30-ago-2026). */}
         {i.area_responsable && <span className="tag">→ {i.area_responsable}</span>}
         {redirigida && (
           <span
