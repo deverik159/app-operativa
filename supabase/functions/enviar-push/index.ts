@@ -120,15 +120,27 @@ Deno.serve(async (req) => {
       titulo = `Nuevo mensaje en ${m[1]}`;
       texto = m[2];
     }
+  } else if (cuerpo.evento === 'reasignacion') {
+    // El mismo evento cubre solicitud, rechazo y aprobación; el título fijo
+    // ("Reasignación aprobada") mentía en los dos primeros casos. El mensaje
+    // del trigger ya trae el encabezado real antes de los dos puntos.
+    const m = texto.match(/^([^:]+): ([\s\S]*)$/);
+    if (m) {
+      titulo = m[1];
+      texto = m[2];
+    }
   }
   const payload = JSON.stringify({
     titulo,
     cuerpo: texto,
     url: '/',
     record_id: cuerpo.record_id || null,
-    // tag por registro: varias notificaciones de la misma incidencia se
-    // reemplazan en el celular en vez de apilarse.
-    tag: cuerpo.record_id ? `inc-${cuerpo.record_id}` : undefined,
+    // tag por registro Y tipo de evento: los chats de una incidencia se
+    // reemplazan entre sí sin apilarse, pero un chat ya no pisa la solicitud
+    // de reasignación de la misma incidencia (así se perdían en el celular).
+    tag: cuerpo.record_id
+      ? `inc-${cuerpo.record_id}-${cuerpo.evento || 'gral'}`
+      : undefined,
   });
 
   let enviados = 0;
