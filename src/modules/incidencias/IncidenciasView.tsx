@@ -21,6 +21,7 @@ import {
   fueraHorarioValidador,
   areaEfectiva,
   idCorto,
+  sinAcentos,
 } from '../../lib/helpers';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import { duplicadasEnProceso } from '../../lib/duplicados';
@@ -508,9 +509,12 @@ function IncidenciasView({
         return false;
       }
       if (q) {
-        const s =
-          `${i.folio} ${i.nombre_incidencia} ${i.direccion} ${i.campania}`.toLowerCase();
-        if (!s.includes(q.toLowerCase())) return false;
+        // sinAcentos en las dos puntas: "camion" debe encontrar "Camión"
+        // sin obligar a escribir el acento en el teclado del celular.
+        const s = sinAcentos(
+          `${i.folio} ${i.nombre_incidencia} ${i.direccion} ${i.campania}`
+        );
+        if (!s.includes(sinAcentos(q))) return false;
       }
       return true;
     });

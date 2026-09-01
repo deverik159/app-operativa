@@ -124,18 +124,25 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
   // cada tecla dispara una consulta y las respuestas se pisan entre sí.
   useEffect(() => {
     const t = siteQuery.trim();
-    if (t.length < 2) {
+    // Desde 1 carácter: la búsqueda es por subcadena y la consulta ya viene
+    // acotada por unidad de negocio, así que un solo carácter alcanza para
+    // empezar a acotar (pedían escribir 2 y estorbaba más de lo que cuidaba).
+    if (t.length < 1) {
       setSiteOpts([]);
       return;
     }
     let vivo = true;
     setBuscando(true);
     const timer = setTimeout(async () => {
+      // Los espacios se vuelven comodín: la clave real trae guiones bajos
+      // (MX_EM_EV_EVA_03_0009) y nadie los escribe — así "eva 03" y hasta
+      // "eva 0009" encuentran la cara sin conocer el formato exacto.
+      const patron = '%' + t.replace(/\s+/g, '%') + '%';
       const { data } = await sb
         .from('inventario')
         .select('site_id,direccion')
         .eq('unidad_negocio', inc.unidad_negocio || '')
-        .ilike('site_id', '%' + t + '%')
+        .ilike('site_id', patron)
         .limit(80);
       if (!vivo) return;
       const vistos = new Set<string>();
@@ -328,7 +335,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
             </div>
           </div>
           <input
-            placeholder="Buscar otra clave… (mínimo 2 caracteres)"
+            placeholder="Buscar otra clave… (ej. eva 03)"
             value={siteQuery}
             onChange={(e) => setSiteQuery(e.target.value)}
           />

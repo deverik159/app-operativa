@@ -84,6 +84,24 @@ export function caraLabel(vfid: string | null): string {
   return String(vfid);
 }
 
+/**
+ * Texto en minúsculas y SIN acentos, para comparar búsquedas.
+ *
+ * Sin esto, buscar "lampara" no encontraba "Lámpara": había que escribir el
+ * acento exacto, que en el teclado del celular casi nadie pone. NFD separa
+ * la letra de su acento y el replace tira el acento (rango de diacríticos
+ * combinantes). La ñ también se descompone (n + tilde) y queda como "n":
+ * para BUSCAR es lo deseable —"dañada" y "danada" se encuentran igual porque
+ * las dos puntas pasan por esta misma función—, pero por lo mismo esta
+ * función es SOLO para comparar, nunca para mostrar texto.
+ */
+export function sinAcentos(s: string | null | undefined): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 // Iniciales de un nombre para el avatar.
 export function initials(n: string | null): string {
   return (n || '?')

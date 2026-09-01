@@ -99,12 +99,15 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
 
     for (const f of files) {
       const tipo: TipoEvidencia = f.type.startsWith('video') ? 'video' : 'foto';
+      // El FOLIO abre el nombre: el archivo se comparte por su URL y sin el
+      // folio nadie sabe de qué incidencia es la foto sin abrir la app.
+      const folio = (inc.folio || '').trim();
       const cara = codigoCara(inc.clave_medio) || inc.clave_sitio || 'sitio';
       const fecha = new Date().toISOString().slice(0, 10);
       const ext = (
         f.name.split('.').pop() || (tipo === 'video' ? 'mp4' : 'jpg')
       ).toLowerCase();
-      const nombre = `${cara}_${fecha}_reparacion_${Date.now()}.${ext}`.replace(
+      const nombre = `${folio ? folio + '_' : ''}${cara}_${fecha}_reparacion_${Date.now()}.${ext}`.replace(
         /[^\w.\-]/g,
         '_'
       );

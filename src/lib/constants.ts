@@ -100,7 +100,7 @@ export const LADOS = ['Norte', 'Sur', 'Ambas'] as const;
  * general, y la decisión de dónde tiene sentido preguntarla es de producto.
  * Agregar una unidad es editar esta línea, no migrar la tabla.
  */
-export const UNIDADES_CON_LADO = ['Vía Verde'];
+export const UNIDADES_CON_LADO = ['Vía Verde', 'Verde Vertical'];
 
 // ============================================================
 // Auto-ruteo fuera del horario del validador

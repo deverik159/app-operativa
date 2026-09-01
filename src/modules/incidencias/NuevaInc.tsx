@@ -225,18 +225,21 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
   // Buscador de clave de sitio, con debounce de 250 ms.
   useEffect(() => {
     if (site) return; // ya hay sitio elegido
-    if (siteQuery.trim().length < 2) {
+    if (siteQuery.trim().length < 1) {
       setSiteOpts([]);
       return;
     }
     let active = true;
     setLoadingSites(true);
     const t = setTimeout(async () => {
+      // Espacios como comodín, igual que en EditModal: "eva 03" encuentra
+      // MX_EM_EV_EVA_03_0009 sin conocer los guiones bajos del formato.
+      const patron = '%' + siteQuery.trim().replace(/\s+/g, '%') + '%';
       const { data } = await sb
         .from('inventario')
         .select('site_id,direccion')
         .eq('unidad_negocio', un)
-        .ilike('site_id', '%' + siteQuery.trim() + '%')
+        .ilike('site_id', patron)
         .limit(80);
       if (!active) return; // el usuario ya escribió otra cosa
       const seen = new Set<string>();
@@ -572,7 +575,7 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
                 setNearOpts([]);
                 setSiteQuery(e.target.value);
               }}
-              placeholder="Escribe para buscar (mín. 2 caracteres)…"
+              placeholder="Escribe para buscar (ej. eva 03)…"
               disabled={lineas.length > 0}
               style={{ flex: '1 1 160px', minWidth: 0, width: 'auto' }}
             />

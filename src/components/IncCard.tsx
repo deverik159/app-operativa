@@ -81,8 +81,12 @@ function IncCard({
     !!can.crear && mio && ['por_validar', 'rechazada'].includes(i.estatus);
 
   // CORREGIR es del VALIDADOR: cambia la clasificación contra el catálogo.
-  // Mientras la incidencia siga viva; una cerrada ya no se reclasifica.
-  const puedeCorregir = !!can.validar && activa;
+  // Solo mientras la incidencia esté ANTES de la reparación: una vez
+  // reparada, el técnico ya trabajó sobre esa clasificación y reclasificarla
+  // desharía el contexto de lo que se reparó (Erik, sep-2026). Una cerrada
+  // tampoco se reclasifica.
+  const puedeCorregir =
+    !!can.validar && activa && i.estatus !== 'reparado';
 
   const slaRep =
     i.estatus === 'en_proceso' && i.sla_reparacion_inicio

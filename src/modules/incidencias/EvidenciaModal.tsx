@@ -152,8 +152,10 @@ function EvidenciaModal({
 
     for (const f of files) {
       const tipo: TipoEvidencia = f.type.startsWith('video') ? 'video' : 'foto';
-      // Renombrado automático: cara + fecha + etapa. Así el archivo es
-      // legible en Storage sin abrir la app.
+      // Renombrado automático: folio + cara + fecha + etapa. Así el archivo
+      // es legible en Storage y su URL dice de qué incidencia es sin abrir
+      // la app.
+      const folio = (inc.folio || '').trim();
       const cara = codigoCara(inc.clave_medio) || inc.clave_sitio || 'sitio';
       const baseFecha =
         (etapaUsar === 'reparacion'
@@ -164,7 +166,7 @@ function EvidenciaModal({
         f.name.split('.').pop() || (tipo === 'video' ? 'mp4' : 'jpg')
       ).toLowerCase();
       const nombre =
-        `${cara}_${fechaStr}_${etapaUsar}_${Date.now()}.${ext}`.replace(
+        `${folio ? folio + '_' : ''}${cara}_${fechaStr}_${etapaUsar}_${Date.now()}.${ext}`.replace(
           /[^\w.\-]/g,
           '_'
         );

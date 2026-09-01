@@ -42,6 +42,7 @@
 // `restringido` es lo que la pantalla usa para saber si tiene que advertir.
 // ============================================================
 import type { CatalogoIncidencia } from '../types/db';
+import { sinAcentos } from './helpers';
 
 /** Llave de identidad de una entrada. Dos áreas = dos cosas distintas. */
 export function llaveCatalogo(c: {
@@ -156,10 +157,12 @@ export function filtrarCatalogo(
   cat: CatalogoIncidencia[],
   texto: string
 ): CatalogoIncidencia[] {
-  const palabras = texto.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  // sinAcentos en las dos puntas: el catálogo dice "Lámpara" y en el teclado
+  // del celular se escribe "lampara" — sin normalizar, no se encontraba.
+  const palabras = sinAcentos(texto).trim().split(/\s+/).filter(Boolean);
   if (!palabras.length) return cat;
   return cat.filter((c) => {
-    const heno = `${c.detalle} ${c.area || ''}`.toLowerCase();
+    const heno = sinAcentos(`${c.detalle} ${c.area || ''}`);
     return palabras.every((p) => heno.includes(p));
   });
 }
