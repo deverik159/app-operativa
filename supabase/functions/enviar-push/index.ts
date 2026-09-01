@@ -109,9 +109,21 @@ Deno.serve(async (req) => {
   if (subs.length === 0) return json({ ok: true, enviados: 0, motivo: 'sin dispositivos' });
 
   // 3) Payload. Se mantiene chico: hay servicios de push que limitan a ~4 KB.
+  // En los chats el trigger manda "Nuevo mensaje en <folio>: <texto>", que
+  // repetía al título genérico. Aquí se parte: el folio sube al título y el
+  // cuerpo queda solo con el texto del mensaje.
+  let titulo = TITULOS[cuerpo.evento || ''] || 'GPO VALLAS';
+  let texto = cuerpo.mensaje || '';
+  if (cuerpo.evento === 'chat') {
+    const m = texto.match(/^Nuevo mensaje en (.+?): ([\s\S]*)$/);
+    if (m) {
+      titulo = `Nuevo mensaje en ${m[1]}`;
+      texto = m[2];
+    }
+  }
   const payload = JSON.stringify({
-    titulo: TITULOS[cuerpo.evento || ''] || 'GPO VALLAS',
-    cuerpo: cuerpo.mensaje || '',
+    titulo,
+    cuerpo: texto,
     url: '/',
     record_id: cuerpo.record_id || null,
     // tag por registro: varias notificaciones de la misma incidencia se
