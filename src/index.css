@@ -124,7 +124,11 @@
   /* z-index 960 y no 60: el menú inferior de celular es `position:fixed`
      con z-index 900, así que con 60 el menú quedaba ENCIMA del modal y
      tapaba justo el botón de "Agregar esta incidencia al reporte". */
-  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;overflow:auto;z-index:960}
+  /* El padding-top lleva el safe-area: en la PWA instalada en iPhone la
+     barra de estado es translúcida (igual que en .topbar) y sin el inset el
+     título del modal quedaba DEBAJO del reloj y la Dynamic Island. En
+     navegador normal el inset es 0 y no cambia nada. */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;padding-top:calc(24px + env(safe-area-inset-top,0px));overflow:auto;z-index:960}
 
   /* Paneles flotantes de la barra superior (campana y menú de usuario).
      En escritorio cuelgan del botón; en celular se vuelven una hoja de
@@ -250,7 +254,12 @@
 
     /* Modales a pantalla casi completa: en 360px, 22px de padding por lado
        se comen el contenido. */
-    .overlay{padding:10px 8px 24px}
+    /* 14px de base + safe-area: el modal arranca abajo del reloj/notch de
+       la PWA. El padding de abajo también respeta la franja del gesto de
+       inicio del iPhone, que se traga los toques de los últimos ~20px. */
+    .overlay{padding:14px 8px 24px;
+      padding-top:calc(14px + env(safe-area-inset-top,0px));
+      padding-bottom:max(24px, calc(10px + env(safe-area-inset-bottom,0px)))}
     .modal{padding:16px 14px;max-width:none;max-height:none}
     .modal-actions{flex-wrap:wrap}
     .modal-actions .btn{flex:1 1 auto}
