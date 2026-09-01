@@ -94,15 +94,37 @@ export async function activarPush(email: string): Promise<string | null> {
   if (permiso !== 'granted')
     return 'No se concedió el permiso de notificaciones. Puedes activarlo desde los ajustes del navegador.';
 
-  let sus: PushSubscription;
+  let sus: PushSubscription | null;
   try {
-    sus =
-      (await reg.pushManager.getSubscription()) ||
-      (await reg.pushManager.subscribe({
+    sus = await reg.pushManager.getSubscription();
+
+    // Si la suscripción existente es de OTRA llave VAPID (se regeneraron las
+    // llaves), reutilizarla guardaría un registro muerto: el push service
+    // rechaza con 403 los envíos firmados con la privada nueva, y la función
+    // reporta enviados:0 sin invalidar nada. Se tira y se crea una fresca.
+    // (Esto pasó el 31-ago-2026: "reactivar la campanita" re-guardaba la
+    // suscripción zombi porque este código la reutilizaba tal cual.)
+    if (sus) {
+      const actual = base64UrlABytes(VAPID);
+      const vieja = sus.options?.applicationServerKey
+        ? new Uint8Array(sus.options.applicationServerKey as ArrayBuffer)
+        : null;
+      const mismaLlave =
+        !!vieja &&
+        vieja.length === actual.length &&
+        vieja.every((b, i) => b === actual[i]);
+      if (!mismaLlave) {
+        await sus.unsubscribe();
+        sus = null;
+      }
+    }
+
+    if (!sus)
+      sus = await reg.pushManager.subscribe({
         // Obligatorio: el navegador no permite push silencioso.
         userVisibleOnly: true,
         applicationServerKey: base64UrlABytes(VAPID),
-      }));
+      });
   } catch (e) {
     return 'No se pudo suscribir: ' + (e as Error).message;
   }
