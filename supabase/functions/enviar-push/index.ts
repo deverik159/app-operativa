@@ -121,6 +121,10 @@ Deno.serve(async (req) => {
 
   let enviados = 0;
   const invalidas: number[] = [];
+  // El motivo exacto de cada rechazo, DE VUELTA en la respuesta: con solo
+  // console.error el error real (p. ej. el 403 de Apple por llave VAPID
+  // equivocada) quedaba enterrado en los logs y el diagnóstico era a ciegas.
+  const fallos: { id: number; status?: number; detalle?: string }[] = [];
 
   await Promise.all(
     subs.map(async (s) => {
@@ -135,11 +139,18 @@ Deno.serve(async (req) => {
         );
         enviados++;
       } catch (e) {
-        const status = (e as { statusCode?: number }).statusCode;
+        const err = e as { statusCode?: number; body?: string; message?: string };
         // 404/410 = el navegador revocó la suscripción (datos borrados, app
         // desinstalada). Se marca para dejar de intentar por siempre.
-        if (status === 404 || status === 410) invalidas.push(s.id);
-        else console.error('[push] fallo en', s.endpoint.slice(0, 60), status, e);
+        if (err.statusCode === 404 || err.statusCode === 410) invalidas.push(s.id);
+        else {
+          console.error('[push] fallo en', s.endpoint.slice(0, 60), err.statusCode, e);
+          fallos.push({
+            id: s.id,
+            status: err.statusCode,
+            detalle: String(err.body || err.message || '').slice(0, 200),
+          });
+        }
       }
     })
   );
@@ -160,5 +171,5 @@ Deno.serve(async (req) => {
       );
   }
 
-  return json({ ok: true, enviados, invalidadas: invalidas.length });
+  return json({ ok: true, enviados, invalidadas: invalidas.length, fallos });
 });
