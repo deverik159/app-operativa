@@ -138,24 +138,28 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       alert('Escribe el motivo de la reasignación.');
       return;
     }
+    if (!file) {
+      alert('Adjunta la foto de evidencia de la reasignación.');
+      return;
+    }
     setBusy(true);
 
-    // La evidencia es opcional: si la subida falla, se sigue sin ella en vez
-    // de bloquear la solicitud.
-    let evidenciaUrl: string | null = null;
-    if (file) {
-      const path = `${inc.record_id}/reasignacion_${Date.now()}_${file.name.replace(
-        /[^\w.\-]/g,
-        '_'
-      )}`;
-      const { error: upErr } = await sb.storage
-        .from(BUCKET_EVIDENCIAS)
-        .upload(path, file);
-      if (!upErr) {
-        evidenciaUrl = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path)
-          .data.publicUrl;
-      }
+    // La evidencia es obligatoria (misma regla que el alta): si la subida
+    // falla, la solicitud NO se envía — sin foto el validador decide a ciegas.
+    const path = `${inc.record_id}/reasignacion_${Date.now()}_${file.name.replace(
+      /[^\w.\-]/g,
+      '_'
+    )}`;
+    const { error: upErr } = await sb.storage
+      .from(BUCKET_EVIDENCIAS)
+      .upload(path, file);
+    if (upErr) {
+      setBusy(false);
+      alert('No se pudo subir la foto: ' + upErr.message + '. Inténtalo de nuevo.');
+      return;
     }
+    const evidenciaUrl = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path)
+      .data.publicUrl;
 
     const rid = idCorto();
     const { error } = await sb.from('reasignaciones').insert({
@@ -362,7 +366,10 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
               />
             </div>
             <div className="field">
-              <label>Evidencia (opcional)</label>
+              <label>
+                Evidencia (foto) —{' '}
+                <span style={{ color: 'var(--accent)' }}>obligatoria</span>
+              </label>
               <SubirArchivos
                 accept="image/*"
                 multiple={false}
