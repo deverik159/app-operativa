@@ -236,7 +236,12 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
             border: '1px solid var(--line)',
             borderRadius: 10,
             padding: 12,
-            minHeight: 220,
+            /* 100 y no 220: el modal tiene max-height (80dvh) y este mínimo
+               es lo único que puede ceder. Con 220, en horizontal o con el
+               teclado abierto la suma de hijos superaba el tope y el campo
+               de escribir quedaba fuera de pantalla, sin scroll que llegara
+               a él. El flex:1 lo hace crecer cuando sí hay espacio. */
+            minHeight: 100,
             marginBottom: 10,
           }}
         >
@@ -405,6 +410,10 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 <span
                   style={{
                     flex: 1,
+                    /* Sin minWidth:0 el flex no encoge por debajo del nombre
+                       completo del archivo (nowrap): un IMG_2026...HDR.jpg
+                       empujaba el MB y la ✕ de Quitar fuera del modal. */
+                    minWidth: 0,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -426,7 +435,11 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
               </div>
             )}
 
-            <form onSubmit={enviar} style={{ display: 'flex', gap: 8 }}>
+            {/* flexWrap + flex-basis chico en el input: sin eso, el
+                min-content del campo (~200px) + 📎 + "Enviar" sumaban más
+                que el ancho del modal en 360px y el botón de enviar quedaba
+                cortado fuera de pantalla, peor aún durante "Subiendo…". */}
+            <form onSubmit={enviar} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <input
                 ref={fileRef}
                 type="file"
@@ -439,6 +452,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 className="btn ghost"
                 onClick={() => fileRef.current?.click()}
                 disabled={subiendo}
+                style={{ flexShrink: 0 }}
                 title={`Foto o video de máximo ${MAX_VIDEO_SEG} s`}
               >
                 📎
@@ -448,6 +462,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 onChange={(e) => setTexto(e.target.value)}
                 placeholder={pendiente ? 'Comentario (opcional)…' : 'Escribe un mensaje…'}
                 disabled={subiendo}
+                style={{ flex: '1 1 140px', minWidth: 0, width: 'auto' }}
               />
               <button className="btn" type="submit" disabled={subiendo}>
                 {subiendo && <span className="spinner" />}

@@ -429,6 +429,12 @@ function PautaView({ puedeImportar, email }: Props) {
                     color: on ? '#151515' : 'var(--muted)',
                     whiteSpace: 'normal',
                     textAlign: 'left',
+                    /* Los nombres de campaña del Excel suelen ser UN token
+                       (SEGUROS_MONTERREY_NYL_2026): sin esto no hay dónde
+                       romper y el chip se sale de la pantalla. */
+                    overflowWrap: 'anywhere',
+                    wordBreak: 'break-word',
+                    maxWidth: '100%',
                   }}
                 >
                   {c} · {n}

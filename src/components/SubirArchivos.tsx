@@ -102,8 +102,11 @@ function MiniFile({
             position: 'absolute',
             top: 3,
             right: 3,
-            width: 24,
-            height: 24,
+            /* 30 y no 24: mismo criterio que .btn-icono — un ✕ de 24px en
+               la esquina de una miniatura de 76px es imposible de atinar
+               con el dedo y se borraba la foto equivocada. */
+            width: 30,
+            height: 30,
             borderRadius: '50%',
             border: 'none',
             background: 'rgba(0,0,0,.75)',

@@ -68,7 +68,11 @@ export default defineConfig(async ({ command, mode }) => {
     server: {
       // host:true expone el servidor en la red local para probar desde celular.
       host: true,
-      port: 5173,
+      // Si el entorno asigna un puerto (PORT), se respeta: así pueden
+      // convivir dos servidores de desarrollo a la vez (p. ej. la vista
+      // previa de Claude Code junto al `npm run dev` de siempre). Sin PORT,
+      // se queda el 5173 de las notas y del celular.
+      port: Number(process.env.PORT) || 5173,
       // Sin esto, si el 5173 está ocupado Vite se cambia de puerto en
       // silencio y la IP que anotaste deja de servir.
       strictPort: true,

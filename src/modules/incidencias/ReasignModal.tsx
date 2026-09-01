@@ -433,7 +433,12 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
                     src={req.evidencia}
                     alt="Evidencia de la reasignación"
                     style={{
-                      width: 120,
+                      /* El validador decide aprobar/rechazar mirando esta
+                         foto: a 120px no se distinguía nada y en táctil no
+                         hay hover ni zoom (el <a> abre el original). */
+                      width: '100%',
+                      maxWidth: 220,
+                      height: 'auto',
                       borderRadius: 8,
                       border: '1px solid var(--line)',
                     }}

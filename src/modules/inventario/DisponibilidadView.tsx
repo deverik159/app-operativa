@@ -432,8 +432,11 @@ function DisponibilidadView() {
                               </div>
                             </div>
 
+                            {/* multilinea: es el único .pill con frase
+                                ("Se retira a media catorcena"); en nowrap
+                                acaparaba un renglón entero en celular. */}
                             <span
-                              className="pill"
+                              className="pill multilinea"
                               style={{ background: col.bg, color: col.fg }}
                             >
                               {v.texto}

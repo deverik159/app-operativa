@@ -500,7 +500,12 @@ function ImportarKmlModal({ unidad: sugerida, onClose, onImportado }: Props) {
               alta primero o corregir el nombre en el mapa.
             </p>
 
+            {/* lista-scroll: aquí se decide qué se importa (200-400
+                marcadores con checkbox); en celular la revisión más larga de
+                la app no cabe en media pantalla con scroll anidado, así que
+                la media query libera el tope y scrollea la página. */}
             <div
+              className="lista-scroll"
               style={{
                 maxHeight: '46vh',
                 overflowY: 'auto',

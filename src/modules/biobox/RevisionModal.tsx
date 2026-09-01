@@ -591,7 +591,9 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
         type="button"
         onClick={() => marcar(id, v)}
         style={{
-          flex: 1,
+          /* Base de 88px para que, junto al flexWrap del contenedor, un
+             botón que no cabe baje de renglón en vez de cortar su texto. */
+          flex: '1 1 88px',
           minWidth: 0,
           minHeight: 40,
           padding: '6px 4px',
@@ -669,7 +671,11 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
               </div>
             )}
 
+            {/* lista-scroll: en celular la media query libera el tope (48vh
+                dejaba el checklist de 20+ puntos en una rendija de ~300px
+                con scroll anidado que en iOS se traba) y scrollea la página. */}
             <div
+              className="lista-scroll"
               style={{
                 maxHeight: '48vh',
                 overflowY: 'auto',
@@ -737,7 +743,10 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                           </div>
                         )}
 
-                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                        {/* flexWrap: si los tres no caben (320px, fuente
+                            grande del sistema), bajan a 2+1 en vez de
+                            estrujarse hasta cortar el texto en vertical. */}
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                           {btnValor(p.id, 'ok', '✓ Bien', 'var(--ok)')}
                           {btnValor(p.id, 'anomalia', '⚠ Anomalía', '#ef4444')}
                           {btnValor(p.id, 'na', '— N/A', '#64748b')}
@@ -848,14 +857,16 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
 
             <div className="field" style={{ marginTop: 14 }}>
               <label>¿Cómo quedó la máquina?</label>
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {ESTADOS.map((e) => (
                   <button
                     key={e.v}
                     type="button"
                     onClick={() => setEstado(e.v)}
                     style={{
-                      flex: 1,
+                      /* Base de 96px: si "Fuera de línea" no cabe en tres
+                         columnas, se van a dos renglones sin cortarse. */
+                      flex: '1 1 96px',
                       minWidth: 0,
                       minHeight: 42,
                       fontSize: 12,

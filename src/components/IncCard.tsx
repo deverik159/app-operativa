@@ -125,7 +125,7 @@ function IncCard({
           {sla && (
             <div style={{ marginTop: 6 }}>
               <span
-                className="pill"
+                className="pill multilinea"
                 style={{ background: sla.color + '22', color: sla.color }}
               >
                 ⏱ {slaRep ? 'SLA área' : 'SLA validación'}: {sla.label}
@@ -173,12 +173,18 @@ function IncCard({
         )}
         {/* tipo (Imponderable…) y origen ya no se muestran en la tarjeta:
             se siguen guardando para los KPIs (Erik, 30-ago-2026). */}
-        {i.area_responsable && <span className="tag">→ {i.area_responsable}</span>}
+        {/* Los .tag apagan a propósito el quiebre de palabra del body; aquí
+            el contenido es dato libre y hay que reponerlo o desborda. */}
+        {i.area_responsable && (
+          <span className="tag" style={{ overflowWrap: 'anywhere', maxWidth: '100%' }}>
+            → {i.area_responsable}
+          </span>
+        )}
         {/* Rastro visible de la reasignación: quien la recibe ve de un
             vistazo que antes le pertenecía a otra área. */}
         {i.reasignada_de && (
           <span
-            className="pill"
+            className="pill multilinea"
             style={{ background: '#a78bfa22', color: '#a78bfa' }}
             title={`Reasignada: antes pertenecía a ${i.reasignada_de}`}
           >
@@ -187,14 +193,18 @@ function IncCard({
         )}
         {redirigida && (
           <span
-            className="pill"
+            className="pill multilinea"
             style={{ background: '#ff5a3c22', color: '#ff5a3c' }}
             title="Área que realmente repara (el catálogo decía otra)"
           >
             🛠 Repara: {i.assigned_area}
           </span>
         )}
-        {i.campania && <span className="tag">🎯 {i.campania}</span>}
+        {i.campania && (
+          <span className="tag" style={{ overflowWrap: 'anywhere', maxWidth: '100%' }}>
+            🎯 {i.campania}
+          </span>
+        )}
       </div>
       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
         🕒 Capturada:{' '}
@@ -337,8 +347,11 @@ function IncCard({
 
       {prevalidacionPend && (
         <div style={{ marginTop: 9 }}>
+          {/* multilinea: la frase completa mide ~320px en nowrap y en un
+              teléfono ensanchaba TODA la lista de tarjetas (los items del
+              grid no encogen por debajo de su min-content). */}
           <span
-            className="pill"
+            className="pill multilinea"
             style={{ background: '#4f8cff22', color: '#4f8cff' }}
           >
             ⚡ Directa a Digital · prevalidación pendiente

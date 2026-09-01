@@ -110,7 +110,10 @@ function HistorialModal({ siteId, titulo, onClose }: Props) {
             Esta máquina no tiene revisiones registradas todavía.
           </div>
         ) : (
+          // lista-scroll: en celular se libera el tope de 60vh (scroll
+          // anidado que en iOS se traba) y scrollea la página.
           <div
+            className="lista-scroll"
             style={{
               maxHeight: '60vh',
               overflowY: 'auto',

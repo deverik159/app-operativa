@@ -343,7 +343,9 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
                 border: '1px solid var(--line)',
                 borderRadius: 10,
                 marginTop: 6,
-                maxHeight: 190,
+                /* 280 y no 190: cada resultado mide ~62px y con 190 solo se
+                   veían 2.5 dentro de un scroll anidado en el del modal. */
+                maxHeight: 280,
                 overflowY: 'auto',
               }}
             >

@@ -87,7 +87,11 @@ function Bars({
           title={onAbrir ? `Ver las ${f.n} de ${f.etiqueta}` : f.etiqueta}
           style={{
             display: 'grid',
-            gridTemplateColumns: '130px 1fr 34px',
+            /* Proporcional y no '130px 1fr 34px': en un teléfono la columna
+               fija dejaba la etiqueta en ~17 caracteres ("Mantenimiento e
+               In…") y el title con el texto completo no existe en táctil.
+               El minmax(0,…) mantiene funcionando el ellipsis. */
+            gridTemplateColumns: 'minmax(0, clamp(110px, 38%, 150px)) 1fr auto',
             alignItems: 'center',
             gap: 10,
             fontSize: 13,

@@ -44,7 +44,13 @@ export function candadoTactil(map: L.Map): void {
       const btn = L.DomUtil.create('a', '', caja) as HTMLAnchorElement;
       btn.href = '#';
       btn.setAttribute('role', 'button');
-      btn.style.fontSize = '15px';
+      // 40px y no los 26 que hereda de .leaflet-bar: este control solo
+      // existe en táctil y es LA única vía para soltar el paneo con un
+      // dedo — el elemento más dependiente del dedo no puede ser el más
+      // chico de la app. Todo junto en cssText porque el font-size inline
+      // le ganaría a cualquier hoja de estilos.
+      btn.style.cssText =
+        'width:40px;height:40px;line-height:40px;font-size:18px;text-align:center;';
 
       const pintar = () => {
         const libre = map.dragging.enabled();

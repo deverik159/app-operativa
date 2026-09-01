@@ -240,8 +240,10 @@ function BioboxView({ email, misDep, puedeConfigurar }: Props) {
 
       <div className="toolbar">
         <span className="tag">Segmento:</span>
+        {/* Sin width:'auto' inline: la clase .toolbar ya lo da en escritorio
+            y en celular el inline anulaba el apilado a ancho completo de la
+            media query, dejando el select truncado ("Digital e Imp…"). */}
         <select
-          style={{ width: 'auto' }}
           value={unidad}
           onChange={(e) => {
             setUnidad(e.target.value);
@@ -255,7 +257,6 @@ function BioboxView({ email, misDep, puedeConfigurar }: Props) {
           ))}
         </select>
         <select
-          style={{ width: 'auto' }}
           value={medio}
           onChange={(e) =>
             setMedio(e.target.value as 'todos' | 'Digital' | 'Impreso')
@@ -433,14 +434,16 @@ function BioboxView({ email, misDep, puedeConfigurar }: Props) {
 
           {/* Filtros de la lista */}
           <div className="toolbar">
+            {/* className="search" y sin maxWidth: el tope de 280px inline
+                impedía que la media query lo apilara a ancho completo y el
+                placeholder de 38 caracteres salía cortado a la mitad. */}
             <input
+              className="search"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por número, dirección o clave"
-              style={{ maxWidth: 280 }}
             />
             <select
-              style={{ width: 'auto' }}
               value={orden}
               onChange={(e) => setOrden(e.target.value as Orden)}
             >
@@ -623,6 +626,14 @@ function BioboxView({ email, misDep, puedeConfigurar }: Props) {
                                 color: alarma ? '#ef4444' : '#f97316',
                                 borderColor: alarma ? '#ef4444' : '#f97316',
                                 fontWeight: alarma ? 700 : 400,
+                                /* Frase larga en un .tag (que apaga el
+                                   quiebre de palabra): sin esto, un nombre
+                                   de área largo desbordaba la tarjeta y se
+                                   recortaba justo lo que el operador debe
+                                   leer antes de bajarse del carro. */
+                                maxWidth: '100%',
+                                whiteSpace: 'normal',
+                                overflowWrap: 'anywhere',
                               }}
                               title={
                                 'Abiertas: ' + e.abiertas +
@@ -653,11 +664,16 @@ function BioboxView({ email, misDep, puedeConfigurar }: Props) {
                       </div>
                     </div>
 
+                    {/* Sin flexShrink:0: con él, el grupo no podía bajar de
+                        su max-content (~291px) y en pantallas de 320px o con
+                        fuente grande el botón "✅ Revisar" —la acción
+                        principal— se salía y se recortaba sin scroll. El
+                        flexWrap ya acomoda los botones en dos renglones. */}
                     <div
                       style={{
                         display: 'flex',
                         gap: 6,
-                        flexShrink: 0,
+                        minWidth: 0,
                         flexWrap: 'wrap',
                       }}
                     >

@@ -464,7 +464,10 @@ function ImportarRutasExcelModal({ onClose, onImportado }: Props) {
               </div>
             )}
 
+            {/* lista-scroll: en celular se libera el tope de 34vh y scrollea
+                la página, en vez de anidar dos scrolls que en iOS se traban. */}
             <div
+              className="lista-scroll"
               style={{
                 maxHeight: '34vh',
                 overflowY: 'auto',
@@ -476,18 +479,26 @@ function ImportarRutasExcelModal({ onClose, onImportado }: Props) {
               {[...porRuta.entries()]
                 .sort((a, b) => a[0].localeCompare(b[0]))
                 .map(([resp, fs]) => (
+                  /* flexWrap + minWidth:0: sin ellos, un responsable de
+                     nombre largo (JOSE ANTONIO HERNANDEZ MARTINEZ) se
+                     comprimía contra el conteo y el quiebre de palabra del
+                     body lo partía en columnas de 1-2 letras por renglón. */
                   <div
                     key={resp}
                     style={{
                       display: 'flex',
+                      flexWrap: 'wrap',
                       justifyContent: 'space-between',
+                      gap: '2px 10px',
                       padding: '9px 12px',
                       borderBottom: '1px solid var(--line)',
                       fontSize: 13,
                     }}
                   >
-                    <span style={{ fontWeight: 600 }}>Ruta {resp}</span>
-                    <span style={{ color: 'var(--muted)' }}>
+                    <span style={{ fontWeight: 600, minWidth: 0, flex: '1 1 auto' }}>
+                      Ruta {resp}
+                    </span>
+                    <span style={{ color: 'var(--muted)', flexShrink: 0 }}>
                       {fs.length} máquinas
                     </span>
                   </div>
@@ -501,9 +512,12 @@ function ImportarRutasExcelModal({ onClose, onImportado }: Props) {
                   {unidad}, así que no se pueden asignar a una ruta. Hay que
                   darlas de alta primero; la importación sigue sin ellas.
                 </p>
+                {/* lista-scroll + 30vh: 18vh eran ~3 filas visibles de una
+                    lista que puede traer 40 claves; en celular se libera. */}
                 <div
+                  className="lista-scroll"
                   style={{
-                    maxHeight: '18vh',
+                    maxHeight: '30vh',
                     overflowY: 'auto',
                     border: '1px solid var(--bad)',
                     borderRadius: 10,
@@ -515,14 +529,20 @@ function ImportarRutasExcelModal({ onClose, onImportado }: Props) {
                       key={f.site_id}
                       style={{
                         display: 'flex',
+                        flexWrap: 'wrap',
                         justifyContent: 'space-between',
+                        gap: '2px 10px',
                         padding: '6px 12px',
                         borderBottom: '1px solid var(--line)',
                         fontSize: 12,
                       }}
                     >
-                      <span>{f.site_id}</span>
-                      <span style={{ color: 'var(--muted)' }}>{f.responsable}</span>
+                      {/* La clave es el dato accionable: que nunca se parta
+                          letra por letra; el responsable baja de renglón. */}
+                      <span style={{ flexShrink: 0 }}>{f.site_id}</span>
+                      <span style={{ color: 'var(--muted)', minWidth: 0 }}>
+                        {f.responsable}
+                      </span>
                     </div>
                   ))}
                 </div>

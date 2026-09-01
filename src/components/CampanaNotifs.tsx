@@ -150,7 +150,10 @@ function CampanaNotifs({
                   font: 'inherit',
                   fontSize: 13,
                   fontWeight: pestana === k ? 700 : 400,
-                  padding: '9px 0',
+                  /* 12px de padding ≈ 42px de alto: estas pestañas son la
+                     navegación del panel y con 9px quedaban en ~34px,
+                     debajo del mínimo táctil del resto de la app. */
+                  padding: '12px 0',
                   cursor: 'pointer',
                 }}
               >

@@ -263,15 +263,28 @@ function UsuariosView() {
                   </span>
                 )}
                 {rolesDe(u.email).map((r) => (
+                  /* multilinea + inline-flex: un rol completo (Validador ·
+                     Verde Vertical · Impreso · Implementaciones) mide ~410px
+                     en nowrap; en un teléfono el chip se salía y la ✕ de
+                     quitar el rol quedaba literalmente fuera de la pantalla. */
                   <span
                     key={r.id}
-                    className="pill"
-                    style={{ background: '#4f8cff22', color: '#4f8cff' }}
+                    className="pill multilinea"
+                    style={{
+                      background: '#4f8cff22',
+                      color: '#4f8cff',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      borderRadius: 14,
+                    }}
                   >
-                    {ROLE_LABEL[r.rol] || r.rol}
-                    {r.unidad_negocio ? ` · ${r.unidad_negocio}` : ''}
-                    {r.medio ? ` · ${r.medio}` : ''}
-                    {r.departamento ? ` · ${r.departamento}` : ''}
+                    <span style={{ minWidth: 0 }}>
+                      {ROLE_LABEL[r.rol] || r.rol}
+                      {r.unidad_negocio ? ` · ${r.unidad_negocio}` : ''}
+                      {r.medio ? ` · ${r.medio}` : ''}
+                      {r.departamento ? ` · ${r.departamento}` : ''}
+                    </span>
                     <button
                       type="button"
                       className="btn-icono"
@@ -279,12 +292,11 @@ function UsuariosView() {
                       aria-label="Quitar este rol"
                       title="Quitar este rol"
                       style={{
-                        // Dentro del pill: área táctil amplia sin engordar
-                        // el chip — el padding negativo la expande hacia
-                        // afuera del renglón.
-                        minWidth: 32,
-                        minHeight: 32,
-                        margin: '-8px 0 -8px 2px',
+                        // Sin minWidth/minHeight propios: hereda los 40px
+                        // táctiles de .btn-icono (un margen negativo NO
+                        // amplía el área de toque, solo el espacio que el
+                        // botón deja de ocupar en el renglón).
+                        margin: '-6px 0 -6px 2px',
                         fontSize: 13,
                         fontWeight: 800,
                         color: 'inherit',

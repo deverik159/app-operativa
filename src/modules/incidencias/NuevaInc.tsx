@@ -564,7 +564,7 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
 
         <div className="field" style={{ position: 'relative' }}>
           <label>Clave de sitio</label>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <input
               value={siteQuery}
               onChange={(e) => {
@@ -574,6 +574,7 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
               }}
               placeholder="Escribe para buscar (mín. 2 caracteres)…"
               disabled={lineas.length > 0}
+              style={{ flex: '1 1 160px', minWidth: 0, width: 'auto' }}
             />
             {site && lineas.length === 0 && (
               <button
@@ -655,7 +656,9 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
                     gap: 10,
                   }}
                 >
-                  <div>
+                  {/* minWidth:0: sin él, una dirección larga no deja encoger
+                      al bloque y estruja la píldora de distancia. */}
+                  <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>
                       {o.site_id}
                     </div>
@@ -669,6 +672,7 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
                       background: '#4f8cff22',
                       color: '#4f8cff',
                       alignSelf: 'center',
+                      flexShrink: 0,
                     }}
                   >
                     {o.dist < 1
@@ -744,7 +748,9 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
                     gap: 10,
                   }}
                 >
-                  <div>
+                  {/* minWidth:0 para que el detalle largo encoja en vez de
+                      empujar los botones ✏️ 🗑 fuera de la tarjeta. */}
+                  <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>
                       {l.cat.detalle}
                     </div>
@@ -900,7 +906,11 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
                     display: 'grid',
                     gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))',
                     gap: 6,
-                    maxHeight: 150,
+                    /* 260 y no 150: en 360px el grid queda en 2 columnas y
+                       un sitio de 8 caras necesita 4 filas (~180px); con 150
+                       la cara buscada quedaba oculta tras un scroll interno
+                       anidado dentro del scroll del modal. */
+                    maxHeight: 260,
                     overflow: 'auto',
                   }}
                 >

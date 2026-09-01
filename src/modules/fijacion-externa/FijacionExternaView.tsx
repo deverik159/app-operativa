@@ -381,8 +381,9 @@ function FijacionExternaView({
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        {/* Sin width:'auto' inline: anulaba el apilado a ancho completo que
+            la media query de .toolbar da en celular. */}
         <select
-          style={{ width: 'auto' }}
           value={fEstado}
           onChange={(e) => {
             const v = e.target.value;
@@ -428,7 +429,7 @@ function FijacionExternaView({
                       ✕
                     </span>
                   )}
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <div className="folio">{r.clave}</div>
                     <div className="titulo">
                       {r.direccion || '(sin dirección)'}
@@ -626,16 +627,23 @@ function FijacionExternaView({
                         />
                         <button
                           onClick={() => quitarFoto(i)}
+                          aria-label="Quitar esta foto"
                           style={{
                             position: 'absolute',
-                            top: 2,
-                            right: 2,
-                            background: 'rgba(0,0,0,.7)',
+                            top: 4,
+                            right: 4,
+                            background: 'rgba(0,0,0,.75)',
                             color: '#fff',
                             border: 'none',
                             borderRadius: '50%',
-                            width: 22,
-                            height: 22,
+                            /* 30 y no 22: con 22px en la esquina de una
+                               miniatura de 90px, en campo se quitaba la foto
+                               equivocada o no se atinaba. */
+                            width: 30,
+                            height: 30,
+                            fontSize: 14,
+                            lineHeight: 1,
+                            padding: 0,
                             cursor: 'pointer',
                           }}
                         >
@@ -690,6 +698,7 @@ function FijacionExternaView({
             <div
               style={{
                 display: 'flex',
+                flexWrap: 'wrap',
                 gap: 8,
                 justifyContent: 'flex-end',
                 borderTop: '1px solid var(--line)',

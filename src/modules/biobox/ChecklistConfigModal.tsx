@@ -258,8 +258,9 @@ function ChecklistConfigModal({ unidad, tipo, email, onClose }: Props) {
 
         <div className="toolbar" style={{ marginTop: 8 }}>
           <span className="tag">Checklist de:</span>
+          {/* Sin width:'auto' inline: anulaba el apilado a ancho completo
+              que la media query de .toolbar da en celular. */}
           <select
-            style={{ width: 'auto' }}
             value={tipoSel}
             onChange={(e) => setTipoSel(e.target.value)}
             disabled={guardando}
@@ -309,7 +310,10 @@ function ChecklistConfigModal({ unidad, tipo, email, onClose }: Props) {
               </div>
             )}
 
+            {/* lista-scroll: en celular se libera el tope y scrollea la
+                página, en vez de editar el checklist por una rendija. */}
             <div
+              className="lista-scroll"
               style={{
                 maxHeight: '54vh',
                 overflowY: 'auto',
@@ -349,13 +353,16 @@ function ChecklistConfigModal({ unidad, tipo, email, onClose }: Props) {
                         editar(f.id, 'orden', parseInt(e.target.value) || 0)
                       }
                       title="Orden"
-                      style={{ width: 68, flexShrink: 0 }}
+                      style={{ flex: '0 0 72px', width: 'auto' }}
                     />
+                    {/* Bases flexibles y no anchos fijos: en celular el
+                        reparto fijo dejaba ~96px muertos en el renglón y el
+                        campo importante bajaba solo al segundo. */}
                     <input
                       value={f.grupo || ''}
                       onChange={(e) => editar(f.id, 'grupo', e.target.value)}
                       placeholder="Grupo"
-                      style={{ width: 130, flexShrink: 0 }}
+                      style={{ flex: '1 1 110px', minWidth: 0, width: 'auto' }}
                     />
                     <input
                       value={f.texto}
@@ -394,7 +401,10 @@ function ChecklistConfigModal({ unidad, tipo, email, onClose }: Props) {
                       onChange={(e) =>
                         editar(f.id, 'incidencia_sugerida', e.target.value)
                       }
-                      style={{ width: 230, flexShrink: 0 }}
+                      /* Flexible y no 230px fijos: las opciones traen el área
+                         entre paréntesis y se truncaban justo ahí; en celular
+                         ahora toma su propio renglón completo. */
+                      style={{ flex: '1 1 230px', minWidth: 0, width: 'auto' }}
                       title="Incidencia que se propone si este punto sale mal"
                     >
                       <option value="">— sin incidencia ligada —</option>

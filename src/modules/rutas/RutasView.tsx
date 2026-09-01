@@ -462,8 +462,9 @@ function RutasView({
 
       <div className="toolbar">
         <span className="tag">Unidad de negocio:</span>
+        {/* Sin width:'auto' inline: la clase .toolbar ya lo da en escritorio
+            y el inline anulaba el apilado a ancho completo en celular. */}
         <select
-          style={{ width: 'auto' }}
           value={unidad}
           onChange={(e) => {
             setUnidad(e.target.value);
@@ -477,7 +478,6 @@ function RutasView({
           ))}
         </select>
         <select
-          style={{ width: 'auto' }}
           value={tipo}
           onChange={(e) => {
             setTipo(e.target.value);
@@ -598,14 +598,28 @@ function RutasView({
                   }}
                   onClick={() => setRutaFoco(rutaFoco === r.id ? null : r.id)}
                 >
+                  {/* flexWrap + minWidth:0: sin ellos, en un teléfono el
+                      texto de la ruta quedaba exprimido en ~170px partido en
+                      varios renglones y los botones 📋 ✏️ pegados sin
+                      separación (mistap garantizado). */}
                   <div
                     style={{
                       display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 8,
                       justifyContent: 'space-between',
                       alignItems: 'center',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        minWidth: 0,
+                        flex: '1 1 180px',
+                      }}
+                    >
                       <span
                         style={{
                           width: 16,
@@ -631,28 +645,37 @@ function RutasView({
                         </div>
                       </div>
                     </div>
-                    {!r.activa && <span className="tag">inactiva</span>}
-                    <button
-                      className="btn ghost sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDetalleRuta(r);
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        flexShrink: 0,
                       }}
-                      title="Ver ubicaciones"
                     >
-                      📋
-                    </button>
-                    {puedeGestionar && (
+                      {!r.activa && <span className="tag">inactiva</span>}
                       <button
                         className="btn ghost sm"
                         onClick={(e) => {
                           e.stopPropagation();
-                          editarRuta(r);
+                          setDetalleRuta(r);
                         }}
+                        title="Ver ubicaciones"
                       >
-                        ✏️
+                        📋
                       </button>
-                    )}
+                      {puedeGestionar && (
+                        <button
+                          className="btn ghost sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            editarRuta(r);
+                          }}
+                        >
+                          ✏️
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -776,7 +799,8 @@ function RutasView({
                     onChange={(e) =>
                       setEditando({ ...editando, color: e.target.value })
                     }
-                    style={{ width: 50, height: 38, padding: 2 }}
+                    /* 44 de alto: mínimo táctil (38 quedaba corto). */
+                    style={{ width: 56, height: 44, padding: 2 }}
                   />
                   <input
                     value={editando.color ?? '#ff5a3c'}
@@ -826,6 +850,7 @@ function RutasView({
             <div
               style={{
                 display: 'flex',
+                flexWrap: 'wrap',
                 gap: 8,
                 justifyContent: 'flex-end',
                 marginTop: 16,
@@ -947,7 +972,12 @@ function RutasView({
               </div>
             )}
 
-            <div style={{ overflowY: 'auto', display: 'grid', gap: 6 }}>
+            {/* Sin overflowY:'auto': era residuo del 85vh que se quitó y,
+                sin maxHeight, nunca scrollea en vertical pero SÍ convierte
+                la caja en contenedor de scroll horizontal (overflow-x
+                computa a auto): cualquier hijo pasado un pixel generaba
+                arrastre lateral dentro del modal en vez de fluir. */}
+            <div style={{ display: 'grid', gap: 6 }}>
               {ubicsDetalle.map((u) => {
                 const est = (u.estatus_archivo || '').toUpperCase();
                 const esRetirada = est === 'RETIRADA';
@@ -958,10 +988,14 @@ function RutasView({
                     ? '#f59e0b'
                     : '#22c55e';
                 return (
+                  // flexWrap + base de 160px en el texto: sin ellos, la
+                  // pill "Inhabilitada" + el botón Ir (fijos) exprimían la
+                  // dirección a ~78px y cada fila medía el triple de alto.
                   <div
                     key={u.ubicacion_id}
                     style={{
                       display: 'flex',
+                      flexWrap: 'wrap',
                       alignItems: 'flex-start',
                       gap: 10,
                       padding: '8px 10px',
@@ -988,7 +1022,7 @@ function RutasView({
                     >
                       {u.secuencia ?? '—'}
                     </span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ flex: '1 1 160px', minWidth: 0 }}>
                       <div
                         style={{
                           fontWeight: 700,

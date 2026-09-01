@@ -147,6 +147,16 @@
      primera línea es el fallback para navegadores sin dvh. */
   .modal-chat{max-height:80vh}
   @supports (height: 1dvh){.modal-chat{max-height:80dvh}}
+  /* Pastilla que lleva una FRASE (SLA, veredictos, roles), no una etiqueta:
+     .pill prohíbe partirse (nowrap + overflow-wrap:normal) porque se diseñó
+     para textos cortos. Con frases de 30+ caracteres eso desborda la tarjeta
+     y, como el body recorta con overflow-x:clip, el final se pierde sin
+     scroll. Esta variante repone el salto de línea. */
+  .pill.multilinea{white-space:normal;overflow-wrap:anywhere;word-break:break-word;
+    max-width:100%;line-height:1.35;text-align:left}
+  /* Los items de un grid no encogen por debajo de su min-content: una sola
+     pastilla indivisible ensanchaba TODAS las tarjetas de la lista. */
+  .inc-list>*{min-width:0}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
   .modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:6px}
   .banner{background:#1a2436;border:1px solid #26344d;color:#bcd0f0;font-size:12px;padding:9px 12px;border-radius:10px;margin-bottom:16px}
@@ -244,6 +254,15 @@
     .modal{padding:16px 14px;max-width:none;max-height:none}
     .modal-actions{flex-wrap:wrap}
     .modal-actions .btn{flex:1 1 auto}
+
+    /* Cajas de scroll internas de los modales (checklists, historiales,
+       previsualizaciones de importación). En escritorio conservan su tope
+       inline en vh; en celular ese tope deja media pantalla muerta y anida
+       dos scrolls que en iOS se traban entre sí (el dedo mueve el modal en
+       vez de la lista). Se libera el alto y scrollea la página, que es la
+       misma decisión ya tomada para el detalle de rutas. !important porque
+       el tope viene en estilo inline y de otra forma no se puede vencer. */
+    .lista-scroll{max-height:none !important;overflow-y:visible !important}
 
     .cards{grid-template-columns:1fr 1fr;gap:9px}
     .card{padding:12px}

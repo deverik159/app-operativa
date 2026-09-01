@@ -307,12 +307,17 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
                           gap: 4,
                         }}
                       >
+                        {/* nowrap: sin él, text-overflow no hace nada (el
+                            texto envuelve y se corta a media palabra bajo la
+                            miniatura); el title conserva el texto completo. */}
                         <span
                           style={{
                             minWidth: 0,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
                           }}
+                          title={ev.referencia || ''}
                         >
                           {ev.referencia || ''}
                         </span>
