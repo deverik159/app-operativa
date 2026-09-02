@@ -355,10 +355,14 @@ function RutasView({
       );
       // En táctil, un dedo desplaza la página y no el mapa (ver mapaTactil).
       candadoTactil(mapObj.current);
-      L.tileLayer(
-        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }
-      ).addTo(mapObj.current);
+      // OSM estándar y no CARTO dark: CARTO empezó a exigir API key y sus
+      // mosaicos salen tapizados de "API KEY REQUIRED" (visto sep-2026).
+      // El mapa queda claro sobre la interfaz oscura, pero se lee — que es
+      // lo que un mapa con marca de agua ya no hacía.
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 19,
+      }).addTo(mapObj.current);
     }
     if (layerRef.current) mapObj.current.removeLayer(layerRef.current);
     const grp = L.layerGroup();

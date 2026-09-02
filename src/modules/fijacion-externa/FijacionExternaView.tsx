@@ -305,41 +305,78 @@ function FijacionExternaView({
   const visibles = filtrados.slice(0, mostrar);
   const hayMas = filtrados.length > mostrar;
 
-  /** Incidencias indexadas por clave de cara Y por clave de sitio: la clave
-      del sistema de Mario puede venir en cualquiera de los dos niveles. */
-  const incsPorClave = useMemo(() => {
-    const m = new Map<string, Incidencia[]>();
+  /**
+   * SITIO de una clave de cara. La clave de Mario viene a nivel CARA
+   * (MX_CM_EV_MGV_4-5_2993) y la incidencia pudo capturarse en OTRA cara
+   * del mismo sitio (MX_CM_EV_EVA_04_2993, sitio MX_CM_EV_2993): el empate
+   * exacto nunca cruzaría. El sitio son los 3 primeros segmentos + el
+   * último (el número); los de en medio son el mueble y la posición.
+   * Una clave de 4 segmentos ya ES el sitio y se regresa tal cual.
+   */
+  const sitioDeClave = (clave: string): string => {
+    const p = clave.trim().split('_');
+    if (p.length >= 6) return [...p.slice(0, 3), p[p.length - 1]].join('_');
+    return clave.trim();
+  };
+
+  /** Incidencias indexadas por cara exacta y por sitio. */
+  const { incsPorCara, incsPorSitio } = useMemo(() => {
+    const porCara = new Map<string, Incidencia[]>();
+    const porSitio = new Map<string, Incidencia[]>();
     incs.forEach((i) => {
-      [i.clave_medio, i.clave_sitio].forEach((k) => {
-        if (!k) return;
-        const arr = m.get(k) || [];
-        if (!arr.includes(i)) arr.push(i);
-        m.set(k, arr);
-      });
+      if (i.clave_medio) {
+        const arr = porCara.get(i.clave_medio) || [];
+        arr.push(i);
+        porCara.set(i.clave_medio, arr);
+      }
+      if (i.clave_sitio) {
+        const arr = porSitio.get(i.clave_sitio) || [];
+        arr.push(i);
+        porSitio.set(i.clave_sitio, arr);
+      }
     });
-    return m;
+    return { incsPorCara: porCara, incsPorSitio: porSitio };
   }, [incs]);
 
   /**
    * La lista como ÓRDENES DE TRABAJO de la cuadrilla: cada parada de pauta
-   * y, LIGADAS pero SIN encimarse, las incidencias vivas de esa misma clave
-   * — tarjeta aparte con el mismo número de ubicación en otro color. Una
-   * incidencia que cruza con dos registros (por sitio y por cara) se cuelga
-   * solo del primero, para no duplicar la orden.
+   * y, LIGADAS pero SIN encimarse, las incidencias vivas de esa ubicación —
+   * tarjeta aparte con el mismo número de ubicación en otro color.
+   *
+   * Dos pases para que cada incidencia salga UNA vez y junto a su mejor
+   * registro: primero los empates EXACTOS por cara (si la fijación es de la
+   * misma cara reportada, ahí pertenece), y luego los del mismo SITIO (la
+   * incidencia es de otra cara de esa ubicación — el caso EV00009, que por
+   * empate exacto no aparecía).
    */
   const ordenes = useMemo(() => {
     const usadas = new Set<string>();
-    return visibles.map((r) => {
-      const deEsta = (incsPorClave.get(String(r.clave || '')) || []).filter(
-        (i) => {
+    const porRegistro = new Map<string, Incidencia[]>();
+    visibles.forEach((r) => {
+      const clave = String(r.clave || '').trim();
+      porRegistro.set(
+        r.id,
+        (incsPorCara.get(clave) || []).filter((i) => {
           if (usadas.has(i.record_id)) return false;
           usadas.add(i.record_id);
           return true;
-        }
+        })
       );
-      return { reg: r, incidencias: deEsta };
     });
-  }, [visibles, incsPorClave]);
+    visibles.forEach((r) => {
+      const sitio = sitioDeClave(String(r.clave || ''));
+      const delSitio = (incsPorSitio.get(sitio) || []).filter((i) => {
+        if (usadas.has(i.record_id)) return false;
+        usadas.add(i.record_id);
+        return true;
+      });
+      if (delSitio.length) porRegistro.get(r.id)?.push(...delSitio);
+    });
+    return visibles.map((r) => ({
+      reg: r,
+      incidencias: porRegistro.get(r.id) || [],
+    }));
+  }, [visibles, incsPorCara, incsPorSitio]);
 
   // Mapa
   useEffect(() => {
@@ -361,10 +398,12 @@ function FijacionExternaView({
       }).setView([19.43, -99.13], 11);
       // En táctil, un dedo desplaza la página y no el mapa (ver mapaTactil).
       candadoTactil(mapObj.current);
-      L.tileLayer(
-        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        { attribution: '© OpenStreetMap © CARTO', maxZoom: 19 }
-      ).addTo(mapObj.current);
+      // OSM estándar y no CARTO dark: CARTO empezó a exigir API key y sus
+      // mosaicos salen tapizados de "API KEY REQUIRED" (visto sep-2026).
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 19,
+      }).addTo(mapObj.current);
     }
     if (layerRef.current) mapObj.current.removeLayer(layerRef.current);
     const grp = L.layerGroup();
