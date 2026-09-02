@@ -379,7 +379,11 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
           )}
         </div>
 
-        {/* --- Cara --- */}
+        {/* --- Cara física del inventario ---
+            En las unidades con lado y sitio de una sola cara se esconde:
+            la cara física es la columna ("COL"), se asigna sola, y la cara
+            que el usuario entiende es Norte/Sur/Ambas (el campo de abajo). */}
+        {!(pideLado && caras.length <= 1) && (
         <div className="field">
           <label>Cara</label>
           {cargandoCaras ? (
@@ -405,6 +409,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
             </div>
           )}
         </div>
+        )}
 
         {(cambioSitio || cambioCara) && (
           <div
@@ -425,7 +430,9 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
 
         {pideLado && (
           <div className="field">
-            <label>Lado de la cara</label>
+            {/* "Cara afectada" y no "Lado": es como lo nombra quien captura,
+                y es el mismo texto que usa el alta (NuevaInc). */}
+            <label>Cara afectada</label>
             <select value={lado} onChange={(e) => setLado(e.target.value)}>
               <option value="">— Sin especificar —</option>
               {LADOS.map((x) => (

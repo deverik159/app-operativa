@@ -480,7 +480,7 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
     // repetirlo en cada falla del mismo sitio, que es la forma más rápida de
     // que alguien lo deje mal en la tercera.
     if (pideLado && !lado) {
-      alert('En ' + un + ' hay que decir de qué lado es la cara.');
+      alert('En ' + un + ' hay que indicar la cara afectada: Norte, Sur o Ambas.');
       return;
     }
 
@@ -697,24 +697,10 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
           </div>
         )}
 
-        {/* El lado va aquí arriba, junto al sitio, y no dentro de cada
-            partida: es una característica de a DÓNDE se fue, igual que la
-            clave, no de qué se encontró. */}
-        {site && pideLado && (
-          <div className="field">
-            <label>Lado de la cara</label>
-            <select value={lado} onChange={(e) => setLado(e.target.value)}>
-              <option value="">— Selecciona —</option>
-              {LADOS.map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </select>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-              En {un} la estructura tiene dos caras. Sin esto el técnico llega
-              sin saber a cuál va.
-            </div>
-          </div>
-        )}
+        {/* El lado (Norte/Sur/Ambas) ya NO se pregunta aquí arriba: se
+            pregunta abajo con la etiqueta "Cara afectada", que es como lo
+            nombra quien captura (Erik, sep-2026). Sigue siendo UN dato por
+            reporte —baja a todas las filas—, solo cambió de lugar. */}
 
         {site && esBiobox && (
           <div className="field">
@@ -952,7 +938,27 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
               </div>
             )}
 
-            {caras.length === 1 && (
+            {/* En las unidades con lado, la "cara afectada" que entiende el
+                que captura es Norte/Sur/Ambas — la cara física del
+                inventario es la columna ("COL") y no dice nada. El selector
+                escribe `lado` (un dato por reporte, baja a todas las filas)
+                y la cara física se asigna sola. */}
+            {pideLado && caras.length > 0 && (
+              <div className="field">
+                <label>Cara afectada</label>
+                <select value={lado} onChange={(e) => setLado(e.target.value)}>
+                  <option value="">— Selecciona —</option>
+                  {LADOS.map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                  En {un} la estructura tiene dos caras. Sin esto el técnico
+                  llega sin saber a cuál va.
+                </div>
+              </div>
+            )}
+            {caras.length === 1 && !pideLado && (
               <div className="field">
                 <label>Cara afectada</label>
                 <div
