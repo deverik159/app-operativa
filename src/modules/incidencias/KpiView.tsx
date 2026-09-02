@@ -261,6 +261,15 @@ function KpiView({
   const total = f.length;
   const cerradas = f.filter((i) => i.estatus === 'cerrada').length;
   const noRep = f.filter((i) => i.estatus === 'no_reparado').length;
+  // Rechazos de reparación: SUMA de veces, no incidencias — una misma
+  // incidencia rechazada dos veces cuenta 2. El contador lo lleva el
+  // trigger inc_cuenta_rechazo (ver rechazos_reparacion.sql) y arranca
+  // desde que ese script se corrió: lo anterior no es reconstruible.
+  const rechazosRep = f.reduce(
+    (a, i) => a + (i.rechazos_reparacion || 0),
+    0
+  );
+  const conRechazo = f.filter((i) => (i.rechazos_reparacion || 0) > 0);
   const abiertas = f.filter(
     (i) => !['cerrada', 'no_reparado'].includes(i.estatus)
   ).length;
@@ -526,6 +535,22 @@ function KpiView({
               'Efectividad — cerradas contra no reparadas',
               f.filter((i) => ['cerrada', 'no_reparado'].includes(i.estatus))
             )
+          }
+        />
+        <Card
+          n={rechazosRep}
+          l={`Rechazos de reparación${
+            conRechazo.length ? ` (${conRechazo.length} inc.)` : ''
+          }`}
+          color={rechazosRep > 0 ? 'var(--hi)' : undefined}
+          onAbrir={
+            conRechazo.length
+              ? () =>
+                  abrir(
+                    'Con reparación rechazada por el validador',
+                    conRechazo
+                  )
+              : undefined
           }
         />
         <Card

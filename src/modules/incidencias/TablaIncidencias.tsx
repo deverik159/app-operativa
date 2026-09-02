@@ -62,8 +62,8 @@ function exportar(items: Incidencia[]) {
     'lado', 'direccion', 'municipio', 'plaza', 'campania', 'observaciones',
     'capturada_por', 'fecha_reporte', 'validada_por', 'fecha_validacion',
     'reparada_por', 'fecha_reparacion', 'diagnostico', 'causa_raiz',
-    'solucion', 'detalle_reparacion', 'horas_validacion_a_reparacion',
-    'horas_en_proceso_ahora',
+    'solucion', 'detalle_reparacion', 'rechazos_reparacion',
+    'horas_validacion_a_reparacion', 'horas_en_proceso_ahora',
   ];
   const filas = items.map((i) =>
     [
@@ -74,6 +74,7 @@ function exportar(items: Incidencia[]) {
       i.campania, i.observaciones, i.captured_by, i.fecha_reporte,
       i.validator_email, i.validator_at, i.repaired_by_email, i.repaired_at,
       i.diagnostico, i.causa_raiz, i.solucion, i.detalle_reparacion,
+      i.rechazos_reparacion || 0,
       horasValidacionReparacion(i)?.toFixed(1) ?? '',
       horasEnProceso(i)?.toFixed(1) ?? '',
     ]

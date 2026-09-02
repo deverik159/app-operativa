@@ -209,6 +209,19 @@ function IncCard({
             🎯 {i.campania}
           </span>
         )}
+        {/* Rastro visible de los rechazos: el motivo se sobrescribe con cada
+            rechazo nuevo, así que sin este chip dos rechazos se ven igual
+            que uno. El contador lo lleva la base (trigger). */}
+        {(i.rechazos_reparacion || 0) > 0 && (
+          <span
+            className="pill multilinea"
+            style={{ background: '#ef444422', color: '#ef4444' }}
+            title="Veces que el validador rechazó la reparación"
+          >
+            ↩ {i.rechazos_reparacion} rechazo
+            {(i.rechazos_reparacion || 0) > 1 ? 's' : ''} de reparación
+          </span>
+        )}
       </div>
       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
         🕒 Capturada:{' '}

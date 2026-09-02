@@ -166,6 +166,14 @@ export interface Incidencia {
   causa_raiz: string | null;
   solucion: string | null;
   motivo_rechazo_reparacion: string | null;
+  /**
+   * Veces que el validador rechazó la reparación (reparado→en_proceso).
+   * Lo incrementa el trigger inc_cuenta_rechazo en la base — el frontend
+   * solo lo lee. Nullable en el tipo porque hasta que se corra
+   * rechazos_reparacion.sql la columna no existe y llega undefined:
+   * leer siempre con (i.rechazos_reparacion || 0).
+   */
+  rechazos_reparacion?: number | null;
 
   // Reasignación (NOT NULL, default false)
   reasignacion_pendiente: boolean;

@@ -611,7 +611,14 @@ function IncidenciasView({
       alert('No se pudo rechazar: ' + error.message);
       return;
     }
-    patchInc(inc.record_id, patch);
+    // El contador de rechazos lo incrementa el trigger inc_cuenta_rechazo
+    // en la base (por eso NO va en el patch que se manda). Aquí solo se
+    // refleja en el estado local para que la tarjeta lo enseñe sin esperar
+    // una recarga.
+    patchInc(inc.record_id, {
+      ...patch,
+      rechazos_reparacion: (inc.rechazos_reparacion || 0) + 1,
+    });
     setMotivoOf(null);
     setTimeout(onRecargarNotifs, 400);
   };
