@@ -9,6 +9,10 @@ import L from 'leaflet';
 import { sb } from '../../lib/supabase';
 import { candadoTactil } from '../../lib/mapaTactil';
 import { prepararArchivos } from '../../lib/comprimirImagen';
+import RepararModal, { DatosReparacion } from '../incidencias/RepararModal';
+import { EST_COLOR, EST_LABEL } from '../../lib/constants';
+import { caraIncidencia } from '../../lib/helpers';
+import type { Incidencia } from '../../types/db';
 
 // --- Tipos ---
 type Registro = {
@@ -48,9 +52,15 @@ function FijacionExternaView({
   const BLOQUE = 50;
   const [fijando, setFijando] = useState<Registro | null>(null);
   const [fotos, setFotos] = useState<FotoLocal[]>([]);
-  const [sinFoto, setSinFoto] = useState(false);
-  const [motivo, setMotivo] = useState('');
+  // El toggle "No pude tomar foto" se retiró (retro de la presentación,
+  // sep-2026): la evidencia SIEMPRE es obligatoria — mínimo un archivo,
+  // foto o video. Sin escape, porque el escape se volvía el camino fácil.
   const [guardando, setGuardando] = useState(false);
+  // Incidencias abiertas ligadas a las claves de esta lista: la cuadrilla
+  // las ve como órdenes de trabajo junto a la pauta y puede repararlas
+  // desde aquí (el flujo sigue igual: validación, reasignación, etc.).
+  const [incs, setIncs] = useState<Incidencia[]>([]);
+  const [reparando, setReparando] = useState<Incidencia | null>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapObj = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
@@ -61,8 +71,6 @@ function FijacionExternaView({
   const abrirFijado = (r: Registro) => {
     setFijando(r);
     setFotos([]);
-    setSinFoto(false);
-    setMotivo('');
     setErr('');
   };
   const cerrarFijado = () => {
@@ -74,8 +82,6 @@ function FijacionExternaView({
       return [];
     });
     setFijando(null);
-    setSinFoto(false);
-    setMotivo('');
   };
 
   const onFotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -127,21 +133,75 @@ function FijacionExternaView({
     setRegs(todas);
     setLoading(false);
   };
+  /**
+   * Incidencias vivas que se pueden trabajar desde aquí. Se traen TODAS las
+   * en_proceso/reparado y el cruce con la lista se hace en el cliente por
+   * clave: mandar miles de claves en un .in() no cabe en la URL, y el
+   * volumen de incidencias abiertas es chico. La RLS ya recorta lo que este
+   * usuario no puede ver.
+   */
+  const cargarIncs = async () => {
+    const { data } = await sb
+      .from('incidencias')
+      .select('*')
+      .in('estatus', ['en_proceso', 'reparado']);
+    setIncs((data as Incidencia[]) || []);
+  };
+
   useEffect(() => {
     cargar();
+    cargarIncs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const confirmarFijado = async () => {
-    if (!fijando) return;
-    if (!sinFoto && fotos.length === 0) {
-      setErr(
-        "Sube al menos una foto, o marca 'No pude tomar foto' con un motivo."
+  /**
+   * Igual que guardarReparacion en IncidenciasView: la cuadrilla repara
+   * desde aquí y el flujo sigue su curso normal (el validador la ve como
+   * 'reparado' en Incidencias, puede aprobarla o rechazarla, etc.).
+   */
+  const guardarReparacion = async (
+    inc: Incidencia,
+    { diagnostico, detalle, causa, solucion }: DatosReparacion
+  ) => {
+    const patch: Partial<Incidencia> = {
+      estatus: 'reparado',
+      diagnostico: diagnostico || null,
+      detalle_reparacion: detalle || null,
+      causa_raiz: causa || null,
+      solucion: solucion || null,
+      repaired_by_email: email,
+      repaired_at: new Date().toISOString(),
+    };
+    const { data, error } = await sb
+      .from('incidencias')
+      .update(patch)
+      .eq('record_id', inc.record_id)
+      .select('record_id');
+    if (error) {
+      alert('No se pudo guardar la reparación: ' + error.message);
+      return;
+    }
+    // La RLS no lanza error cuando el update no te toca: afecta 0 filas y
+    // regresa "éxito". Sin esto, se pintaba como reparada sin estarlo.
+    if (!data || data.length === 0) {
+      alert(
+        'No se guardó: esta incidencia no pertenece a tu área, ' +
+          'o tu rol no permite repararla.'
       );
       return;
     }
-    if (sinFoto && !motivo.trim()) {
-      setErr('Escribe el motivo por el que no pudiste tomar la foto.');
+    setIncs((prev) =>
+      prev.map((x) =>
+        x.record_id === inc.record_id ? { ...x, ...patch } : x
+      )
+    );
+    setReparando(null);
+  };
+
+  const confirmarFijado = async () => {
+    if (!fijando) return;
+    if (fotos.length === 0) {
+      setErr('Adjunta al menos una foto o un video de la fijación.');
       return;
     }
     setGuardando(true);
@@ -164,11 +224,14 @@ function FijacionExternaView({
         urls.push(pub.publicUrl);
       }
       const fotosJson = JSON.stringify(urls);
+      // p_foto_tomada siempre true y p_motivo null: la evidencia ya es
+      // obligatoria sin excepción. Los parámetros se conservan porque la
+      // RPC (y la base de Mario) los siguen esperando.
       const { error: updErr } = await sb.rpc('marcar_fijacion_externa', {
         p_id: fijando.id,
         p_fotos_json: fotosJson,
-        p_foto_tomada: !sinFoto,
-        p_motivo: sinFoto ? motivo.trim() : null,
+        p_foto_tomada: true,
+        p_motivo: null,
       });
       if (updErr) {
         setErr('No se pudo actualizar el registro: ' + updErr.message);
@@ -241,6 +304,42 @@ function FijacionExternaView({
   // cuya clave no cruza con el inventario — la cuadrilla no podía cerrarlos.
   const visibles = filtrados.slice(0, mostrar);
   const hayMas = filtrados.length > mostrar;
+
+  /** Incidencias indexadas por clave de cara Y por clave de sitio: la clave
+      del sistema de Mario puede venir en cualquiera de los dos niveles. */
+  const incsPorClave = useMemo(() => {
+    const m = new Map<string, Incidencia[]>();
+    incs.forEach((i) => {
+      [i.clave_medio, i.clave_sitio].forEach((k) => {
+        if (!k) return;
+        const arr = m.get(k) || [];
+        if (!arr.includes(i)) arr.push(i);
+        m.set(k, arr);
+      });
+    });
+    return m;
+  }, [incs]);
+
+  /**
+   * La lista como ÓRDENES DE TRABAJO de la cuadrilla: cada parada de pauta
+   * y, LIGADAS pero SIN encimarse, las incidencias vivas de esa misma clave
+   * — tarjeta aparte con el mismo número de ubicación en otro color. Una
+   * incidencia que cruza con dos registros (por sitio y por cara) se cuelga
+   * solo del primero, para no duplicar la orden.
+   */
+  const ordenes = useMemo(() => {
+    const usadas = new Set<string>();
+    return visibles.map((r) => {
+      const deEsta = (incsPorClave.get(String(r.clave || '')) || []).filter(
+        (i) => {
+          if (usadas.has(i.record_id)) return false;
+          usadas.add(i.record_id);
+          return true;
+        }
+      );
+      return { reg: r, incidencias: deEsta };
+    });
+  }, [visibles, incsPorClave]);
 
   // Mapa
   useEffect(() => {
@@ -404,8 +503,9 @@ function FijacionExternaView({
               No hay registros pendientes con los filtros actuales.
             </div>
           )}
-          {visibles.map((r) => (
-            <div className="inc" key={r.id}>
+          {ordenes.map(({ reg: r, incidencias: incsDe }) => (
+            <div key={r.id} style={{ display: 'grid', gap: 11 }}>
+            <div className="inc">
               <div
                 className="inc-top"
                 style={{
@@ -490,6 +590,107 @@ function FijacionExternaView({
                 )}
               </div>
             </div>
+
+            {/* Incidencias de ESTA clave: ligadas a la parada pero en su
+                propia tarjeta (no encimadas en la pauta). Mismo número de
+                ubicación, en morado, para distinguir orden de incidencia de
+                orden de pauta de un vistazo. */}
+            {incsDe.map((inc) => (
+              <div
+                className="inc"
+                key={inc.record_id}
+                style={{ borderColor: 'var(--purple)' }}
+              >
+                <div
+                  className="inc-top"
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <span
+                      className="order-badge"
+                      style={{ background: 'var(--purple)' }}
+                      title="Incidencia en esta ubicación"
+                    >
+                      {pinPorId.get(r.id) ?? '✕'}
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="folio">
+                        {inc.folio}{' '}
+                        <span style={{ color: 'var(--purple)' }}>
+                          · ⚠ INCIDENCIA
+                        </span>
+                      </div>
+                      <div className="titulo">{inc.nombre_incidencia}</div>
+                      <div className="meta">
+                        {inc.medio ? inc.medio + ' · ' : ''}
+                        {inc.clave_sitio}
+                        {inc.lado || inc.clave_medio
+                          ? ' · cara ' + caraIncidencia(inc)
+                          : ''}
+                        {inc.nivel ? ' · Nivel ' + inc.nivel : ''}
+                      </div>
+                      {inc.observaciones && (
+                        <div className="obs">“{inc.observaciones}”</div>
+                      )}
+                      {inc.motivo_rechazo_reparacion &&
+                        inc.estatus === 'en_proceso' &&
+                        (inc.rechazos_reparacion || 0) > 0 && (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: '#ffb4b4',
+                              marginTop: 4,
+                            }}
+                          >
+                            ↩ Reparación rechazada: “
+                            {inc.motivo_rechazo_reparacion}”
+                          </div>
+                        )}
+                    </div>
+                  </div>
+                  <span
+                    className="pill"
+                    style={{
+                      background: (EST_COLOR[inc.estatus] || '#555') + '22',
+                      color: EST_COLOR[inc.estatus] || '#aaa',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {EST_LABEL[inc.estatus] || inc.estatus}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    flexWrap: 'wrap',
+                    marginTop: 12,
+                    borderTop: '1px solid var(--line)',
+                    paddingTop: 11,
+                  }}
+                >
+                  {inc.estatus === 'en_proceso' && (
+                    <button
+                      className="btn warn sm"
+                      onClick={() => setReparando(inc)}
+                    >
+                      🔧 Registrar reparación
+                    </button>
+                  )}
+                  {inc.estatus === 'reparado' && (
+                    <span className="tag">
+                      ✓ Reparada · esperando validación
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+            </div>
           ))}
           {hayMas && (
             <div style={{ textAlign: 'center', padding: '8px 0' }}>
@@ -540,7 +741,7 @@ function FijacionExternaView({
             if ((e.target as HTMLElement).className !== 'overlay') return;
             if (guardando) return;
             if (
-              (fotos.length > 0 || motivo.trim()) &&
+              fotos.length > 0 &&
               !confirm('Tienes una captura a medias. ¿Descartarla?')
             )
               return;
@@ -583,8 +784,11 @@ function FijacionExternaView({
 
             {err && <div className="err">{err}</div>}
 
-            {!sinFoto && (
+            {
               <>
+                {/* Sin `capture`: forzaba la cámara y no dejaba elegir un
+                    video ya grabado de la galería. El selector del teléfono
+                    ya ofrece cámara o galería. */}
                 <label
                   className="btn sm"
                   style={{
@@ -593,11 +797,10 @@ function FijacionExternaView({
                     marginBottom: 10,
                   }}
                 >
-                  📷 Agregar foto
+                  📷 Agregar foto o video
                   <input
                     type="file"
-                    accept="image/*"
-                    capture="environment"
+                    accept="image/*,video/*"
                     multiple
                     style={{ display: 'none' }}
                     onChange={onFotos}
@@ -615,6 +818,21 @@ function FijacionExternaView({
                   >
                     {fotos.map((f, i) => (
                       <div key={i} style={{ position: 'relative' }}>
+                        {f.file.type.startsWith('video/') ? (
+                          <video
+                            src={f.preview}
+                            muted
+                            playsInline
+                            style={{
+                              width: '100%',
+                              height: 90,
+                              objectFit: 'cover',
+                              borderRadius: 8,
+                              border: '1px solid var(--line)',
+                              background: '#000',
+                            }}
+                          />
+                        ) : (
                         <img
                           src={f.preview}
                           style={{
@@ -625,6 +843,7 @@ function FijacionExternaView({
                             border: '1px solid var(--line)',
                           }}
                         />
+                        )}
                         <button
                           onClick={() => quitarFoto(i)}
                           aria-label="Quitar esta foto"
@@ -660,40 +879,11 @@ function FijacionExternaView({
                     marginBottom: 10,
                   }}
                 >
-                  {fotos.length} foto(s) · puedes agregar varias
+                  {fotos.length} archivo(s) · mínimo uno, foto o video ·
+                  puedes agregar varios
                 </div>
               </>
-            )}
-
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                fontSize: 13,
-                marginBottom: 10,
-                cursor: 'pointer',
-              }}
-            >
-              <input
-                type="checkbox"
-                style={{ width: 'auto' }}
-                checked={sinFoto}
-                onChange={(e) => {
-                  setSinFoto(e.target.checked);
-                  setErr('');
-                }}
-              />
-              No pude tomar foto
-            </label>
-            {sinFoto && (
-              <textarea
-                placeholder="Motivo por el que no se pudo tomar la foto…"
-                value={motivo}
-                onChange={(e) => setMotivo(e.target.value)}
-                style={{ marginBottom: 12, minHeight: 70 }}
-              />
-            )}
+            }
 
             <div
               style={{
@@ -718,17 +908,23 @@ function FijacionExternaView({
                 disabled={guardando}
               >
                 {guardando && <span className="spinner" />}
-                {/* "Subiendo fotos" solo cuando de verdad hay fotos que
-                    subir; con "sin foto" marcado solo se guarda el registro. */}
-                {guardando
-                  ? fotos.length > 0
-                    ? 'Subiendo fotos…'
-                    : 'Guardando…'
-                  : 'Confirmar fijado'}
+                {guardando ? 'Subiendo evidencia…' : 'Confirmar fijado'}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* El MISMO modal de reparación que usa el módulo de incidencias: la
+          cuadrilla captura diagnóstico/detalle/evidencia aquí y el flujo
+          sigue idéntico (el validador aprueba o rechaza desde Incidencias). */}
+      {reparando && (
+        <RepararModal
+          inc={reparando}
+          email={email}
+          onClose={() => setReparando(null)}
+          onSave={(d) => guardarReparacion(reparando, d)}
+        />
       )}
     </div>
   );
