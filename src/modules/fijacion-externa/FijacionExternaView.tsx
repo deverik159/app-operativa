@@ -11,8 +11,20 @@ import { candadoTactil } from '../../lib/mapaTactil';
 import { prepararArchivos } from '../../lib/comprimirImagen';
 import RepararModal, { DatosReparacion } from '../incidencias/RepararModal';
 import { EST_COLOR, EST_LABEL } from '../../lib/constants';
-import { caraIncidencia } from '../../lib/helpers';
+import { caraIncidencia, areaEfectiva } from '../../lib/helpers';
 import type { Incidencia } from '../../types/db';
+
+/**
+ * ÁREA de este módulo. Las incidencias que aparecen como órdenes de trabajo
+ * deben PERTENECER al área, no solo empatar por clave: en esa misma valla
+ * puede haber una incidencia de Mantenimiento y esa no es de esta cuadrilla.
+ *
+ * ESTE MÓDULO ES EL MOTOR (Erik, 2-sep-2026): Implementaciones,
+ * Instalaciones e Iluminación tendrán su módulo gemelo cuando exista su
+ * base; se clonará de aquí cambiando esta constante (y la vista/RPC de su
+ * fuente). Los cambios se hacen aquí primero, no en cada copia.
+ */
+const AREA_MODULO = 'Fijación';
 
 // --- Tipos ---
 // Columnas de externo.fijacion (diagnóstico del 2-sep-2026) que la tarjeta
@@ -171,7 +183,16 @@ function FijacionExternaView({
       .from('incidencias')
       .select('*')
       .in('estatus', ['en_proceso', 'reparado']);
-    setIncs((data as Incidencia[]) || []);
+    // Solo las del ÁREA de este módulo. Contra el área EFECTIVA (la
+    // asignada manda sobre la del catálogo): una incidencia redirigida A
+    // Fijación sí es de esta cuadrilla, y una redirigida FUERA ya no.
+    setIncs(
+      ((data as Incidencia[]) || []).filter(
+        (i) =>
+          areaEfectiva(i).trim().toLowerCase() ===
+          AREA_MODULO.trim().toLowerCase()
+      )
+    );
   };
 
   useEffect(() => {
