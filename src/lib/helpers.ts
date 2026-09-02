@@ -5,6 +5,8 @@
 // caraLabel, initials, fueraHorarioValidador.
 // ============================================================
 
+import { PORTICOS_LADO_FIJO } from './constants';
+
 /**
  * Id aleatorio corto (8 hex) para record_id / reassign_id.
  *
@@ -100,6 +102,24 @@ export function caraIncidencia(i: {
   lado?: string | null;
 }): string {
   return i.lado || i.clave_medio || '—';
+}
+
+/**
+ * Si el sitio es uno de los pórticos de Vía Verde, devuelve su orientación
+ * fija ('Norte a Sur' / 'Sur a Norte'); si no, null y el lado se pregunta
+ * como siempre. El pórtico se reconoce por el ÚLTIMO bloque numérico del
+ * site_id sin ceros a la izquierda, porque los cuatro números llegaron con
+ * relleno dispar (008 vs 0078) y no hay garantía del formato exacto.
+ */
+export function ladoFijoDePortico(
+  unidad: string | null | undefined,
+  siteId: string | null | undefined
+): string | null {
+  if (unidad !== 'Vía Verde' || !siteId) return null;
+  const nums = siteId.trim().split(/[^0-9]+/).filter(Boolean);
+  const ultimo = nums[nums.length - 1];
+  if (!ultimo) return null;
+  return PORTICOS_LADO_FIJO[String(parseInt(ultimo, 10))] ?? null;
 }
 
 /**

@@ -52,7 +52,7 @@
 // ============================================================
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
-import { caraLabel } from '../../lib/helpers';
+import { caraLabel, ladoFijoDePortico } from '../../lib/helpers';
 import {
   UNIDADES_BIOBOX,
   LADOS,
@@ -83,6 +83,22 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
   const [buscando, setBuscando] = useState(false);
   const [sitio, setSitio] = useState<string>(inc.clave_sitio || '');
   const [direccion, setDireccion] = useState<string | null>(inc.direccion);
+
+  /**
+   * Pórticos de Vía Verde: orientación única por sitio — la "cara afectada"
+   * se prellena y queda fija, igual que en el alta (NuevaInc). Sigue al
+   * sitio: si aquí lo cambian a/desde un pórtico, el lado se ajusta solo.
+   */
+  const ladoFijo = ladoFijoDePortico(inc.unidad_negocio, sitio);
+  useEffect(() => {
+    if (ladoFijo) {
+      setLado(ladoFijo);
+    } else {
+      // Fuera de un pórtico, "Norte a Sur"/"Sur a Norte" no es opción del
+      // selector: se limpia para que no viaje escondido al guardar.
+      setLado((l) => ((LADOS as readonly string[]).includes(l) ? l : ''));
+    }
+  }, [ladoFijo]);
 
   // --- Caras del sitio ---
   const [caras, setCaras] = useState<InventarioItem[]>([]);
@@ -433,12 +449,26 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
             {/* "Cara afectada" y no "Lado": es como lo nombra quien captura,
                 y es el mismo texto que usa el alta (NuevaInc). */}
             <label>Cara afectada</label>
-            <select value={lado} onChange={(e) => setLado(e.target.value)}>
-              <option value="">— Sin especificar —</option>
-              {LADOS.map((x) => (
-                <option key={x}>{x}</option>
-              ))}
-            </select>
+            {ladoFijo ? (
+              <>
+                <div
+                  className="tag"
+                  style={{ display: 'inline-block', padding: '6px 10px' }}
+                >
+                  {ladoFijo}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                  Pórtico con orientación fija: no se elige.
+                </div>
+              </>
+            ) : (
+              <select value={lado} onChange={(e) => setLado(e.target.value)}>
+                <option value="">— Sin especificar —</option>
+                {LADOS.map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
+            )}
           </div>
         )}
 

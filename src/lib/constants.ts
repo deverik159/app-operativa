@@ -102,6 +102,21 @@ export const LADOS = ['Norte', 'Sur', 'Ambas'] as const;
  */
 export const UNIDADES_CON_LADO = ['Vía Verde', 'Verde Vertical'];
 
+/**
+ * Pórticos de Vía Verde: pantallas sobre un puente con orientación única,
+ * así que la "cara afectada" no se pregunta — viene fija por sitio
+ * (Erik, 2-sep-2026). La llave es el número del sitio SIN ceros a la
+ * izquierda: los cuatro se manejan con relleno dispar (008 vs 0078) y así
+ * empatan todos. Estos valores también viven en el CHECK de
+ * `incidencias.lado` — ver incidencias_lado_porticos.sql.
+ */
+export const PORTICOS_LADO_FIJO: Record<string, string> = {
+  '78': 'Norte a Sur', // 0078
+  '8': 'Sur a Norte', // 008
+  '92': 'Sur a Norte', // 0092
+  '15': 'Norte a Sur', // 015
+};
+
 // ============================================================
 // Auto-ruteo fuera del horario del validador
 // ============================================================

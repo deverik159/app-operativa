@@ -17,7 +17,7 @@ import {
   LADOS,
   UNIDADES_CON_LADO,
 } from '../../lib/constants';
-import { caraLabel, distKm } from '../../lib/helpers';
+import { caraLabel, distKm, ladoFijoDePortico } from '../../lib/helpers';
 import {
   catalogoParaMuebles,
   llaveCatalogo,
@@ -429,6 +429,21 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
 
   /** ¿Esta unidad tiene dos caras por estructura? */
   const pideLado = UNIDADES_CON_LADO.includes(un);
+
+  /**
+   * Pórticos de Vía Verde: orientación única por sitio, la "cara afectada"
+   * no se elige — se prellena y queda fija.
+   */
+  const ladoFijo = ladoFijoDePortico(un, site?.site_id ?? null);
+  useEffect(() => {
+    if (ladoFijo) {
+      setLado(ladoFijo);
+    } else {
+      // Al salir de un pórtico, un lado "Norte a Sur"/"Sur a Norte" no es
+      // opción del selector normal: se limpia para que no viaje escondido.
+      setLado((l) => ((LADOS as readonly string[]).includes(l) ? l : ''));
+    }
+  }, [ladoFijo]);
 
   const totalRows = lineas.reduce((s, l) => s + l.caras.length, 0);
   const unaCara = caras.length === 1;
@@ -946,16 +961,32 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
             {pideLado && caras.length > 0 && (
               <div className="field">
                 <label>Cara afectada</label>
-                <select value={lado} onChange={(e) => setLado(e.target.value)}>
-                  <option value="">— Selecciona —</option>
-                  {LADOS.map((x) => (
-                    <option key={x}>{x}</option>
-                  ))}
-                </select>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                  En {un} la estructura tiene dos caras. Sin esto el técnico
-                  llega sin saber a cuál va.
-                </div>
+                {ladoFijo ? (
+                  <>
+                    <div
+                      className="tag"
+                      style={{ display: 'inline-block', padding: '6px 10px' }}
+                    >
+                      {ladoFijo}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                      Pórtico con orientación fija: no se elige.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <select value={lado} onChange={(e) => setLado(e.target.value)}>
+                      <option value="">— Selecciona —</option>
+                      {LADOS.map((x) => (
+                        <option key={x}>{x}</option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                      En {un} la estructura tiene dos caras. Sin esto el técnico
+                      llega sin saber a cuál va.
+                    </div>
+                  </>
+                )}
               </div>
             )}
             {caras.length === 1 && !pideLado && (

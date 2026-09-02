@@ -124,10 +124,11 @@ export interface Incidencia {
   origen: string | null;
   tipo: string | null;
   /**
-   * 'Norte' | 'Sur' | 'Ambas'. Solo se captura en las unidades de
-   * UNIDADES_CON_LADO (hoy Vía Verde). NULL en el resto y en todo lo
-   * capturado antes de ago-2026. La base tiene un CHECK que solo acepta esos
-   * tres valores o NULL — ver incidencias_lado.sql.
+   * 'Norte' | 'Sur' | 'Ambas', y en los pórticos de Vía Verde el valor
+   * fijo 'Norte a Sur' | 'Sur a Norte' (PORTICOS_LADO_FIJO). Solo se
+   * captura en las unidades de UNIDADES_CON_LADO. NULL en el resto y en
+   * todo lo capturado antes de ago-2026. La base tiene un CHECK que solo
+   * acepta esos cinco valores o NULL — ver incidencias_lado_porticos.sql.
    */
   lado: string | null;
   captured_by: string | null;
