@@ -345,15 +345,14 @@ function UsuariosView() {
                         value={nr.rol}
                         onChange={(e) => setNr({ ...nr, rol: e.target.value })}
                       >
-                        {/* viewer no se asigna a mano: es el rol por defecto
-                            cuando alguien no tiene ninguno. */}
-                        {Object.keys(ROLE_LABEL)
-                          .filter((k) => k !== 'viewer')
-                          .map((k) => (
-                            <option key={k} value={k}>
-                              {ROLE_LABEL[k]}
-                            </option>
-                          ))}
+                        {/* viewer también se asigna a mano: sin ninguna fila
+                            la app muestra "Falta darte acceso" (SinAcceso), así
+                            que el modo consulta requiere su fila explícita. */}
+                        {Object.keys(ROLE_LABEL).map((k) => (
+                          <option key={k} value={k}>
+                            {ROLE_LABEL[k]}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div className="field">
