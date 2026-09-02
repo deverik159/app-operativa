@@ -12,3 +12,6 @@ dist
 /*.jpg
 /*.jpeg
 /*.png
+# El manual para repartir (7+ MB con capturas incrustadas): se genera
+# desde Claude Code, no se versiona
+/Manual de Incidencias.html
