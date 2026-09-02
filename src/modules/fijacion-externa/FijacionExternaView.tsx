@@ -15,23 +15,49 @@ import { caraIncidencia } from '../../lib/helpers';
 import type { Incidencia } from '../../types/db';
 
 // --- Tipos ---
+// Columnas de externo.fijacion (diagnóstico del 2-sep-2026) que la tarjeta
+// puede usar. TODAS opcionales a propósito: la tarjeta pinta solo lo que la
+// vista exponga y venga con dato — si un campo no sale en pantalla teniendo
+// valor en la tabla, la vista no lo expone y hay que recrearla.
 type Registro = {
   id: string;
   responsable_de_cuadrilla?: string;
   operadores_cuadrilla?: string;
+  supervisor?: string;
   clave?: string;
   catorcena?: string;
   producto?: string;
   zona?: string;
+  asignacion?: string;
   campana?: string;
   version?: string;
   direccion?: string;
   estado?: string;
   municipio?: string;
+  notas_observa?: string;
+  notas_motivo_bloqueo?: string;
+  blanqueo_limpieza?: string;
+  fecha_limite?: string;
+  fecha_fijacion_real?: string;
+  foto_url?: string;
+  evidencia_url?: string;
   latitud?: number | null;
   longitud?: number | null;
   sin_match_inventario?: boolean;
   [key: string]: unknown;
+};
+
+/** "CATORCENA 1 - 2026" → "CAT 1 · 2026". Lo que no siga el patrón, tal cual. */
+const catorcenaCorta = (c?: string): string => {
+  const m = (c || '').match(/CATORCENA\s*(\d+)\s*-\s*(\d+)/i);
+  return m ? `CAT ${m[1]} · ${m[2]}` : c || '';
+};
+
+/** Color del estado de la orden de fijación (PENDIENTE/COMPLETO/RESUELTO). */
+const ESTADO_FIJ: Record<string, { bg: string; fg: string }> = {
+  PENDIENTE: { bg: '#f59e0b22', fg: '#f59e0b' },
+  COMPLETO: { bg: '#22c55e22', fg: '#22c55e' },
+  RESUELTO: { bg: '#4f8cff22', fg: '#4f8cff' },
 };
 type RegistroConCoords = Registro & { lat: number; lng: number };
 type FotoLocal = { file: File; preview: string };
@@ -574,20 +600,30 @@ function FijacionExternaView({
                       {r.direccion || '(sin dirección)'}
                     </div>
                     <div className="meta">
-                      {r.municipio || r.zona || ''}
-                      {r.campana ? ' · ' + r.campana : ''}
-                      <br />
-                      {r.producto || ''} {r.catorcena ? '· ' + r.catorcena : ''}
+                      {r.municipio || ''}
+                      {r.campana
+                        ? (r.municipio ? ' · ' : '') + r.campana
+                        : ''}
+                      {r.version ? ' · ' + r.version : ''}
                     </div>
                   </div>
                 </div>
                 <span
                   className="pill"
-                  style={{ background: 'var(--muted)', color: '#101' }}
+                  style={{
+                    background:
+                      ESTADO_FIJ[r.estado || '']?.bg || 'var(--panel2)',
+                    color: ESTADO_FIJ[r.estado || '']?.fg || 'var(--muted)',
+                    flexShrink: 0,
+                  }}
                 >
                   {r.estado}
                 </span>
               </div>
+
+              {/* Lo operativo como etiquetas cortas: producto, zona, corte,
+                  catorcena compactada y quiénes van. Cada una solo si viene
+                  con dato — la tabla de Mario trae varios campos a medias. */}
               <div
                 className="chips"
                 style={{
@@ -597,11 +633,51 @@ function FijacionExternaView({
                   marginTop: 9,
                 }}
               >
-                {r.operadores_cuadrilla && (
-                  <span className="tag">👥 {r.operadores_cuadrilla}</span>
+                {r.producto && <span className="tag">{r.producto}</span>}
+                {r.zona && <span className="tag">Zona {r.zona}</span>}
+                {r.asignacion && <span className="tag">{r.asignacion}</span>}
+                {r.catorcena && (
+                  <span className="tag">{catorcenaCorta(r.catorcena)}</span>
                 )}
-                {r.version && <span className="tag">{r.version}</span>}
+                {r.blanqueo_limpieza && (
+                  <span className="tag">🧽 {r.blanqueo_limpieza}</span>
+                )}
+                {r.supervisor && (
+                  <span className="tag">🧭 {r.supervisor}</span>
+                )}
+                {(r.responsable_de_cuadrilla || r.operadores_cuadrilla) && (
+                  <span className="tag">
+                    👥 {r.responsable_de_cuadrilla || r.operadores_cuadrilla}
+                  </span>
+                )}
               </div>
+
+              {/* La fecha límite es lo más accionable de la orden: resaltada,
+                  no enterrada en el meta. */}
+              {r.fecha_limite && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--warn)',
+                    fontWeight: 700,
+                    marginTop: 8,
+                  }}
+                >
+                  ⏳ Límite: {r.fecha_limite}
+                </div>
+              )}
+              {r.notas_observa && <div className="obs">“{r.notas_observa}”</div>}
+              {r.notas_motivo_bloqueo && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: '#ffb4b4',
+                    marginTop: 6,
+                  }}
+                >
+                  🚫 Bloqueo: {r.notas_motivo_bloqueo}
+                </div>
+              )}
               <div
                 style={{
                   display: 'flex',
@@ -626,6 +702,27 @@ function FijacionExternaView({
                   <button className="btn sm ok" onClick={() => abrirFijado(r)}>
                     Marcar fijado
                   </button>
+                )}
+                {/* Orden ya trabajada: acceso a su evidencia y cuándo se
+                    fijó, en lugar del botón de fijar. */}
+                {(r.evidencia_url || r.foto_url) && (
+                  <a
+                    className="btn sm ghost"
+                    href={r.evidencia_url || r.foto_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    📎 Evidencia
+                  </a>
+                )}
+                {r.fecha_fijacion_real && (
+                  <span
+                    className="tag"
+                    style={{ alignSelf: 'center' }}
+                    title="Fecha real de fijación"
+                  >
+                    ✓ Fijado: {r.fecha_fijacion_real}
+                  </span>
                 )}
               </div>
             </div>
