@@ -22,6 +22,7 @@ import { useMemo, useState } from 'react';
 import { EST_COLOR, EST_LABEL } from '../../lib/constants';
 import {
   caraLabel,
+  caraIncidencia,
   horasEnProceso,
   horasValidacionReparacion,
   fmtHoras,
@@ -124,7 +125,9 @@ const COLUMNAS: {
     k: 'incidencia',
     valor: (i) => i.nombre_incidencia || '',
   },
-  { titulo: 'Cara', k: 'cara', valor: (i) => caraLabel(i.clave_medio) || '' },
+  // caraIncidencia: en las unidades con lado, la cara que orienta es
+  // Norte/Sur/Ambas, no la sigla de la columna del inventario.
+  { titulo: 'Cara', k: 'cara', valor: (i) => caraIncidencia(i) || '' },
   { titulo: 'Sitio', k: 'sitio', valor: (i) => i.clave_sitio || '' },
   { titulo: 'Municipio', k: 'municipio', valor: (i) => i.municipio },
   {
@@ -295,7 +298,7 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
                   <td style={{ ...celda, minWidth: 180 }}>
                     {i.nombre_incidencia}
                   </td>
-                  <td style={celda}>{caraLabel(i.clave_medio)}</td>
+                  <td style={celda}>{caraIncidencia(i)}</td>
                   {/* nowrap en Sitio/Por/Reparó: el overflow-wrap:anywhere
                       global partía la clave y los correos a media palabra
                       ("MX_EM_EV_E / VA_01_0009"). La tabla ya scrollea de

@@ -20,7 +20,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { EST_COLOR, EST_LABEL } from '../../lib/constants';
 import {
-  caraLabel,
+  caraIncidencia,
   horasValidacionReparacion,
   horasEnProceso,
   fmtHoras,
@@ -283,8 +283,8 @@ function KpiDetalleModal({
                             {corte === 'sitio'
                               ? i.nombre_incidencia
                               : i.clave_sitio}
-                            {i.clave_medio
-                              ? ` · cara ${caraLabel(i.clave_medio)}`
+                            {i.lado || i.clave_medio
+                              ? ` · cara ${caraIncidencia(i)}`
                               : ''}
                           </span>
                           {/* La fecha iba suelta y no decía de qué era. Es la

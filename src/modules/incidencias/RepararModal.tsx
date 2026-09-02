@@ -15,7 +15,7 @@
 // ============================================================
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
-import { caraLabel, codigoCara } from '../../lib/helpers';
+import { caraIncidencia, codigoCara } from '../../lib/helpers';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
 import type { ArbolDigital, Evidencia, Incidencia, TipoEvidencia } from '../../types/db';
@@ -217,7 +217,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
       <div className="modal">
         <h2 style={{ margin: '0 0 3px' }}>Registrar reparación</h2>
         <p className="phint">
-          {inc.folio} · {inc.nombre_incidencia} · cara {caraLabel(inc.clave_medio)}
+          {inc.folio} · {inc.nombre_incidencia} · cara {caraIncidencia(inc)}
         </p>
 
         {/* Contexto: qué reportó el reportante y con qué evidencia */}

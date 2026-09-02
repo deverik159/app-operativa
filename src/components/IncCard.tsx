@@ -8,7 +8,7 @@ import {
   NIVEL_COLOR,
   SLA_VALIDADOR_HORAS,
 } from '../lib/constants';
-import { slaInfo, caraLabel, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
+import { slaInfo, caraIncidencia, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
 import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
 
 /** Modo del modal de reasignación: pedirla, o revisarla como coordinador. */
@@ -110,7 +110,7 @@ function IncCard({
           <div className="titulo">{i.nombre_incidencia}</div>
           <div className="meta">
             {i.medio} · {i.clave_sitio}
-            {i.clave_medio ? ` · cara ${caraLabel(i.clave_medio)}` : ''}
+            {i.lado || i.clave_medio ? ` · cara ${caraIncidencia(i)}` : ''}
             {i.nombre_biobox ? ` · ${i.nombre_biobox}` : ''}
             <br />
             {i.direccion}

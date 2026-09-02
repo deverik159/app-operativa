@@ -6,7 +6,7 @@
 // ============================================================
 import { useState, useEffect, useRef } from 'react';
 import { sb } from '../../lib/supabase';
-import { caraLabel } from '../../lib/helpers';
+import { caraIncidencia } from '../../lib/helpers';
 import {
   validarAdjunto,
   subirAdjunto,
@@ -224,7 +224,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
         <h2 style={{ margin: '0 0 3px' }}>Chat de la incidencia</h2>
         <p className="phint" style={{ marginBottom: 10 }}>
           {inc.folio} · {inc.nombre_incidencia}
-          {inc.clave_medio ? ` · cara ${caraLabel(inc.clave_medio)}` : ''}
+          {inc.lado || inc.clave_medio ? ` · cara ${caraIncidencia(inc)}` : ''}
         </p>
 
         <div

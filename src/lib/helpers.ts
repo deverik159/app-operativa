@@ -85,6 +85,22 @@ export function caraLabel(vfid: string | null): string {
 }
 
 /**
+ * Cara de una incidencia PARA MOSTRAR.
+ *
+ * En las unidades que capturan lado (Vía Verde, Verde Vertical) la cara
+ * física del inventario es la columna ("COL") y no orienta a nadie: lo que
+ * dice a cuál cara ir es el lado que eligió el reportante (Norte/Sur/Ambas),
+ * así que ese manda cuando existe. En el resto de unidades no hay lado y se
+ * sigue mostrando la sigla de siempre.
+ */
+export function caraIncidencia(i: {
+  clave_medio?: string | null;
+  lado?: string | null;
+}): string {
+  return i.lado || caraLabel(i.clave_medio ?? null);
+}
+
+/**
  * Texto en minúsculas y SIN acentos, para comparar búsquedas.
  *
  * Sin esto, buscar "lampara" no encontraba "Lámpara": había que escribir el
