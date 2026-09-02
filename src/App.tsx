@@ -515,10 +515,12 @@ function Main({ session }: { session: Session }) {
     // El técnico también entra a Incidencias: ahí vive su HISTORIAL — las
     // reparadas y cerradas de sus áreas, que la bandeja de pendientes ya no
     // enseña. Sin esto, al cerrar una orden la perdía de vista para siempre.
+    // El viewer también: consulta pura sin hurgar KPI por KPI (Erik, 2-sep-2026).
     (has('manager') ||
       has('validador') ||
       has('coordinador') ||
-      has('reparacion')) && {
+      has('reparacion') ||
+      has('viewer')) && {
       k: 'todas',
       ic: '🗂️',
       t: 'Incidencias',
