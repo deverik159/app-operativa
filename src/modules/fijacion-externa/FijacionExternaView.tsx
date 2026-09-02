@@ -59,6 +59,26 @@ type Registro = {
   [key: string]: unknown;
 };
 
+/**
+ * URLs de la evidencia de un registro ya fijado. `marcar_fijacion_externa`
+ * guarda en foto_url/evidencia_url un ARREGLO JSON ('["https://…"]'), no una
+ * URL suelta: usarlo crudo como href navegaba a
+ * app-operativa.vercel.app/["https…"] — la app, con el JSON en la ruta.
+ * Tolera también una URL suelta por si la base de Mario trae registros así.
+ */
+const urlsEvidencia = (r: Registro): string[] => {
+  const crudo = (r.evidencia_url || r.foto_url || '').trim();
+  if (!crudo) return [];
+  try {
+    const arr = JSON.parse(crudo);
+    if (Array.isArray(arr))
+      return arr.filter((u): u is string => typeof u === 'string' && !!u);
+  } catch {
+    /* no era JSON: se evalúa como URL suelta */
+  }
+  return /^https?:\/\//.test(crudo) ? [crudo] : [];
+};
+
 /** "CATORCENA 1 - 2026" → "CAT 1 · 2026". Lo que no siga el patrón, tal cual. */
 const catorcenaCorta = (c?: string): string => {
   const m = (c || '').match(/CATORCENA\s*(\d+)\s*-\s*(\d+)/i);
@@ -727,17 +747,19 @@ function FijacionExternaView({
                   </button>
                 )}
                 {/* Orden ya trabajada: acceso a su evidencia y cuándo se
-                    fijó, en lugar del botón de fijar. */}
-                {(r.evidencia_url || r.foto_url) && (
+                    fijó, en lugar del botón de fijar. Un enlace por foto:
+                    el campo guarda un arreglo JSON (ver urlsEvidencia). */}
+                {urlsEvidencia(r).map((u, i, todas) => (
                   <a
+                    key={u}
                     className="btn sm ghost"
-                    href={r.evidencia_url || r.foto_url}
+                    href={u}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    📎 Evidencia
+                    📎 Evidencia{todas.length > 1 ? ` ${i + 1}` : ''}
                   </a>
-                )}
+                ))}
                 {r.fecha_fijacion_real && (
                   <span
                     className="tag"
