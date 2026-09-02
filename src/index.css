@@ -96,7 +96,9 @@
   .side{width:200px;flex-shrink:0;padding:16px 12px;border-right:1px solid var(--line);min-height:calc(100vh - 61px)}
   .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;color:var(--muted);font-size:14px;font-weight:600}
   .nav-item:hover{background:var(--panel2);color:var(--txt)}.nav-item.active{background:#241b17;color:var(--txt)}
-  .nav-item .badge{margin-left:auto;background:var(--accent);color:#151515;border-radius:20px;font-size:11px;padding:1px 7px;font-weight:800}
+  /* El globito nunca se encoge ni parte sus dígitos: con "Mis pendientes"
+     (texto largo) el flex lo apretaba y "16" salía "1" arriba y "6" abajo. */
+  .nav-item .badge{margin-left:auto;background:var(--accent);color:#151515;border-radius:20px;font-size:11px;padding:1px 7px;font-weight:800;flex-shrink:0;white-space:nowrap;line-height:1.5}
   .main{flex:1;padding:20px;min-width:0}
   h2.page{margin:0 0 3px;font-size:20px}.phint{color:var(--muted);font-size:13px;margin:0 0 18px}
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
