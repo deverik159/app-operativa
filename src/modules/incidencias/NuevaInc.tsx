@@ -693,7 +693,7 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
             📍 {site.direccion || '(sin dirección)'}
             <br />
             Municipio: {site.municipio || '—'} · Plaza: {site.estado || '—'} ·{' '}
-            {caras.length} caras en este sitio
+            {caras.length} medio{caras.length === 1 ? '' : 's'} en este sitio
           </div>
         )}
 
@@ -880,7 +880,7 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
             {caras.length > 1 && (
               <div className="field">
                 <label>
-                  Caras afectadas ({selCaras.length}/{caras.length}){' '}
+                  Medios afectados ({selCaras.length}/{caras.length}){' '}
                   <button
                     type="button"
                     className="btn ghost sm"

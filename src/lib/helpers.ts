@@ -90,14 +90,16 @@ export function caraLabel(vfid: string | null): string {
  * En las unidades que capturan lado (Vía Verde, Verde Vertical) la cara
  * física del inventario es la columna ("COL") y no orienta a nadie: lo que
  * dice a cuál cara ir es el lado que eligió el reportante (Norte/Sur/Ambas),
- * así que ese manda cuando existe. En el resto de unidades no hay lado y se
- * sigue mostrando la sigla de siempre.
+ * así que ese manda cuando existe. En el resto de unidades se muestra la
+ * CLAVE DE MEDIO COMPLETA (MX_EM_EV_MGV_1-2_0009), no la sigla: la sigla
+ * "MGV 1-2" no se puede copiar/buscar contra el inventario y el técnico
+ * trabaja con la clave completa (Erik, sep-2026).
  */
 export function caraIncidencia(i: {
   clave_medio?: string | null;
   lado?: string | null;
 }): string {
-  return i.lado || caraLabel(i.clave_medio ?? null);
+  return i.lado || i.clave_medio || '—';
 }
 
 /**

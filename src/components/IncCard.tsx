@@ -396,7 +396,20 @@ function IncCard({
         <div className="inc-actions">
           <button
             className="btn ok sm"
-            onClick={() => onEstatus(i.record_id, 'cerrada')}
+            onClick={() => {
+              // Aprobar CIERRA la incidencia y ya no hay vuelta atrás desde
+              // la app: merece el mismo seguro que salir con captura a
+              // medias. El rechazo no lo necesita — su modal de motivo ya
+              // es un paso deliberado.
+              if (
+                !confirm(
+                  `¿Aprobar la reparación de ${i.folio || 'esta incidencia'}? ` +
+                    'La incidencia se cierra.'
+                )
+              )
+                return;
+              onEstatus(i.record_id, 'cerrada');
+            }}
           >
             ✓ Aprobar reparación
           </button>
