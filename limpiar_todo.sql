@@ -55,14 +55,19 @@ select 'PAUTA IMPORTADA (no se toca)', count(*)::text from public.pautas;
 
 begin;
 
--- Tabla puente con TODOS los archivos del bucket: al borrar todo lo
--- operativo, ya no queda nada que los referencie. Es tabla real (no
+-- Tabla puente con los archivos del bucket A BORRAR. Es tabla real (no
 -- temporal) porque la lee el script del PASO 3, en otra sesión.
+--
+-- EXCEPTO fijacion-externa/: esas fotos las referencia la BASE DE MARIO
+-- (externo.fijacion.foto_url/evidencia_url), que esta limpieza no toca.
+-- La corrida del 31-ago-2026 sí las barrió y los registros COMPLETO de
+-- las pruebas quedaron con su evidencia en 404 — huérfanos al revés.
 drop table if exists public._limpieza_paths;
 create table public._limpieza_paths as
   select o.name as path
   from storage.objects o
-  where o.bucket_id = 'evidencias';
+  where o.bucket_id = 'evidencias'
+    and o.name not like 'fijacion-externa/%';
 
 -- Sin políticas y con RLS: nadie la ve desde la app; el script entra con
 -- la service key, que brinca la RLS.
