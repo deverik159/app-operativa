@@ -599,12 +599,13 @@ function FijacionExternaView({
                     <div className="titulo">
                       {r.direccion || '(sin dirección)'}
                     </div>
+                    {/* Sin municipio: ya viene dentro de la dirección de
+                        arriba. El renglón es para la campaña y su versión. */}
                     <div className="meta">
-                      {r.municipio || ''}
-                      {r.campana
-                        ? (r.municipio ? ' · ' : '') + r.campana
+                      {r.campana || ''}
+                      {r.version
+                        ? (r.campana ? ' · ' : '') + r.version
                         : ''}
-                      {r.version ? ' · ' + r.version : ''}
                     </div>
                   </div>
                 </div>
@@ -633,7 +634,8 @@ function FijacionExternaView({
                   marginTop: 9,
                 }}
               >
-                {r.producto && <span className="tag">{r.producto}</span>}
+                {/* Sin producto: ya está implícito en la clave (EVA =
+                    Ecovalla, MGV = Megavalla…). */}
                 {r.zona && <span className="tag">Zona {r.zona}</span>}
                 {r.asignacion && <span className="tag">{r.asignacion}</span>}
                 {r.catorcena && (
