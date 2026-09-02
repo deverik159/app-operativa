@@ -7,3 +7,7 @@ dist
 *.tsbuildinfo
 # Herramientas locales de Claude Code (launch.json de la vista previa, etc.)
 .claude/
+# Fotos de prueba locales
+*.jpg
+*.jpeg
+*.png
