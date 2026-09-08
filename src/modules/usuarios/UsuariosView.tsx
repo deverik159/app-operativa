@@ -15,8 +15,8 @@ import { sb } from '../../lib/supabase';
 import {
   ROLE_LABEL,
   UNIDADES,
-  AREAS_RESP,
   DEPARTAMENTOS_REPORTE,
+  getAreasPorUnidad,
 } from '../../lib/constants';
 import type { AppRole, Usuario, UsuarioRol } from '../../types/db';
 
@@ -154,9 +154,11 @@ function UsuariosView() {
         ? 'Área responsable'
         : 'Área / departamento (opcional)';
 
-  /** Opciones del departamento según el rol. */
+  /** Opciones del departamento según el rol y la unidad seleccionada. */
   const opcionesDepto =
-    nr.rol === 'reportante' ? DEPARTAMENTOS_REPORTE : AREAS_RESP;
+    nr.rol === 'reportante'
+      ? DEPARTAMENTOS_REPORTE
+      : getAreasPorUnidad(nr.unidad);
 
   return (
     <>
@@ -263,10 +265,6 @@ function UsuariosView() {
                   </span>
                 )}
                 {rolesDe(u.email).map((r) => (
-                  /* multilinea + inline-flex: un rol completo (Validador ·
-                     Verde Vertical · Impreso · Implementaciones) mide ~410px
-                     en nowrap; en un teléfono el chip se salía y la ✕ de
-                     quitar el rol quedaba literalmente fuera de la pantalla. */
                   <span
                     key={r.id}
                     className="pill multilinea"
@@ -292,10 +290,6 @@ function UsuariosView() {
                       aria-label="Quitar este rol"
                       title="Quitar este rol"
                       style={{
-                        // Sin minWidth/minHeight propios: hereda los 40px
-                        // táctiles de .btn-icono (un margen negativo NO
-                        // amplía el área de toque, solo el espacio que el
-                        // botón deja de ocupar en el renglón).
                         margin: '-6px 0 -6px 2px',
                         fontSize: 13,
                         fontWeight: 800,
@@ -317,8 +311,6 @@ function UsuariosView() {
                   onClick={() => {
                     const abriendo = rolesFor !== u.email;
                     setRolesFor(abriendo ? u.email : null);
-                    // Borrador limpio por usuario: si no, se arrastran los
-                    // valores del usuario anterior.
                     if (abriendo) setNr(ROL_VACIO);
                   }}
                 >
@@ -345,9 +337,6 @@ function UsuariosView() {
                         value={nr.rol}
                         onChange={(e) => setNr({ ...nr, rol: e.target.value })}
                       >
-                        {/* viewer también se asigna a mano: sin ninguna fila
-                            la app muestra "Falta darte acceso" (SinAcceso), así
-                            que el modo consulta requiere su fila explícita. */}
                         {Object.keys(ROLE_LABEL).map((k) => (
                           <option key={k} value={k}>
                             {ROLE_LABEL[k]}
@@ -359,7 +348,9 @@ function UsuariosView() {
                       <label>Unidad</label>
                       <select
                         value={nr.unidad}
-                        onChange={(e) => setNr({ ...nr, unidad: e.target.value })}
+                        onChange={(e) =>
+                          setNr({ ...nr, unidad: e.target.value, depto: '' })
+                        }
                       >
                         <option value="">(todas)</option>
                         {UNIDADES.map((x) => (
@@ -391,7 +382,9 @@ function UsuariosView() {
                     >
                       <option value="">(ninguna / todas)</option>
                       {opcionesDepto.map((x) => (
-                        <option key={x}>{x}</option>
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
                       ))}
                     </select>
                   </div>
