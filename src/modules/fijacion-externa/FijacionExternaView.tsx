@@ -771,7 +771,6 @@ function FijacionExternaView({
                 )}
               </div>
             </div>
-
             {/* Incidencias de ESTA clave: ligadas a la parada pero en su
                 propia tarjeta (no encimadas en la pauta). Mismo número de
                 ubicación, en morado, para distinguir orden de incidencia de
@@ -807,14 +806,41 @@ function FijacionExternaView({
                         </span>
                       </div>
                       <div className="titulo">{inc.nombre_incidencia}</div>
+
+                      {/* Renglón 1: Medio, sitio y cara (sin nivel para que no se corte) */}
                       <div className="meta">
                         {inc.medio ? inc.medio + ' · ' : ''}
                         {inc.clave_sitio}
                         {inc.lado || inc.clave_medio
                           ? ' · cara ' + caraIncidencia(inc)
                           : ''}
-                        {inc.nivel ? ' · Nivel ' + inc.nivel : ''}
                       </div>
+
+                      {/* Renglón 2: Nivel en badge/pill rojo y Campaña en la misma línea */}
+                      {(inc.nivel || inc.campania || r.campana) && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                          {inc.nivel && (
+                            <span
+                              className="pill"
+                              style={{
+                                background: '#ef444422',
+                                color: '#ef4444',
+                                fontWeight: 700,
+                                fontSize: 11,
+                              }}
+                            >
+                              {inc.nivel.toLowerCase().includes('nivel') ? inc.nivel : `Nivel ${inc.nivel}`}
+                            </span>
+                          )}
+
+                          {(inc.campania || r.campana) && (
+                            <div className="meta" style={{ color: 'var(--text)', margin: 0 }}>
+                              🎯 Campaña: {inc.campania || r.campana}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {inc.observaciones && (
                         <div className="obs">“{inc.observaciones}”</div>
                       )}
