@@ -73,7 +73,27 @@ export const AREAS_RESP = [
   'Iluminación',
   'Instalaciones',
   'TI',
+  'Op. Bio Box'
 ];
+
+
+// 3. Mapeo de Unidad de Negocio -> Áreas/Departamentos pertenecientes
+export const AREAS_POR_UNIDAD: Record<string, string[]> = {
+  'BIOBOX': ['Op. Bio Box', 'Mantenimiento', 'TI', 'Operaciones', 'Implementaciones'],
+  'DIGITAL': ['Digital', 'TI', 'Mantenimiento', 'Operaciones', 'SRD', 'PPD'],
+  'URBAN': ['Urban', 'Mantenimiento', 'Operaciones'],
+  'ECOVALLAS': ['Mantenimiento', 'Fijación', 'Estructuras', 'Imprenta', 'Admin Comercial', 'Operaciones'],
+};
+
+/**
+ * Función helper para obtener las áreas filtradas por unidad de negocio.
+ * Si no se pasa unidad o no coincide, retorna todas las áreas disponibles.
+ */
+export function getAreasPorUnidad(unidadNegocio?: string | null): string[] {
+  if (!unidadNegocio) return [...AREAS_RESP];
+  const unidadUpper = unidadNegocio.toUpperCase();
+  return AREAS_POR_UNIDAD[unidadUpper] || [...AREAS_RESP];
+}
 
 // AREAS_ASIGNABLES se retiró en ago-2026 junto con la asignación a técnico.
 // Decidía en qué áreas aparecía el botón; sin botón, no decide nada.
