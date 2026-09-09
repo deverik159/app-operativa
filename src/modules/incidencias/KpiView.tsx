@@ -20,6 +20,7 @@ import {
   semanaDe,
   etiquetaSemana,
   fmtHoras as fmtH,
+  areaEfectiva,
 } from '../../lib/helpers';
 import { nombreDe } from '../../lib/nombres';
 import type { MapaNombres } from '../../lib/nombres';
@@ -364,9 +365,13 @@ function KpiView({
    * volviera a filtrar por su cuenta, tarde o temprano los dos números se
    * separan y no hay forma de saber cuál está mal.
    */
-  const top = (keyFn: (i: Incidencia) => string | null, n = TOP_N): Fila[] => {
+  const top = (
+    keyFn: (i: Incidencia) => string | null,
+    n = TOP_N,
+    fuente: Incidencia[] = f
+  ): Fila[] => {
     const m = new Map<string, Incidencia[]>();
-    f.forEach((i) => {
+    fuente.forEach((i) => {
       const k = keyFn(i);
       if (!k) return;
       const prev = m.get(k);
@@ -382,6 +387,17 @@ function KpiView({
   const porUN = top((i) => i.unidad_negocio);
   const porArea = top((i) => i.area_responsable);
   const topInc = top((i) => i.nombre_incidencia);
+  const incidenciasDigital = f.filter(
+    (i) => areaEfectiva(i).trim().toLowerCase() === 'digital'
+  );
+  // Este es el indicador propio del área Digital. Incluye las que todavía no
+  // ha clasificado el técnico: esconderlas inflaría artificialmente la
+  // distribución de las categorías técnicas ya atendidas.
+  const topIncDigital = top(
+    (i) => i.incidencia_srd || 'Sin clasificar',
+    TOP_N,
+    incidenciasDigital
+  );
   const porMueble = top((i) => i.tipo_mueble);
   // Solo se pinta si hay datos: en las unidades que no capturan lado, una
   // tarjeta con "Sin datos" es ruido permanente.
@@ -670,6 +686,26 @@ function KpiView({
           />
         </div>
       </div>
+
+      {incidenciasDigital.length > 0 && (
+        <div className="row2" style={{ gap: 16, marginTop: 16 }}>
+          <div className="card">
+            <div className="l" style={{ marginBottom: 12 }}>
+              Clasificación técnica Digital
+            </div>
+            <Bars
+              data={topIncDigital}
+              color="var(--accent2)"
+              onAbrir={(x) =>
+                abrir(`Digital: ${x.etiqueta}`, x.filas, 'incidencia')
+              }
+            />
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
+              Mide incidencia_srd; “Sin clasificar” sigue siendo trabajo pendiente.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lado, mueble y cara van en el MISMO row2. Con dos columnas, el
           tercero cae solo en la siguiente línea a media anchura, que es

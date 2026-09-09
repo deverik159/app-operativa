@@ -22,9 +22,11 @@ import type { ArbolDigital, Evidencia, Incidencia, TipoEvidencia } from '../../t
 
 /** Lo que el modal devuelve al padre para escribir en incidencias. */
 export type DatosReparacion = {
-  diagnostico: string;
+  diagnostico: string | null;
   detalle: string;
-  /** Solo la llena el árbol de Digital. En las demás áreas va null. */
+  /** Solo las llena el árbol de Digital. En las demás áreas van null. */
+  incidenciaSrd: string | null;
+  arbolDigitalId: number | string | null;
   causa: string | null;
   solucion: string | null;
 };
@@ -47,24 +49,37 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
   const [subiendoRep, setSubiendoRep] = useState(false);
 
   const [arbol, setArbol] = useState<ArbolDigital[]>([]);
-  const [diagSel, setDiagSel] = useState('');
-  const [solSel, setSolSel] = useState('');
+  const [arbolListo, setArbolListo] = useState(false);
+  const [errArbol, setErrArbol] = useState('');
+  const [srdSel, setSrdSel] = useState(inc.incidencia_srd || '');
+  const [causaSel, setCausaSel] = useState(inc.causa_raiz || '');
+  const [diagnosticoSel, setDiagnosticoSel] = useState(inc.diagnostico || '');
+  const [solSel, setSolSel] = useState(inc.solucion || '');
 
-  const esDigital = (inc.area_responsable || '').toLowerCase() === 'digital';
+  const areaRepara = inc.assigned_area || inc.area_responsable || '';
+  const esDigital = areaRepara.trim().toLowerCase() === 'digital';
+  const tecnicasDig = [
+    ...new Set(arbol.map((a) => a.incidencia_srd).filter(Boolean)),
+  ] as string[];
+  const filasSrd = arbol.filter((a) => a.incidencia_srd === srdSel);
   const causasDig = [
-    ...new Set(arbol.map((a) => a.causa_raiz).filter(Boolean)),
+    ...new Set(filasSrd.map((a) => a.causa_raiz).filter(Boolean)),
   ] as string[];
+  const filasCausa = filasSrd.filter((a) => a.causa_raiz === causaSel);
+  const diagnosticosDig = [
+    ...new Set(filasCausa.map((a) => a.diagnostico).filter(Boolean)),
+  ] as string[];
+  const filasDiagnostico = diagnosticosDig.length
+    ? filasCausa.filter((a) => a.diagnostico === diagnosticoSel)
+    : filasCausa;
   const solsDig = [
-    ...new Set(
-      arbol
-        .filter((a) => a.causa_raiz === diagSel)
-        .map((a) => a.solucion)
-        .filter(Boolean)
-    ),
+    ...new Set(filasDiagnostico.map((a) => a.solucion).filter(Boolean)),
   ] as string[];
+  const filaElegida = filasDiagnostico.find((a) => a.solucion === solSel) || null;
+  const categoriaDig = filaElegida?.categoria_principal || filasSrd[0]?.categoria_principal;
   // Solo se guía si es Digital Y hay árbol para esta incidencia; si no, se
   // cae al flujo libre en vez de dejar al técnico sin poder capturar.
-  const usarArbol = esDigital && causasDig.length > 0;
+  const usarArbol = esDigital && tecnicasDig.length > 0;
 
   useEffect(() => {
     (async () => {
@@ -83,15 +98,61 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
       setCargandoEv(false);
 
       if (esDigital) {
-        const { data: a } = await sb
+        const { data: a, error: errorArbol } = await sb
           .from('arbol_digital')
-          .select('causa_raiz,solucion')
-          .ilike('incidencia', inc.nombre_incidencia || '');
-        setArbol((a as ArbolDigital[]) || []);
+          .select(
+            'id,incidencia,categoria_principal,incidencia_srd,causa_raiz,diagnostico,solucion,sla_min,sla,sla_fuera'
+          )
+          // nombre_incidencia se guardó desde catalogo_incidencias.detalle y
+          // arbol_digital.incidencia usa exactamente esa descripción visible.
+          .eq('incidencia', inc.nombre_incidencia || '')
+          .order('incidencia_srd')
+          .order('causa_raiz')
+          .order('solucion');
+        setArbolListo(true);
+        if (errorArbol) {
+          setErrArbol(errorArbol.message);
+          return;
+        }
+        const filas = (a as ArbolDigital[]) || [];
+        setArbol(filas);
+
+        // Una reparación rechazada vuelve a abrir este mismo modal: se
+        // reconstruye la ruta guardada por FK para no obligar a clasificarla
+        // otra vez ni depender de textos que el catálogo pudiera haber editado.
+        const previa = filas.find(
+          (x) => String(x.id) === String(inc.arbol_digital_id || '')
+        );
+        if (previa) {
+          setSrdSel(previa.incidencia_srd || '');
+          setCausaSel(previa.causa_raiz || '');
+          setDiagnosticoSel(previa.diagnostico || '');
+          setSolSel(previa.solucion || '');
+        } else {
+          const tecnicas = [
+            ...new Set(filas.map((x) => x.incidencia_srd).filter(Boolean)),
+          ] as string[];
+          if (tecnicas.length === 1) setSrdSel(tecnicas[0]);
+        }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // En cada nivel, una única opción se prellena. Con varias, el técnico
+  // decide: "Pantallas en negro" no puede adivinar Telmex o Totalplay.
+  useEffect(() => {
+    if (srdSel && causasDig.length === 1 && !causaSel) setCausaSel(causasDig[0]);
+  }, [srdSel, causasDig, causaSel]);
+
+  useEffect(() => {
+    if (causaSel && diagnosticosDig.length === 1 && !diagnosticoSel)
+      setDiagnosticoSel(diagnosticosDig[0]);
+  }, [causaSel, diagnosticosDig, diagnosticoSel]);
+
+  useEffect(() => {
+    if (causaSel && solsDig.length === 1 && !solSel) setSolSel(solsDig[0]);
+  }, [causaSel, solsDig, solSel]);
 
   const subirRep = async (files: File[]) => {
     if (!files.length) return;
@@ -157,23 +218,48 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
     }
 
     let causa: string | null = null;
+    let diagnosticoFinal: string | null = diag.trim() || null;
     let solucion: string | null = null;
+    let incidenciaSrd: string | null = null;
+    let arbolDigitalId: number | string | null = null;
 
     if (usarArbol) {
-      if (!diagSel) {
-        alert('Elige el diagnóstico / causa raíz.');
+      if (!srdSel) {
+        alert('Elige la incidencia técnica de Digital.');
+        return;
+      }
+      if (!causaSel) {
+        alert('Elige la causa raíz.');
+        return;
+      }
+      if (diagnosticosDig.length > 0 && !diagnosticoSel) {
+        alert('Elige el diagnóstico.');
         return;
       }
       if (!solSel) {
         alert('Elige la solución.');
         return;
       }
-      causa = diagSel;
+      if (!filaElegida) {
+        alert('La combinación elegida ya no existe en el catálogo Digital. Recarga e inténtalo de nuevo.');
+        return;
+      }
+      incidenciaSrd = filaElegida.incidencia_srd;
+      arbolDigitalId = filaElegida.id;
+      causa = filaElegida.causa_raiz;
+      diagnosticoFinal = filaElegida.diagnostico;
       solucion = solSel;
     }
 
     setBusy(true);
-    await onSave({ diagnostico: diag, detalle, causa, solucion });
+    await onSave({
+      diagnostico: diagnosticoFinal,
+      detalle,
+      incidenciaSrd,
+      arbolDigitalId,
+      causa,
+      solucion,
+    });
     setBusy(false);
   };
 
@@ -272,7 +358,21 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
           )}
         </div>
 
-        {!usarArbol && (
+        {esDigital && !arbolListo && (
+          <div className="loading" style={{ marginBottom: 14 }}>
+            Cargando clasificación técnica de Digital…
+          </div>
+        )}
+
+        {esDigital && arbolListo && !usarArbol && (
+          <div className={errArbol ? 'err' : 'banner'} style={{ marginBottom: 14 }}>
+            {errArbol
+              ? `No se pudo cargar el catálogo Digital: ${errArbol}`
+              : `“${inc.nombre_incidencia || 'Esta incidencia'}” no tiene clasificación en arbol_digital. La reparación quedará como Sin clasificar.`}
+          </div>
+        )}
+
+        {!usarArbol && (!esDigital || arbolListo) && (
           <>
             <div className="field">
               <label>Diagnóstico</label>
@@ -355,25 +455,69 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
         {usarArbol && (
           <>
             <div className="field">
-              <label>
-                Diagnóstico / Causa raíz (árbol Digital · {causasDig.length})
-              </label>
+              <label>Incidencia técnica de Digital ({tecnicasDig.length})</label>
               <select
-                value={diagSel}
+                value={srdSel}
                 onChange={(e) => {
-                  setDiagSel(e.target.value);
-                  setSolSel(''); // la solución depende de la causa elegida
+                  setSrdSel(e.target.value);
+                  setCausaSel('');
+                  setDiagnosticoSel('');
+                  setSolSel('');
                 }}
               >
                 <option value="">— Selecciona —</option>
-                {causasDig.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                {tecnicasDig.map((srd) => (
+                  <option key={srd} value={srd}>
+                    {srd}
                   </option>
                 ))}
               </select>
+              {categoriaDig && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                  Categoría: <b>{categoriaDig}</b>
+                </div>
+              )}
             </div>
-            {diagSel && (
+            {srdSel && (
+              <div className="field">
+                <label>Causa raíz ({causasDig.length})</label>
+                <select
+                  value={causaSel}
+                  onChange={(e) => {
+                    setCausaSel(e.target.value);
+                    setDiagnosticoSel('');
+                    setSolSel('');
+                  }}
+                >
+                  <option value="">— Selecciona —</option>
+                  {causasDig.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {causaSel && diagnosticosDig.length > 0 && (
+              <div className="field">
+                <label>Diagnóstico ({diagnosticosDig.length})</label>
+                <select
+                  value={diagnosticoSel}
+                  onChange={(e) => {
+                    setDiagnosticoSel(e.target.value);
+                    setSolSel('');
+                  }}
+                >
+                  <option value="">— Selecciona —</option>
+                  {diagnosticosDig.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {causaSel && (diagnosticosDig.length === 0 || diagnosticoSel) && (
               <div className="field">
                 <label>Solución ({solsDig.length})</label>
                 <select value={solSel} onChange={(e) => setSolSel(e.target.value)}>

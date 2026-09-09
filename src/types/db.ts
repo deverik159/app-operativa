@@ -164,6 +164,10 @@ export interface Incidencia {
   repaired_at: string | null;
   diagnostico: string | null;
   detalle_reparacion: string | null;
+  /** Clasificación técnica elegida por Digital; no sustituye nombre_incidencia. */
+  incidencia_srd?: string | null;
+  /** Fila exacta del árbol Digital usada para causa/diagnóstico/solución. */
+  arbol_digital_id?: number | string | null;
   causa_raiz: string | null;
   solucion: string | null;
   motivo_rechazo_reparacion: string | null;
@@ -327,9 +331,16 @@ export interface CausaRaiz {
 
 /** tabla `arbol_digital` — pares causa→solución guiados, solo área Digital. */
 export interface ArbolDigital {
+  id: number | string;
+  incidencia: string | null;
+  categoria_principal: string | null;
+  incidencia_srd: string | null;
   causa_raiz: string | null;
+  diagnostico: string | null;
   solucion: string | null;
-  incidencia?: string | null;
+  sla_min: number | null;
+  sla: number | null;
+  sla_fuera: number | null;
 }
 
 /** tabla `sla_areas` — horas de SLA por área responsable. */

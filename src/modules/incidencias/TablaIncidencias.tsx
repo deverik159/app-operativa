@@ -57,7 +57,8 @@ function csv(v: unknown): string {
 
 function exportar(items: Incidencia[]) {
   const cab = [
-    'folio', 'estatus', 'unidad_negocio', 'incidencia', 'nivel', 'tipo',
+    'folio', 'estatus', 'unidad_negocio', 'incidencia', 'incidencia_srd',
+    'arbol_digital_id', 'nivel', 'tipo',
     'origen', 'area_responsable', 'area_que_repara', 'clave_sitio', 'cara',
     'lado', 'direccion', 'municipio', 'plaza', 'campania', 'observaciones',
     'capturada_por', 'fecha_reporte', 'validada_por', 'fecha_validacion',
@@ -68,7 +69,8 @@ function exportar(items: Incidencia[]) {
   const filas = items.map((i) =>
     [
       i.folio, EST_LABEL[i.estatus] || i.estatus, i.unidad_negocio,
-      i.nombre_incidencia, i.nivel, i.tipo, i.origen, i.area_responsable,
+      i.nombre_incidencia, i.incidencia_srd, i.arbol_digital_id,
+      i.nivel, i.tipo, i.origen, i.area_responsable,
       i.assigned_area || i.area_responsable, i.clave_sitio,
       caraLabel(i.clave_medio), i.lado, i.direccion, i.municipio, i.plaza,
       i.campania, i.observaciones, i.captured_by, i.fecha_reporte,
@@ -125,6 +127,11 @@ const COLUMNAS: {
     titulo: 'Incidencia',
     k: 'incidencia',
     valor: (i) => i.nombre_incidencia || '',
+  },
+  {
+    titulo: 'Incidencia Digital',
+    k: 'incidencia_srd',
+    valor: (i) => i.incidencia_srd || '',
   },
   // caraIncidencia: en las unidades con lado, la cara que orienta es
   // Norte/Sur/Ambas, no la sigla de la columna del inventario.
@@ -233,7 +240,7 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
           style={{
             borderCollapse: 'collapse',
             width: '100%',
-            minWidth: 980,
+            minWidth: 1160,
             fontSize: 12,
           }}
         >
@@ -298,6 +305,9 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
                   <td style={celda}>{i.unidad_negocio}</td>
                   <td style={{ ...celda, minWidth: 180 }}>
                     {i.nombre_incidencia}
+                  </td>
+                  <td style={{ ...celda, minWidth: 180 }}>
+                    {i.incidencia_srd || '—'}
                   </td>
                   <td style={celda}>{caraIncidencia(i)}</td>
                   {/* nowrap en Sitio/Por/Reparó: el overflow-wrap:anywhere

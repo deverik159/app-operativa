@@ -228,12 +228,25 @@ function FijacionExternaView({
    */
   const guardarReparacion = async (
     inc: Incidencia,
-    { diagnostico, detalle, causa, solucion }: DatosReparacion
+    {
+      diagnostico,
+      detalle,
+      incidenciaSrd,
+      arbolDigitalId,
+      causa,
+      solucion,
+    }: DatosReparacion
   ) => {
     const patch: Partial<Incidencia> = {
       estatus: 'reparado',
       diagnostico: diagnostico || null,
       detalle_reparacion: detalle || null,
+      ...(incidenciaSrd && arbolDigitalId != null
+        ? {
+            incidencia_srd: incidenciaSrd,
+            arbol_digital_id: arbolDigitalId,
+          }
+        : {}),
       causa_raiz: causa || null,
       solucion: solucion || null,
       repaired_by_email: email,

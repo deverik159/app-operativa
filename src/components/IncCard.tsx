@@ -108,6 +108,18 @@ function IncCard({
             {i.folio || '(sin folio)'} · {i.unidad_negocio}
           </div>
           <div className="titulo">{i.nombre_incidencia}</div>
+          {i.incidencia_srd && (
+            <div
+              style={{
+                color: 'var(--accent2)',
+                fontSize: 12,
+                fontWeight: 700,
+                marginTop: 3,
+              }}
+            >
+              ⚙ Digital: {i.incidencia_srd}
+            </div>
+          )}
           <div className="meta">
             {i.medio} · {i.clave_sitio}
             {i.lado || i.clave_medio ? ` · cara ${caraIncidencia(i)}` : ''}
