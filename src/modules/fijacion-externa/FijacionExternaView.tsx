@@ -256,7 +256,9 @@ function FijacionExternaView({
       .from('incidencias')
       .update(patch)
       .eq('record_id', inc.record_id)
-      .select('record_id');
+      .select(
+        'record_id,incidencia_srd,arbol_digital_id,causa_raiz,diagnostico,solucion'
+      );
     if (error) {
       alert('No se pudo guardar la reparación: ' + error.message);
       return;
@@ -270,9 +272,21 @@ function FijacionExternaView({
       );
       return;
     }
+    const guardada = data[0] as Partial<Incidencia>;
+    if (
+      incidenciaSrd &&
+      (guardada.incidencia_srd !== incidenciaSrd ||
+        String(guardada.arbol_digital_id) !== String(arbolDigitalId))
+    ) {
+      alert(
+        'La reparación se guardó, pero Supabase no devolvió la clasificación ' +
+          'técnica de Digital. Recarga y revisa esta incidencia.'
+      );
+      return;
+    }
     setIncs((prev) =>
       prev.map((x) =>
-        x.record_id === inc.record_id ? { ...x, ...patch } : x
+        x.record_id === inc.record_id ? { ...x, ...patch, ...guardada } : x
       )
     );
     setReparando(null);
