@@ -407,7 +407,7 @@ function KpiView({
   const porTipoMedio = top((i) =>
     (i.unidad_negocio || '').trim().toLowerCase() === 'biobox'
       ? 'Máquina'
-      : i.tipo_medio
+      : i.tipo_medio || i.medio
   );
 
   // Quién repara más. La agrupación sigue siendo por CORREO —es la identidad
@@ -656,6 +656,19 @@ function KpiView({
         </div>
         <div className="card">
           <div className="l" style={{ marginBottom: 12 }}>
+            Top incidencias
+          </div>
+          <Bars
+            data={topInc}
+            color="var(--hi)"
+            onAbrir={(x) => abrir(x.etiqueta, x.filas)}
+          />
+        </div>
+      </div>
+
+      <div className="row2" style={{ gap: 16, marginTop: 16 }}>
+        <div className="card">
+          <div className="l" style={{ marginBottom: 12 }}>
             Carga por área responsable
           </div>
           <Bars
@@ -668,33 +681,7 @@ function KpiView({
             }
           />
         </div>
-      </div>
-
-      <div className="row2" style={{ gap: 16, marginTop: 16 }}>
-        <div className="card">
-          <div className="l" style={{ marginBottom: 12 }}>
-            Top incidencias
-          </div>
-          <Bars
-            data={topInc}
-            color="var(--hi)"
-            onAbrir={(x) => abrir(x.etiqueta, x.filas)}
-          />
-        </div>
-        <div className="card">
-          <div className="l" style={{ marginBottom: 12 }}>
-            Quién repara más
-          </div>
-          <Bars
-            data={porTecnico}
-            color="var(--ok)"
-            onAbrir={(x) => abrir(`Reparadas por ${x.etiqueta}`, x.filas)}
-          />
-        </div>
-      </div>
-
-      {incidenciasDigital.length > 0 && (
-        <div className="row2" style={{ gap: 16, marginTop: 16 }}>
+        {incidenciasDigital.length > 0 && (
           <div className="card">
             <div className="l" style={{ marginBottom: 12 }}>
               Clasificación técnica Digital
@@ -707,12 +694,32 @@ function KpiView({
               }
             />
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Lado, mueble y tipo de medio van en el MISMO row2. Con dos columnas, el
-          tercero cae solo en la siguiente línea a media anchura, que es
-          preferible a dejar una tarjeta huérfana en su propia fila. */}
+      <div className="row2" style={{ gap: 16, marginTop: 16 }}>
+        <div className="card">
+          <div className="l" style={{ marginBottom: 12 }}>
+            Quién repara más
+          </div>
+          <Bars
+            data={porTecnico}
+            color="var(--ok)"
+            onAbrir={(x) => abrir(`Reparadas por ${x.etiqueta}`, x.filas)}
+          />
+        </div>
+        <div className="card">
+          <div className="l" style={{ marginBottom: 12 }}>
+            Mueble más afectado
+          </div>
+          <Bars
+            data={porMueble}
+            color="var(--purple)"
+            onAbrir={(x) => abrir(`Mueble: ${x.etiqueta}`, x.filas)}
+          />
+        </div>
+      </div>
+
       <div className="row2" style={{ gap: 16, marginTop: 16 }}>
         {porLado.length > 0 && (
           <div className="card">
@@ -726,16 +733,6 @@ function KpiView({
             />
           </div>
         )}
-        <div className="card">
-          <div className="l" style={{ marginBottom: 12 }}>
-            Mueble más afectado
-          </div>
-          <Bars
-            data={porMueble}
-            color="var(--purple)"
-            onAbrir={(x) => abrir(`Mueble: ${x.etiqueta}`, x.filas)}
-          />
-        </div>
         <div className="card">
           <div className="l" style={{ marginBottom: 12 }}>
             Tipo de medio más afectado
