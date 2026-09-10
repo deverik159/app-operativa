@@ -63,6 +63,22 @@ type Linea = {
   files: File[];
 };
 
+/** Catorcena del calendario (la actual y sus vecinas). */
+type CatVentana = {
+  numero: number;
+  fecha_inicio: string;
+  fecha_fin: string;
+  cat_texto: string | null;
+};
+
+/** Línea de pauta de QTM para una cara, dentro de la ventana. */
+type PautaQtm = {
+  vendor_face_id: string;
+  campaign: string | null;
+  fecha_inicio: string | null;
+  fecha_fin: string | null;
+};
+
 /**
  * Lo que se entrega al padre: un grupo por partida, con las filas que va a
  * insertar y los archivos que le corresponden. El padre sube cada grupo por
@@ -108,6 +124,14 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
   /** Lado de la cara. Solo aplica en las unidades de UNIDADES_CON_LADO. */
   const [lado, setLado] = useState('');
   const [campania, setCampania] = useState('');
+  /** true = eligió "Otra…" y escribe la campaña a mano. */
+  const [campLibre, setCampLibre] = useState(false);
+  /**
+   * Campañas pautadas por CARA (no por sitio), desde qtm_pautas — lo que QTM
+   * sincroniza, no la tabla `pautas` del Excel. Solo Ecovallas por ahora.
+   */
+  const [ventanaCats, setVentanaCats] = useState<CatVentana[]>([]);
+  const [pautasCaras, setPautasCaras] = useState<PautaQtm[]>([]);
   const [obs, setObs] = useState('');
   const [nombreBiobox, setNombreBiobox] = useState('');
   // Fotos de la partida que se está editando ahora. Al agregarla al reporte
@@ -307,6 +331,94 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
     };
   }, [un]);
 
+  // Ventana de catorcenas para la campaña pautada: la ANTERIOR, la actual y
+  // la SIGUIENTE. En el cambio de campaña la foto de campo puede ser de la
+  // saliente o de la entrante; el reportante decide cuál (Erik, 10-sep-2026).
+  // Solo Ecovallas por ahora.
+  useEffect(() => {
+    if (un !== 'Ecovallas') {
+      setVentanaCats([]);
+      return;
+    }
+    let active = true;
+    (async () => {
+      // Cada catorcena dura 14 días: pedir desde hace 14 días trae a la
+      // anterior (su fin cae dentro de ese rango), la actual y la que sigue.
+      const desde = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      const { data } = await sb
+        .from('catorcenas')
+        .select('numero,fecha_inicio,fecha_fin,cat_texto')
+        .gte('fecha_fin', desde)
+        .order('numero')
+        .limit(3);
+      if (!active) return;
+      setVentanaCats((data as CatVentana[]) || []);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [un]);
+
+  // Pauta de QTM para las caras del sitio elegido, acotada a la ventana.
+  // Por CARA, no por sitio: en un mismo sitio cada cara puede traer campaña
+  // distinta. Si la RLS no deja leer qtm_pautas, la lista queda vacía y el
+  // campo Campaña se comporta como siempre (texto libre).
+  useEffect(() => {
+    if (un !== 'Ecovallas' || caras.length === 0 || ventanaCats.length === 0) {
+      setPautasCaras([]);
+      return;
+    }
+    let active = true;
+    (async () => {
+      const inicio = ventanaCats[0].fecha_inicio;
+      const fin = ventanaCats[ventanaCats.length - 1].fecha_fin;
+      const { data } = await sb
+        .from('qtm_pautas')
+        .select('vendor_face_id,campaign,fecha_inicio,fecha_fin')
+        .in('vendor_face_id', caras.map((c) => c.vendor_face_id))
+        // Traslape de rangos: empieza antes de que acabe la ventana y
+        // termina después de que empiece.
+        .lte('fecha_inicio', fin)
+        .gte('fecha_fin', inicio);
+      if (!active) return;
+      setPautasCaras((data as PautaQtm[]) || []);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [un, caras, ventanaCats]);
+
+  /**
+   * Opciones del desplegable de campaña: las campañas pautadas en las caras
+   * MARCADAS (o todas las del sitio si aún no marca ninguna), etiquetadas
+   * con su catorcena para que se sepa cuál es la pautada.
+   */
+  const opcionesCampania = useMemo(() => {
+    if (pautasCaras.length === 0) return [];
+    const marcadas = selCaras.length
+      ? new Set(selCaras)
+      : new Set(caras.map((c) => c.vendor_face_id));
+    const porCampania = new Map<string, Set<string>>();
+    pautasCaras.forEach((p) => {
+      const nombre = (p.campaign || '').trim();
+      if (!nombre || !marcadas.has(p.vendor_face_id)) return;
+      const cats = porCampania.get(nombre) || new Set<string>();
+      ventanaCats.forEach((c) => {
+        if (
+          (p.fecha_inicio || '') <= c.fecha_fin &&
+          (p.fecha_fin || '') >= c.fecha_inicio
+        )
+          cats.add(c.cat_texto || `Cat-${c.numero}`);
+      });
+      porCampania.set(nombre, cats);
+    });
+    return [...porCampania.entries()]
+      .map(([nombre, cats]) => ({ nombre, cats: [...cats].join(' / ') }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [pautasCaras, selCaras, caras, ventanaCats]);
+
   // Precarga del sitio si el alta vino desde la bitácora.
   useEffect(() => {
     if (!preset?.siteId) return;
@@ -344,6 +456,7 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
     setCatSel(null);
     setSelCaras(caras.length === 1 ? [caras[0].vendor_face_id] : []);
     setCampania('');
+    setCampLibre(false);
     setObs('');
     setFilesLinea([]);
     setEditandoId(null);
@@ -1046,10 +1159,66 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
             <div className="row2">
               <div className="field">
                 <label>Campaña</label>
-                <input
-                  value={campania}
-                  onChange={(e) => setCampania(e.target.value)}
-                />
+                {opcionesCampania.length > 0 ? (
+                  (() => {
+                    const enOpciones = opcionesCampania.some(
+                      (o) => o.nombre === campania
+                    );
+                    // Una campaña escrita a mano (o de una partida vieja) que
+                    // no está pautada se muestra como "Otra…" con su texto.
+                    const escribiendo = campLibre || (!!campania && !enOpciones);
+                    return (
+                      <>
+                        <select
+                          value={
+                            escribiendo ? '__otra__' : enOpciones ? campania : ''
+                          }
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v === '__otra__') {
+                              setCampLibre(true);
+                            } else {
+                              setCampania(v);
+                              setCampLibre(false);
+                            }
+                          }}
+                        >
+                          <option value="">— Sin campaña —</option>
+                          {opcionesCampania.map((o) => (
+                            <option key={o.nombre} value={o.nombre}>
+                              {o.nombre}
+                              {o.cats ? ` · ${o.cats}` : ''}
+                            </option>
+                          ))}
+                          <option value="__otra__">Otra…</option>
+                        </select>
+                        {escribiendo && (
+                          <input
+                            value={campania}
+                            onChange={(e) => setCampania(e.target.value)}
+                            placeholder="Escribe la campaña…"
+                            style={{ marginTop: 8 }}
+                          />
+                        )}
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: 'var(--muted)',
+                            marginTop: 6,
+                          }}
+                        >
+                          Pautadas en esta cara (catorcena anterior, actual y
+                          siguiente), según QTM.
+                        </div>
+                      </>
+                    );
+                  })()
+                ) : (
+                  <input
+                    value={campania}
+                    onChange={(e) => setCampania(e.target.value)}
+                  />
+                )}
               </div>
               <div className="field">
                 <label>Observaciones</label>
