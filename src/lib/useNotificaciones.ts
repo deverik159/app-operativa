@@ -23,7 +23,7 @@ import type { Notificacion } from '../types/db';
 /** Cada cuánto se re-consultan las notificaciones. */
 const INTERVALO_MS = 25000;
 
-/** Cuántas notificaciones se traen para la campana. */
+/** Cuántas notificaciones pendientes se traen para la campana. */
 const LIMITE = 60;
 
 export type UseNotificaciones = {
@@ -49,6 +49,7 @@ export function useNotificaciones(): UseNotificaciones {
     const { data, error: err } = await sb
       .from('notificaciones')
       .select('*')
+      .eq('leida', false)
       .order('creado_en', { ascending: false })
       .limit(LIMITE);
     if (err) {
@@ -99,9 +100,9 @@ export function useNotificaciones(): UseNotificaciones {
       setError('No se pudo marcar como leída: ' + err.message);
       return;
     }
-    setNotifs((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, leida: true } : n))
-    );
+    // La campana es una bandeja de pendientes: al atender una entrada deja
+    // de pertenecer a la lista, igual que su contador.
+    setNotifs((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
   const marcarTodas = useCallback(async () => {
@@ -115,7 +116,7 @@ export function useNotificaciones(): UseNotificaciones {
       setError('No se pudieron marcar como leídas: ' + err.message);
       return;
     }
-    setNotifs((prev) => prev.map((n) => ({ ...n, leida: true })));
+    setNotifs([]);
   }, [notifs]);
 
   const marcarChatLeido = useCallback(
@@ -126,16 +127,23 @@ export function useNotificaciones(): UseNotificaciones {
         delete n[recordId];
         return n;
       });
+      setNotifs((prev) =>
+        prev.filter((n) => n.evento !== 'chat' || n.record_id !== recordId)
+      );
       const { error: err } = await sb
         .from('notificaciones')
         .update({ leida: true })
         .eq('evento', 'chat')
         .eq('record_id', recordId)
         .eq('leida', false);
-      if (err) console.error('[notificaciones] fallo al marcar chat:', err);
-      setTimeout(cargarNotifs, 300);
+      if (err) {
+        console.error('[notificaciones] fallo al marcar chat:', err);
+        // La recarga restituye la entrada si la base no aceptó el cambio.
+        cargarNotifs();
+        cargarChats();
+      }
     },
-    [cargarNotifs]
+    [cargarNotifs, cargarChats]
   );
 
   const noLeidas = notifs.filter((n) => !n.leida).length;

@@ -35,8 +35,8 @@ function CampanaNotifs({
   const [pestana, setPestana] = useState<'incidencias' | 'chat'>('incidencias');
   const deChat = notifs.filter((n) => n.evento === 'chat');
   const deIncidencias = notifs.filter((n) => n.evento !== 'chat');
-  const noLeidasChat = deChat.filter((n) => !n.leida).length;
-  const noLeidasInc = deIncidencias.filter((n) => !n.leida).length;
+  const noLeidasChat = deChat.length;
+  const noLeidasInc = deIncidencias.length;
   const visibles = pestana === 'chat' ? deChat : deIncidencias;
 
   // ══ POR QUÉ EL PANEL VA EN UN PORTAL (bug de iPhone, ago-2026) ══
@@ -208,8 +208,7 @@ function CampanaNotifs({
                   padding: '10px 12px',
                   borderBottom: '1px solid var(--line)',
                   cursor: 'pointer',
-                  // Las no leídas se resaltan con un fondo cálido.
-                  background: n.leida ? 'transparent' : '#241b17',
+                  background: '#241b17',
                 }}
               >
                 <div style={{ fontSize: 13, lineHeight: 1.4 }}>{n.mensaje}</div>

@@ -13,9 +13,9 @@ import { BUCKET_EVIDENCIAS } from './storage';
 
 /** Foto: 5 MB. Una foto de celular ronda 2-4 MB. */
 export const MAX_FOTO_BYTES = 5 * 1024 * 1024;
-/** Video: 10 MB y 15 segundos. */
-export const MAX_VIDEO_BYTES = 10 * 1024 * 1024;
-export const MAX_VIDEO_SEG = 15;
+/** Video: hasta 50 MB y 1 minuto 30 segundos. */
+export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+export const MAX_VIDEO_SEG = 90;
 
 export type TipoAdjunto = 'foto' | 'video';
 

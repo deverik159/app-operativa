@@ -321,8 +321,8 @@ function IncidenciasView({
   }, [cargar]);
 
   // Al llegar desde una notificación: se limpian los filtros y se busca por
-  // folio. La notificación trae record_id, así que el folio se resuelve de la
-  // lista ya cargada (el buscador no mira record_id).
+  // folio. Si no está entre las últimas 1000 filas cargadas, se consulta por
+  // record_id antes de concluir que no es visible para este usuario.
   //
   // Al terminar se avisa al padre para que limpie focoRecordId. Si no, cada
   // vez que cambiara `items` (o se remontara la vista) se volvería a forzar
@@ -338,18 +338,36 @@ function IncidenciasView({
     const it = items.find((i) => i.record_id === focoRecordId);
 
     if (!it) {
-      // ANTES: se hacía `setQ(it?.folio || '')`, o sea que se limpiaba el
-      // buscador y no se avisaba nada. Desde afuera eso es idéntico a "el
-      // clic no hizo nada", que es justo como se sentía.
-      //
-      // Que no aparezca casi siempre significa que la RLS no se la muestra
-      // a este rol: te notifican de algo que no puedes abrir.
-      setAvisoFoco(
-        'La notificación apunta a una incidencia que tu rol no puede ver. ' +
-          'Pídele a un manager que te dé acceso, o que te la reasigne.'
-      );
-      onFocoAplicado?.();
-      return;
+      let cancelado = false;
+      (async () => {
+        const { data, error } = await sb
+          .from('incidencias')
+          .select('*')
+          .eq('record_id', focoRecordId)
+          .maybeSingle();
+        if (cancelado) return;
+
+        if (data) {
+          // Se agrega a la lista actual para que los filtros y el resaltado
+          // funcionen igual que con cualquier fila de la carga principal.
+          setItems((prev) =>
+            prev.some((i) => i.record_id === focoRecordId)
+              ? prev
+              : [data as Incidencia, ...prev]
+          );
+          return;
+        }
+
+        setAvisoFoco(
+          error
+            ? 'No se pudo abrir la incidencia de la notificación: ' + error.message
+            : 'La incidencia de esta notificación ya no está disponible.'
+        );
+        onFocoAplicado?.();
+      })();
+      return () => {
+        cancelado = true;
+      };
     }
 
     // Se limpia TODO lo que podría esconderla, incluidas las fechas.
