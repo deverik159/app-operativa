@@ -350,6 +350,13 @@ export interface SlaArea {
   sla_horas: string | number | null;
 }
 
+/** SLA global del validador; los tiempos se guardan en minutos. */
+export interface SlaValidacion {
+  etapa: 'reporte' | 'reparacion';
+  minutos: number;
+  actualizado_en?: string | null;
+}
+
 // --- Usuarios / roles ---
 
 /** tabla `usuarios`. */

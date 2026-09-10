@@ -132,7 +132,11 @@ export const TIPOS = [
   'Incumplimiento de Tiempo',
 ];
 
-export const SLA_VALIDADOR_HORAS = 24;
+/** SLA inicial de validación, en minutos. La tabla sla_validacion lo puede cambiar. */
+export const SLA_VALIDACION_DEFAULT = {
+  reporte: 20,
+  reparacion: 20,
+} as const;
 
 /**
  * Lado de la cara reportada. En Vía Verde una misma estructura tiene cara

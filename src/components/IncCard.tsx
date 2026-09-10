@@ -6,7 +6,6 @@ import {
   EST_COLOR,
   EST_LABEL,
   NIVEL_COLOR,
-  SLA_VALIDADOR_HORAS,
 } from '../lib/constants';
 import { slaInfo, caraIncidencia, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
 import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
@@ -32,6 +31,8 @@ type IncCardProps = {
   onPrevalidar: (i: Incidencia) => void;
   onDescartar: (i: Incidencia) => void;
   slaMap: SlaMap;
+  /** Minutos configurados para validar captura y reparación. */
+  slaValidacion: { reporte: number; reparacion: number };
   nChat: number;
 };
 
@@ -51,6 +52,7 @@ function IncCard({
   onPrevalidar,
   onDescartar,
   slaMap,
+  slaValidacion,
   nChat,
 }: IncCardProps) {
   const activa = !['cerrada', 'no_reparado'].includes(i.estatus);
@@ -95,11 +97,20 @@ function IncCard({
           (slaMap || {})[areaReal.toLowerCase()]
         )
       : null;
-  const slaVal =
-    i.estatus === 'reparado' && i.sla_validacion_inicio
-      ? slaInfo(i.sla_validacion_inicio, SLA_VALIDADOR_HORAS)
+  const slaValReporte =
+    i.estatus === 'por_validar' && i.fecha_reporte
+      ? slaInfo(i.fecha_reporte, slaValidacion.reporte / 60)
       : null;
-  const sla = slaRep || slaVal;
+  const slaValReparacion =
+    i.estatus === 'reparado' && i.sla_validacion_inicio
+      ? slaInfo(i.sla_validacion_inicio, slaValidacion.reparacion / 60)
+      : null;
+  const sla = slaRep || slaValReporte || slaValReparacion;
+  const etiquetaSla = slaRep
+    ? 'SLA área'
+    : slaValReporte
+      ? 'Validar reporte'
+      : 'Validar reparación';
   return (
     <div className="inc">
       <div className="inc-top">
@@ -144,7 +155,7 @@ function IncCard({
                 className="pill multilinea"
                 style={{ background: sla.color + '22', color: sla.color }}
               >
-                ⏱ {slaRep ? 'SLA área' : 'SLA validación'}: {sla.label}
+                ⏱ {etiquetaSla}: {sla.label}
               </span>
             </div>
           )}

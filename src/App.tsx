@@ -725,7 +725,7 @@ function Main({ session }: { session: Session }) {
                 onBandejaCount={setBandejaCount}
               />
             )}
-            {tab === 'dashboard' && <IndicadoresView />}
+            {tab === 'dashboard' && <IndicadoresView puedeConfigurarSla={has('manager')} />}
             {tab === 'disponibilidad' && <DisponibilidadView />}
             {tab === 'fijacion_externa' && (
               <FijacionExternaView

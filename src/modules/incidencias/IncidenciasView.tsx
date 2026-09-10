@@ -15,9 +15,11 @@ import {
   AREAS_RESP,
   EST_LABEL,
   AREAS_AUTORUTEO,
+  SLA_VALIDACION_DEFAULT,
 } from '../../lib/constants';
 import {
   slaHoras,
+  slaInfo,
   fueraHorarioValidador,
   areaEfectiva,
   idCorto,
@@ -45,6 +47,7 @@ import type {
   EstatusInc,
   SlaMap,
   SlaArea,
+  SlaValidacion,
   TipoEvidencia,
   UsuarioRol,
 } from '../../types/db';
@@ -160,6 +163,12 @@ function IncidenciasView({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [slaMap, setSlaMap] = useState<SlaMap>({});
+  const [slaValidacion, setSlaValidacion] = useState<{
+    reporte: number;
+    reparacion: number;
+  }>({
+    ...SLA_VALIDACION_DEFAULT,
+  });
 
   // Filtros
   const [q, setQ] = useState('');
@@ -308,7 +317,10 @@ function IncidenciasView({
     cargar();
     (async () => {
       // slaMap: horas de SLA por área, en minúsculas (así lo espera IncCard).
-      const { data } = await sb.from('sla_areas').select('area,sla_horas');
+      const [{ data }, { data: validaciones }] = await Promise.all([
+        sb.from('sla_areas').select('area,sla_horas'),
+        sb.from('sla_validacion').select('etapa,minutos'),
+      ]);
       const m: SlaMap = {};
       ((data as SlaArea[]) || []).forEach((r) => {
         if (r.area) {
@@ -317,6 +329,18 @@ function IncidenciasView({
         }
       });
       setSlaMap(m);
+      const siguiente: { reporte: number; reparacion: number } = {
+        ...SLA_VALIDACION_DEFAULT,
+      };
+      ((validaciones as SlaValidacion[]) || []).forEach((s) => {
+        if (
+          (s.etapa === 'reporte' || s.etapa === 'reparacion') &&
+          Number.isFinite(Number(s.minutos)) &&
+          Number(s.minutos) > 0
+        )
+          siguiente[s.etapa] = Number(s.minutos);
+      });
+      setSlaValidacion(siguiente);
     })();
   }, [cargar]);
 
@@ -461,6 +485,25 @@ function IncidenciasView({
       return false;
     });
   }, [items, misRoles, email, reparaEn]);
+
+  /** Aviso sutil para el validador: solo pendientes con reloj naranja o rojo. */
+  const alertasValidacion = useMemo(() => {
+    if (!can.validar) return { porVencer: 0, vencidas: 0 };
+    let porVencer = 0;
+    let vencidas = 0;
+    bandeja.forEach((i) => {
+      const reloj =
+        i.estatus === 'por_validar' && i.fecha_reporte
+          ? slaInfo(i.fecha_reporte, slaValidacion.reporte / 60)
+          : i.estatus === 'reparado' && i.sla_validacion_inicio
+            ? slaInfo(i.sla_validacion_inicio, slaValidacion.reparacion / 60)
+            : null;
+      if (!reloj) return;
+      if (reloj.color === '#ef4444') vencidas += 1;
+      else if (reloj.color === '#f59e0b') porVencer += 1;
+    });
+    return { porVencer, vencidas };
+  }, [bandeja, can.validar, slaValidacion]);
 
   // El badge de "Mi bandeja" cuenta solo lo ACCIONABLE, no lo visible. La
   // bandeja del reportante ahora enseña todas sus capturas; si el badge las
@@ -873,6 +916,27 @@ function IncidenciasView({
               : 'Todo lo que tu rol puede ver (filtrado por seguridad).'}
       </p>
 
+      {modo === 'bandeja' &&
+        (alertasValidacion.vencidas > 0 || alertasValidacion.porVencer > 0) && (
+          <div
+            className="banner"
+            style={{
+              marginBottom: 12,
+              borderColor:
+                alertasValidacion.vencidas > 0 ? 'var(--hi)' : 'var(--warn)',
+              color: alertasValidacion.vencidas > 0 ? '#ffb4b4' : 'var(--warn)',
+            }}
+          >
+            ⏱ Validaciones: {alertasValidacion.vencidas > 0 && (
+              <b>{alertasValidacion.vencidas} vencida{alertasValidacion.vencidas === 1 ? '' : 's'}</b>
+            )}
+            {alertasValidacion.vencidas > 0 && alertasValidacion.porVencer > 0 && ' · '}
+            {alertasValidacion.porVencer > 0 && (
+              <b>{alertasValidacion.porVencer} por vencer</b>
+            )}
+          </div>
+        )}
+
       <div className="toolbar">
         <input
           className="search"
@@ -1013,6 +1077,7 @@ function IncidenciasView({
               onPrevalidar={prevalidar}
               onDescartar={(inc) => setMotivoOf({ inc, kind: 'descartar' })}
               slaMap={slaMap}
+              slaValidacion={slaValidacion}
               nChat={chatCounts[i.record_id] || 0}
             />
             </div>

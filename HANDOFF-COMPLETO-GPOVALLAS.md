@@ -172,6 +172,12 @@ viejo, donde todo vivía en `App`.
 `bitacoras`, `refacciones`, `folio_counters`, `arbol_digital`, `rutas`,
 `unidades_negocio`, `rutas_monitoreo`, `ruta_ubicaciones`.
 
+`sla_validacion` guarda dos SLA globales del validador en minutos: `reporte`
+(desde que se captura) y `reparacion` (desde que el técnico la marca como
+reparada). Ambos inician en 20 minutos y un manager los ajusta desde
+Indicadores. La bandeja avisa de forma discreta cuando una validación está por
+vencer o vencida. `sla_validacion.sql` crea la tabla, sus datos iniciales y RLS.
+
 **Columnas de `incidencias` que el frontend NO debe mandar** — las llenan
 triggers: `folio` (`set_folio`), `catorcena`/`semana`/`plaza`/`latitud`/
 `longitud` (`set_derivados`), `sla_reparacion_inicio`/`sla_validacion_inicio`
