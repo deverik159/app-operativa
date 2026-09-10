@@ -8,17 +8,23 @@ import type { MapaResumen } from '../../lib/estadoMaquina';
 import { fmtHoras, sinAcentos } from '../../lib/helpers';
 import { tramosGoogleMaps } from '../../lib/navegacion';
 import { UNIDADES_BIOBOX } from '../../lib/constants';
-import { fueraDeLinea, maquinasUnicas, indicadoresMaquinas } from '../../lib/maquinasBiobox';
+import { fueraDeLinea, maquinasUnicas, indicadoresMaquinas, pendienteRevision } from '../../lib/maquinasBiobox';
 import type { MaquinaBiobox } from '../../lib/maquinasBiobox';
 import EstadoMaquinaPanel from './EstadoMaquinaPanel';
+import RevisionModal from './RevisionModal';
+import HistorialModal from './HistorialModal';
 
-type Orden = 'secuencia' | 'nombre';
+type Orden = 'abandono' | 'secuencia' | 'nombre';
 
 function nombreRuta(u: MaquinaBiobox): string {
   return u.ruta_nombre || 'Ruta ' + u.ruta_numero;
 }
 
-function BioboxView({ recargarSignal = 0 }: { recargarSignal?: number }) {
+function BioboxView({ email, misDep, recargarSignal = 0 }: {
+  email: string;
+  misDep: string[];
+  recargarSignal?: number;
+}) {
   const [cargando, setCargando] = useState(true);
   const [err, setErr] = useState('');
   const [ubics, setUbics] = useState<MaquinaBiobox[]>([]);
@@ -26,7 +32,10 @@ function BioboxView({ recargarSignal = 0 }: { recargarSignal?: number }) {
   const [unidad, setUnidad] = useState(UNIDADES_BIOBOX[0] || 'Biobox');
   const [medio, setMedio] = useState('todos');
   const [rutaFoco, setRutaFoco] = useState<string | null>(null);
-  const [orden, setOrden] = useState<Orden>('secuencia');
+  const [orden, setOrden] = useState<Orden>('abandono');
+  const [soloPendientes, setSoloPendientes] = useState(false);
+  const [revisando, setRevisando] = useState<MaquinaBiobox | null>(null);
+  const [historial, setHistorial] = useState<MaquinaBiobox | null>(null);
   const [busca, setBusca] = useState('');
   const [actualizado, setActualizado] = useState<Date | null>(null);
   const [detalle, setDetalle] = useState<string | null>(null);
@@ -38,11 +47,12 @@ function BioboxView({ recargarSignal = 0 }: { recargarSignal?: number }) {
     setCargando(true);
     setErr('');
     try {
-      // La vista aporta rutas y ubicación; no se consumen datos del checklist.
+      // La vista aporta rutas, ubicación y última revisión. El estado de
+      // inventario se consulta aparte para el indicador Fuera de línea.
       const filas: MaquinaBiobox[] = [];
       for (let inicio = 0; ; inicio += 500) {
         const { data, error } = await sb.from('vw_revision_ubicaciones')
-          .select('ubicacion_id,ruta_id,ruta_numero,ruta_nombre,ruta_color,unidad_negocio,site_id,secuencia,vendor_face_id,site_legacy_id,direccion,municipio,tipo_mueble,medio,latitud,longitud,navegable')
+          .select('ubicacion_id,ruta_id,ruta_numero,ruta_nombre,ruta_color,unidad_negocio,tipo_medio,ruta_activa,site_id,secuencia,vendor_face_id,site_legacy_id,direccion,municipio,estado,tipo_mueble,medio,latitud,longitud,navegable,revision_id,ultima_revision,ultimo_revisor,estado_maquina,puntos_anomalia,dias_sin_revision')
           .eq('unidad_negocio', unidad)
           .order('ubicacion_id')
           .range(inicio, inicio + 499);
@@ -107,11 +117,14 @@ function BioboxView({ recargarSignal = 0 }: { recargarSignal?: number }) {
     const filas = maquinasUnicas(ubics
       .filter((u) => rutaFoco == null || nombreRuta(u) === rutaFoco)
       .filter((u) => medio === 'todos' || u.medio === medio)
+      .filter((u) => !soloPendientes || pendienteRevision(u))
       .filter((u) => !q || sinAcentos([u.site_legacy_id, u.direccion, u.site_id].join(' ')).includes(q)));
-    return filas.sort((a, b) => orden === 'secuencia'
+    return filas.sort((a, b) => orden === 'abandono'
+      ? (b.dias_sin_revision ?? Number.MAX_SAFE_INTEGER) - (a.dias_sin_revision ?? Number.MAX_SAFE_INTEGER)
+      : orden === 'secuencia'
       ? (a.secuencia ?? 9999) - (b.secuencia ?? 9999) || a.site_id.localeCompare(b.site_id)
       : (a.site_legacy_id || a.site_id).localeCompare(b.site_legacy_id || b.site_id, undefined, { numeric: true }));
-  }, [ubics, rutaFoco, medio, busca, orden]);
+  }, [ubics, rutaFoco, medio, busca, orden, soloPendientes]);
 
   const indicadores = useMemo(() => indicadoresMaquinas(visibles, estado), [visibles, estado]);
   const indicadorAbierto = indicadores.find((i) => i.id === detalle);
@@ -138,6 +151,12 @@ function BioboxView({ recargarSignal = 0 }: { recargarSignal?: number }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
               <span className="tag" style={{ color: u.ruta_color }}>{nombreRuta(u)}</span>
               {u.medio && <span className="tag" style={{ whiteSpace: 'normal' }}>{u.medio}{u.tipo_mueble ? ' · ' + u.tipo_mueble : ''}</span>}
+              <span className="tag" style={{ color: pendienteRevision(u) ? '#f59e0b' : 'var(--ok)' }}>
+                {u.dias_sin_revision == null ? 'Nunca revisada' : 'Revisada hace ' + u.dias_sin_revision + ' día' + (u.dias_sin_revision === 1 ? '' : 's')}
+              </span>
+              {!!u.puntos_anomalia && <span className="tag" style={{ color: '#f97316' }}>
+                {u.puntos_anomalia} anomalía{u.puntos_anomalia === 1 ? '' : 's'}
+              </span>}
               <span className="tag" style={{ color: fueraDeLinea(u) ? 'var(--bad)' : 'var(--muted)', whiteSpace: 'normal' }}>
                 {fueraDeLinea(u) ? 'Fuera de línea' : u.face_status || 'Sin estado en inventario'}
               </span>
@@ -154,6 +173,12 @@ function BioboxView({ recargarSignal = 0 }: { recargarSignal?: number }) {
             <button className="btn ghost sm" onClick={() => setMaquinaAbierta(maquinaAbierta === panelId ? null : panelId)} aria-expanded={maquinaAbierta === panelId}>
               Ver incidencias
             </button>
+            <button className="btn ghost sm" onClick={() => { setDetalle(null); setHistorial(u); }}>
+              📖 Historial
+            </button>
+            <button className="btn sm" onClick={() => { setDetalle(null); setRevisando(u); }}>
+              ✅ Revisar
+            </button>
           </div>
         </div>
         {maquinaAbierta === panelId && <div style={{ marginTop: 12 }}>
@@ -166,7 +191,7 @@ function BioboxView({ recargarSignal = 0 }: { recargarSignal?: number }) {
   return (
     <div>
       <h2 className="page">Máquinas Biobox</h2>
-      <p className="phint">Máquinas por ruta, estado del inventario e incidencias abiertas.</p>
+      <p className="phint">Revisión de máquinas por ruta, estado del inventario e incidencias abiertas.</p>
       <div className="toolbar">
         <select aria-label="Unidad" value={unidad} onChange={(e) => {
           setUnidad(e.target.value); setRutaFoco(null); setDetalle(null); setMaquinaAbierta(null);
@@ -194,9 +219,14 @@ function BioboxView({ recargarSignal = 0 }: { recargarSignal?: number }) {
         <div className="toolbar">
           <input className="search" aria-label="Buscar máquina" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por número, dirección o clave" />
           <select aria-label="Orden de máquinas" value={orden} onChange={(e) => setOrden(e.target.value as Orden)}>
+            <option value="abandono">Ordenar: más urgente primero</option>
             <option value="secuencia">Ordenar: secuencia de la ruta</option>
             <option value="nombre">Ordenar: número de máquina</option>
           </select>
+          <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12 }}>
+            <input type="checkbox" checked={soloPendientes} onChange={(e) => setSoloPendientes(e.target.checked)} style={{ width: 'auto' }} />
+            Solo las que toca revisar
+          </label>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
           <button className="btn ghost sm" aria-pressed={rutaFoco == null} onClick={() => setRutaFoco(null)} style={{ color: rutaFoco == null ? 'var(--accent)' : undefined }}>
@@ -226,7 +256,7 @@ function BioboxView({ recargarSignal = 0 }: { recargarSignal?: number }) {
         <div className="overlay" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) setDetalle(null); }}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="biobox-indicador-titulo" style={{ maxWidth: 800 }}>
             <h2 id="biobox-indicador-titulo">{indicadorAbierto.titulo}</h2>
-            <p className="phint">{indicadorAbierto.filas.length} máquinas · {unidad}{rutaFoco ? ' · ' + rutaFoco : ''}{medio !== 'todos' ? ' · ' + medio : ''}{busca ? ' · ' + busca : ''}</p>
+            <p className="phint">{indicadorAbierto.filas.length} máquinas · {unidad}{rutaFoco ? ' · ' + rutaFoco : ''}{medio !== 'todos' ? ' · ' + medio : ''}{busca ? ' · ' + busca : ''}{soloPendientes ? ' · Pendientes de revisión' : ''}</p>
             <div style={{ display: 'grid', gap: 9, maxHeight: '60dvh', overflowY: 'auto' }}>
               {indicadorAbierto.filas.map((u) => tarjetaMaquina(u, true))}
               {!indicadorAbierto.filas.length && <p>Sin máquinas para este indicador con los filtros seleccionados.</p>}
@@ -235,6 +265,18 @@ function BioboxView({ recargarSignal = 0 }: { recargarSignal?: number }) {
           </section>
         </div>, document.body
       )}
+      {revisando && <RevisionModal
+        ubic={revisando}
+        email={email}
+        misDep={misDep}
+        onClose={() => setRevisando(null)}
+        onGuardada={() => { void cargar(); }}
+      />}
+      {historial && <HistorialModal
+        siteId={historial.site_id}
+        titulo={(historial.site_legacy_id ? '#' + historial.site_legacy_id + ' · ' : '') + (historial.direccion || historial.site_id)}
+        onClose={() => setHistorial(null)}
+      />}
     </div>
   );
 }

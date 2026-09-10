@@ -747,6 +747,8 @@ function Main({ session }: { session: Session }) {
           )}
           {tab === 'biobox' && (
             <BioboxView
+              email={email}
+              misDep={misDep}
               recargarSignal={recargarSignal}
             />
           )}

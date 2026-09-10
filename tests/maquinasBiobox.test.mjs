@@ -7,7 +7,7 @@ const source = await readFile(new URL('../src/lib/maquinasBiobox.ts', import.met
 const { outputText } = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 });
-const { fueraDeLinea, maquinasUnicas, indicadoresMaquinas } = await import(
+const { fueraDeLinea, maquinasUnicas, indicadoresMaquinas, pendienteRevision } = await import(
   'data:text/javascript;base64,' + Buffer.from(outputText).toString('base64')
 );
 
@@ -20,14 +20,28 @@ test('Fuera de línea depende solo de Out of Service en inventario', () => {
 });
 
 test('Una máquina en dos segmentos se cuenta una vez y abre el mismo detalle', () => {
-  const a = { site_id: 'A', face_status: 'Out of Service', navegable: true, medio: 'Digital' };
-  const b = { site_id: 'B', face_status: 'Active', navegable: false };
+  const a = { site_id: 'A', face_status: 'Out of Service', navegable: true, medio: 'Digital', dias_sin_revision: null };
+  const b = { site_id: 'B', face_status: 'Active', navegable: false, dias_sin_revision: 30, puntos_anomalia: 2 };
   const filas = [a, { ...a, medio: 'Impreso' }, b];
   assert.deepEqual(maquinasUnicas(filas), [a, b]);
   const kpis = indicadoresMaquinas(filas, { B: { abiertas: 3 } });
   assert.deepEqual(kpis.map((k) => [k.id, k.filas.map((u) => u.site_id)]), [
-    ['total', ['A', 'B']], ['incidencias', ['B']], ['fuera', ['A']], ['coordenadas', ['B']],
+    ['total', ['A', 'B']], ['nunca', ['A']], ['vencidas', ['B']], ['anomalias', ['B']],
+    ['incidencias', ['B']], ['fuera', ['A']], ['coordenadas', ['B']],
   ]);
+});
+
+test('Guardar una revisión actualiza pendientes y anomalías sin modificar Fuera de línea', () => {
+  const antes = { site_id: 'A', face_status: 'Out of Service', navegable: true, dias_sin_revision: 30, puntos_anomalia: 2 };
+  const despues = { ...antes, dias_sin_revision: 0, puntos_anomalia: 0, estado_maquina: 'operando' };
+  assert.equal(pendienteRevision({ ...antes, dias_sin_revision: null }), true);
+  assert.equal(pendienteRevision(antes), true);
+  assert.equal(pendienteRevision({ ...antes, dias_sin_revision: 29 }), false);
+  assert.equal(pendienteRevision(despues), false);
+  const kpis = indicadoresMaquinas([despues], {});
+  assert.equal(kpis.find((k) => k.id === 'vencidas').filas.length, 0);
+  assert.equal(kpis.find((k) => k.id === 'anomalias').filas.length, 0);
+  assert.equal(kpis.find((k) => k.id === 'fuera').filas.length, 1);
 });
 
 test('Los indicadores respetan la base filtrada y un cambio de estado al recargar', () => {

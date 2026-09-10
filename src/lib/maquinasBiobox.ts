@@ -2,12 +2,13 @@ import type { UbicacionRevision } from '../types/db';
 import type { MapaResumen } from './estadoMaquina';
 
 // La vista existente aporta rutas y ubicación; el estado se lee de inventario.
-export type MaquinaBiobox = Pick<UbicacionRevision,
-  'ubicacion_id' | 'ruta_id' | 'ruta_numero' | 'ruta_nombre' | 'ruta_color' |
-  'unidad_negocio' | 'site_id' | 'secuencia' | 'vendor_face_id' |
-  'site_legacy_id' | 'direccion' | 'municipio' | 'tipo_mueble' | 'medio' |
-  'latitud' | 'longitud' | 'navegable'
-> & { face_status: string | null };
+export type MaquinaBiobox = UbicacionRevision & { face_status: string | null };
+
+export const DIAS_REVISION = 30;
+
+export function pendienteRevision(maquina: MaquinaBiobox): boolean {
+  return maquina.dias_sin_revision == null || maquina.dias_sin_revision >= DIAS_REVISION;
+}
 
 export function fueraDeLinea(maquina: Pick<MaquinaBiobox, 'face_status'>): boolean {
   return (maquina.face_status || '').trim().toLowerCase() === 'out of service';
@@ -27,6 +28,12 @@ export function indicadoresMaquinas(filas: MaquinaBiobox[], estado: MapaResumen)
   const base = maquinasUnicas(filas);
   return [
     { id: 'total', titulo: 'Máquinas', color: 'var(--txt)', filas: base },
+    { id: 'nunca', titulo: 'Nunca revisadas', color: 'var(--bad)',
+      filas: base.filter((u) => u.dias_sin_revision == null) },
+    { id: 'vencidas', titulo: '+' + DIAS_REVISION + ' días', color: '#f59e0b',
+      filas: base.filter((u) => u.dias_sin_revision != null && u.dias_sin_revision >= DIAS_REVISION) },
+    { id: 'anomalias', titulo: 'Con anomalías', color: '#f97316',
+      filas: base.filter((u) => (u.puntos_anomalia || 0) > 0) },
     { id: 'incidencias', titulo: 'Con incidencias abiertas', color: '#f97316',
       filas: base.filter((u) => (estado[u.site_id]?.abiertas || 0) > 0) },
     { id: 'fuera', titulo: 'Fuera de línea', color: 'var(--bad)',

@@ -414,7 +414,9 @@ lo que se registra es una **revisión contra checklist**, no una foto de
 campaña.
 
 **El checklist es catálogo, no código.** `checklist_plantillas` /
-`checklist_puntos` se editan desde la app (⚙️ Checklist, solo coordinación).
+`checklist_puntos` alimentan el botón Revisar. El botón de configuración
+⚙️ Checklist se retiró el 10-sep-2026; el formato/Excel de revisión de Biobox
+sigue en proceso y el flujo de captura permanece disponible.
 Si los puntos vivieran en el código, cada ajuste operativo sería un
 despliegue. La plantilla sembrada para Biobox es un **punto de partida**: 17
 puntos en 4 grupos (Estructura, Publicidad, Operación, Entorno), armados con
@@ -831,18 +833,20 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 ### 12.5. Actualización del 10-sep-2026: máquinas e indicadores
 
 - Indicadores identifica sus filtros como Unidad, Área y Estatus.
-- Máquinas Biobox ya no ofrece checklist, configuración de puntos, revisiones
-  ni su historial de checklist. Se retiraron los componentes del frontend;
-  no se borraron tablas ni datos históricos de Supabase.
-- Se conserva `vw_revision_ubicaciones` para las rutas y ubicaciones, consultando
-  solo sus columnas de ubicación. No se usan estados ni contadores de revisiones.
+- Aclaración de alcance: solo se retira el botón ⚙️ Checklist de configuración.
+  Se conservan ✅ Revisar en cada máquina, captura de respuestas/evidencia,
+  creación de incidencias, historial y datos de última revisión. El formato
+  basado en el Excel de Biobox sigue en proceso. No se borraron datos de Supabase.
+- `vw_revision_ubicaciones` aporta rutas, ubicaciones y última revisión.
 - Fuera de línea se calcula exclusivamente con `inventario.face_status =
   'Out of Service'`, cruzado por el `vendor_face_id` que seleccionó la vista.
   Un estado ausente no se interpreta como fuera de línea.
-- Indicadores de máquinas: total, con incidencias abiertas, fuera de línea y
-  sin coordenadas. Cada tarjeta abre las mismas máquinas contadas, respeta
+- Indicadores de máquinas: total, nunca revisadas, +30 días, con anomalías,
+  con incidencias abiertas, fuera de línea y sin coordenadas. Cada tarjeta abre
+  las mismas máquinas contadas, respeta
   ruta/medio/búsqueda y deduplica por sitio. La lista mantiene navegación por
-  tramos y permite consultar incidencias con `EstadoMaquinaPanel`.
+  tramos, pendientes de revisión y orden por urgencia. Permite consultar
+  incidencias con `EstadoMaquinaPanel`, revisar y abrir historial.
 - Actualizar local y el botón global recargan rutas, estado del inventario y
   resumen de incidencias. Se muestra progreso/hora; un fallo se informa y
   conserva la última carga válida. No hace falta ejecutar SQL para este cambio.
