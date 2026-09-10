@@ -20,6 +20,7 @@ import {
 import { caraLabel, distKm, ladoFijoDePortico } from '../../lib/helpers';
 import {
   catalogoParaMuebles,
+  catalogoDesdeArbol,
   llaveCatalogo,
   filtrarCatalogo,
 } from '../../lib/catalogo';
@@ -100,6 +101,8 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
   const [selCaras, setSelCaras] = useState<string[]>([]);
   /** El catálogo TAL CUAL viene de la base, con todas sus copias. */
   const [catCrudo, setCatCrudo] = useState<CatalogoIncidencia[]>([]);
+  /** Incidencias del árbol de Digital: el catálogo de las caras digitales. */
+  const [arbolNombres, setArbolNombres] = useState<string[]>([]);
   const [catSel, setCatSel] = useState<CatalogoIncidencia | null>(null);
   const [catBusca, setCatBusca] = useState('');
   /** Lado de la cara. Solo aplica en las unidades de UNIDADES_CON_LADO. */
@@ -284,6 +287,21 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
       if (!active) return;
       setCatCrudo((data as CatalogoIncidencia[]) || []);
     })();
+    (async () => {
+      // El árbol de Digital es el catálogo de las caras DIGITALES: lo que se
+      // capture de aquí es exactamente lo que el técnico clasifica al reparar.
+      // No tiene unidad: es uno solo para todos los medios digitales.
+      const { data } = await sb
+        .from('arbol_digital')
+        .select('incidencia')
+        .limit(2000);
+      if (!active) return;
+      setArbolNombres(
+        (((data as { incidencia: string | null }[]) || [])
+          .map((x) => x.incidencia)
+          .filter(Boolean) as string[])
+      );
+    })();
     return () => {
       active = false;
     };
@@ -401,11 +419,27 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
   const cat = useMemo(() => {
     const marcadas = caras.filter((c) => selCaras.includes(c.vendor_face_id));
     const base = marcadas.length ? marcadas : caras;
+    // Caras DIGITALES reportan contra el árbol de Digital, no contra
+    // catalogo_incidencias: así el nombre capturado siempre existe en el
+    // árbol y la reparación sale guiada, nunca "Sin clasificar". Aplica a
+    // cualquier unidad — en las mixtas (Ecovallas, Biobox) lo decide el
+    // tipo_medio de las caras marcadas (Erik, 10-sep-2026). Si el árbol no
+    // cargó, se cae al catálogo tradicional: peor lista que ninguna lista.
+    const esDigital =
+      base.length > 0 &&
+      base.every((c) => (c.tipo_medio || '').trim().toLowerCase() === 'digital');
+    if (esDigital && arbolNombres.length > 0) {
+      return catalogoDesdeArbol(
+        arbolNombres,
+        catCrudo,
+        base.map((c) => c.tipo_mueble)
+      );
+    }
     return catalogoParaMuebles(
       catCrudo,
       base.map((c) => c.tipo_mueble)
     );
-  }, [catCrudo, caras, selCaras]);
+  }, [catCrudo, arbolNombres, caras, selCaras]);
 
   const catOpts = cat.opciones;
 
@@ -824,7 +858,8 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
 
             <div className="field">
               <label>
-                Incidencia (catálogo · {catVisibles.length} de {catOpts.length})
+                Incidencia ({cat.desdeArbol ? 'catálogo Digital' : 'catálogo'} ·{' '}
+                {catVisibles.length} de {catOpts.length})
               </label>
               <input
                 placeholder="Buscar por incidencia o por área…"
@@ -862,7 +897,13 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
                   área que trae la opción entre paréntesis antes de guardar.
                 </div>
               )}
-              {mezclaMuebles && cat.restringido && (
+              {cat.desdeArbol && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                  Cara digital: estas incidencias vienen del árbol de Digital,
+                  el mismo con el que el técnico clasifica la reparación.
+                </div>
+              )}
+              {mezclaMuebles && cat.restringido && !cat.desdeArbol && (
                 <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
                   ⚠️ Marcaste caras de muebles distintos. Una misma falla puede
                   tocarle a áreas diferentes según el mueble — por eso hay

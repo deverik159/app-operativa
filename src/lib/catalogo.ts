@@ -93,6 +93,8 @@ export type OpcionesCatalogo = {
    * dejar que se note por el resultado.
    */
   sinCatalogo: string[];
+  /** true = la lista salió del árbol de Digital, no de catalogo_incidencias. */
+  desdeArbol?: boolean;
 };
 
 /**
@@ -133,6 +135,59 @@ export function catalogoParaMuebles(
     restringido: sinCatalogo.length === 0,
     sinCatalogo,
   };
+}
+
+/**
+ * Catálogo para caras DIGITALES: la lista sale del árbol de Digital
+ * (`arbol_digital.incidencia`), no de `catalogo_incidencias`.
+ *
+ * El árbol es el catálogo que SRD mantiene para el medio digital, y es el
+ * mismo con el que el técnico clasifica al reparar (RepararModal filtra por
+ * `arbol_digital.incidencia == incidencias.nombre_incidencia`). Capturar
+ * desde él garantiza que TODO reporte digital llegue al técnico con su
+ * clasificación guiada, en vez de caer a "Sin clasificar" cuando el nombre
+ * del catálogo tradicional no empata con el árbol (Erik, 10-sep-2026).
+ *
+ * Toda captura del árbol nace con área Digital — el árbol ES de Digital.
+ * El nivel/origen/tipo se heredan de la fila Digital de catalogo_incidencias
+ * cuando el mismo nombre existe ahí (restringida al mueble primero); si no
+ * existe, van vacíos y el `detalle` conserva EXACTO el texto del árbol, que
+ * es lo que amarra la reparación guiada.
+ */
+export function catalogoDesdeArbol(
+  nombresArbol: string[],
+  cat: CatalogoIncidencia[],
+  muebles: (string | null | undefined)[]
+): OpcionesCatalogo {
+  const { opciones } = catalogoParaMuebles(cat, muebles);
+  const esDigital = (c: CatalogoIncidencia) =>
+    (c.area || '').trim().toLowerCase() === 'digital';
+  const delMueble = opciones.filter(esDigital);
+  const deTodo = cat.filter(esDigital);
+
+  const nombres = [
+    ...new Set(nombresArbol.map((n) => (n || '').trim()).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b));
+
+  const lista = nombres.map((nombre) => {
+    const fila =
+      delMueble.find((c) => igual(c.detalle, nombre)) ||
+      deTodo.find((c) => igual(c.detalle, nombre));
+    // El detalle SIEMPRE es el del árbol, aunque el catálogo lo escriba con
+    // otra mayúscula o acento: es la llave de la reparación guiada.
+    return fila
+      ? { ...fila, detalle: nombre }
+      : ({
+          detalle: nombre,
+          area: 'Digital',
+          impacto: null,
+          origen: null,
+          tipo: null,
+          tipo_mueble: null,
+        } as CatalogoIncidencia);
+  });
+
+  return { opciones: lista, restringido: true, sinCatalogo: [], desdeArbol: true };
 }
 
 /**
