@@ -469,20 +469,20 @@ function KpiView({
       </p>
 
       <div className="toolbar">
-        <select value={fUN} onChange={(e) => setFUN(e.target.value)}>
-          <option>Todas</option>
+        <select aria-label="Unidad de negocio" value={fUN} onChange={(e) => setFUN(e.target.value)}>
+          <option value="Todas">Unidad: todas</option>
           {UNIDADES.map((u) => (
             <option key={u}>{u}</option>
           ))}
         </select>
-        <select value={fArea} onChange={(e) => setFArea(e.target.value)}>
-          <option>Todas</option>
+        <select aria-label="Área responsable" value={fArea} onChange={(e) => setFArea(e.target.value)}>
+          <option value="Todas">Área: todas</option>
           {areas.map((a) => (
             <option key={a}>{a}</option>
           ))}
         </select>
-        <select value={fEst} onChange={(e) => setFEst(e.target.value)}>
-          <option value="Todos">Todos</option>
+        <select aria-label="Estatus" value={fEst} onChange={(e) => setFEst(e.target.value)}>
+          <option value="Todos">Estatus: todos</option>
           {Object.entries(EST_LABEL).map(([k, v]) => (
             <option key={k} value={k}>
               {v}

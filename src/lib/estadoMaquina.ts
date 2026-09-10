@@ -63,17 +63,24 @@ export const HORAS_ALARMA = 72;
  * La lista de Biobox trae doscientas: pedirlas una por una serían doscientos
  * viajes y el distintivo tardaría más en aparecer que la lista completa.
  *
- * NUNCA LANZA. Si la RPC falla —porque todavía no se corrió el SQL, por
+ * Por defecto no lanza. Si la RPC falla —porque todavía no se corrió el SQL, por
  * ejemplo— devuelve un mapa vacío y la lista se pinta igual, sin
  * distintivos. Una lista de máquinas sin adornos sigue sirviendo; una
- * pantalla en blanco por un catálogo que no cargó, no.
+ * pantalla en blanco por un catálogo que no cargó, no. El módulo de máquinas
+ * usa exigirRespuesta para avisar del error sin mostrar un falso cero.
  */
-export async function resumenMaquinas(siteIds: string[]): Promise<MapaResumen> {
+export async function resumenMaquinas(
+  siteIds: string[],
+  exigirRespuesta = false
+): Promise<MapaResumen> {
   if (!siteIds.length) return {};
   const { data, error } = await sb.rpc('estado_maquinas', {
     p_site_ids: siteIds,
   });
-  if (error) return {};
+  if (error) {
+    if (exigirRespuesta) throw new Error('No se pudieron consultar las incidencias de máquinas: ' + error.message);
+    return {};
+  }
   const mapa: MapaResumen = {};
   ((data as ResumenMaquina[]) || []).forEach((r) => {
     mapa[r.site_id] = r;

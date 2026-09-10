@@ -828,7 +828,27 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 - Fijación Externa usa la vista v2 y opera como lista de órdenes de cuadrilla;
   sus incidencias cruzan por sitio y requieren pertenecer al área.
 
-### 12.5. Limpieza de datos
+### 12.5. Actualización del 10-sep-2026: máquinas e indicadores
+
+- Indicadores identifica sus filtros como Unidad, Área y Estatus.
+- Máquinas Biobox ya no ofrece checklist, configuración de puntos, revisiones
+  ni su historial de checklist. Se retiraron los componentes del frontend;
+  no se borraron tablas ni datos históricos de Supabase.
+- Se conserva `vw_revision_ubicaciones` para las rutas y ubicaciones, consultando
+  solo sus columnas de ubicación. No se usan estados ni contadores de revisiones.
+- Fuera de línea se calcula exclusivamente con `inventario.face_status =
+  'Out of Service'`, cruzado por el `vendor_face_id` que seleccionó la vista.
+  Un estado ausente no se interpreta como fuera de línea.
+- Indicadores de máquinas: total, con incidencias abiertas, fuera de línea y
+  sin coordenadas. Cada tarjeta abre las mismas máquinas contadas, respeta
+  ruta/medio/búsqueda y deduplica por sitio. La lista mantiene navegación por
+  tramos y permite consultar incidencias con `EstadoMaquinaPanel`.
+- Actualizar local y el botón global recargan rutas, estado del inventario y
+  resumen de incidencias. Se muestra progreso/hora; un fallo se informa y
+  conserva la última carga válida. No hace falta ejecutar SQL para este cambio.
+- Verificación del cálculo: `node --test tests/maquinasBiobox.test.mjs`.
+
+### 12.6. Limpieza de datos
 
 - `limpiar_datos_migrados.sql` y `scripts/limpiar-storage.mjs` sirven para
   retirar datos anteriores al corte elegido. Supabase bloquea DELETE directo

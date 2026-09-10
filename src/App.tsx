@@ -747,9 +747,7 @@ function Main({ session }: { session: Session }) {
           )}
           {tab === 'biobox' && (
             <BioboxView
-              email={email}
-              misDep={misDep}
-              puedeConfigurar={has('manager') || has('coordinador')}
+              recargarSignal={recargarSignal}
             />
           )}
           {tab === 'usuarios' && <UsuariosView />}
