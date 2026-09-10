@@ -13,7 +13,7 @@
 // remonta: se conservan la lista, los filtros y la búsqueda, igual que en el
 // HTML (donde todo vivía en App).
 // ============================================================
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES } from './lib/constants';
@@ -352,6 +352,34 @@ function Main({ session }: { session: Session }) {
   const [bandejaCount, setBandejaCount] = useState(0);
 
   const notifs = useNotificaciones();
+  /**
+   * La campana y la lista de incidencias consultan tablas distintas. Si se
+   * actualizaba solo la campana, el validador veía el aviso pero la orden no
+   * aparecía hasta tocar ↻. Este registro detecta los avisos NUEVOS (no los
+   * que ya estaban sin leer al abrir la app) y dispara la recarga de lista.
+   */
+  const notifsVistas = useRef<Set<number> | null>(null);
+
+  useEffect(() => {
+    const actuales = new Set(notifs.notifs.map((n) => n.id));
+    if (notifsVistas.current === null) {
+      notifsVistas.current = actuales;
+      return;
+    }
+
+    const hayNuevaIncidencia = notifs.notifs.some(
+      (n) =>
+        !notifsVistas.current?.has(n.id) &&
+        n.evento !== 'chat' &&
+        !!n.record_id
+    );
+    notifsVistas.current = actuales;
+
+    // Solo refresca los datos: conserva pestaña, búsqueda y filtros del
+    // validador. En "Mis pendientes" la nueva fila queda al inicio por
+    // fecha_reporte descendente.
+    if (hayNuevaIncidencia) setRecargarSignal((n) => n + 1);
+  }, [notifs.notifs]);
 
   /** Enfoca una incidencia llegada por push: pestaña "todas" + foco. */
   const enfocarDesdePush = useCallback(
