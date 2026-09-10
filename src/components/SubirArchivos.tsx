@@ -7,7 +7,7 @@
 // claro y con un objetivo táctil diminuto.
 //
 // En móvil ofrece DOS caminos, porque son cosas distintas:
-//   📷 Cámara  → input con capture="environment": abre la cámara trasera.
+//   📷 Cámara  → deja elegir entre tomar foto y grabar video.
 //   🖼️ Galería → input sin capture: abre el carrete o el explorador.
 //
 // El botón de cámara solo aparece en dispositivos táctiles: en escritorio
@@ -133,14 +133,20 @@ function SubirArchivos({
   accept = 'image/*,video/*',
   ayuda,
 }: Props) {
-  const camRef = useRef<HTMLInputElement>(null);
+  const camFotoRef = useRef<HTMLInputElement>(null);
+  const camVideoRef = useRef<HTMLInputElement>(null);
   const galRef = useRef<HTMLInputElement>(null);
   // Se calcula una vez: el tipo de puntero no cambia durante la sesión.
   const [tactil] = useState(usaTactil);
   const [procesando, setProcesando] = useState(false);
+  const [eligeCamara, setEligeCamara] = useState(false);
+
+  const aceptaFoto = accept.includes('image');
+  const aceptaVideo = accept.includes('video');
 
   const manejar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
+    setEligeCamara(false);
     // Permite volver a elegir el MISMO archivo (si no, onChange no dispara).
     e.target.value = '';
     if (!files.length) return;
@@ -173,14 +179,18 @@ function SubirArchivos({
             className="btn"
             style={estiloBoton}
             disabled={disabled || procesando}
-            onClick={() => camRef.current?.click()}
+            onClick={() => {
+              if (aceptaFoto && aceptaVideo) setEligeCamara((v) => !v);
+              else if (aceptaVideo) camVideoRef.current?.click();
+              else camFotoRef.current?.click();
+            }}
           >
             {procesando ? (
               <span className="spinner" />
             ) : (
               <span style={{ fontSize: 17 }}>📷</span>
             )}{' '}
-            {procesando ? 'Procesando…' : 'Tomar foto'}
+            {procesando ? 'Procesando…' : 'Cámara'}
           </button>
         )}
         <button
@@ -195,16 +205,54 @@ function SubirArchivos({
         </button>
       </div>
 
-      {/* Inputs reales, ocultos: los botones de arriba los disparan.
-          El de cámara acepta SOLO imagen y una a la vez: en Android,
-          `capture` con un accept mixto (image + video) o con `multiple`
-          abre el selector de archivos en vez de la cámara — "Tomar foto"
-          se comportaba igual que "Galería". El video sigue entrando por
-          Galería. */}
+      {tactil && eligeCamara && aceptaFoto && aceptaVideo && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            gap: 8,
+            marginTop: 8,
+            padding: 8,
+            border: '1px solid var(--line)',
+            borderRadius: 10,
+            background: 'var(--panel2)',
+          }}
+        >
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={disabled || procesando}
+            onClick={() => camFotoRef.current?.click()}
+          >
+            📷 Tomar foto
+          </button>
+          <button
+            type="button"
+            className="btn ghost"
+            disabled={disabled || procesando}
+            onClick={() => camVideoRef.current?.click()}
+          >
+            🎥 Grabar video
+          </button>
+        </div>
+      )}
+
+      {/* Inputs reales, ocultos: foto y video van separados porque Android
+          no abre bien la cámara con un accept mixto, mientras que iPhone
+          puede bloquear el cambio de modo si recibe solo image/*. */}
       <input
-        ref={camRef}
+        ref={camFotoRef}
         type="file"
-        accept={accept.includes('image') ? 'image/*' : accept}
+        accept="image/*"
+        capture="environment"
+        onChange={manejar}
+        disabled={disabled}
+        style={{ display: 'none' }}
+      />
+      <input
+        ref={camVideoRef}
+        type="file"
+        accept="video/*"
         capture="environment"
         onChange={manejar}
         disabled={disabled}
