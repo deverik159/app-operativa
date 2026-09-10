@@ -77,6 +77,11 @@ type Props = {
   onChatLeido: (recordId: string) => void;
   /** Refresca la campana tras una acción que dispara notificaciones. */
   onRecargarNotifs: () => void;
+  /**
+   * Marca leídos los avisos de una incidencia recién ACCIONADA: si ya se
+   * hizo la acción, la campana no debe seguir diciendo que hay algo ahí.
+   */
+  onNotifAtendida: (recordId: string) => void;
   /** record_id a enfocar al llegar desde una notificación. */
   focoRecordId?: string;
   /** Avisa que ya se aplicó el foco, para que el padre lo limpie. */
@@ -101,6 +106,7 @@ function IncidenciasView({
   chatCounts,
   onChatLeido,
   onRecargarNotifs,
+  onNotifAtendida,
   focoRecordId,
   onFocoAplicado,
   nuevaAbierta,
@@ -179,6 +185,16 @@ function IncidenciasView({
   /** Rango de fechas de captura. Vacío = sin límite por ese lado. */
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
+
+  /**
+   * Cambiar de sección (Mis pendientes ↔ Incidencias) limpia el buscador:
+   * la vista es una sola instancia y el folio que fija una notificación se
+   * quedaba filtrando la otra pestaña — parecía que faltaban registros
+   * (Erik, 10-sep-2026). Los demás filtros se conservan.
+   */
+  useEffect(() => {
+    setQ('');
+  }, [modo]);
 
   /** record_id resaltado tras llegar desde una notificación. */
   const [resaltado, setResaltado] = useState('');
@@ -624,6 +640,7 @@ function IncidenciasView({
       return;
     }
     patchInc(rid, patch);
+    onNotifAtendida(rid);
     setTimeout(onRecargarNotifs, 400);
   };
 
@@ -691,6 +708,7 @@ function IncidenciasView({
     }
     patchInc(inc.record_id, { ...patch, ...guardada });
     setRepairing(null);
+    onNotifAtendida(inc.record_id);
     setTimeout(onRecargarNotifs, 400);
   };
 
@@ -716,6 +734,7 @@ function IncidenciasView({
       rechazos_reparacion: (inc.rechazos_reparacion || 0) + 1,
     });
     setMotivoOf(null);
+    onNotifAtendida(inc.record_id);
     setTimeout(onRecargarNotifs, 400);
   };
 
@@ -747,6 +766,7 @@ function IncidenciasView({
     }
     patchInc(inc.record_id, patch);
     setMotivoOf(null);
+    onNotifAtendida(inc.record_id);
   };
 
   /**
@@ -1130,6 +1150,7 @@ function IncidenciasView({
           onDone={(rid, patch) => {
             patchInc(rid, patch);
             setReassignOf(null);
+            onNotifAtendida(rid);
             setTimeout(onRecargarNotifs, 400);
           }}
         />

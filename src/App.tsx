@@ -740,6 +740,7 @@ function Main({ session }: { session: Session }) {
                 chatCounts={notifs.chatCounts}
                 onChatLeido={notifs.marcarChatLeido}
                 onRecargarNotifs={notifs.recargar}
+                onNotifAtendida={notifs.marcarDeRegistro}
                 focoRecordId={focoRecordId}
                 onFocoAplicado={limpiarFoco}
                 nuevaAbierta={nuevaAbierta}
@@ -754,6 +755,7 @@ function Main({ session }: { session: Session }) {
               <FijacionExternaView
                 email={email}
                 verTodo={has('manager') || has('coordinador')}
+                onNotifAtendida={notifs.marcarDeRegistro}
               />
             )}
             {tab === 'rutas' && (

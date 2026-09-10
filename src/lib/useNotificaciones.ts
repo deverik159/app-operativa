@@ -37,6 +37,14 @@ export type UseNotificaciones = {
   marcarTodas: () => Promise<void>;
   /** Al abrir el chat de una incidencia: apaga su globito. */
   marcarChatLeido: (recordId: string) => Promise<void>;
+  /**
+   * Al ACCIONAR una incidencia (validar, reparar, rechazar, decidir una
+   * reasignación): sus avisos pendientes ya no avisan nada — se marcan
+   * leídos solos para que la campana no siga diciendo que hay algo por
+   * hacer cuando la acción ya se hizo. El chat NO se toca: sus mensajes
+   * se marcan al abrir el chat, no al resolver la incidencia.
+   */
+  marcarDeRegistro: (recordId: string) => Promise<void>;
   recargar: () => void;
 };
 
@@ -146,6 +154,29 @@ export function useNotificaciones(): UseNotificaciones {
     [cargarNotifs, cargarChats]
   );
 
+  const marcarDeRegistro = useCallback(
+    async (recordId: string) => {
+      if (!recordId) return;
+      // Optimista, igual que el chat: la campana se limpia de inmediato y la
+      // recarga restituye la entrada si la base no aceptó el cambio. La RLS
+      // acota el update a las notificaciones del propio usuario.
+      setNotifs((prev) =>
+        prev.filter((n) => n.evento === 'chat' || n.record_id !== recordId)
+      );
+      const { error: err } = await sb
+        .from('notificaciones')
+        .update({ leida: true })
+        .eq('record_id', recordId)
+        .neq('evento', 'chat')
+        .eq('leida', false);
+      if (err) {
+        console.error('[notificaciones] fallo al marcar registro:', err);
+        cargarNotifs();
+      }
+    },
+    [cargarNotifs]
+  );
+
   const noLeidas = notifs.filter((n) => !n.leida).length;
 
   return {
@@ -156,6 +187,7 @@ export function useNotificaciones(): UseNotificaciones {
     marcarLeida,
     marcarTodas,
     marcarChatLeido,
+    marcarDeRegistro,
     recargar,
   };
 }

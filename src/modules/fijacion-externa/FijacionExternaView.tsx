@@ -97,9 +97,12 @@ type FotoLocal = { file: File; preview: string };
 function FijacionExternaView({
   email,
   verTodo,
+  onNotifAtendida,
 }: {
   email: string;
   verTodo: boolean;
+  /** Al reparar desde aquí: apaga en la campana los avisos de esa incidencia. */
+  onNotifAtendida?: (recordId: string) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
@@ -290,6 +293,7 @@ function FijacionExternaView({
       )
     );
     setReparando(null);
+    onNotifAtendida?.(inc.record_id);
   };
 
   const confirmarFijado = async () => {
