@@ -14,7 +14,6 @@ import {
   NIVEL_COLOR,
 } from '../../lib/constants';
 import {
-  codigoCara,
   horasValidacionReparacion,
   horasEnProceso,
   semanaDe,
@@ -402,7 +401,14 @@ function KpiView({
   // Solo se pinta si hay datos: en las unidades que no capturan lado, una
   // tarjeta con "Sin datos" es ruido permanente.
   const porLado = top((i) => i.lado);
-  const porCara = top((i) => codigoCara(i.clave_medio));
+  // Aquí interesa la clase de activo, no el código de una cara concreta.
+  // En Biobox el inventario trae IID como tipo técnico, pero operativamente
+  // el medio es una Máquina; el modelo/mueble se mide aparte en porMueble.
+  const porTipoMedio = top((i) =>
+    (i.unidad_negocio || '').trim().toLowerCase() === 'biobox'
+      ? 'Máquina'
+      : i.tipo_medio
+  );
 
   // Quién repara más. La agrupación sigue siendo por CORREO —es la identidad
   // real y dos personas pueden llamarse igual—; el nombre se pone solo al
@@ -700,14 +706,11 @@ function KpiView({
                 abrir(`Digital: ${x.etiqueta}`, x.filas, 'incidencia')
               }
             />
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
-              Mide incidencia_srd; “Sin clasificar” sigue siendo trabajo pendiente.
-            </div>
           </div>
         </div>
       )}
 
-      {/* Lado, mueble y cara van en el MISMO row2. Con dos columnas, el
+      {/* Lado, mueble y tipo de medio van en el MISMO row2. Con dos columnas, el
           tercero cae solo en la siguiente línea a media anchura, que es
           preferible a dejar una tarjeta huérfana en su propia fila. */}
       <div className="row2" style={{ gap: 16, marginTop: 16 }}>
@@ -721,10 +724,6 @@ function KpiView({
               color="var(--purple)"
               onAbrir={(x) => abrir(`Lado ${x.etiqueta}`, x.filas)}
             />
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
-              Solo cuenta lo capturado desde que existe el dato. Lo de antes de
-              ago-2026 no trae lado y no aparece aquí.
-            </div>
           </div>
         )}
         <div className="card">
@@ -739,12 +738,12 @@ function KpiView({
         </div>
         <div className="card">
           <div className="l" style={{ marginBottom: 12 }}>
-            Cara / código más afectado
+            Tipo de medio más afectado
           </div>
           <Bars
-            data={porCara}
+            data={porTipoMedio}
             color="var(--accent2)"
-            onAbrir={(x) => abrir(`Cara ${x.etiqueta}`, x.filas)}
+            onAbrir={(x) => abrir(`Tipo de medio: ${x.etiqueta}`, x.filas)}
           />
         </div>
       </div>
