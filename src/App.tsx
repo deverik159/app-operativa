@@ -19,6 +19,7 @@ import { sb } from './lib/supabase';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES } from './lib/constants';
 import { initials } from './lib/helpers';
 import { useNotificaciones } from './lib/useNotificaciones';
+import { vigilarNuevaVersion } from './lib/versionApp';
 import CampanaNotifs from './components/CampanaNotifs';
 import BotonPush from './components/BotonPush';
 import MenuUsuario from './components/MenuUsuario';
@@ -334,6 +335,7 @@ function Main({ session }: { session: Session }) {
   const [errRoles, setErrRoles] = useState('');
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState('dashboard');
+  const [actualizacionDisponible, setActualizacionDisponible] = useState(false);
   const [focoRecordId, setFocoRecordId] = useState('');
   /**
    * Identidad estable para el callback del foco.
@@ -352,6 +354,14 @@ function Main({ session }: { session: Session }) {
   const [bandejaCount, setBandejaCount] = useState(0);
 
   const notifs = useNotificaciones();
+
+  // Una app instalada puede quedarse abierta durante días. Se avisa al volver
+  // al frente o cada cinco minutos, pero no se recarga sin gesto: podría haber
+  // una incidencia a medio capturar.
+  useEffect(
+    () => vigilarNuevaVersion(() => setActualizacionDisponible(true)),
+    []
+  );
   /**
    * La campana y la lista de incidencias consultan tablas distintas. Si se
    * actualizaba solo la campana, el validador veía el aviso pero la orden no
@@ -682,6 +692,19 @@ function Main({ session }: { session: Session }) {
           </button>
         </div>
       </div>
+
+      {actualizacionDisponible && (
+        <div className="banner" style={{ margin: '10px 16px 0' }}>
+          Hay una versión nueva de la app.
+          <button
+            className="btn sm"
+            style={{ marginLeft: 10 }}
+            onClick={() => window.location.reload()}
+          >
+            Actualizar ahora
+          </button>
+        </div>
+      )}
 
       <div className="layout">
         <div className="side">

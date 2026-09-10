@@ -48,6 +48,14 @@ self.addEventListener('notificationclick', (event) => {
   const datos = event.notification.data || {};
   const destino = datos.url || '/';
   const recordId = datos.record_id || null;
+  // La URL se usa tanto al abrir una ventana nueva como al navegar una ya
+  // abierta. De esta manera la app arranca desde el bundle actual y lee el
+  // record_id en App.tsx, en vez de entregar el clic a JavaScript viejo que
+  // pudo quedarse abierto durante días.
+  const url = recordId
+    ? destino + (destino.includes('?') ? '&' : '?') + 'record=' +
+      encodeURIComponent(recordId)
+    : destino;
 
   event.waitUntil(
     (async () => {
@@ -58,24 +66,26 @@ self.addEventListener('notificationclick', (event) => {
       // Si la app ya está abierta, se enfoca esa ventana en vez de abrir otra.
       for (const v of ventanas) {
         if ('focus' in v) {
+          // `navigate` fuerza a leer el HTML y los assets actuales de Vercel.
+          // El postMessage anterior conservaba una SPA vieja en memoria.
+          try {
+            if ('navigate' in v) await v.navigate(url);
+            else throw new Error('El cliente no permite navegar');
+          } catch {
+            // Respaldo para navegadores que no implementan WindowClient.navigate.
+            v.postMessage({
+              tipo: 'notificacion-abierta',
+              url: destino,
+              record_id: recordId,
+            });
+          }
           await v.focus();
-          // Se le avisa a la app para que navegue a la incidencia y refresque
-          // la campana. App.tsx escucha este mensaje (useEffect en Main).
-          v.postMessage({
-            tipo: 'notificacion-abierta',
-            url: destino,
-            record_id: recordId,
-          });
           return;
         }
       }
       // App cerrada: el record_id viaja en la URL para que App.tsx lo lea al
       // arrancar y enfoque la incidencia. Sin esto, abrir desde la
       // notificación aterrizaba en la portada como si nada.
-      const url = recordId
-        ? destino + (destino.includes('?') ? '&' : '?') + 'record=' +
-          encodeURIComponent(recordId)
-        : destino;
       await self.clients.openWindow(url);
     })()
   );

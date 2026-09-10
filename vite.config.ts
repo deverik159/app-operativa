@@ -24,6 +24,13 @@ import react from '@vitejs/plugin-react';
 // En producción (Vercel) el HTTPS es real y nada de esto aplica.
 // ============================================================
 export default defineConfig(async ({ command, mode }) => {
+  // Vercel entrega este SHA en cada despliegue. En local se usa un id por
+  // arranque: basta para que el detector no confunda un servidor de desarrollo
+  // con una versión publicada.
+  const buildId =
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.VERCEL_DEPLOYMENT_ID ||
+    `local-${Date.now().toString(36)}`;
   // `command` vale 'serve' al desarrollar y 'build' al compilar.
   //
   // POR QUÉ IMPORTA: sin este filtro, al construir para Vercel también se
@@ -36,7 +43,22 @@ export default defineConfig(async ({ command, mode }) => {
   const enDesarrollo = command === 'serve';
   // `npm run dev:http` arranca con --mode http y se salta el certificado.
   const usarHttps = enDesarrollo && mode !== 'http';
-  const plugins = [react()];
+  const plugins = [
+    react(),
+    // Un archivo sin hash se consulta con `no-store` desde la app. Así una
+    // pestaña que lleva horas abierta puede saber que Vercel publicó otro
+    // bundle, aunque sus assets actuales tengan nombres con hash.
+    {
+      name: 'version-publica',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'version.json',
+          source: JSON.stringify({ id: buildId }),
+        });
+      },
+    },
+  ];
 
   if (usarHttps) {
     try {
@@ -65,6 +87,9 @@ export default defineConfig(async ({ command, mode }) => {
 
   return {
     plugins,
+    define: {
+      __APP_BUILD_ID__: JSON.stringify(buildId),
+    },
     server: {
       // host:true expone el servidor en la red local para probar desde celular.
       host: true,
