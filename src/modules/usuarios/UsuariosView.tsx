@@ -15,8 +15,8 @@ import { sb } from '../../lib/supabase';
 import {
   ROLE_LABEL,
   UNIDADES,
-  DEPARTAMENTOS_REPORTE,
-  getAreasPorUnidad,
+  AREAS_USUARIOS,
+  getAreasReparacionPorUnidad,
 } from '../../lib/constants';
 import type { AppRole, Usuario, UsuarioRol } from '../../types/db';
 
@@ -109,6 +109,12 @@ function UsuariosView() {
   };
 
   const addRole = async (em: string) => {
+    const requiereAreaPertenencia =
+      nr.rol === 'reportante' || nr.rol === 'validador';
+    if (requiereAreaPertenencia && !nr.depto) {
+      alert('Elige el área de pertenencia del usuario.');
+      return;
+    }
     const { error } = await sb.from('usuario_roles').insert({
       usuario_email: em.toLowerCase(),
       rol: nr.rol as AppRole,
@@ -146,19 +152,21 @@ function UsuariosView() {
     return `${u.nombre || ''} ${u.email}`.toLowerCase().includes(q.toLowerCase());
   });
 
-  /** Etiqueta del campo departamento: cambia de significado según el rol. */
-  const labelDepto =
-    nr.rol === 'reportante'
-      ? 'Departamento de reporte'
-      : nr.rol === 'coordinador' || nr.rol === 'reparacion'
-        ? 'Área responsable'
-        : 'Área / departamento (opcional)';
+  const esPersonalUsuario = nr.rol === 'reportante' || nr.rol === 'validador';
+  const esPersonalTecnico = nr.rol === 'coordinador' || nr.rol === 'reparacion';
 
-  /** Opciones del departamento según el rol y la unidad seleccionada. */
-  const opcionesDepto =
-    nr.rol === 'reportante'
-      ? DEPARTAMENTOS_REPORTE
-      : getAreasPorUnidad(nr.unidad);
+  /** El mismo campo representa conceptos distintos según el rol. */
+  const labelDepto = esPersonalUsuario
+    ? 'Área de pertenencia'
+    : esPersonalTecnico
+      ? 'Área técnica responsable'
+      : 'Área / departamento (opcional)';
+
+  const opcionesDepto = esPersonalUsuario
+    ? AREAS_USUARIOS
+    : esPersonalTecnico
+      ? getAreasReparacionPorUnidad(nr.unidad)
+      : [];
 
   return (
     <>
@@ -380,13 +388,26 @@ function UsuariosView() {
                       value={nr.depto}
                       onChange={(e) => setNr({ ...nr, depto: e.target.value })}
                     >
-                      <option value="">(ninguna / todas)</option>
+                      <option value="">
+                        {esPersonalUsuario ? '(elige un área)' : '(ninguna / todas)'}
+                      </option>
                       {opcionesDepto.map((x) => (
                         <option key={x} value={x}>
                           {x}
                         </option>
                       ))}
                     </select>
+                    {esPersonalUsuario && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                        Esta área identifica a qué equipo pertenece. No le asigna
+                        reparaciones ni cambia qué técnico atiende incidencias.
+                      </div>
+                    )}
+                    {esPersonalTecnico && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                        Esta área sí determina qué incidencias puede atender el técnico.
+                      </div>
+                    )}
                   </div>
 
                   <button className="btn sm" onClick={() => addRole(u.email)}>

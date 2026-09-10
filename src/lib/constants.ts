@@ -65,6 +65,7 @@ export const UNIDADES = [
   'Verde Vertical',
 ];
 
+/** Áreas que atienden y reparan incidencias. Solo aplican a Técnico/Coordinador. */
 export const AREAS_RESP = [
   'Mantenimiento',
   'Fijación',
@@ -76,28 +77,54 @@ export const AREAS_RESP = [
   'Op. Bio Box'
 ];
 
+/**
+ * Áreas a las que PERTENECE el personal que reporta o valida. No deciden a
+ * quién se asigna una reparación: el catálogo de incidencias decide eso.
+ */
+export const AREAS_USUARIOS = ['Monitoreo', 'Operaciones', 'SRD', 'PPD'];
 
-// 3. Mapeo de Unidad de Negocio -> Áreas/Departamentos pertenecientes
-export const AREAS_POR_UNIDAD: Record<string, string[]> = {
-  'BIOBOX': ['Op. Bio Box', 'TI', 'Operaciones', 'Implementaciones','Digital','Iluminación'],
-  'DIGITAL': ['Digital', 'TI','Operaciones', 'SRD', 'PPD','Urban','Iluminación'],
-  'URBAN': ['Urban', 'Mantenimiento', 'Operaciones'],
-  'ECOVALLAS': ['Mantenimiento', 'Fijación', 'Digital', 'Imprenta', 'Admin Comercial', 'Operaciones','Implementaciones','Instalaciones','Iluminación'],
+/** Áreas técnicas disponibles por unidad para Técnico/Coordinador. */
+export const AREAS_REPARACION_POR_UNIDAD: Record<string, string[]> = {
+  BIOBOX: ['Op. Bio Box', 'TI', 'Implementaciones', 'Digital', 'Iluminación'],
+  DIGITAL: ['Digital', 'TI', 'Iluminación'],
+  URBAN: ['Mantenimiento'],
+  ECOVALLAS: [
+    'Mantenimiento',
+    'Fijación',
+    'Digital',
+    'Implementaciones',
+    'Instalaciones',
+    'Iluminación',
+  ],
+  'VÍA VERDE': [
+    'Mantenimiento',
+    'Fijación',
+    'Digital',
+    'Implementaciones',
+    'Instalaciones',
+    'Iluminación',
+  ],
+  'VERDE VERTICAL': [
+    'Mantenimiento',
+    'Fijación',
+    'Digital',
+    'Implementaciones',
+    'Instalaciones',
+    'Iluminación',
+  ],
+  'BIOBOX PERÚ': ['Op. Bio Box', 'TI', 'Implementaciones', 'Digital', 'Iluminación'],
 };
 
-/**
- * Función helper para obtener las áreas filtradas por unidad de negocio.
- * Si no se pasa unidad o no coincide, retorna todas las áreas disponibles.
- */
-export function getAreasPorUnidad(unidadNegocio?: string | null): string[] {
+/** Áreas técnicas válidas para la unidad elegida. */
+export function getAreasReparacionPorUnidad(unidadNegocio?: string | null): string[] {
   if (!unidadNegocio) return [...AREAS_RESP];
-  const unidadUpper = unidadNegocio.toUpperCase();
-  return AREAS_POR_UNIDAD[unidadUpper] || [...AREAS_RESP];
+  return AREAS_REPARACION_POR_UNIDAD[unidadNegocio.toUpperCase()] || [...AREAS_RESP];
 }
 
 // AREAS_ASIGNABLES se retiró en ago-2026 junto con la asignación a técnico.
 // Decidía en qué áreas aparecía el botón; sin botón, no decide nada.
-export const DEPARTAMENTOS_REPORTE = ['Monitoreo', 'Operaciones', 'SRD', 'PPD'];
+// Alias temporal para evitar romper referencias antiguas.
+export const DEPARTAMENTOS_REPORTE = AREAS_USUARIOS;
 export const TIPOS = [
   'Vandalismo',
   'Imponderable',

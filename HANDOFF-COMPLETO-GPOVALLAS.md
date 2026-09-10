@@ -1,7 +1,7 @@
 # HANDOFF COMPLETO — Central de Operaciones GPO VALLAS
 ### Documento de traspaso para retomar el proyecto sin empezar de cero
 
-_Última actualización: 20 de agosto de 2026. Reemplaza la versión anterior
+_Última actualización: 9 de septiembre de 2026. Reemplaza la versión anterior
 (agosto 2026, "migración en curso"). Este documento captura TODO el contexto:
 arquitectura, módulos, esquema de datos, decisiones tomadas, errores cometidos
 y pendientes. Léelo completo antes de continuar._
@@ -29,6 +29,8 @@ HTML (~2750 líneas, React por CDN sin build) y hoy es un proyecto
 | Fijación Externa (FDW con el sistema de Mario) | ✅ |
 | Rutas de Monitoreo (mapa + navegación) | ✅ |
 | Pauta y Monitoreo (campañas por catorcena) | ✅ nuevo |
+| Máquinas Biobox (revisión/checklist/hoja de vida) | ✅ |
+| Disponibilidad de inventario | ✅ |
 
 **Descartados a propósito** (decisión de Erik, agosto 2026): Bitácora,
 Mantenimiento Biobox, Fijación interna, Cuadrillas, RutaCuadrilla. No se
@@ -39,6 +41,20 @@ el futuro se retoma.
 compartidas. No se migran ni se duplican. Un módulo nuevo USA las existentes
 (`tiene_rol`, `auth_email`), nunca crea funciones redundantes.
 
+### Estado operativo a septiembre de 2026
+
+- El responsive y la PWA están verificados en iPhone y Android: safe areas,
+  cámara, modales, mapas táctiles y carga de archivos ya tienen tratamiento
+  específico para móvil.
+- El estatus inicial lo decide el frontend. Solo incidencias de **Digital**
+  fuera del horario del validador se auto-rutean; una anomalía levantada desde
+  Biobox entra siempre a `por_validar`.
+- Las incidencias duplicadas en `en_proceso` se bloquean tanto en Nueva
+  incidencia como en Biobox, usando la cara, unidad, medio e incidencia.
+- El repositorio y Vercel se sincronizan por Git; no copiar ZIP entre Windows
+  y macOS. Antes de desarrollar, ejecutar `git fetch origin` y confirmar que
+  `main` coincide con `origin/main`.
+
 ---
 
 ## 1. STACK Y ACCESOS
@@ -46,7 +62,8 @@ compartidas. No se migran ni se duplican. Un módulo nuevo USA las existentes
 - **Vite 5 + React 18 + TypeScript 5**.
 - Librerías: `@supabase/supabase-js`, `leaflet` + `@types/leaflet`,
   `xlsx` (SheetJS), `@vitejs/plugin-basic-ssl` (dev).
-- Leaflet CSS por CDN en `index.html`. Estilos propios en `src/index.css`.
+- Leaflet CSS se incluye en el bundle desde `src/main.tsx`; estilos propios en
+  `src/index.css`.
 - **Supabase** (Postgres + Auth + RLS + Storage + RPC + Realtime).
   - Project ref: `qztxpcfbbbmvgmtjnlxg`
   - URL: `https://qztxpcfbbbmvgmtjnlxg.supabase.co`
@@ -103,6 +120,10 @@ gpo-vallas/
       storage.ts          → subida al bucket `evidencias`
       navegacion.ts       → deep links a Google Maps / Waze / Apple Maps
       useNotificaciones.ts→ campana + globitos de chat
+      duplicados.ts       → regla compartida contra incidencias en proceso
+      plataforma.ts       → detección confiable de iPhone/iPad
+      mapaTactil.ts       → interacción segura de mapas en celular
+      comprimirImagen.ts  → compresión de fotos antes de subir
       haversine.ts        → distancias, nearestRoute
       convexHull.ts       → áreas sombreadas de rutas
     components/
@@ -110,17 +131,17 @@ gpo-vallas/
       CampanaNotifs.tsx   → campana 🔔
       SubirArchivos.tsx   → cámara / galería con miniaturas
       IrAqui.tsx          → botón de navegación
-      Dashboard.tsx       → SIN USO (ver §7)
-      FlujoFotos.tsx      → SIN USO (ver §7)
-      Mapa.tsx            → SIN USO (ver §7)
     modules/
       incidencias/        → IncidenciasView, KpiView, IndicadoresView
                             NuevaInc, RepararModal, EvidenciaModal,
-                            ChatModal, ReasignModal, AsignarTecnicoModal,
-                            AsignarAreaModal, EditModal, MotivoModal
+                            ChatModal, ReasignModal, CorreccionModal,
+                            EditModal, KpiDetalleModal, TablaIncidencias
       rutas/RutasView.tsx
       pauta/              → PautaView, ImportarPautaModal
       fijacion-externa/FijacionExternaView.tsx
+      biobox/             → BioboxView, RevisionModal, HistorialModal,
+                            ChecklistConfigModal
+      inventario/DisponibilidadView.tsx
       usuarios/UsuariosView.tsx
 ```
 
@@ -168,13 +189,16 @@ nunca escribía `assigned_area`** (ni el HTML viejo ni la migración). Ahora sí
 - **`area_responsable`** — la que asigna el catálogo de incidencias al
   reportar. Es el dato con el que los KPIs miden qué área **origina** la carga.
   No se toca.
-- **`assigned_area`** — el área que **realmente repara**, cuando el diagnóstico
-  revela que le toca a otra. La escribe el validador con el botón
-  🛠 "Asignar área".
+- **`assigned_area`** — área que realmente repara cuando exista una
+  redirección histórica. La precede sobre `area_responsable` al decidir quién
+  puede atender la incidencia.
 
-Esto NO es una reasignación. La reasignación (`ReasignModal` + tabla
-`reasignaciones`) cambia `area_responsable`, deja rastro y requiere aprobación:
-sirve cuando el catálogo se equivocó. Asignar área es solo dirigir el trabajo.
+**Reasignar es el único flujo nuevo para cambiar de área.** El técnico elige
+la incidencia correcta del catálogo; el catálogo propone la nueva área y se
+crea una solicitud. Hasta que el validador aprueba, la incidencia no cambia de
+dueño ni llega al técnico nuevo. Al aprobar se actualizan nombre, área, nivel,
+origen y tipo desde el catálogo, se conserva el área anterior en
+`reasignada_de` y la nueva área recibe una notificación/push de reasignación.
 
 La RLS ya razonaba así: `inc_sel_reparacion` e `inc_upd_reparacion` aceptan
 `area_responsable IN mis_departamentos() OR assigned_area IN mis_departamentos()`.
@@ -184,7 +208,24 @@ base.
 `helpers.ts` expone `areaEfectiva(inc)` = `assigned_area || area_responsable`.
 Se usa para el SLA, para filtrar técnicos y para el filtro de área.
 
-### 3.3. `notificaciones`
+### 3.3. Roles: área de pertenencia vs área técnica
+
+La columna `usuario_roles.departamento` tiene dos significados según el rol:
+
+- **Reportante y Validador:** área de pertenencia del usuario. Catálogo actual:
+  `Monitoreo`, `Operaciones`, `SRD`, `PPD`. Es obligatoria al crear el rol y
+  nunca decide quién repara.
+- **Técnico y Coordinador:** área técnica responsable. Sí limita qué
+  incidencias puede atender: se compara contra `areaEfectiva(inc)` y la unidad
+  asignada al rol. Un coordinador sin área conserva alcance a todas las áreas
+  de su unidad cuando eso sea intencional.
+
+No mezclar los dos catálogos en Usuarios y roles. Para auditar roles existentes
+sin modificar datos, correr `auditar_areas_roles.sql` en Supabase. Su paso 4
+detecta áreas efectivas con incidencias abiertas que no tienen ningún técnico o
+coordinador capaz de atenderlas.
+
+### 3.4. `notificaciones`
 
 Columnas: `id`, `record_id`, **`para_email`** (NOT NULL), `evento`, `mensaje`,
 `unidad_negocio`, `leida`, `enviada_wa`, `creado_en`.
@@ -201,7 +242,13 @@ Hay además un trigger `notificaciones` → `supabase_functions.http_request`
 hacia una Edge Function (`dynamic-worker`), que es lo que alimenta
 `enviada_wa`. No lo toca la app.
 
-### 3.4. Módulo Pauta (nuevo) — DOS tablas a propósito
+El push web se dispara después de insertar cada fila de `notificaciones`.
+`public/sw.js` navega a la incidencia tocada, aun si la app estaba cerrada.
+Las suscripciones se vuelven a crear cuando cambia la llave VAPID. Si alguien
+no recibe push, primero verificar que exista la fila de notificación para su
+correo; después revisar su suscripción activa y la configuración VAPID.
+
+### 3.5. Módulo Pauta (nuevo) — DOS tablas a propósito
 
 ```
 pautas            → lo que viene DEL ARCHIVO. Se reemplaza al reimportar.
@@ -230,12 +277,12 @@ trabajo físico es uno solo aunque haya varios contratos.
 `registrar_toma` NO pisa una toma anterior: la primera es la que responde
 "cuándo estuvo ahí".
 
-### 3.5. Vistas existentes
+### 3.6. Vistas existentes
 
 `vw_fijacion_externa`, `vw_rutas_con_coords`, `vw_rutas_resumen`,
 `vw_cuadrilla_ruta`, `vw_pautas_por_fijar`, `vw_pauta_ruta`, `vw_pauta_resumen`.
 
-### 3.6. Permisos: el hueco del coordinador
+### 3.7. Permisos: el hueco del coordinador
 
 En `incidencias` las políticas de UPDATE son: `inc_upd_manager`,
 `inc_upd_validador`, `inc_upd_reparacion`, `inc_upd_reportante`.
@@ -277,6 +324,12 @@ intenta guardar el reporte con una edición abierta, avisa.
 áreas de `AREAS_AUTORUTEO` (hoy solo Digital) entran directo a `en_proceso` con
 `requiere_prevalidacion=true`. `fueraHorarioValidador()` evalúa en zona horaria
 de CDMX a propósito: el dispositivo del reportante puede estar en otra.
+
+**Duplicidad:** antes de insertar, Nueva incidencia consulta incidencias en
+`en_proceso`. Si coinciden unidad, medio, nombre de incidencia y cara, se
+bloquea el alta y se muestra el folio existente. Biobox usa la RPC de estado de
+máquina para no perder duplicados que la RLS del revisor no puede ver. Las filas
+`por_validar` no bloquean: las revisa el validador.
 
 **RepararModal** carga la evidencia de etapa `reparacion` que YA existe (subida
 antes desde 📎 Evidencia) y la cuenta para el requisito obligatorio. Obligar a
@@ -369,9 +422,10 @@ renombrar un punto reescribiera el pasado.
 revisión; convertirla en incidencia es una casilla aparte. Si fuera
 automático, una máquina grafiteada visitada cuatro veces generaría cuatro
 incidencias abiertas del mismo problema. Cuando sí se levanta, se inserta en
-`incidencias` con **exactamente los mismos campos que NuevaInc** (incluido el
-auto-ruteo fuera de horario del validador), así que hereda folio, SLA,
-notificaciones y flujo de validación sin código nuevo. La foto de la anomalía
+`incidencias` con los campos necesarios de NuevaInc, pero **siempre entra a
+`por_validar`**: una revisión de máquina nunca salta al técnico sin pasar por
+validación. Antes de guardar también se comprueba duplicidad contra las
+incidencias en proceso de toda la máquina. La foto de la anomalía
 se escribe en `revision_evidencias` **y** en `evidencias` con
 `etapa='reporte'`: sin lo segundo, quien atiende la incidencia por el flujo
 normal la vería sin un solo archivo.
@@ -498,14 +552,25 @@ Biobox.
 | `pauta_schema.sql` | ✅ aplicado |
 | `importar_pauta.sql` | ✅ aplicado |
 | `notificar_area_asignada.sql` | ✅ aplicado |
+| `fix_auto_en_proceso.sql` | ✅ aplicado — elimina trigger que pisaba el estatus inicial |
+| `reasignacion_incidencia.sql` | ✅ aplicado — incidencia propuesta en reasignación |
+| `notificar_reasignacion_aprobada.sql` | ✅ aplicado — avisa al área nueva y conserva `reasignada_de` |
+| `fix_notificaciones_unidad_null.sql` | ✅ aplicado — unidad NULL en un rol es comodín |
+| `push_secret_vault.sql` | ✅ aplicado — secreto del push en Vault |
+| `chat_adjuntos.sql` | ✅ aplicado — adjuntos temporales del chat |
+| `rechazos_reparacion.sql` | ✅ aplicado — rastro y KPI de rechazos |
+| `incidencias_lado_porticos.sql` | ✅ aplicado — lado fijo para pórticos de Vía Verde |
+| `incidencias_clasificacion_digital.sql` | ✅ aplicado — clasificación técnica Digital |
+| `fijacion_externa_vista_v2.sql` | ✅ aplicado — vista actual de órdenes externas |
 | `diagnostico_incidencias.sql` | referencia, solo lectura |
 | `diagnostico_notificaciones.sql` | referencia, solo lectura |
 | `verificar_mis_notificaciones.sql` | referencia, solo lectura |
+| `auditar_areas_roles.sql` | referencia, solo lectura — auditoría de alcance por rol |
 | `diagnostico_pauta_cobertura.sql` | referencia, solo lectura |
-| `pauta_evidencias.sql` | ⏳ pendiente de aplicar |
-| `push_suscripciones.sql` | ⏳ pendiente (cambiar `CAMBIA-ESTE-SECRETO` antes) |
-| `revisiones_schema.sql` | ⏳ pendiente — checklist, revisiones, vista y RPC |
-| `importar_rutas_capas.sql` | ⏳ pendiente — aplicar DESPUÉS de revisiones_schema |
+| `pauta_evidencias.sql` | ✅ aplicado |
+| `push_suscripciones.sql` | ✅ aplicado — secreto configurado vía Vault |
+| `revisiones_schema.sql` | ✅ aplicado — checklist, revisiones, vista y RPC |
+| `importar_rutas_capas.sql` | ✅ aplicado |
 | `diagnostico_biobox.sql` | referencia, solo lectura — ✅ ya corrido |
 | `diagnostico_biobox_2.sql` | referencia, solo lectura — pendiente |
 
@@ -515,9 +580,10 @@ De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls_fix.sql` es **OBSOLETO**; la versión final es
 `rutas_monitoreo_rls.sql`.
 
-`notificar_area_asignada.sql` incluye además una versión actualizada de
-`notificar_chat()` que usa el área efectiva, para que los mensajes lleguen al
-área que está trabajando y no a la del catálogo.
+Para notificaciones de chat, la versión vigente es la compuesta por
+`notificar_chat_participantes.sql` y `notificar_chat_validador.sql`: avisa a
+participantes del hilo, al área efectiva que atiende y al validador cuando le
+corresponde. No reejecutar scripts antiguos de chat sin comparar funciones.
 
 ---
 
@@ -545,23 +611,21 @@ es `inventario`.
 
 ## 7. DEUDA TÉCNICA CONOCIDA
 
-**Archivos sin uso.** No los importa nadie; se pueden borrar:
-- `components/Dashboard.tsx` — Indicadores usa `KpiView`. En el HTML viejo
-  también estaba muerto: nunca se renderizó `<Dashboard>`.
-- `components/FlujoFotos.tsx` — lo reemplazó `SubirArchivos.tsx`.
-- `components/Mapa.tsx` — `RutasView` tiene su propio mapa.
+**Archivos sin uso.** `Dashboard.tsx`, `FlujoFotos.tsx` y `Mapa.tsx` ya se
+eliminaron del repositorio. No restaurarlos: Indicadores usa `KpiView`, las
+subidas usan `SubirArchivos` y Rutas tiene su propio mapa.
 
 **El rol `fijador`** existe en el enum `app_role` pero NO está en `ROLE_LABEL`,
 `ROLE_ICON` ni `ROLE_PRIORITY`. Por eso no se puede asignar desde Usuarios, y
 si alguien lo tuviera se mostraría como "Viewer". Se dejó así a propósito: no
 se usa. Si se retoma, hay que agregarlo a los tres lugares.
 
-**`AREAS_RESP` está incompleto.** En los datos reales existen áreas que no
-están en la constante: Urban (19), Operación Digital (5), Op. Bio Box (3),
-Imprenta (2), Admin Comercial (1). Consecuencia: esas incidencias no se pueden
-reasignar hacia esas áreas ni asignarle ese departamento a un coordinador.
-Los KPIs y el filtro de área SÍ las muestran, porque se arman de los datos.
-**Pendiente de decisión de Erik.**
+**Catálogos de áreas separados.** `AREAS_USUARIOS` representa pertenencia de
+Reportante/Validador y `AREAS_REPARACION_POR_UNIDAD` representa acceso técnico.
+No añadir a ciegas un área vista en datos al catálogo técnico: primero decidir
+si es un equipo que repara o un área de pertenencia/negocio. El catálogo de
+incidencias sigue siendo la fuente de `area_responsable` al crear o reclasificar
+una incidencia.
 
 **`NuevaInc` conserva el prop `preset`** (abrir el alta con el sitio ya
 elegido), que venía de la Bitácora. Como Bitácora se descartó, hoy nadie lo
@@ -710,3 +774,56 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 - Usuarios con rol en `usuario_roles`: anaya.marco (coordinador),
   mejia.erik (manager), rojas.luis (coordinador), solicitudes@ (coordinador),
   anaya.ana (validador), alvarez.jonathan.
+
+---
+
+## 12. CAMBIOS OPERATIVOS RECIENTES (agosto–septiembre 2026)
+
+### 12.1. Móvil y evidencia
+
+- La PWA instalada respeta el notch de iPhone; los modales y la barra superior
+  usan safe areas. Tras un cambio de manifest, reinstalar la PWA para probarlo.
+- `SubirArchivos` comprime imágenes antes de subir, muestra un spinner mínimo y
+  libera previews. En Android, **Tomar foto** abre la cámara directa: su input
+  acepta solo imágenes y no usa `multiple`; Galería conserva fotos y videos.
+- Los mapas no capturan el scroll de un dedo: requieren dos dedos o desbloquear
+  el control táctil. En Fijación, los pines pesados se limitan a la página
+  visible y el resto se dibuja ligero.
+
+### 12.2. Push y campana
+
+- Una notificación push abre y enfoca la incidencia tanto con la app abierta
+  como cerrada. La campana se refresca de inmediato.
+- La suscripción push se renueva si cambia VAPID. Si una activación aparentemente
+  funciona pero no llegan avisos, revisar `push_suscripciones` y la Edge
+  Function `enviar-push` antes de cambiar el frontend.
+- Chat notifica a participantes, al área que atiende y al validador cuando le
+  toca. Los managers reciben lo que sus triggers les inserten; no asumir que
+  un manager es destinatario de todo sin verificar las funciones vigentes.
+
+### 12.3. Incidencias y reparación
+
+- La tabla es ordenable por encabezado; folio se ordena numéricamente y estatus
+  sigue el orden del flujo. Sitio, capturó y reparó se mantienen legibles.
+- Nivel es el dato visible de clasificación; Origen y Tipo se siguen guardando
+  para indicadores, pero no se muestran junto al nivel.
+- Reparar exige rol **y** área efectiva. El guardado detecta que la RLS pudo
+  rechazar una actualización aun sin devolver error explícito.
+- Cada rechazo de reparación conserva su motivo y alimenta el KPI.
+
+### 12.4. Alcance de módulos
+
+- Biobox solo se muestra a personas de esa unidad; Fijación Externa y Pauta se
+  tratan como Ecovallas Impreso; Rutas se acota por unidad.
+- La tarjeta de Biobox muestra el número de máquina y la clave completa en
+  renglones separados.
+- Fijación Externa usa la vista v2 y opera como lista de órdenes de cuadrilla;
+  sus incidencias cruzan por sitio y requieren pertenecer al área.
+
+### 12.5. Limpieza de datos
+
+- `limpiar_datos_migrados.sql` y `scripts/limpiar-storage.mjs` sirven para
+  retirar datos anteriores al corte elegido. Supabase bloquea DELETE directo
+  en `storage.objects`: los archivos se eliminan mediante Storage API.
+- La limpieza histórica ya se ejecutó dejando agosto de 2026 como datos de
+  prueba. No correr scripts de limpieza sin revisar primero sus conteos.
