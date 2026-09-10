@@ -155,6 +155,149 @@ export function initials(n: string | null): string {
 // ============================================================
 import { VAL_DIAS, VAL_DESDE, VAL_HASTA } from './constants';
 
+/** Fecha civil de CDMX representada como UTC para poder sumar jornadas sin
+ * depender de la zona horaria configurada en el teléfono del usuario. */
+function minutoCivilValidador(fecha: Date): number | null {
+  try {
+    const partes = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Mexico_City',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(fecha);
+    const valor = (tipo: Intl.DateTimeFormatPartTypes) =>
+      Number(partes.find((p) => p.type === tipo)?.value ?? NaN);
+    const anio = valor('year');
+    const mes = valor('month');
+    const dia = valor('day');
+    const hora = valor('hour');
+    const minuto = valor('minute');
+    const segundo = valor('second');
+    if ([anio, mes, dia, hora, minuto, segundo].some(Number.isNaN)) return null;
+    return Date.UTC(anio, mes - 1, dia, hora, minuto, segundo);
+  } catch {
+    return null;
+  }
+}
+
+function esDiaLaboralValidador(fechaCivil: number): boolean {
+  return VAL_DIAS.includes(new Date(fechaCivil).getUTCDay());
+}
+
+function inicioSiguienteJornada(fechaCivil: number): number {
+  const fecha = new Date(fechaCivil);
+  let siguiente = Date.UTC(
+    fecha.getUTCFullYear(),
+    fecha.getUTCMonth(),
+    fecha.getUTCDate() + 1,
+    0,
+    0,
+    0
+  );
+  while (!esDiaLaboralValidador(siguiente)) siguiente += 24 * 60 * 60 * 1000;
+  return siguiente + VAL_DESDE * 60 * 1000;
+}
+
+/** Lleva un instante al siguiente minuto que sí puede consumir SLA. */
+function inicioLaborableValidador(fechaCivil: number): number {
+  const fecha = new Date(fechaCivil);
+  const inicioDia = Date.UTC(
+    fecha.getUTCFullYear(),
+    fecha.getUTCMonth(),
+    fecha.getUTCDate(),
+    0,
+    0,
+    0
+  );
+  const minutoDia =
+    fecha.getUTCHours() * 60 + fecha.getUTCMinutes() + fecha.getUTCSeconds() / 60;
+  if (!esDiaLaboralValidador(inicioDia)) return inicioSiguienteJornada(inicioDia);
+  if (minutoDia < VAL_DESDE) return inicioDia + VAL_DESDE * 60 * 1000;
+  if (minutoDia >= VAL_HASTA) return inicioSiguienteJornada(inicioDia);
+  return fechaCivil;
+}
+
+/** Agrega minutos de SLA saltando noches y fines de semana. */
+function sumarMinutosLaborablesValidador(inicioCivil: number, minutos: number): number {
+  let cursor = inicioLaborableValidador(inicioCivil);
+  let restantes = minutos;
+  while (restantes > 0) {
+    const fecha = new Date(cursor);
+    const finJornada = Date.UTC(
+      fecha.getUTCFullYear(),
+      fecha.getUTCMonth(),
+      fecha.getUTCDate(),
+      0,
+      0,
+      0
+    ) + VAL_HASTA * 60 * 1000;
+    const disponibles = Math.max(0, Math.round((finJornada - cursor) / 60000));
+    if (restantes <= disponibles) return cursor + restantes * 60 * 1000;
+    restantes -= disponibles;
+    cursor = inicioSiguienteJornada(cursor);
+  }
+  return cursor;
+}
+
+/** Minutos de jornada entre dos fechas civiles, sin contar pausas. */
+function minutosLaborablesValidador(desdeCivil: number, hastaCivil: number): number {
+  if (hastaCivil <= desdeCivil) return 0;
+  let cursor = desdeCivil;
+  let total = 0;
+  while (cursor < hastaCivil) {
+    const fecha = new Date(cursor);
+    const inicioDia = Date.UTC(
+      fecha.getUTCFullYear(),
+      fecha.getUTCMonth(),
+      fecha.getUTCDate(),
+      0,
+      0,
+      0
+    );
+    const finDia = inicioDia + 24 * 60 * 60 * 1000;
+    if (esDiaLaboralValidador(inicioDia)) {
+      const inicioJornada = inicioDia + VAL_DESDE * 60 * 1000;
+      const finJornada = inicioDia + VAL_HASTA * 60 * 1000;
+      const desde = Math.max(cursor, inicioJornada);
+      const hasta = Math.min(hastaCivil, finJornada);
+      if (hasta > desde) total += (hasta - desde) / 60000;
+    }
+    cursor = finDia;
+  }
+  return Math.round(total);
+}
+
+/**
+ * SLA de validación que solo consume minutos L-V, 09:30-18:30 CDMX.
+ * Fuera de ese horario el reloj queda pausado y el vencimiento avanza a la
+ * siguiente jornada. Así la cuenta es idéntica aunque el celular esté en otra
+ * zona horaria.
+ */
+export function slaInfoValidador(
+  inicio: string | number | Date,
+  minutos: number
+): SlaInfo | null {
+  if (!inicio || !Number.isFinite(minutos) || minutos <= 0) return null;
+  const inicioCivil = minutoCivilValidador(new Date(inicio));
+  const ahoraCivil = minutoCivilValidador(new Date());
+  if (inicioCivil == null || ahoraCivil == null) return null;
+
+  const vencimiento = sumarMinutosLaborablesValidador(inicioCivil, minutos);
+  const vencido = ahoraCivil > vencimiento;
+  const remMin = vencido
+    ? minutosLaborablesValidador(vencimiento, ahoraCivil)
+    : minutosLaborablesValidador(ahoraCivil, vencimiento);
+  const formato = (m: number) => (m >= 60 ? `${Math.round(m / 60)} h` : `${Math.max(1, Math.round(m))} min`);
+  if (vencido) return { color: '#ef4444', label: `vencido +${formato(remMin)}` };
+  if (remMin / minutos <= 0.25)
+    return { color: '#f59e0b', label: `por vencer · ${formato(remMin)}` };
+  return { color: '#22c55e', label: `en tiempo · ${formato(remMin)}` };
+}
+
 /**
  * ¿Estamos FUERA del horario del validador (Lun–Vie 9:30–18:30 CDMX)?
  *

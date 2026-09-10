@@ -20,6 +20,7 @@ import {
 import {
   slaHoras,
   slaInfo,
+  slaInfoValidador,
   fueraHorarioValidador,
   areaEfectiva,
   idCorto,
@@ -206,6 +207,10 @@ function IncidenciasView({
   );
   const esSoloViewer =
     misRoles.length > 0 && misRoles.every((r) => r === 'viewer');
+  // La tabla reúne trazabilidad y permite exportar el conjunto filtrado; es
+  // una vista de consulta para coordinación y administración. La RLS sigue
+  // siendo el candado de las filas que llegan desde la base.
+  const puedeVerTabla = has('coordinador');
   // `asignarArea` ya no existe. Se quitó junto con AsignarAreaModal: hacía lo
   // mismo que Reasignar —el área dice "esto no es mío, va para allá"— pero
   // sin motivo y sin pasar por el validador, escribiendo `assigned_area` de
@@ -494,9 +499,9 @@ function IncidenciasView({
     bandeja.forEach((i) => {
       const reloj =
         i.estatus === 'por_validar' && i.fecha_reporte
-          ? slaInfo(i.fecha_reporte, slaValidacion.reporte / 60)
+          ? slaInfoValidador(i.fecha_reporte, slaValidacion.reporte)
           : i.estatus === 'reparado' && i.sla_validacion_inicio
-            ? slaInfo(i.sla_validacion_inicio, slaValidacion.reparacion / 60)
+            ? slaInfoValidador(i.sla_validacion_inicio, slaValidacion.reparacion)
             : null;
       if (!reloj) return;
       if (reloj.color === '#ef4444') vencidas += 1;
@@ -1017,7 +1022,7 @@ function IncidenciasView({
             ✕ fechas
           </button>
         )}
-        {modo === 'todas' && (
+        {modo === 'todas' && puedeVerTabla && (
           <button
             className="btn ghost sm"
             onClick={() =>
@@ -1032,10 +1037,10 @@ function IncidenciasView({
 
       {visibles.length === 0 ? (
         <div className="empty">Sin incidencias para mostrar.</div>
-      ) : modo === 'todas' && vista === 'tabla' ? (
+      ) : modo === 'todas' && puedeVerTabla && vista === 'tabla' ? (
         <TablaIncidencias
           items={visibles}
-          puedeExportar={has('coordinador')}
+          puedeExportar={puedeVerTabla}
         />
       ) : (
         <div className="inc-list">

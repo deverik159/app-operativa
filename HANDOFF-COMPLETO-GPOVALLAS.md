@@ -176,7 +176,9 @@ viejo, donde todo vivía en `App`.
 (desde que se captura) y `reparacion` (desde que el técnico la marca como
 reparada). Ambos inician en 20 minutos y un manager los ajusta desde
 Indicadores. La bandeja avisa de forma discreta cuando una validación está por
-vencer o vencida. `sla_validacion.sql` crea la tabla, sus datos iniciales y RLS.
+vencer o vencida. El reloj solo consume jornada hábil del validador: lunes a
+viernes, 09:30–18:30 CDMX; se pausa por noche y fin de semana. `sla_validacion.sql`
+crea la tabla, sus datos iniciales y RLS.
 
 **Columnas de `incidencias` que el frontend NO debe mandar** — las llenan
 triggers: `folio` (`set_folio`), `catorcena`/`semana`/`plaza`/`latitud`/

@@ -11,8 +11,8 @@
 // tabla, las tarjetas y el contador digan siempre lo mismo, y que la RLS ya
 // haya decidido qué puede ver quien mira.
 //
-// EL EXPORT es solo para coordinador (y manager, que es comodín en toda la
-// app). Decisión de Erik, ago-2026. Vale ser honestos sobre qué protege:
+// La tabla y su export son solo para coordinador (y manager, que es comodín
+// en toda la app). Vale ser honestos sobre qué protege:
 // esconder el botón evita el uso casual — el CSV masivo circulando por
 // WhatsApp — pero no es un candado criptográfico: quien ya puede VER los
 // datos podría copiarlos a mano. El control real de qué ve cada quien sigue
@@ -22,7 +22,6 @@ import { useMemo, useState } from 'react';
 import { EST_COLOR, EST_LABEL } from '../../lib/constants';
 import {
   caraLabel,
-  caraIncidencia,
   horasEnProceso,
   horasValidacionReparacion,
   fmtHoras,
@@ -59,7 +58,7 @@ function exportar(items: Incidencia[]) {
   const cab = [
     'folio', 'estatus', 'unidad_negocio', 'incidencia', 'incidencia_srd',
     'arbol_digital_id', 'nivel', 'tipo',
-    'origen', 'area_responsable', 'area_que_repara', 'clave_sitio', 'cara',
+    'origen', 'area_responsable', 'area_que_repara', 'clave_sitio', 'clave_medio', 'cara',
     'lado', 'direccion', 'municipio', 'plaza', 'campania', 'observaciones',
     'capturada_por', 'fecha_reporte', 'validada_por', 'fecha_validacion',
     'reparada_por', 'fecha_reparacion', 'diagnostico', 'causa_raiz',
@@ -71,8 +70,8 @@ function exportar(items: Incidencia[]) {
       i.folio, EST_LABEL[i.estatus] || i.estatus, i.unidad_negocio,
       i.nombre_incidencia, i.incidencia_srd, i.arbol_digital_id,
       i.nivel, i.tipo, i.origen, i.area_responsable,
-      i.assigned_area || i.area_responsable, i.clave_sitio,
-      caraLabel(i.clave_medio), i.lado, i.direccion, i.municipio, i.plaza,
+      i.assigned_area || i.area_responsable, i.clave_sitio, i.clave_medio,
+      i.lado || caraLabel(i.clave_medio), i.lado, i.direccion, i.municipio, i.plaza,
       i.campania, i.observaciones, i.captured_by, i.fecha_reporte,
       i.validator_email, i.validator_at, i.repaired_by_email, i.repaired_at,
       i.diagnostico, i.causa_raiz, i.solucion, i.detalle_reparacion,
@@ -122,7 +121,11 @@ const COLUMNAS: {
       return idx === -1 ? EST_ORDEN.length : idx;
     },
   },
-  { titulo: 'Unidad', k: 'unidad', valor: (i) => i.unidad_negocio || '' },
+  { titulo: 'Clave medio', k: 'clave_medio', valor: (i) => i.clave_medio || '' },
+  // En Vía Verde la orientación Norte/Sur/Ambas guía al técnico; en las
+  // demás unidades se muestra la cara corta derivada de la clave de medio.
+  { titulo: 'Cara', k: 'cara', valor: (i) => i.lado || caraLabel(i.clave_medio) },
+  { titulo: 'Municipio', k: 'municipio', valor: (i) => i.municipio },
   {
     titulo: 'Incidencia',
     k: 'incidencia',
@@ -133,28 +136,25 @@ const COLUMNAS: {
     k: 'incidencia_srd',
     valor: (i) => i.incidencia_srd || '',
   },
-  // caraIncidencia: en las unidades con lado, la cara que orienta es
-  // Norte/Sur/Ambas, no la sigla de la columna del inventario.
-  { titulo: 'Cara', k: 'cara', valor: (i) => caraIncidencia(i) || '' },
-  { titulo: 'Sitio', k: 'sitio', valor: (i) => i.clave_sitio || '' },
-  { titulo: 'Municipio', k: 'municipio', valor: (i) => i.municipio },
+  { titulo: 'Campaña', k: 'campania', valor: (i) => i.campania },
+  { titulo: 'Obs.', k: 'obs', valor: (i) => i.observaciones },
+  { titulo: 'Nivel', k: 'nivel', valor: (i) => i.nivel },
+  { titulo: 'Capturada', k: 'capturada', valor: (i) => i.fecha_reporte },
+  { titulo: '⏳ En proceso', k: 'proceso', valor: (i) => horasEnProceso(i) },
   {
     titulo: 'Repara',
     k: 'repara',
     valor: (i) => i.assigned_area || i.area_responsable,
   },
-  { titulo: 'Nivel', k: 'nivel', valor: (i) => i.nivel },
-  { titulo: 'Capturada', k: 'capturada', valor: (i) => i.fecha_reporte },
-  {
-    titulo: 'Por',
-    k: 'por',
-    valor: (i) => (i.captured_by || '').split('@')[0] || null,
-  },
-  { titulo: '⏳ En proceso', k: 'proceso', valor: (i) => horasEnProceso(i) },
   {
     titulo: 'Reparó',
     k: 'reparo',
     valor: (i) => (i.repaired_by_email || '').split('@')[0] || null,
+  },
+  {
+    titulo: 'T. reparación',
+    k: 'tiempo_reparacion',
+    valor: (i) => horasValidacionReparacion(i),
   },
 ];
 
@@ -240,7 +240,9 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
           style={{
             borderCollapse: 'collapse',
             width: '100%',
-            minWidth: 1160,
+            // Todas las columnas se conservan legibles. En teléfono se
+            // desplaza solo esta caja; la página nunca se desborda de lado.
+            minWidth: 1780,
             fontSize: 12,
           }}
         >
@@ -285,6 +287,7 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
           <tbody>
             {filas.map((i) => {
               const enProc = horasEnProceso(i);
+              const tiempoReparacion = horasValidacionReparacion(i);
               return (
                 <tr key={i.record_id}>
                   <td style={celda}>
@@ -302,30 +305,28 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
                       {EST_LABEL[i.estatus] || i.estatus}
                     </span>
                   </td>
-                  <td style={celda}>{i.unidad_negocio}</td>
-                  <td style={{ ...celda, minWidth: 180 }}>
+                  <td style={{ ...celda, ...sinQuiebre }} title={i.clave_medio || ''}>
+                    {i.clave_medio || '—'}
+                  </td>
+                  <td style={{ ...celda, ...sinQuiebre }}>
+                    {i.lado || caraLabel(i.clave_medio) || '—'}
+                  </td>
+                  <td style={{ ...celda, minWidth: 120 }}>{i.municipio || '—'}</td>
+                  <td style={{ ...celda, minWidth: 170, ...textoLegible }}>
                     {i.nombre_incidencia}
                   </td>
-                  <td style={{ ...celda, minWidth: 180 }}>
+                  <td style={{ ...celda, minWidth: 170, ...textoLegible }}>
                     {i.incidencia_srd || '—'}
                   </td>
-                  <td style={celda}>{caraIncidencia(i)}</td>
-                  {/* nowrap en Sitio/Por/Reparó: el overflow-wrap:anywhere
-                      global partía la clave y los correos a media palabra
-                      ("MX_EM_EV_E / VA_01_0009"). La tabla ya scrollea de
-                      lado dentro de su contenedor, así que aquí no hay
-                      motivo para quebrar tokens. */}
-                  <td style={{ ...celda, ...sinQuiebre }}>{i.clave_sitio}</td>
-                  <td style={celda}>{i.municipio || '—'}</td>
-                  <td style={celda}>
-                    {i.assigned_area || i.area_responsable || '—'}
+                  <td style={{ ...celda, minWidth: 130, ...textoLegible }}>
+                    {i.campania || '—'}
+                  </td>
+                  <td style={{ ...celda, minWidth: 190, ...textoLegible }}>
+                    {i.observaciones || '—'}
                   </td>
                   <td style={celda}>{i.nivel || '—'}</td>
                   <td style={{ ...celda, whiteSpace: 'nowrap' }}>
                     {fecha(i.fecha_reporte)}
-                  </td>
-                  <td style={{ ...celda, ...sinQuiebre }}>
-                    {(i.captured_by || '—').split('@')[0]}
                   </td>
                   <td
                     style={{
@@ -340,8 +341,14 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
                   >
                     {enProc != null ? fmtHoras(enProc) : '—'}
                   </td>
+                  <td style={{ ...celda, minWidth: 125 }}>
+                    {i.assigned_area || i.area_responsable || '—'}
+                  </td>
                   <td style={{ ...celda, ...sinQuiebre }}>
                     {(i.repaired_by_email || '—').split('@')[0]}
+                  </td>
+                  <td style={{ ...celda, whiteSpace: 'nowrap' }}>
+                    {tiempoReparacion != null ? fmtHoras(tiempoReparacion) : '—'}
                   </td>
                 </tr>
               );
@@ -364,6 +371,14 @@ const sinQuiebre: React.CSSProperties = {
   whiteSpace: 'nowrap',
   overflowWrap: 'normal',
   wordBreak: 'normal',
+};
+
+/** Texto humano: se parte entre palabras, jamás recortado con elipsis. */
+const textoLegible: React.CSSProperties = {
+  whiteSpace: 'normal',
+  overflowWrap: 'break-word',
+  wordBreak: 'normal',
+  lineHeight: 1.35,
 };
 
 export default TablaIncidencias;

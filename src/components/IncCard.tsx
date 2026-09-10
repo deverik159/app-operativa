@@ -7,7 +7,7 @@ import {
   EST_LABEL,
   NIVEL_COLOR,
 } from '../lib/constants';
-import { slaInfo, caraIncidencia, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
+import { slaInfo, slaInfoValidador, caraIncidencia, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
 import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
 
 /** Modo del modal de reasignación: pedirla, o revisarla como coordinador. */
@@ -99,11 +99,11 @@ function IncCard({
       : null;
   const slaValReporte =
     i.estatus === 'por_validar' && i.fecha_reporte
-      ? slaInfo(i.fecha_reporte, slaValidacion.reporte / 60)
+      ? slaInfoValidador(i.fecha_reporte, slaValidacion.reporte)
       : null;
   const slaValReparacion =
     i.estatus === 'reparado' && i.sla_validacion_inicio
-      ? slaInfo(i.sla_validacion_inicio, slaValidacion.reparacion / 60)
+      ? slaInfoValidador(i.sla_validacion_inicio, slaValidacion.reparacion)
       : null;
   const sla = slaRep || slaValReporte || slaValReparacion;
   const etiquetaSla = slaRep

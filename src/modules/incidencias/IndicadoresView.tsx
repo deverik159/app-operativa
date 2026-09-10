@@ -126,7 +126,7 @@ function IndicadoresView({
         <section className="card" style={{ marginBottom: 20 }}>
           <h3 style={{ margin: '0 0 5px' }}>SLA de validación</h3>
           <p className="phint" style={{ marginTop: 0 }}>
-            Tiempo para validar un reporte nuevo y para aprobar o rechazar una reparación.
+            Minutos hábiles de lunes a viernes, 9:30–18:30 CDMX, para validar un reporte nuevo y aprobar o rechazar una reparación.
           </p>
           <div className="row2">
             <div className="field">
