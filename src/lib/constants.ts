@@ -79,10 +79,10 @@ export const AREAS_RESP = [
 
 // 3. Mapeo de Unidad de Negocio -> Áreas/Departamentos pertenecientes
 export const AREAS_POR_UNIDAD: Record<string, string[]> = {
-  'BIOBOX': ['Op. Bio Box', 'Mantenimiento', 'TI', 'Operaciones', 'Implementaciones'],
-  'DIGITAL': ['Digital', 'TI', 'Mantenimiento', 'Operaciones', 'SRD', 'PPD'],
+  'BIOBOX': ['Op. Bio Box', 'TI', 'Operaciones', 'Implementaciones','Digital','Iluminación'],
+  'DIGITAL': ['Digital', 'TI','Operaciones', 'SRD', 'PPD','Urban','Iluminación'],
   'URBAN': ['Urban', 'Mantenimiento', 'Operaciones'],
-  'ECOVALLAS': ['Mantenimiento', 'Fijación', 'Estructuras', 'Imprenta', 'Admin Comercial', 'Operaciones'],
+  'ECOVALLAS': ['Mantenimiento', 'Fijación', 'Digital', 'Imprenta', 'Admin Comercial', 'Operaciones','Implementaciones','Instalaciones','Iluminación'],
 };
 
 /**
