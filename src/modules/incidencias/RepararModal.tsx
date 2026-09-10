@@ -207,6 +207,43 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
     setSubiendoRep(false);
   };
 
+  const [borrandoEv, setBorrandoEv] = useState(false);
+
+  /**
+   * El técnico puede quitar LO SUYO antes de mandar a reparar: una foto
+   * equivocada se corrige aquí mismo, sin ir a la galería. Espeja la
+   * política ev_del (dueño + etapa reparación + en_proceso), igual que
+   * hace EvidenciaModal, para no ofrecer un 🗑 que la base rechazaría.
+   */
+  const puedeBorrarEv = (e: Evidencia) =>
+    (e.subido_por || '').toLowerCase() === (email || '').toLowerCase();
+
+  const borrarEvRep = async (item: Evidencia) => {
+    if (!confirm('¿Eliminar esta evidencia de reparación?')) return;
+    setBorrandoEv(true);
+    // Mismo orden que la galería: primero el archivo, luego la fila. Si el
+    // archivo falla, la fila queda y se reintenta; al revés quedaría un
+    // archivo colgado sin referencia.
+    if (item.path)
+      await sb.storage.from(BUCKET_EVIDENCIAS).remove([item.path]);
+    const { data, error } = await sb
+      .from('evidencias')
+      .delete()
+      .eq('id', item.id)
+      .select('id');
+    setBorrandoEv(false);
+    if (error) {
+      alert('No se pudo eliminar: ' + error.message);
+      return;
+    }
+    // 0 filas = la RLS lo negó en silencio (convención de esta base).
+    if (!data || data.length === 0) {
+      alert('No se pudo eliminar: no tienes permiso sobre esta evidencia.');
+      return;
+    }
+    setEvRep((prev) => prev.filter((x) => x.id !== item.id));
+  };
+
   const guardar = async () => {
     if (!usarArbol && !detalle.trim()) {
       alert('Escribe el detalle de la reparación.');
@@ -264,27 +301,61 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
   };
 
   /** Miniatura de una evidencia (foto) o enlace (video). */
-  const Miniatura = ({ e, size }: { e: Evidencia; size: number }) =>
-    e.tipo === 'foto' ? (
-      <a href={e.url} target="_blank" rel="noreferrer" title={e.referencia || ''}>
-        <img
-          src={e.url}
-          alt={e.referencia || `Evidencia de ${e.etapa}`}
-          style={{
-            width: size,
-            height: size,
-            objectFit: 'cover',
-            borderRadius: 7,
-            border: '1px solid var(--line)',
-            display: 'block',
-          }}
-        />
-      </a>
-    ) : (
-      <a href={e.url} target="_blank" rel="noreferrer" className="tag">
-        🎥 video
-      </a>
+  const Miniatura = ({
+    e,
+    size,
+    onBorrar,
+  }: {
+    e: Evidencia;
+    size: number;
+    /** Con esto, la miniatura trae su 🗑 debajo (solo evidencia propia). */
+    onBorrar?: () => void;
+  }) => {
+    const visual =
+      e.tipo === 'foto' ? (
+        <a href={e.url} target="_blank" rel="noreferrer" title={e.referencia || ''}>
+          <img
+            src={e.url}
+            alt={e.referencia || `Evidencia de ${e.etapa}`}
+            style={{
+              width: size,
+              height: size,
+              objectFit: 'cover',
+              borderRadius: 7,
+              border: '1px solid var(--line)',
+              display: 'block',
+            }}
+          />
+        </a>
+      ) : (
+        <a href={e.url} target="_blank" rel="noreferrer" className="tag">
+          🎥 video
+        </a>
+      );
+    if (!onBorrar) return visual;
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 2,
+        }}
+      >
+        {visual}
+        <button
+          type="button"
+          className="btn-icono"
+          onClick={onBorrar}
+          disabled={busy || subiendoRep || borrandoEv}
+          aria-label="Eliminar evidencia"
+          title="Eliminar"
+        >
+          🗑
+        </button>
+      </div>
     );
+  };
 
   return (
     <div
@@ -423,7 +494,14 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                   }}
                 >
                   {evRep.map((e) => (
-                    <Miniatura key={e.id} e={e} size={56} />
+                    <Miniatura
+                      key={e.id}
+                      e={e}
+                      size={56}
+                      onBorrar={
+                        puedeBorrarEv(e) ? () => borrarEvRep(e) : undefined
+                      }
+                    />
                   ))}
                 </div>
               )}
@@ -444,8 +522,8 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                 <div
                   style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}
                 >
-                  Ya cuentas con evidencia de reparación. Puedes agregar más si
-                  hace falta.
+                  Ya cuentas con evidencia de reparación. Puedes agregar más, o
+                  quitar con 🗑 las tuyas antes de guardar.
                 </div>
               )}
             </>
