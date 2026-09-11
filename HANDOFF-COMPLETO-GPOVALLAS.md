@@ -1,7 +1,7 @@
 # HANDOFF COMPLETO — Central de Operaciones GPO VALLAS
 ### Documento de traspaso para retomar el proyecto sin empezar de cero
 
-_Última actualización: 9 de septiembre de 2026. Reemplaza la versión anterior
+_Última actualización: 11 de septiembre de 2026. Reemplaza la versión anterior
 (agosto 2026, "migración en curso"). Este documento captura TODO el contexto:
 arquitectura, módulos, esquema de datos, decisiones tomadas, errores cometidos
 y pendientes. Léelo completo antes de continuar._
@@ -67,7 +67,8 @@ compartidas. No se migran ni se duplican. Un módulo nuevo USA las existentes
 - **Supabase** (Postgres + Auth + RLS + Storage + RPC + Realtime).
   - Project ref: `qztxpcfbbbmvgmtjnlxg`
   - URL: `https://qztxpcfbbbmvgmtjnlxg.supabase.co`
-- **Integración externa** (sistema AppSheet de Mario Luna) vía `postgres_fdw`.
+- **Integración externa** (sistema de Mario Luna, también construido con
+  Supabase + Vercel) vía `postgres_fdw`.
   Servidor: `aws-0-us-west-2.pooler.supabase.com:6543`, sslmode `require`.
   Tabla importada al esquema local `externo` como `externo.fijacion`.
   Las contraseñas expuestas en chat durante la configuración **ya se rotaron**.
@@ -342,6 +343,22 @@ máquina para no perder duplicados que la RLS del revisor no puede ver. Las fila
 **RepararModal** carga la evidencia de etapa `reparacion` que YA existe (subida
 antes desde 📎 Evidencia) y la cuenta para el requisito obligatorio. Obligar a
 resubirla sería pedirle al técnico el mismo trabajo dos veces.
+
+**Catálogo por tipo de medio.** Nueva incidencia no decide el catálogo por la
+unidad: lo decide por `inventario.tipo_medio` de las caras seleccionadas. Una
+cara `Digital` obtiene la lista visible desde `arbol_digital.incidencia`; una
+cara Impreso conserva `catalogo_incidencias`, restringido por `tipo_mueble`.
+Esto aplica también a unidades mixtas como Ecovallas y Biobox. La incidencia
+guardada desde Digital conserva exactamente el texto del árbol y nace con
+`area_responsable = 'Digital'`, de modo que el técnico puede clasificarla en
+`RepararModal` con la misma ruta SRD/causa/diagnóstico/solución y no queda
+como “Sin clasificar”.
+
+`catalogoDesdeArbol()` complementa nivel, origen y tipo con la fila Digital de
+`catalogo_incidencias` cuando el mismo nombre existe; no sustituye el nombre
+del árbol. Si el árbol no carga por RLS o red, Nueva incidencia cae al catálogo
+general para no bloquear la captura: diagnosticar primero la lectura de
+`arbol_digital` antes de cambiar ese comportamiento.
 
 **`causas_raiz` es catálogo de Digital.** Durante la migración se agregó por
 error un selector de causa raíz para áreas no-Digital, razonando que el HTML
@@ -734,7 +751,7 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
   `MX_CM_EV_0001` y `MX_CM_EV_3380`. El problema histórico de las 1861 pautas
   de CDMX **ya se resolvió**: el inventario ahora sí trae la plaza CM.
 - Extender `catorcenas.py` más allá de 2027 cuando aplique.
-- Confirmar con Mario que su AppSheet lee bien el JSON de fotos en
+- Confirmar con Mario que su sistema Supabase/Vercel lee bien el JSON de fotos en
   `foto_url`/`evidencia_url` (array de URLs).
 
 ---
@@ -780,7 +797,7 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 - **Erik Mejía** (mejia.erik@gpovallas.com, GitHub `deverik159`): dueño del
   proyecto, rol manager. Trabaja en Windows (empresa) y macOS (personal).
 - **Mario Luna Ramírez**: maneja el sistema externo de fijación
-  (AppSheet + Supabase propio) al que la app se conecta por FDW.
+  (Supabase + Vercel propio) al que la app se conecta por FDW.
 - Usuarios con rol en `usuario_roles`: anaya.marco (coordinador),
   mejia.erik (manager), rojas.luis (coordinador), solicitudes@ (coordinador),
   anaya.ana (validador), alvarez.jonathan.
@@ -859,3 +876,21 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
   en `storage.objects`: los archivos se eliminan mediante Storage API.
 - La limpieza histórica ya se ejecutó dejando agosto de 2026 como datos de
   prueba. No correr scripts de limpieza sin revisar primero sus conteos.
+
+### 12.7. Actualización del 10–11-sep-2026: catálogo Digital, pauta y despliegue
+
+- Nueva incidencia ya separa el catálogo por `tipo_medio`: Digital usa
+  `arbol_digital.incidencia`; Impreso usa `catalogo_incidencias`. En Ecovallas
+  y Biobox la decisión se toma por cara seleccionada, no por el nombre de la
+  unidad. El técnico de Digital continúa reparando con el árbol técnico.
+- La campana de Nueva incidencia se obtiene de `qtm_pautas` por cara y por la
+  ventana de catorcenas anterior, actual y siguiente; al cambiar de sección se
+  limpia el buscador y al accionar una notificación se marca como atendida.
+  `qtm_pautas_lectura.sql` documenta el diagnóstico de esa fuente.
+- El técnico puede quitar evidencia de reparación antes de mandar a validar.
+- La PWA consulta `version.json` al volver a primer plano y muestra un botón de
+  actualización si Vercel publicó una versión nueva. Esto evita abrir una
+  notificación con JavaScript obsoleto.
+- Al iniciar en Windows o macOS, ejecutar `git fetch origin` y comparar
+  `HEAD` con `origin/main`. Al 11-sep-2026 ambos apuntan a `1ceeb7d`, sin
+  cambios locales; el repositorio está alineado con GitHub.
