@@ -29,6 +29,9 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const boxRef = useRef<HTMLDivElement>(null);
 
+  /** Mensaje propio en edición (estilo WhatsApp). null = escribiendo nuevo. */
+  const [editando, setEditando] = useState<Mensaje | null>(null);
+
   /** Adjuntos del hilo, agrupados por mensaje. */
   const [adjuntos, setAdjuntos] = useState<Record<number, ChatAdjunto[]>>({});
   /** Archivo elegido y aún no enviado. */
@@ -96,6 +99,23 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
             }
           }
         )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'mensajes',
+            filter: 'record_id=eq.' + inc.record_id,
+          },
+          // Una edición del otro lado se refleja en vivo, igual que un
+          // mensaje nuevo.
+          (p) => {
+            const m = p.new as Mensaje;
+            setMsgs((prev) =>
+              prev.map((x) => (x.id === m.id ? { ...x, ...m } : x))
+            );
+          }
+        )
         .subscribe();
     })();
 
@@ -146,9 +166,68 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
     setPendiente(f);
   };
 
+  /**
+   * Ventana de edición: el AUTOR, 15 minutos (como WhatsApp) y con la
+   * incidencia abierta. Espeja la política msg_upd_autor para no ofrecer
+   * un ✏️ que la base rechazaría; la base es la que manda.
+   */
+  const puedeEditar = (m: Mensaje) =>
+    inc.estatus !== 'cerrada' &&
+    (m.autor_email || '').toLowerCase() === email.toLowerCase() &&
+    Date.now() - new Date(m.creado_en).getTime() < 15 * 60 * 1000;
+
+  const empezarEdicion = (m: Mensaje) => {
+    setEditando(m);
+    setTexto(m.texto);
+    // La edición es solo del texto: un archivo a medio elegir no viaja.
+    setPendiente(null);
+    setErrAdj('');
+  };
+
+  const cancelarEdicion = () => {
+    setEditando(null);
+    setTexto('');
+  };
+
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault();
     const t = texto.trim();
+
+    // ── Modo edición: se actualiza el texto y nada más. `editado_en` y
+    // `texto_original` los pone el trigger en la base, no este cliente. ──
+    if (editando) {
+      if (!t) return;
+      if (t === editando.texto) {
+        cancelarEdicion();
+        return;
+      }
+      const original = editando;
+      setTexto('');
+      setEditando(null);
+      const { data, error } = await sb
+        .from('mensajes')
+        .update({ texto: t })
+        .eq('id', original.id)
+        .select();
+      // 0 filas = la RLS lo negó en silencio (pasaron los 15 minutos, o la
+      // incidencia se cerró mientras escribía).
+      if (error || !data || data.length === 0) {
+        setErrAdj(
+          error
+            ? 'No se pudo editar: ' + error.message
+            : 'Ya no se puede editar este mensaje: la ventana es de 15 minutos.'
+        );
+        setTexto(t);
+        setEditando(original);
+        return;
+      }
+      const actualizado = data[0] as Mensaje;
+      setMsgs((prev) =>
+        prev.map((x) => (x.id === actualizado.id ? { ...x, ...actualizado } : x))
+      );
+      return;
+    }
+
     // Se puede mandar solo un archivo, sin texto.
     if (!t && !pendiente) return;
 
@@ -363,9 +442,28 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                         opacity: 0.7,
                         marginTop: 3,
                         textAlign: 'right',
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        alignItems: 'center',
+                        gap: 6,
                       }}
                     >
-                      {new Date(m.creado_en).toLocaleString()}
+                      <span>
+                        {m.editado_en ? '(editado) · ' : ''}
+                        {new Date(m.creado_en).toLocaleString()}
+                      </span>
+                      {mio && puedeEditar(m) && (
+                        <button
+                          type="button"
+                          className="btn-icono"
+                          style={{ minWidth: 32, minHeight: 32 }}
+                          onClick={() => empezarEdicion(m)}
+                          aria-label="Editar mensaje"
+                          title="Editar (15 min)"
+                        >
+                          ✏️
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -439,6 +537,33 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 min-content del campo (~200px) + 📎 + "Enviar" sumaban más
                 que el ancho del modal en 360px y el botón de enviar quedaba
                 cortado fuera de pantalla, peor aún durante "Subiendo…". */}
+            {editando && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 8,
+                  padding: '7px 10px',
+                  background: 'var(--panel2)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 10,
+                  fontSize: 12,
+                }}
+              >
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  ✏️ Editando tu mensaje…
+                </span>
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={cancelarEdicion}
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
+
             <form onSubmit={enviar} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <input
                 ref={fileRef}
@@ -447,26 +572,35 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 onChange={elegirArchivo}
                 style={{ display: 'none' }}
               />
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={() => fileRef.current?.click()}
-                disabled={subiendo}
-                style={{ flexShrink: 0 }}
-                title={`Foto o video de máximo ${MAX_VIDEO_SEG} s`}
-              >
-                📎
-              </button>
+              {/* Editando no se adjunta: la edición es solo del texto. */}
+              {!editando && (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={subiendo}
+                  style={{ flexShrink: 0 }}
+                  title={`Foto o video de máximo ${MAX_VIDEO_SEG} s`}
+                >
+                  📎
+                </button>
+              )}
               <input
                 value={texto}
                 onChange={(e) => setTexto(e.target.value)}
-                placeholder={pendiente ? 'Comentario (opcional)…' : 'Escribe un mensaje…'}
+                placeholder={
+                  editando
+                    ? 'Corrige el mensaje…'
+                    : pendiente
+                      ? 'Comentario (opcional)…'
+                      : 'Escribe un mensaje…'
+                }
                 disabled={subiendo}
                 style={{ flex: '1 1 140px', minWidth: 0, width: 'auto' }}
               />
               <button className="btn" type="submit" disabled={subiendo}>
                 {subiendo && <span className="spinner" />}
-                {subiendo ? 'Subiendo…' : 'Enviar'}
+                {subiendo ? 'Subiendo…' : editando ? 'Guardar' : 'Enviar'}
               </button>
             </form>
 

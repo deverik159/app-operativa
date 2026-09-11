@@ -209,6 +209,14 @@ export interface Mensaje {
   autor_nombre: string | null;
   texto: string;
   creado_en: string;
+  /**
+   * Cuándo se editó por última vez (null = nunca). El autor puede corregir
+   * su mensaje 15 minutos, como WhatsApp; el trigger msg_marca_edicion pone
+   * la fecha y conserva el texto original en `texto_original` (auditoría) —
+   * ver chat_editar_mensajes.sql. El cliente solo manda `texto`.
+   */
+  editado_en?: string | null;
+  texto_original?: string | null;
 }
 
 /**
