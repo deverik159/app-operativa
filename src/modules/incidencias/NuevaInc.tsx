@@ -58,7 +58,14 @@ type Linea = {
   id: number;
   cat: CatalogoIncidencia;
   caras: string[];
+  /** Campaña única (texto libre): unidades sin pauta QTM o sitios sin pauta. */
   campania: string;
+  /**
+   * Campaña POR CARA (Ecovallas con pauta QTM): cada cara puede estar en una
+   * campaña distinta, y cada fila del reporte guarda la suya. null = se usa
+   * `campania` para todas, como antes.
+   */
+  campPorCara: Record<string, string> | null;
   obs: string;
   files: File[];
 };
@@ -124,8 +131,12 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
   /** Lado de la cara. Solo aplica en las unidades de UNIDADES_CON_LADO. */
   const [lado, setLado] = useState('');
   const [campania, setCampania] = useState('');
-  /** true = eligió "Otra…" y escribe la campaña a mano. */
-  const [campLibre, setCampLibre] = useState(false);
+  /** Campaña elegida por cara marcada (Ecovallas con pauta QTM). */
+  const [campPorCara, setCampPorCara] = useState<Record<string, string>>({});
+  /** Caras donde eligió "Otra…" y escribe la campaña a mano. */
+  const [campLibrePorCara, setCampLibrePorCara] = useState<
+    Record<string, boolean>
+  >({});
   /**
    * Campañas pautadas por CARA (no por sitio), desde qtm_pautas — lo que QTM
    * sincroniza, no la tabla `pautas` del Excel. Solo Ecovallas por ahora.
@@ -391,20 +402,24 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
   }, [un, caras, ventanaCats]);
 
   /**
-   * Opciones del desplegable de campaña: las campañas pautadas en las caras
-   * MARCADAS (o todas las del sitio si aún no marca ninguna), etiquetadas
-   * con su catorcena para que se sepa cuál es la pautada.
+   * ¿La campaña se maneja POR CARA? Solo Ecovallas con pauta QTM legible.
+   * Sin pauta (o sin permiso de lectura) se cae al campo único de siempre.
    */
-  const opcionesCampania = useMemo(() => {
-    if (pautasCaras.length === 0) return [];
-    const marcadas = selCaras.length
-      ? new Set(selCaras)
-      : new Set(caras.map((c) => c.vendor_face_id));
-    const porCampania = new Map<string, Set<string>>();
+  const usaCampPorCara = un === 'Ecovallas' && pautasCaras.length > 0;
+
+  /**
+   * Opciones de campaña de CADA cara, etiquetadas con su catorcena. Una
+   * misma incidencia puede pegarle a caras con campañas distintas: por eso
+   * el desplegable es por cara, no por partida (Erik, 11-sep-2026).
+   */
+  const opcionesPorCara = useMemo(() => {
+    const porCara = new Map<string, Map<string, Set<string>>>();
     pautasCaras.forEach((p) => {
       const nombre = (p.campaign || '').trim();
-      if (!nombre || !marcadas.has(p.vendor_face_id)) return;
-      const cats = porCampania.get(nombre) || new Set<string>();
+      if (!nombre) return;
+      const camps =
+        porCara.get(p.vendor_face_id) || new Map<string, Set<string>>();
+      const cats = camps.get(nombre) || new Set<string>();
       ventanaCats.forEach((c) => {
         if (
           (p.fecha_inicio || '') <= c.fecha_fin &&
@@ -412,12 +427,69 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
         )
           cats.add(c.cat_texto || `Cat-${c.numero}`);
       });
-      porCampania.set(nombre, cats);
+      camps.set(nombre, cats);
+      porCara.set(p.vendor_face_id, camps);
     });
-    return [...porCampania.entries()]
-      .map(([nombre, cats]) => ({ nombre, cats: [...cats].join(' / ') }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre));
-  }, [pautasCaras, selCaras, caras, ventanaCats]);
+    const m = new Map<string, { nombre: string; cats: string }[]>();
+    porCara.forEach((camps, vf) =>
+      m.set(
+        vf,
+        [...camps.entries()]
+          .map(([nombre, cats]) => ({ nombre, cats: [...cats].join(' / ') }))
+          .sort((a, b) => a.nombre.localeCompare(b.nombre))
+      )
+    );
+    return m;
+  }, [pautasCaras, ventanaCats]);
+
+  /**
+   * La campaña VIGENTE HOY de cada cara. Si es exactamente una, se asigna
+   * sola: el dato sale de QTM, no de la memoria del reportante. Con varias
+   * vigentes (rotación digital) o ninguna, no se adivina: el reportante
+   * elige del desplegable.
+   */
+  const autoPorCara = useMemo(() => {
+    // Fecha LOCAL del dispositivo, no UTC: capturando de noche en México,
+    // toISOString ya va en el día siguiente y en el cambio de catorcena
+    // asignaría la campaña entrante a una foto de la saliente.
+    const d = new Date();
+    const hoy = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const vigentes = new Map<string, Set<string>>();
+    pautasCaras.forEach((p) => {
+      const nombre = (p.campaign || '').trim();
+      if (!nombre) return;
+      if ((p.fecha_inicio || '') <= hoy && (p.fecha_fin || '') >= hoy) {
+        const s = vigentes.get(p.vendor_face_id) || new Set<string>();
+        s.add(nombre);
+        vigentes.set(p.vendor_face_id, s);
+      }
+    });
+    const m = new Map<string, string>();
+    vigentes.forEach((s, vf) => {
+      if (s.size === 1) m.set(vf, [...s][0]);
+    });
+    return m;
+  }, [pautasCaras]);
+
+  // Prellenado: al marcar una cara sin decisión previa, entra su campaña
+  // vigente. Nunca pisa lo que el usuario ya eligió (ni un "Sin campaña"
+  // explícito, que queda guardado como '').
+  useEffect(() => {
+    if (!usaCampPorCara) return;
+    setCampPorCara((prev) => {
+      let cambio = false;
+      const next = { ...prev };
+      selCaras.forEach((vf) => {
+        if (next[vf] !== undefined) return;
+        const auto = autoPorCara.get(vf);
+        if (auto) {
+          next[vf] = auto;
+          cambio = true;
+        }
+      });
+      return cambio ? next : prev;
+    });
+  }, [usaCampPorCara, selCaras, autoPorCara]);
 
   // Precarga del sitio si el alta vino desde la bitácora.
   useEffect(() => {
@@ -456,7 +528,8 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
     setCatSel(null);
     setSelCaras(caras.length === 1 ? [caras[0].vendor_face_id] : []);
     setCampania('');
-    setCampLibre(false);
+    setCampPorCara({});
+    setCampLibrePorCara({});
     setObs('');
     setFilesLinea([]);
     setEditandoId(null);
@@ -480,6 +553,12 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
       cat: catSel,
       caras: [...selCaras],
       campania,
+      // Foto del momento: solo las caras de ESTA partida, ya recortadas.
+      campPorCara: usaCampPorCara
+        ? Object.fromEntries(
+            selCaras.map((vf) => [vf, (campPorCara[vf] || '').trim()])
+          )
+        : null,
       obs,
       files: filesLinea,
     };
@@ -500,6 +579,8 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
     setCatSel(l.cat);
     setSelCaras([...l.caras]);
     setCampania(l.campania);
+    setCampPorCara(l.campPorCara ? { ...l.campPorCara } : {});
+    setCampLibrePorCara({});
     setObs(l.obs);
     setFilesLinea([...l.files]);
     setEditandoId(l.id);
@@ -620,6 +701,13 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
           cat: catSel,
           caras: [caras[0].vendor_face_id],
           campania,
+          campPorCara: usaCampPorCara
+            ? {
+                [caras[0].vendor_face_id]: (
+                  campPorCara[caras[0].vendor_face_id] || ''
+                ).trim(),
+              }
+            : null,
           obs,
           files: filesLinea,
         },
@@ -671,7 +759,11 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
           nivel: (l.cat.impacto || '').trim(),
           origen: l.cat.origen,
           tipo: l.cat.tipo,
-          campania: l.campania || null,
+          // Con pauta QTM cada fila lleva la campaña de SU cara; sin ella,
+          // la única de la partida, como antes.
+          campania: l.campPorCara
+            ? l.campPorCara[vf] || null
+            : l.campania || null,
           observaciones: l.obs || null,
           lado: pideLado ? lado : null,
         };
@@ -1158,66 +1250,99 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
 
             <div className="row2">
               <div className="field">
-                <label>Campaña</label>
-                {opcionesCampania.length > 0 ? (
-                  (() => {
-                    const enOpciones = opcionesCampania.some(
-                      (o) => o.nombre === campania
-                    );
-                    // Una campaña escrita a mano (o de una partida vieja) que
-                    // no está pautada se muestra como "Otra…" con su texto.
-                    const escribiendo = campLibre || (!!campania && !enOpciones);
-                    return (
-                      <>
-                        <select
-                          value={
-                            escribiendo ? '__otra__' : enOpciones ? campania : ''
-                          }
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === '__otra__') {
-                              setCampLibre(true);
-                            } else {
-                              setCampania(v);
-                              setCampLibre(false);
-                            }
-                          }}
-                        >
-                          <option value="">— Sin campaña —</option>
-                          {opcionesCampania.map((o) => (
-                            <option key={o.nombre} value={o.nombre}>
-                              {o.nombre}
-                              {o.cats ? ` · ${o.cats}` : ''}
-                            </option>
-                          ))}
-                          <option value="__otra__">Otra…</option>
-                        </select>
-                        {escribiendo && (
-                          <input
-                            value={campania}
-                            onChange={(e) => setCampania(e.target.value)}
-                            placeholder="Escribe la campaña…"
-                            style={{ marginTop: 8 }}
-                          />
-                        )}
-                        <div
-                          style={{
-                            fontSize: 12,
-                            color: 'var(--muted)',
-                            marginTop: 6,
-                          }}
-                        >
-                          Pautadas en esta cara (catorcena anterior, actual y
-                          siguiente), según QTM.
-                        </div>
-                      </>
-                    );
-                  })()
+                {usaCampPorCara ? (
+                  <>
+                    <label>Campaña por cara</label>
+                    {selCaras.length === 0 ? (
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        Marca las caras afectadas y aquí aparece la campaña
+                        pautada de cada una.
+                      </div>
+                    ) : (
+                      selCaras.map((vf) => {
+                        const ops = opcionesPorCara.get(vf) || [];
+                        const val = campPorCara[vf] ?? '';
+                        const enOps = ops.some((o) => o.nombre === val);
+                        // Una campaña escrita a mano (o de una partida vieja
+                        // ya no pautada) se enseña como "Otra…" con su texto.
+                        const escribiendo =
+                          !!campLibrePorCara[vf] || (!!val && !enOps);
+                        return (
+                          <div
+                            key={vf}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              flexWrap: 'wrap',
+                              marginBottom: 6,
+                            }}
+                          >
+                            <span className="tag" style={{ flexShrink: 0 }}>
+                              {caraLabel(vf)}
+                            </span>
+                            <select
+                              style={{ flex: 1, minWidth: 150, width: 'auto' }}
+                              value={
+                                escribiendo ? '__otra__' : enOps ? val : ''
+                              }
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v === '__otra__') {
+                                  setCampLibrePorCara((p) => ({
+                                    ...p,
+                                    [vf]: true,
+                                  }));
+                                } else {
+                                  setCampPorCara((p) => ({ ...p, [vf]: v }));
+                                  setCampLibrePorCara((p) => ({
+                                    ...p,
+                                    [vf]: false,
+                                  }));
+                                }
+                              }}
+                            >
+                              <option value="">— Sin campaña —</option>
+                              {ops.map((o) => (
+                                <option key={o.nombre} value={o.nombre}>
+                                  {o.nombre}
+                                  {o.cats ? ` · ${o.cats}` : ''}
+                                </option>
+                              ))}
+                              <option value="__otra__">Otra…</option>
+                            </select>
+                            {escribiendo && (
+                              <input
+                                value={val}
+                                onChange={(e) =>
+                                  setCampPorCara((p) => ({
+                                    ...p,
+                                    [vf]: e.target.value,
+                                  }))
+                                }
+                                placeholder="Escribe la campaña…"
+                                style={{ flex: '1 1 100%' }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                    <div
+                      style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}
+                    >
+                      Precargada con la pauta vigente de QTM de cada cara.
+                      Cámbiala si lo que ves en campo es otra.
+                    </div>
+                  </>
                 ) : (
-                  <input
-                    value={campania}
-                    onChange={(e) => setCampania(e.target.value)}
-                  />
+                  <>
+                    <label>Campaña</label>
+                    <input
+                      value={campania}
+                      onChange={(e) => setCampania(e.target.value)}
+                    />
+                  </>
                 )}
               </div>
               <div className="field">
