@@ -18,6 +18,7 @@ import {
   UNIDADES_CON_LADO,
 } from '../../lib/constants';
 import { caraLabel, distKm, ladoFijoDePortico } from '../../lib/helpers';
+import { explicarErrorGps } from '../../lib/plataforma';
 import {
   catalogoParaMuebles,
   catalogoDesdeArbol,
@@ -230,20 +231,13 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
       },
       (err) => {
         setGeoBusy(false);
-        // El navegador solo da geolocalización en "orígenes seguros". Al
-        // entrar por http://IP-de-red el permiso se niega siempre, y el
-        // mensaje crudo del navegador no dice qué hacer.
-        const inseguro =
-          !window.isSecureContext ||
-          /secure origin/i.test(err.message || '');
+        // El mensaje crudo del navegador ("User denied Geolocation") no dice
+        // qué hacer. explicarErrorGps distingue origen inseguro, bloqueo del
+        // navegador (con los pasos para desbloquear según la plataforma),
+        // falta de señal y timeout.
         alert(
-          inseguro
-            ? 'El GPS solo funciona en conexiones seguras (https:// o localhost).\n\n' +
-                'Estás entrando por ' + window.location.protocol + '//' +
-                window.location.host + '.\n' +
-                'Abre la app con https:// (o desde localhost) y vuelve a intentar.\n\n' +
-                'Mientras tanto puedes buscar el sitio por su clave.'
-            : 'No se pudo obtener tu ubicación: ' + err.message
+          explicarErrorGps(err) +
+            '\n\nMientras tanto puedes buscar el sitio por su clave.'
         );
       },
       { enableHighAccuracy: true, timeout: 10000 }

@@ -42,10 +42,13 @@ function usaTactil(): boolean {
 function MiniFile({
   file,
   onQuitar,
+  onVer,
   disabled,
 }: {
   file: File;
   onQuitar?: () => void;
+  /** Abre la foto/video en grande, para revisarla antes de mandar. */
+  onVer?: () => void;
   disabled?: boolean;
 }) {
   const [url, setUrl] = useState('');
@@ -62,6 +65,9 @@ function MiniFile({
     <div style={{ position: 'relative', width: 76 }}>
       {esVideo ? (
         <div
+          onClick={onVer}
+          role={onVer ? 'button' : undefined}
+          aria-label={onVer ? `Ver ${file.name}` : undefined}
           style={{
             width: 76,
             height: 76,
@@ -72,6 +78,7 @@ function MiniFile({
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: 24,
+            cursor: onVer ? 'pointer' : undefined,
           }}
         >
           🎥
@@ -81,6 +88,8 @@ function MiniFile({
           <img
             src={url}
             alt={file.name}
+            onClick={onVer}
+            role={onVer ? 'button' : undefined}
             style={{
               width: 76,
               height: 76,
@@ -88,6 +97,7 @@ function MiniFile({
               borderRadius: 9,
               border: '1px solid var(--line)',
               display: 'block',
+              cursor: onVer ? 'pointer' : undefined,
             }}
           />
         )
@@ -124,6 +134,83 @@ function MiniFile({
   );
 }
 
+/**
+ * Visor a pantalla completa de un File local (foto o video), para revisar
+ * la toma ANTES de mandarla: en campo, una foto movida o con el dedo encima
+ * se detecta aquí, no cuando el validador la rechaza.
+ */
+function VisorFile({ file, onClose }: { file: File; onClose: () => void }) {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1200,
+        background: 'rgba(0,0,0,.9)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 14,
+        paddingTop: 'max(14px, env(safe-area-inset-top))',
+      }}
+    >
+      {url &&
+        (file.type.startsWith('video') ? (
+          <video
+            src={url}
+            controls
+            autoPlay
+            playsInline
+            // Sin esto, tocar los controles del video cerraba el visor.
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 10 }}
+          />
+        ) : (
+          <img
+            src={url}
+            alt={file.name}
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              objectFit: 'contain',
+              borderRadius: 10,
+            }}
+          />
+        ))}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Cerrar"
+        style={{
+          position: 'absolute',
+          top: 'max(10px, env(safe-area-inset-top))',
+          right: 10,
+          width: 40,
+          height: 40,
+          borderRadius: '50%',
+          border: 'none',
+          background: 'rgba(0,0,0,.6)',
+          color: '#fff',
+          fontSize: 18,
+          lineHeight: 1,
+          padding: 0,
+          cursor: 'pointer',
+        }}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 function SubirArchivos({
   onFiles,
   archivos,
@@ -133,6 +220,8 @@ function SubirArchivos({
   accept = 'image/*,video/*',
   ayuda,
 }: Props) {
+  /** Archivo abierto en el visor a pantalla completa. */
+  const [ver, setVer] = useState<File | null>(null);
   const camFotoRef = useRef<HTMLInputElement>(null);
   const camVideoRef = useRef<HTMLInputElement>(null);
   const galRef = useRef<HTMLInputElement>(null);
@@ -278,6 +367,7 @@ function SubirArchivos({
               file={f}
               disabled={disabled}
               onQuitar={onQuitar ? () => onQuitar(i) : undefined}
+              onVer={() => setVer(f)}
             />
           ))}
         </div>
@@ -288,6 +378,8 @@ function SubirArchivos({
           {ayuda}
         </div>
       )}
+
+      {ver && <VisorFile file={ver} onClose={() => setVer(null)} />}
     </div>
   );
 }

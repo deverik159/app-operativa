@@ -6,7 +6,7 @@
 // ============================================================
 import { useState, useEffect, useRef } from 'react';
 import { sb } from '../../lib/supabase';
-import { caraIncidencia } from '../../lib/helpers';
+import { caraIncidencia, sinAcentos } from '../../lib/helpers';
 import {
   validarAdjunto,
   subirAdjunto,
@@ -31,6 +31,16 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
 
   /** Mensaje propio en edición (estilo WhatsApp). null = escribiendo nuevo. */
   const [editando, setEditando] = useState<Mensaje | null>(null);
+
+  /** Búsqueda en el hilo: filtra por texto y autor, sin acentos. */
+  const [buscar, setBuscar] = useState('');
+  const msgsVisibles = buscar.trim()
+    ? msgs.filter((m) =>
+        sinAcentos(
+          `${m.texto} ${m.autor_nombre || ''} ${m.autor_email || ''}`
+        ).includes(sinAcentos(buscar))
+      )
+    : msgs;
 
   /** Adjuntos del hilo, agrupados por mensaje. */
   const [adjuntos, setAdjuntos] = useState<Record<number, ChatAdjunto[]>>({});
@@ -306,6 +316,17 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
           {inc.lado || inc.clave_medio ? ` · cara ${caraIncidencia(inc)}` : ''}
         </p>
 
+        {/* Buscador del hilo: en incidencias largas el dato que importa
+            (un folio, una medida, quién dijo qué) queda arriba del pliegue. */}
+        {msgs.length > 0 && (
+          <input
+            value={buscar}
+            onChange={(e) => setBuscar(e.target.value)}
+            placeholder="🔍 Buscar en el chat…"
+            style={{ marginBottom: 8 }}
+          />
+        )}
+
         <div
           ref={boxRef}
           style={{
@@ -337,8 +358,19 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
             >
               Sin mensajes. Escribe el primero.
             </div>
+          ) : msgsVisibles.length === 0 ? (
+            <div
+              style={{
+                color: 'var(--muted)',
+                fontSize: 13,
+                textAlign: 'center',
+                padding: 20,
+              }}
+            >
+              Nada coincide con “{buscar}”.
+            </div>
           ) : (
-            msgs.map((m) => {
+            msgsVisibles.map((m) => {
               const mio =
                 (m.autor_email || '').toLowerCase() === email.toLowerCase();
               return (

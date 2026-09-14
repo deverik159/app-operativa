@@ -26,6 +26,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import { idCorto } from '../../lib/helpers';
+import { explicarErrorGps } from '../../lib/plataforma';
 import { duplicadasEnProcesoDeSitio } from '../../lib/duplicados';
 import SubirArchivos from '../../components/SubirArchivos';
 import { catalogoParaMuebles, llaveCatalogo } from '../../lib/catalogo';
@@ -255,7 +256,9 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
         setCoords({ lat: p.coords.latitude, lng: p.coords.longitude });
         setGpsMsg('');
       },
-      (e) => setGpsMsg('No se pudo obtener tu ubicación: ' + e.message),
+      // El error crudo ("User denied") no dice qué hacer: el helper da los
+      // pasos para desbloquear la ubicación según la plataforma.
+      (e) => setGpsMsg(explicarErrorGps(e)),
       { enableHighAccuracy: true, timeout: 12000 }
     );
   };
@@ -914,7 +917,16 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                 </button>
               )}
               {gpsMsg && (
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--muted)',
+                    marginTop: 5,
+                    // Los pasos para desbloquear la ubicación vienen en
+                    // renglones numerados: sin esto salían en una sola línea.
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
                   {gpsMsg}
                 </div>
               )}
