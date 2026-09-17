@@ -97,6 +97,12 @@ export interface Incidencia {
   tipo_medio: string | null;
   medio: string | null;
   tipo_mueble: string | null;
+  /**
+   * Nombre "amigable" del MEDIO, pese al nombre histórico de la columna:
+   * en Biobox es el nombre de máquina (inventario.site_legacy_id); en
+   * Ecovallas, el de la pantalla (tabla nombres_pantallas, por cara,
+   * sembrada con nombres_pantallas.sql — Erik, 17-sep-2026).
+   */
   nombre_biobox: string | null;
   unidad_negocio: string | null;
   latitud: number | null;

@@ -104,6 +104,10 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
   const [caras, setCaras] = useState<InventarioItem[]>([]);
   const [cara, setCara] = useState<string>(inc.clave_medio || '');
   const [cargandoCaras, setCargandoCaras] = useState(false);
+  /** Nombres de pantalla por cara (nombres_pantallas), como en el alta. */
+  const [nombresPantalla, setNombresPantalla] = useState<
+    Record<string, string>
+  >({});
 
   const [busy, setBusy] = useState(false);
 
@@ -127,6 +131,23 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
       // Sitio nuevo: si trae una sola cara no hay nada que elegir.
       setCara(filas.length === 1 ? filas[0].vendor_face_id : '');
       setDireccion(filas[0]?.direccion ?? null);
+    }
+
+    // Nombres de pantalla de estas caras (vacío si el sitio no tiene):
+    // al guardar, la cara nueva recopia el suyo igual que en el alta.
+    setNombresPantalla({});
+    if (filas.length) {
+      const { data: noms } = await sb
+        .from('nombres_pantallas')
+        .select('vendor_face_id,nombre')
+        .in('vendor_face_id', filas.map((c) => c.vendor_face_id));
+      const m: Record<string, string> = {};
+      ((noms as { vendor_face_id: string; nombre: string }[]) || []).forEach(
+        (n) => {
+          m[n.vendor_face_id] = n.nombre;
+        }
+      );
+      setNombresPantalla(m);
     }
   };
 
@@ -212,7 +233,11 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
       plaza: delSitio?.estado ?? null,
       medio: laCara?.tipo_medio ?? null,
       tipo_mueble: laCara?.tipo_mueble ?? null,
-      nombre_biobox: esBiobox ? laCara?.site_legacy_id || null : null,
+      // "Nombre amigable del medio": máquina en Biobox (site_legacy_id),
+      // pantalla en Ecovallas (nombres_pantallas). Igual que en el alta.
+      nombre_biobox: esBiobox
+        ? laCara?.site_legacy_id || null
+        : (laCara && nombresPantalla[laCara.vendor_face_id]) || null,
     };
   };
 
@@ -415,6 +440,9 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
                 <option key={c.vendor_face_id} value={c.vendor_face_id}>
                   {caraLabel(c.vendor_face_id)}
                   {c.tipo_medio ? ` · ${c.tipo_medio}` : ''}
+                  {nombresPantalla[c.vendor_face_id]
+                    ? ` · ${nombresPantalla[c.vendor_face_id]}`
+                    : ''}
                 </option>
               ))}
             </select>

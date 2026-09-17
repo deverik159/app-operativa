@@ -161,6 +161,15 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
 
   const esBiobox = un.toLowerCase().startsWith('biobox');
 
+  /**
+   * Nombres "amigables" de las pantallas del sitio elegido, POR CARA
+   * (tabla nombres_pantallas — como el nombre de máquina de los Biobox,
+   * pero para las megapantallas de Ecovallas). Vacío si el sitio no tiene.
+   */
+  const [nombresPantalla, setNombresPantalla] = useState<
+    Record<string, string>
+  >({});
+
   /** Carga las caras del sitio y precarga lo que se deriva de ellas. */
   const pickSite = async (o: Sitio) => {
     setSiteQuery(o.site_id);
@@ -180,6 +189,23 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
     setNearOpts([]);
     const lg = filas.map((c) => c.site_legacy_id).find(Boolean);
     setNombreBiobox(lg || '');
+
+    // Nombres de pantalla de estas caras. Si la tabla no existe o no hay
+    // nombres, el mapa queda vacío y todo se ve como antes.
+    setNombresPantalla({});
+    if (filas.length) {
+      const { data: noms } = await sb
+        .from('nombres_pantallas')
+        .select('vendor_face_id,nombre')
+        .in('vendor_face_id', filas.map((c) => c.vendor_face_id));
+      const m: Record<string, string> = {};
+      ((noms as { vendor_face_id: string; nombre: string }[]) || []).forEach(
+        (n) => {
+          m[n.vendor_face_id] = n.nombre;
+        }
+      );
+      setNombresPantalla(m);
+    }
   };
 
   const buscarCerca = () => {
@@ -509,6 +535,7 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
     setSiteQuery('');
     setCaras([]);
     setSelCaras([]);
+    setNombresPantalla({});
   };
   const toggleCara = (vf: string) =>
     setSelCaras((s) => (s.includes(vf) ? s.filter((x) => x !== vf) : [...s, vf]));
@@ -746,7 +773,12 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
           clave_medio: vf,
           medio: c.tipo_medio || null,
           tipo_mueble: c.tipo_mueble || null,
-          nombre_biobox: esBiobox ? nombreBiobox || null : null,
+          // "Nombre amigable del medio": el de máquina en Biobox, el de
+          // pantalla en Ecovallas (nombres_pantallas, por cara). La columna
+          // conserva su nombre histórico y toda la tubería ya la enseña.
+          nombre_biobox: esBiobox
+            ? nombreBiobox || null
+            : nombresPantalla[vf] || null,
           nombre_incidencia: l.cat.detalle,
           area_responsable: l.cat.area,
           // impacto del catálogo viene con espacios de sobra.
@@ -1186,6 +1218,9 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
                       <span>
                         <b>{caraLabel(c.vendor_face_id)}</b> ·{' '}
                         {c.categoria || c.tipo_medio}
+                        {nombresPantalla[c.vendor_face_id]
+                          ? ` · ${nombresPantalla[c.vendor_face_id]}`
+                          : ''}
                       </span>
                     </label>
                   ))}
@@ -1238,6 +1273,9 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
                 >
                   {caraLabel(caras[0].vendor_face_id)} ·{' '}
                   {caras[0].categoria || caras[0].tipo_medio}
+                  {nombresPantalla[caras[0].vendor_face_id]
+                    ? ` · ${nombresPantalla[caras[0].vendor_face_id]}`
+                    : ''}
                 </div>
               </div>
             )}
