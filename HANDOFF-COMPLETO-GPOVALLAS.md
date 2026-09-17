@@ -624,9 +624,9 @@ Biobox.
 | `revisiones_schema.sql` | ✅ aplicado — checklist, revisiones, vista y RPC |
 | `importar_rutas_capas.sql` | ✅ aplicado |
 | `fijacion_limpiar_urls_muertas.sql` | ✅ aplicado (2-sep) — limpió URLs de evidencia muertas en la base de Mario |
-| `qtm_pautas_lectura.sql` | ⏳ confirmar aplicado — lectura de `qtm_pautas` para la campaña por cara (sin correrlo, el campo Campaña se queda como texto libre) |
-| `chat_editar_mensajes.sql` | ⏳ confirmar aplicado — edición de mensajes 15 min con rastro (sin correrlo, el ✏️ avisa que no pudo) |
-| `chat_retencion_30_dias.sql` | ⏳ confirmar aplicado — archivos del chat viven mínimo 30 días; trae monitor de peso vs 1 GB |
+| `qtm_pautas_lectura.sql` | ✅ aplicado (17-sep) — lectura de `qtm_pautas` para la campaña por cara |
+| `chat_editar_mensajes.sql` | ✅ aplicado (17-sep) — edición de mensajes 15 min con rastro |
+| `chat_retencion_30_dias.sql` | ✅ aplicado (17-sep) — archivos del chat viven mínimo 30 días; trae monitor de peso vs 1 GB |
 | `nombres_pantallas.sql` | ✅ aplicado (17-sep) — nombres de las 103 pantallas de Ecovallas; upsert re-ejecutable para altas/correcciones |
 | `diagnostico_biobox.sql` | referencia, solo lectura — ✅ ya corrido |
 | `diagnostico_biobox_2.sql` | referencia, solo lectura — ✅ ya corrido (10-sep; OJO: los números de máquina SÍ se repiten entre claves, la tarjeta enseña la clave completa por eso) |
