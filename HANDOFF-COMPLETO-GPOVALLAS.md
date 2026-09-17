@@ -1,7 +1,7 @@
 # HANDOFF COMPLETO — Central de Operaciones GPO VALLAS
 ### Documento de traspaso para retomar el proyecto sin empezar de cero
 
-_Última actualización: 11 de septiembre de 2026. Reemplaza la versión anterior
+_Última actualización: 17 de septiembre de 2026. Reemplaza la versión anterior
 (agosto 2026, "migración en curso"). Este documento captura TODO el contexto:
 arquitectura, módulos, esquema de datos, decisiones tomadas, errores cometidos
 y pendientes. Léelo completo antes de continuar._
@@ -360,6 +360,31 @@ del árbol. Si el árbol no carga por RLS o red, Nueva incidencia cae al catálo
 general para no bloquear la captura: diagnosticar primero la lectura de
 `arbol_digital` antes de cambiar ese comportamiento.
 
+**Campaña POR CARA (Ecovallas, 11-sep-2026).** Una misma incidencia puede
+pegarle a caras que están en campañas distintas, así que el campo Campaña ya
+no es uno por partida: cada cara marcada trae su selector, **prellenado solo**
+con su campaña VIGENTE HOY según `qtm_pautas` (por `vendor_face_id`, ventana
+de catorcena anterior/actual/siguiente, etiquetada "APAC · Cat-18"). Con
+varias vigentes (rotación digital) o ninguna, no se adivina: el reportante
+elige, con "Otra…" para texto libre. Cada fila del reporte guarda la campaña
+de SU cara. La fecha de "vigente" es LOCAL del dispositivo, no UTC (de noche
+UTC ya va en el día siguiente y el corte de catorcena asignaba mal). Requiere
+`qtm_pautas_lectura.sql`: sin él, `qtm_pautas` tiene RLS sin políticas, la app
+la ve vacía y el campo se comporta como texto libre. El prellenado nunca pisa
+lo que el usuario ya decidió. Las fotos siguen compartidas por partida a
+propósito: foto-por-cara exacta = capturar partidas separadas.
+
+**Nombres de pantalla (Ecovallas, 17-sep-2026).** Como el nombre de máquina
+de Biobox, pero para las 103 megapantallas: tabla `nombres_pantallas`
+(`vendor_face_id` → nombre), sembrada con `nombres_pantallas.sql` (upsert:
+para altas o correcciones se edita el VALUES y se re-corre). Va en tabla
+propia y NO en columna de `inventario` porque el inventario se sincroniza con
+QTM cada noche, y `site_legacy_id` (donde vive el nombre Biobox) en Ecovallas
+trae el id legado real. El nombre es POR CARA ("… 218 1/4" … "4/4"). El alta y
+EditModal lo enseñan junto a la clave y lo copian a
+`incidencias.nombre_biobox` — esa columna es, en la práctica, "el nombre
+amigable del medio" y toda la tubería de tarjetas y modales ya la muestra.
+
 **`causas_raiz` es catálogo de Digital.** Durante la migración se agregó por
 error un selector de causa raíz para áreas no-Digital, razonando que el HTML
 cargaba la tabla y la usaba en `guardar()` pero no la renderizaba. No era un
@@ -598,8 +623,14 @@ Biobox.
 | `push_suscripciones.sql` | ✅ aplicado — secreto configurado vía Vault |
 | `revisiones_schema.sql` | ✅ aplicado — checklist, revisiones, vista y RPC |
 | `importar_rutas_capas.sql` | ✅ aplicado |
+| `fijacion_limpiar_urls_muertas.sql` | ✅ aplicado (2-sep) — limpió URLs de evidencia muertas en la base de Mario |
+| `qtm_pautas_lectura.sql` | ⏳ confirmar aplicado — lectura de `qtm_pautas` para la campaña por cara (sin correrlo, el campo Campaña se queda como texto libre) |
+| `chat_editar_mensajes.sql` | ⏳ confirmar aplicado — edición de mensajes 15 min con rastro (sin correrlo, el ✏️ avisa que no pudo) |
+| `chat_retencion_30_dias.sql` | ⏳ confirmar aplicado — archivos del chat viven mínimo 30 días; trae monitor de peso vs 1 GB |
+| `nombres_pantallas.sql` | ✅ aplicado (17-sep) — nombres de las 103 pantallas de Ecovallas; upsert re-ejecutable para altas/correcciones |
 | `diagnostico_biobox.sql` | referencia, solo lectura — ✅ ya corrido |
-| `diagnostico_biobox_2.sql` | referencia, solo lectura — pendiente |
+| `diagnostico_biobox_2.sql` | referencia, solo lectura — ✅ ya corrido (10-sep; OJO: los números de máquina SÍ se repiten entre claves, la tarjeta enseña la clave completa por eso) |
+| `diagnostico_qtm_campanias.sql` | referencia, solo lectura — ✅ ya corrido (columnas y RLS de qtm_pautas/qtm_contratos) |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
@@ -700,24 +731,33 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 - **Probar el módulo Pauta con datos reales**: importar la CAT 16, recorrerla
   desde celular, y confirmar que al reimportar el avance de campo sobrevive.
 - Decidir qué hacer con `AREAS_RESP` (§7).
-- **Biobox, en este orden**:
-  1. Correr `diagnostico_biobox_2.sql`. Lo que falta de ahí: el listado de
-     `detalle` del catálogo de incidencias (para ligar los puntos del
-     checklist) y confirmar que ningún número de máquina se repite entre
-     las 202.
-  2. Aplicar `revisiones_schema.sql`, luego `importar_rutas_capas.sql`.
-  3. Exportar el KML del mapa e importarlo desde Rutas de Monitoreo con la
-     unidad Biobox. Revisar la vista previa antes de confirmar: los empates
-     `baja` y `ninguna` vienen desmarcados a propósito.
-  4. Ajustar los dos checklists sembrados (⚙️ Checklist, con selector
-     Impreso/Digital) y **ligar cada punto con su incidencia del catálogo**
-     — es lo que hace que una anomalía salga con área y SLA correctos sin
-     que el revisor sepa nada de eso.
-  5. Revisar una máquina real desde el celular, de punta a punta.
-  6. Decidir qué hacer con `bitacoras`: ya existe, tiene la misma forma
+- **Biobox — causas y prioridades por punto (en curso, 10-sep-2026)**. El
+  equipo llenó `BIOBOX-CAUSAS-Y-PRIORIDAD.xlsx`: por punto del checklist, las
+  causas posibles con prioridad, incidencia del catálogo que se levanta y nota
+  sugerida (la nota se precargará en observaciones). La revisión a fondo
+  encontró: 10 incidencias de la col. G que NO existen en el catálogo (habría
+  que darlas de alta primero), 3 conflictos prioridad-Excel vs impacto-catálogo
+  (UPS/NUC fuera de línea, Apagado), filas sin prioridad (grupo Robot), áreas
+  multivalor ("Biotech" no existe como área), muebles en texto libre
+  ("R2, M4,M5" vs los reales M4/M4-R2/M4 URBANA/M5/M5 OXXO) y el renglón de
+  ejemplo sin borrar. **Erik entregará el Excel corregido**; con él se
+  construye: alta de detalles nuevos al catálogo + tabla de causas por punto
+  con siembra + selector de causa en RevisionModal (lista cerrada en vez de
+  texto libre). OJO: el ⚙️ de configuración del checklist se retiró de la app
+  (commit fbde3b0), así que la liga punto→causa→incidencia vivirá por SQL
+  re-ejecutable, como `nombres_pantallas.sql`.
+- **Biobox, resto**:
+  0. Revisar una máquina real desde el celular, de punta a punta (la revisión
+     y el historial siguen vivos; solo se retiró el ⚙️ de configuración).
+  1. Decidir qué hacer con `bitacoras`: ya existe, tiene la misma forma
      (estado + observaciones + una evidencia + liga a incidencia) y viene
      del módulo de Bitácora que se descartó. Si trae historia, conviene
      mostrarla dentro de la hoja de vida en vez de dejarla huérfana.
+  2. `diagnostico_biobox_2.sql` ya se corrió (10-sep): los números de máquina
+     SÍ se repiten entre claves (el número 1 vive en 7 máquinas) — por eso la
+     tarjeta enseña la clave completa. Y los municipios vienen duplicados por
+     mayúsculas ("Benito Juárez"/"BENITO JUÁREZ"): ensucia filtros, limpiar
+     algún día en inventario.
 - Los 4 marcadores de la capa `Biobox` del mapa (`Escato`, `Cov Vallas`,
   `Mas Espacio`, `Placove`) parecen proveedores o bodegas, no máquinas.
   Decidir si se importan como ruta o se dejan fuera.
@@ -894,3 +934,52 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 - Al iniciar en Windows o macOS, ejecutar `git fetch origin` y comparar
   `HEAD` con `origin/main`. Al 11-sep-2026 ambos apuntan a `1ceeb7d`, sin
   cambios locales; el repositorio está alineado con GitHub.
+
+### 12.8. Actualización del 14–17-sep-2026: campaña por cara, chat y nombres
+
+Todo salió de las pruebas de campo de Erik (línea Windows, commits
+`64d2f49` → `1daa96b`):
+
+- **Campaña POR CARA** (`64d2f49`): refina lo del 11-sep — ya no hay un solo
+  desplegable por partida; cada cara marcada se prellena sola con su campaña
+  vigente HOY y cada fila guarda la suya. Detalle completo en §4.1
+  ("Campaña POR CARA").
+- **Chat** (`4563bc7`, `a4779b5`): el autor puede EDITAR su mensaje 15 minutos
+  (como WhatsApp) mientras la incidencia siga abierta; la burbuja marca
+  "(editado)", el trigger `msg_marca_edicion` guarda `editado_en` y el texto
+  ORIGINAL (auditoría — el cliente no puede pisarlos), la edición llega en
+  vivo por Realtime de UPDATE y borrar sigue prohibido. Requiere
+  `chat_editar_mensajes.sql`. Además: **buscador** del hilo (texto y autor,
+  sin acentos) y retención de archivos a **30 días** desde la subida aunque
+  la incidencia cierre (antes: 2 días tras el cierre; válvula de 60 días se
+  queda) — `chat_retencion_30_dias.sql`, que incluye el monitor de "peso
+  vivo" contra el 1 GB del plan gratis: el riesgo son los videos (50 MB
+  c/u); si se acerca a ~700 MB, bajar la retención solo de videos.
+- **Visor de archivos** (`a4779b5`): las miniaturas de `SubirArchivos` se
+  abren a pantalla completa (video reproducible) para revisar la toma ANTES
+  de mandarla. Aplica a todos los modales que suben archivos.
+- **GPS con instrucciones** (`a4779b5`): `explicarErrorGps()` en
+  `plataforma.ts` — el caso Brayan: GPS del teléfono encendido pero permiso
+  del NAVEGADOR bloqueado ("User denied"), que no se puede volver a pedir
+  desde la app. El mensaje ahora da los pasos exactos por plataforma
+  (iPhone: Ajustes → Privacidad → Localización → Safari; Android: candado en
+  Chrome → Permisos, o Ajustes → Apps si es la PWA instalada), y distingue
+  origen inseguro, sin señal y timeout. Se usa en "Sitios cerca de mí" y en
+  la revisión de Biobox.
+- **Nombres de pantallas Ecovallas** (`1daa96b`, ✅ verificado en vivo):
+  detalle en §4.1 ("Nombres de pantalla") y `nombres_pantallas.sql`.
+- **El técnico borra SUS fotos en RepararModal** (`f729911`): 🗑 bajo cada
+  miniatura propia antes de mandar a reparar; espeja `ev_del` y verifica la
+  negación silenciosa de RLS (0 filas). Vale igual en Fijación Externa (modal
+  compartido).
+- **Campana y buscador** (`6483e5f`): accionar una incidencia (validar,
+  reparar, rechazar, decidir reasignación) marca leídos sus avisos — la
+  campana no sigue anunciando lo ya hecho (el chat NO se toca: se marca al
+  abrir el chat); y cambiar de sección limpia el buscador (el folio fijado
+  por una notificación se quedaba filtrando la otra pestaña).
+- **En curso**: Biobox causas/prioridades por punto (§9.1, esperando el Excel
+  corregido de Erik) y la conexión INVERSA con Mario (exponerle `incidencias`
+  por FDW para que su sistema asigne cuadrilla — diseñar vista/RPC acotada,
+  no tabla completa).
+- Al 17-sep-2026, `main` local y `origin/main` apuntan a `1daa96b` más este
+  documento; sin cambios locales fuera de él.
