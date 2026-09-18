@@ -76,7 +76,12 @@ from (values
   ('Arte institucional', 'Op. Bio Box', 'Alto', 'Interno', 'Desviaciones de Procedimiento', 'M4-R2', 'Biobox'),
   ('Arte institucional', 'Op. Bio Box', 'Alto', 'Interno', 'Desviaciones de Procedimiento', 'M5', 'Biobox'),
   ('Arte institucional', 'Op. Bio Box', 'Alto', 'Interno', 'Desviaciones de Procedimiento', 'M4 URBANA', 'Biobox'),
-  ('Arte institucional', 'Op. Bio Box', 'Alto', 'Interno', 'Desviaciones de Procedimiento', 'M5 OXXO', 'Biobox')
+  ('Arte institucional', 'Op. Bio Box', 'Alto', 'Interno', 'Desviaciones de Procedimiento', 'M5 OXXO', 'Biobox'),
+  -- El detalle YA existía, pero solo para la familia M4 — la verificación
+  -- 4b de la primera corrida (17-sep) encontró la causa "Sensor de mano"
+  -- en M5 sin fila de catálogo. Mismos datos que sus filas M4.
+  ('Falla en el sensor de mano', 'Op. Bio Box', 'Medio', 'Externo', 'Imponderable', 'M5', 'Biobox'),
+  ('Falla en el sensor de mano', 'Op. Bio Box', 'Medio', 'Externo', 'Imponderable', 'M5 OXXO', 'Biobox')
 ) as v(detalle, area, impacto, origen, tipo, tipo_mueble, unidad)
 where not exists (
   select 1 from public.catalogo_incidencias c
@@ -85,6 +90,30 @@ where not exists (
     and coalesce(c.tipo_mueble, '') = v.tipo_mueble
     and coalesce(c.unidad_negocio, '') ilike v.unidad
 );
+
+-- ══ PASO 1b — El punto "Robot" del checklist ══
+-- El equipo lo agregó en el Excel (cilindro, cortina, placa PCB, sensor de
+-- mano, abono de puntos) y el checklist vivo no lo tiene: la verificación
+-- 4a de la primera corrida lo dejó sin liga. Se agrega al final del
+-- checklist de las DOS plantillas activas de Biobox (sus causas son de
+-- medio "Ambas"). El id es bigserial: se genera solo.
+insert into public.checklist_puntos
+  (plantilla_id, orden, grupo, texto, ayuda, critico)
+select p.id,
+       coalesce((select max(cp.orden) from public.checklist_puntos cp
+                 where cp.plantilla_id = p.id), 0) + 10,
+       'Energía y conexión',
+       'Robot',
+       'Cilindro, cortina, placa PCB, sensor de mano y abono de puntos',
+       false
+from public.checklist_plantillas p
+where p.unidad_negocio = 'Biobox'
+  and p.activa = true
+  and not exists (
+    select 1 from public.checklist_puntos cp
+    where cp.plantilla_id = p.id
+      and lower(trim(cp.texto)) = 'robot'
+  );
 
 -- ══ PASO 2 — Tabla de causas por punto ══
 create table if not exists public.checklist_causas (
