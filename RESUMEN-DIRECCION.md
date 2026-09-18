@@ -27,9 +27,22 @@ evidencia fotográfica y tiempos medidos.
 4. **Se cierra**: el validador aprueba la reparación con la evidencia a la
    vista, o la rechaza con motivo (cada rechazo se cuenta como indicador).
 
-Cada paso deja rastro: quién, cuándo, con qué foto. El chat por incidencia
-queda como registro (los mensajes no pueden borrarse) y los indicadores se
+Cada paso deja rastro: quién, cuándo, con qué foto. Los indicadores se
 calculan de estos datos, no de reportes manuales.
+
+## Comunicación dentro del ticket
+
+- **Notificaciones push al celular** (incluido iPhone): cada cambio de manos
+  avisa solo a quien le toca actuar — el validador cuando hay algo nuevo que
+  validar, el técnico cuando le llega trabajo, el área nueva cuando se
+  aprueba una reasignación. Tocar la notificación abre la incidencia exacta,
+  aunque la app estuviera cerrada.
+- **Chat por incidencia**: todos los involucrados en el ticket (reportante,
+  validador, técnico) conversan dentro de la propia incidencia, con fotos y
+  videos cortos. El hilo es parte del expediente: los mensajes no pueden
+  borrarse (las correcciones quedan marcadas como "editado" y el texto
+  original se conserva) y al cerrar la incidencia el chat queda de solo
+  lectura. Nada de la operación se decide en canales externos sin rastro.
 
 ## Qué mide (pestaña Indicadores)
 
@@ -71,8 +84,6 @@ calculan de estos datos, no de reportes manuales.
   coordinador, manager, consulta): cada quien ve y toca solo lo suyo, y las
   reglas se aplican en la base de datos, no solo en pantalla.
 - La evidencia es obligatoria en cada paso que cambia un estatus.
-- Notificaciones push al celular (incluido iPhone) para validar y reparar a
-  tiempo.
 
 ## Estado (18-sep-2026)
 

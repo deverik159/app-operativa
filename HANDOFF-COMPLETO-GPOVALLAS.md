@@ -993,6 +993,8 @@ Todo salió de las pruebas de campo de Erik (línea Windows, commits
   sistema asigne cuadrilla — diseñar vista/RPC acotada, no tabla completa).
 - **Documentación para dirección**: `RESUMEN-DIRECCION.md` (18-sep-2026) —
   el funcionamiento de la app en lenguaje de negocio, para dar contexto sin
-  entrar a lo técnico. Este handoff sigue siendo el documento técnico.
+  entrar a lo técnico. Publicado también como página para compartir por liga:
+  https://claude.ai/artifact/QHahoSKBfuYLvjTf5BJtSn (privada hasta que Erik
+  la comparta). Este handoff sigue siendo el documento técnico.
 - Al 17-sep-2026, `main` local y `origin/main` apuntan a `1daa96b` más este
   documento; sin cambios locales fuera de él.
