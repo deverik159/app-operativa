@@ -628,6 +628,7 @@ Biobox.
 | `chat_editar_mensajes.sql` | ✅ aplicado (17-sep) — edición de mensajes 15 min con rastro |
 | `chat_retencion_30_dias.sql` | ✅ aplicado (17-sep) — archivos del chat viven mínimo 30 días; trae monitor de peso vs 1 GB |
 | `nombres_pantallas.sql` | ✅ aplicado (17-sep) — nombres de las 103 pantallas de Ecovallas; upsert re-ejecutable para altas/correcciones |
+| `biobox_causas.sql` | ⏳ pendiente de correr — alta de 10 detalles al catálogo + tabla checklist_causas (94 causas por punto); re-ejecutable |
 | `diagnostico_biobox.sql` | referencia, solo lectura — ✅ ya corrido |
 | `diagnostico_biobox_2.sql` | referencia, solo lectura — ✅ ya corrido (10-sep; OJO: los números de máquina SÍ se repiten entre claves, la tarjeta enseña la clave completa por eso) |
 | `diagnostico_qtm_campanias.sql` | referencia, solo lectura — ✅ ya corrido (columnas y RLS de qtm_pautas/qtm_contratos) |
@@ -731,21 +732,23 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 - **Probar el módulo Pauta con datos reales**: importar la CAT 16, recorrerla
   desde celular, y confirmar que al reimportar el avance de campo sobrevive.
 - Decidir qué hacer con `AREAS_RESP` (§7).
-- **Biobox — causas y prioridades por punto (en curso, 10-sep-2026)**. El
-  equipo llenó `BIOBOX-CAUSAS-Y-PRIORIDAD.xlsx`: por punto del checklist, las
-  causas posibles con prioridad, incidencia del catálogo que se levanta y nota
-  sugerida (la nota se precargará en observaciones). La revisión a fondo
-  encontró: 10 incidencias de la col. G que NO existen en el catálogo (habría
-  que darlas de alta primero), 3 conflictos prioridad-Excel vs impacto-catálogo
-  (UPS/NUC fuera de línea, Apagado), filas sin prioridad (grupo Robot), áreas
-  multivalor ("Biotech" no existe como área), muebles en texto libre
-  ("R2, M4,M5" vs los reales M4/M4-R2/M4 URBANA/M5/M5 OXXO) y el renglón de
-  ejemplo sin borrar. **Erik entregará el Excel corregido**; con él se
-  construye: alta de detalles nuevos al catálogo + tabla de causas por punto
-  con siembra + selector de causa en RevisionModal (lista cerrada en vez de
-  texto libre). OJO: el ⚙️ de configuración del checklist se retiró de la app
-  (commit fbde3b0), así que la liga punto→causa→incidencia vivirá por SQL
-  re-ejecutable, como `nombres_pantallas.sql`.
+- **Biobox — causas y prioridades por punto (CONSTRUIDO 17-sep-2026;
+  falta correr el SQL y probar en campo)**. Del Excel corregido
+  `BIOBOX-CAUSAS-Y-PRIORIDAD.xlsx` salió `biobox_causas.sql`: (1) alta de los
+  10 detalles nuevos al catálogo — áreas decididas por Erik: Teltonika dañado
+  y revisión remota → TI, Apagado parcial y Falta arte → Digital, el resto →
+  Op. Bio Box ("Biotech" no existe como área) — en los CINCO muebles del
+  catálogo, no solo los 3 del Excel; (2) tabla `checklist_causas` (94 causas,
+  textos ya corregidos, notas de acción unidas); (3) verificaciones de liga.
+  En RevisionModal, al marcar anomalía el revisor elige la causa de una LISTA
+  CERRADA: prende "Levantar incidencia" con la incidencia del catálogo ya
+  puesta, enseña el semáforo de prioridad, y la causa + acción sugerida se
+  escriben en la respuesta de la revisión y en las observaciones de la
+  incidencia. "Otra (texto libre)" conserva el flujo anterior; un punto sin
+  causas se captura como siempre. El empate causa↔punto es POR TEXTO
+  (sin acentos): renombrar un punto desliga sus causas y el PASO 4a del SQL
+  lo detecta. El ÁREA la sigue decidiendo el catálogo, no la causa. La liga
+  vive por SQL re-ejecutable (el ⚙️ del checklist se retiró en fbde3b0).
 - **Biobox, resto**:
   0. Revisar una máquina real desde el celular, de punta a punta (la revisión
      y el historial siguen vivos; solo se retiró el ⚙️ de configuración).

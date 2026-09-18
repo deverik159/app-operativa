@@ -357,6 +357,27 @@ export interface ArbolDigital {
   sla_fuera: number | null;
 }
 
+/**
+ * tabla `checklist_causas` — lista cerrada de causas por punto del checklist
+ * de Biobox (biobox_causas.sql). Al marcar anomalía, el revisor elige la
+ * causa y esta trae prioridad, la incidencia del catálogo que se levanta y
+ * una nota de acción que se suma a las observaciones. Empata con el punto
+ * por TEXTO (`punto_texto` ≈ checklist_puntos.texto, sin acentos).
+ */
+export interface ChecklistCausa {
+  id: number;
+  /** 'Ambas' | 'Impresa' | 'Digital'. */
+  medio: string;
+  grupo: string | null;
+  punto_texto: string;
+  causa: string;
+  prioridad: string | null;
+  genera_orden: boolean;
+  incidencia_detalle: string | null;
+  nota: string | null;
+  tipo_mueble: string;
+}
+
 /** tabla `sla_areas` — horas de SLA por área responsable. */
 export interface SlaArea {
   area: string | null;

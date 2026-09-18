@@ -25,7 +25,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
-import { idCorto } from '../../lib/helpers';
+import { idCorto, sinAcentos } from '../../lib/helpers';
 import { explicarErrorGps } from '../../lib/plataforma';
 import { duplicadasEnProcesoDeSitio } from '../../lib/duplicados';
 import SubirArchivos from '../../components/SubirArchivos';
@@ -35,6 +35,7 @@ import type {
   UbicacionRevision,
   ChecklistPlantilla,
   ChecklistPunto,
+  ChecklistCausa,
   CatalogoIncidencia,
   ValorRespuesta,
   EstadoMaquina,
@@ -44,6 +45,13 @@ import type {
 
 /** Subcarpeta en el bucket, para no mezclar con incidencias ni pauta. */
 const CARPETA = 'revisiones';
+
+/** Colores del semáforo de prioridad de las causas (hoja PRIORIDADES). */
+const PRIORIDAD_COLOR: Record<string, string> = {
+  Alta: '#ef4444',
+  Media: '#f59e0b',
+  Baja: '#22c55e',
+};
 
 const ESTADOS: { v: EstadoMaquina; t: string; c: string }[] = [
   { v: 'operando', t: 'Operando', c: 'var(--ok)' },
@@ -60,6 +68,11 @@ type Marca = {
   levantar: boolean;
   /** `detalle` del catálogo elegido. */
   incidencia: string;
+  /**
+   * Causa elegida de la lista cerrada (checklist_causas). Trae prioridad,
+   * incidencia sugerida y nota de acción. null = texto libre, como antes.
+   */
+  causa: ChecklistCausa | null;
 };
 
 type Props = {
@@ -85,6 +98,8 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
   const [catalogo, setCatalogo] = useState<CatalogoIncidencia[]>([]);
 
   const [marcas, setMarcas] = useState<Record<number, Marca>>({});
+  /** Causas aplicables a esta máquina (ya filtradas por medio y mueble). */
+  const [causas, setCausas] = useState<ChecklistCausa[]>([]);
   const [estado, setEstado] = useState<EstadoMaquina | ''>('');
   const [obs, setObs] = useState('');
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -164,6 +179,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
           files: [],
           levantar: false,
           incidencia: pt.incidencia_sugerida || '',
+          causa: null,
         };
       });
       // Se arranca vacío de verdad: el objeto queda, pero `contestados` mide
@@ -182,6 +198,25 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
             ubic.tipo_mueble,
           ]).opciones
         );
+
+      // Lista cerrada de causas por punto (biobox_causas.sql), acotada al
+      // medio y al mueble de ESTA máquina. Si la tabla no existe o viene
+      // vacía, cada anomalía se captura con texto libre, como siempre.
+      const { data: cs } = await sb.from('checklist_causas').select('*');
+      const medioCausa = (medio || '').toLowerCase().startsWith('impres')
+        ? 'Impresa'
+        : 'Digital';
+      const muebleMaq = (ubic.tipo_mueble || '').trim().toUpperCase();
+      setCausas(
+        (((cs as ChecklistCausa[]) || [])).filter((c) => {
+          if (c.medio !== 'Ambas' && c.medio !== medioCausa) return false;
+          const mc = (c.tipo_mueble || '').trim().toUpperCase();
+          if (!mc) return true;
+          // 'M4 URBANA' cuenta como M4 y 'M5 OXXO' como M5 (el Excel de
+          // causas maneja las familias M4 / M4-R2 / M5); M4-R2 solo exacto.
+          return mc === muebleMaq || mc === muebleMaq.split(' ')[0];
+        })
+      );
 
       setCargando(false);
     })();
@@ -203,7 +238,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
       return {
         ...prev,
         [id]: limpiar
-          ? { ...m, valor, files: [], levantar: false, nota: '' }
+          ? { ...m, valor, files: [], levantar: false, nota: '', causa: null }
           : { ...m, valor },
       };
     });
@@ -211,6 +246,33 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
   };
   const editar = (id: number, campo: keyof Marca, v: unknown) =>
     setMarcas((prev) => ({ ...prev, [id]: { ...prev[id], [campo]: v } }));
+
+  /** Causas de la lista cerrada que le tocan a UN punto (empate por texto). */
+  const causasDe = (p: ChecklistPunto): ChecklistCausa[] =>
+    causas.filter(
+      (c) => sinAcentos(c.punto_texto).trim() === sinAcentos(p.texto).trim()
+    );
+
+  /**
+   * Elegir causa mueve varias cosas a la vez: la propia causa, y —si genera
+   * orden de trabajo— prende "Levantar incidencia" con la incidencia del
+   * catálogo ya puesta. El revisor puede desmarcar o cambiar después.
+   */
+  const elegirCausa = (id: number, c: ChecklistCausa | null) => {
+    setMarcas((prev) => {
+      const m = prev[id];
+      if (!m) return prev;
+      return {
+        ...prev,
+        [id]: {
+          ...m,
+          causa: c,
+          levantar: c ? c.genera_orden && !!c.incidencia_detalle : m.levantar,
+          incidencia: c?.incidencia_detalle || m.incidencia,
+        },
+      };
+    });
+  };
 
   const grupos = useMemo(() => {
     const m = new Map<string, ChecklistPunto[]>();
@@ -389,7 +451,15 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
         grupo: p.grupo,
         orden: p.orden,
         valor: marcas[p.id].valor,
-        nota: marcas[p.id].nota || null,
+        // La causa elegida queda en la respuesta: la revisión de hace meses
+        // debe decir QUÉ tenía, no solo que tuvo anomalía.
+        nota:
+          [
+            marcas[p.id].causa ? `Causa: ${marcas[p.id].causa!.causa}` : '',
+            marcas[p.id].nota,
+          ]
+            .filter(Boolean)
+            .join(' — ') || null,
       }));
 
     const { data, error } = await sb.rpc('guardar_revision', {
@@ -498,9 +568,17 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
             origen: cat.origen,
             tipo: cat.tipo,
             // El punto del checklist queda escrito en la incidencia: quien la
-            // atienda ve de qué revisión salió sin tener que buscarla.
+            // atienda ve de qué revisión salió sin tener que buscarla. La
+            // causa y su acción sugerida (Excel de Biobox) van también: son
+            // las "notas para las observaciones" que pidió Erik.
             observaciones:
               `Detectado en revisión de máquina: ${p.texto}` +
+              (marcas[p.id].causa
+                ? ` — Causa: ${marcas[p.id].causa!.causa}` +
+                  (marcas[p.id].causa!.nota
+                    ? `. Acción sugerida: ${marcas[p.id].causa!.nota}`
+                    : '')
+                : '') +
               (marcas[p.id].nota ? ` — ${marcas[p.id].nota}` : ''),
             punto_id: p.id,
           };
@@ -757,10 +835,75 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
 
                         {esAnomalia && (
                           <div style={{ marginTop: 9 }}>
+                            {causasDe(p).length > 0 && (
+                              <>
+                                <select
+                                  value={m.causa ? String(m.causa.id) : ''}
+                                  onChange={(e) =>
+                                    elegirCausa(
+                                      p.id,
+                                      causas.find(
+                                        (c) => String(c.id) === e.target.value
+                                      ) || null
+                                    )
+                                  }
+                                  style={{ marginBottom: 6 }}
+                                >
+                                  <option value="">
+                                    ¿Qué tiene? — elige la causa
+                                  </option>
+                                  {causasDe(p).map((c) => (
+                                    <option key={c.id} value={String(c.id)}>
+                                      {c.causa}
+                                      {c.incidencia_detalle
+                                        ? ` → ${c.incidencia_detalle}`
+                                        : ''}
+                                    </option>
+                                  ))}
+                                  <option value="otra">Otra (texto libre)</option>
+                                </select>
+                                {m.causa?.prioridad && (
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      gap: 6,
+                                      alignItems: 'center',
+                                      marginBottom: 6,
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    <span
+                                      className="pill"
+                                      style={{
+                                        background:
+                                          (PRIORIDAD_COLOR[m.causa.prioridad] ||
+                                            '#888') + '22',
+                                        color:
+                                          PRIORIDAD_COLOR[m.causa.prioridad] ||
+                                          '#aaa',
+                                        fontWeight: 700,
+                                      }}
+                                    >
+                                      Prioridad {m.causa.prioridad}
+                                    </span>
+                                    {m.causa.nota && (
+                                      <span style={{ color: 'var(--muted)' }}>
+                                        {m.causa.nota}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </>
+                            )}
+
                             <input
                               value={m.nota}
                               onChange={(e) => editar(p.id, 'nota', e.target.value)}
-                              placeholder="¿Qué tiene? (opcional)"
+                              placeholder={
+                                m.causa
+                                  ? 'Detalle adicional (opcional)'
+                                  : '¿Qué tiene? (opcional)'
+                              }
                             />
 
                             <div style={{ marginTop: 8 }}>
