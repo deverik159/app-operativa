@@ -18,9 +18,14 @@
 -- ============================================================
 
 -- ══ PASO 1 — Detalles NUEVOS del catálogo (no duplica si ya existen) ══
+-- El `id` se calcula aquí: la columna es NOT NULL SIN default (los ids
+-- llegaron puestos desde la importación original) y sin esto el insert
+-- reventaba con "null value in column id" (Erik, 17-sep-2026).
 insert into public.catalogo_incidencias
-  (detalle, area, impacto, origen, tipo, tipo_mueble, unidad_negocio)
-select v.detalle, v.area, v.impacto, v.origen, v.tipo, v.tipo_mueble, v.unidad
+  (id, detalle, area, impacto, origen, tipo, tipo_mueble, unidad_negocio)
+select (select coalesce(max(id), 0) from public.catalogo_incidencias)
+         + row_number() over (order by v.detalle, v.tipo_mueble),
+       v.detalle, v.area, v.impacto, v.origen, v.tipo, v.tipo_mueble, v.unidad
 from (values
   ('SD300 fuera de línea', 'Op. Bio Box', 'Alto', 'Externo', 'Imponderable', 'M4', 'Biobox'),
   ('SD300 fuera de línea', 'Op. Bio Box', 'Alto', 'Externo', 'Imponderable', 'M4-R2', 'Biobox'),
