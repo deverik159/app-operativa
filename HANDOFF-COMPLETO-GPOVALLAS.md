@@ -628,7 +628,7 @@ Biobox.
 | `chat_editar_mensajes.sql` | ✅ aplicado (17-sep) — edición de mensajes 15 min con rastro |
 | `chat_retencion_30_dias.sql` | ✅ aplicado (17-sep) — archivos del chat viven mínimo 30 días; trae monitor de peso vs 1 GB |
 | `nombres_pantallas.sql` | ✅ aplicado (17-sep) — nombres de las 103 pantallas de Ecovallas; upsert re-ejecutable para altas/correcciones |
-| `biobox_causas.sql` | ⏳ pendiente de correr — alta de 10 detalles al catálogo + tabla checklist_causas (94 causas por punto); re-ejecutable |
+| `biobox_causas.sql` | ✅ aplicado y verificado (18-sep) — alta de detalles al catálogo, tabla checklist_causas (94 causas), punto "Robot", y recorte del checklist a los puntos del Excel; re-ejecutable |
 | `diagnostico_biobox.sql` | referencia, solo lectura — ✅ ya corrido |
 | `diagnostico_biobox_2.sql` | referencia, solo lectura — ✅ ya corrido (10-sep; OJO: los números de máquina SÍ se repiten entre claves, la tarjeta enseña la clave completa por eso) |
 | `diagnostico_qtm_campanias.sql` | referencia, solo lectura — ✅ ya corrido (columnas y RLS de qtm_pautas/qtm_contratos) |
@@ -732,8 +732,15 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 - **Probar el módulo Pauta con datos reales**: importar la CAT 16, recorrerla
   desde celular, y confirmar que al reimportar el avance de campo sobrevive.
 - Decidir qué hacer con `AREAS_RESP` (§7).
-- **Biobox — causas y prioridades por punto (CONSTRUIDO 17-sep-2026;
-  falta correr el SQL y probar en campo)**. Del Excel corregido
+- **Biobox — causas y prioridades por punto (✅ APLICADO y verificado,
+  18-sep-2026)**. Las verificaciones del PASO 4 salieron limpias tras dos
+  ajustes de la primera corrida: se dio de alta el punto "Robot" (nuevo en el
+  Excel) y "Falla en el sensor de mano" para M5; además, el PASO 3b recortó
+  el checklist EXACTAMENTE a los puntos del Excel — los sobrantes quedaron
+  con `activo=false` (no borrados: el historial de revisiones los sigue
+  leyendo; se revive uno con `update … set activo = true`). Falta solo la
+  prueba de campo de una revisión real. Historia del build: del Excel
+  corregido
   `BIOBOX-CAUSAS-Y-PRIORIDAD.xlsx` salió `biobox_causas.sql`: (1) alta de los
   10 detalles nuevos al catálogo — áreas decididas por Erik: Teltonika dañado
   y revisión remota → TI, Apagado parcial y Falta arte → Digital, el resto →
@@ -980,9 +987,12 @@ Todo salió de las pruebas de campo de Erik (línea Windows, commits
   campana no sigue anunciando lo ya hecho (el chat NO se toca: se marca al
   abrir el chat); y cambiar de sección limpia el buscador (el folio fijado
   por una notificación se quedaba filtrando la otra pestaña).
-- **En curso**: Biobox causas/prioridades por punto (§9.1, esperando el Excel
-  corregido de Erik) y la conexión INVERSA con Mario (exponerle `incidencias`
-  por FDW para que su sistema asigne cuadrilla — diseñar vista/RPC acotada,
-  no tabla completa).
+- **Biobox causas/prioridades por punto**: aplicado y verificado el
+  18-sep-2026 (detalle en §9.1 y `biobox_causas.sql`). Sigue en curso la
+  conexión INVERSA con Mario (exponerle `incidencias` por FDW para que su
+  sistema asigne cuadrilla — diseñar vista/RPC acotada, no tabla completa).
+- **Documentación para dirección**: `RESUMEN-DIRECCION.md` (18-sep-2026) —
+  el funcionamiento de la app en lenguaje de negocio, para dar contexto sin
+  entrar a lo técnico. Este handoff sigue siendo el documento técnico.
 - Al 17-sep-2026, `main` local y `origin/main` apuntan a `1daa96b` más este
   documento; sin cambios locales fuera de él.
