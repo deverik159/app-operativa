@@ -246,7 +246,42 @@ values
   ('Digital', 'Contenido', 'Está reproduciendo el loop, no una pantalla de error', 'Biobox artes Campañas digitales', 'Alta', true, 'Falta arte', 'Reporte de arte dañado, imagen, arte descontinuado, arte con versión incorrecta', 'M4-R2'),
   ('Digital', 'Contenido', 'Está reproduciendo el loop, no una pantalla de error', 'Biobox artes Campañas digitales', 'Alta', true, 'Falta arte', 'Reporte de arte dañado, imagen, arte descontinuado, arte con versión incorrecta', 'M5');
 
+-- ══ PASO 3b — El checklist queda EXACTAMENTE con los puntos del Excel ══
+-- Los puntos sembrados originalmente que el Excel ya no contempla ("Las
+-- campañas del loop son las que corresponden", "Video sin cortes…", etc.)
+-- se DESACTIVAN, no se borran (Erik, 18-sep-2026): las revisiones viejas
+-- respondieron contra ellos y el historial debe seguir leyéndose igual.
+-- Reactivar uno = update activo = true a mano.
+--
+-- Un punto sobrevive si ALGUNA causa lo nombra Y esa causa aplica al medio
+-- de su plantilla (Ambas siempre; Impresa↔Impreso; Digital↔Digital; una
+-- plantilla genérica sin tipo_medio conserva los de ambos medios).
+update public.checklist_puntos cp
+set activo = false
+from public.checklist_plantillas p
+where p.id = cp.plantilla_id
+  and p.unidad_negocio = 'Biobox'
+  and cp.activo = true
+  and not exists (
+    select 1 from public.checklist_causas c
+    where lower(trim(c.punto_texto)) = lower(trim(cp.texto))
+      and (
+        c.medio = 'Ambas'
+        or p.tipo_medio is null
+        or (c.medio = 'Impresa' and p.tipo_medio = 'Impreso')
+        or (c.medio = 'Digital' and p.tipo_medio = 'Digital')
+      )
+  );
+
 -- ══ PASO 4 — VERIFICAR ══
+
+-- 0) Cómo quedó cada checklist tras el recorte: solo lo del Excel.
+select p.nombre as plantilla, p.tipo_medio, cp.grupo, cp.orden, cp.texto,
+       cp.activo
+from public.checklist_puntos cp
+join public.checklist_plantillas p on p.id = cp.plantilla_id
+where p.unidad_negocio = 'Biobox'
+order by p.tipo_medio, cp.activo desc, cp.orden, cp.id;
 
 -- a) Causas cuyo punto NO existe en el checklist actual (0 filas = todo
 --    liga; si sale algo, o el punto se renombró o el Excel lo escribió
