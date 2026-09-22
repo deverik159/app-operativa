@@ -496,12 +496,18 @@ function RutasView({
             + Nueva ruta
           </button>
         )}
-        {puedeGestionar && (
+        {/* Los importadores son POR UNIDAD, no un menú fijo: los tres
+            botones juntos confundían — dos son exclusivos de Biobox (el
+            Excel de operación y el mapa KML) y el genérico es el Excel de
+            rutas de las demás unidades (Erik, 22-sep-2026). Cada unidad ve
+            solo sus caminos, con etiqueta de qué archivo espera. */}
+        {puedeGestionar && unidad !== 'Biobox' && (
           <label
             className="btn sm ghost"
             style={{ display: 'inline-block', cursor: 'pointer' }}
+            title={`Excel con columnas: Clave Nueva, Ruta, Secuencia, Estatus, VALLAS. Importa a ${unidad} ${tipo}.`}
           >
-            {importando ? 'Importando…' : '📥 Importar archivo'}
+            {importando ? 'Importando…' : `📥 Importar rutas de ${unidad} (Excel)`}
             <input
               type="file"
               accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
@@ -511,25 +517,61 @@ function RutasView({
             />
           </label>
         )}
-        {puedeGestionar && (
+        {puedeGestionar && unidad === 'Biobox' && (
           <button
             className="btn sm"
             onClick={() => setExcelRutasAbierto(true)}
-            title="Una fila por máquina: clave y responsable. Empata por clave exacta."
+            title="Una fila por máquina: clave y responsable. Empata por clave exacta — el camino recomendado."
           >
-            🧾 Importar rutas (Excel)
+            🧾 Rutas Biobox: Excel de operación
           </button>
         )}
-        {puedeGestionar && (
+        {puedeGestionar && unidad === 'Biobox' && (
           <button
             className="btn sm ghost"
             onClick={() => setKmlAbierto(true)}
-            title="Las capas del mapa de My Maps se convierten en rutas. Empata por nombre, menos preciso que el Excel."
+            title="Las capas del mapa de My Maps se convierten en rutas. Empata por nombre de máquina, menos preciso que el Excel."
           >
-            🗺️ Importar mapa (KML)
+            🗺️ Rutas Biobox: mapa (KML)
           </button>
         )}
       </div>
+
+      {/* La ayuda de los importadores VISIBLE (los title no existen en
+          táctil): qué archivo espera cada botón de esta unidad. */}
+      {puedeGestionar && (
+        <div
+          style={{
+            fontSize: 11,
+            color: 'var(--muted)',
+            margin: '-6px 0 14px',
+            lineHeight: 1.5,
+          }}
+        >
+          {unidad === 'Biobox' ? (
+            <>
+              🧾 <b>Excel de operación</b>: una fila por máquina (clave +
+              responsable), empata por clave — el recomendado. 🗺️ <b>Mapa
+              KML</b>: las capas de My Maps se vuelven rutas, empata por
+              nombre (menos preciso).
+            </>
+          ) : (
+            <>
+              📥 <b>Excel de rutas</b> con columnas Clave Nueva, Ruta,
+              Secuencia, Estatus y VALLAS.
+              {unidad === 'Ecovallas' && tipo === 'Impreso' && (
+                <>
+                  {' '}
+                  Para Ecovallas Impreso también puedes usar{' '}
+                  <b>🗺️ Sincronizar rutas</b> en Pauta y Monitoreo: toma
+                  ruta y secuencia de la catorcena importada, sin otro
+                  archivo.
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {modalKml}
 
