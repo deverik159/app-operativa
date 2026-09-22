@@ -30,6 +30,7 @@ import RutasView from './modules/rutas/RutasView';
 import PautaView from './modules/pauta/PautaView';
 import BioboxView from './modules/biobox/BioboxView';
 import DisponibilidadView from './modules/inventario/DisponibilidadView';
+import BitacoraVVView from './modules/bitacora-vv/BitacoraVVView';
 import UsuariosView from './modules/usuarios/UsuariosView';
 import type { UsuarioRol } from './types/db';
 
@@ -483,11 +484,22 @@ function Main({ session }: { session: Session }) {
   const esMonitoristaPuro =
     misRoles.length > 0 && misRoles.every((r) => r === 'monitorista');
 
+  /**
+   * Mismo criterio para la dupla de la Bitácora VV: si SOLO es comercial
+   * y/o pautas, los indicadores de reparación no son su mundo — su app
+   * empieza en la bitácora.
+   */
+  const esBitacoraPuro =
+    misRoles.length > 0 &&
+    misRoles.every((r) => r === 'comercial' || r === 'pautas');
+
   // Su pestaña de inicio es la suya, no un dashboard que no ve.
   useEffect(() => {
     if (ready && esMonitoristaPuro)
       setTab((t) => (t === 'dashboard' ? 'pauta' : t));
-  }, [ready, esMonitoristaPuro]);
+    if (ready && esBitacoraPuro)
+      setTab((t) => (t === 'dashboard' ? 'bitacora_vv' : t));
+  }, [ready, esMonitoristaPuro, esBitacoraPuro]);
   const nombre =
     (session.user.user_metadata?.name as string) || email.split('@')[0];
 
@@ -595,17 +607,24 @@ function Main({ session }: { session: Session }) {
       ic: '🗂️',
       t: 'Incidencias',
     },
-    // Indicadores no es del monitorista puro: mide reparación y carga de
-    // áreas, trabajo que no es el suyo.
-    !esMonitoristaPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores' },
-    // Disponibilidad es para COMERCIAL, que hoy no tiene rol propio. Se
-    // abre a viewer además de manager y coordinador: viewer es el rol con
-    // el que entra quien solo consulta. Si algún día existe un rol
-    // `comercial`, se agrega aquí y nada más.
-    (has('manager') || has('coordinador') || has('viewer')) && {
+    // Indicadores no es del monitorista puro ni de comercial/pautas puros:
+    // mide reparación y carga de áreas, trabajo que no es el suyo.
+    !esMonitoristaPuro && !esBitacoraPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores' },
+    // Disponibilidad nació para comercial cuando aún no tenía rol propio;
+    // desde el 22-sep-2026 el rol `comercial` existe (Bitácora VV) y entra
+    // por derecho propio. Viewer sigue: es el rol de quien solo consulta.
+    (has('manager') || has('coordinador') || has('comercial') || has('viewer')) && {
       k: 'disponibilidad',
       ic: '🔎',
       t: 'Disponibilidad',
+    },
+    // Bitácora de Vía Verde: comercial captura campañas y cambios de
+    // versión; pautas los programa. Sustituye el Excel "BITACORA <MES>"
+    // que viajaba por correo (Erik, 22-sep-2026).
+    (has('manager') || has('comercial') || has('pautas')) && {
+      k: 'bitacora_vv',
+      ic: '🛣️',
+      t: 'Bitácora VV',
     },
     // Fijación Externa es operación de Ecovallas Impreso. El coordinador
     // ya no la ve: gestiona pauta y rutas, la fijación es de los técnicos
@@ -795,6 +814,13 @@ function Main({ session }: { session: Session }) {
             )}
             {tab === 'dashboard' && <IndicadoresView puedeConfigurarSla={has('manager')} />}
             {tab === 'disponibilidad' && <DisponibilidadView />}
+            {tab === 'bitacora_vv' && (
+              <BitacoraVVView
+                email={email}
+                puedeCapturar={has('comercial')}
+                puedeProgramar={has('pautas')}
+              />
+            )}
             {tab === 'fijacion_externa' && (
               <FijacionExternaView
                 email={email}

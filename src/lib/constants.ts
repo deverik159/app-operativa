@@ -39,6 +39,10 @@ export const ROLE_LABEL: Record<string, string> = {
   // antes se le daba 'reparacion' y arrastraba bandeja e indicadores.
   monitorista: 'Monitorista',
   coordinador: 'Coordinador',
+  // La dupla de la Bitácora VV (Erik, 22-sep-2026): comercial captura las
+  // campañas y pide los cambios de versión; pautas los programa al aire.
+  comercial: 'Comercial',
+  pautas: 'Pautas',
   manager: 'Admin',
   viewer: 'Viewer',
 };
@@ -49,6 +53,8 @@ export const ROLE_ICON: Record<string, string> = {
   reparacion: '🔧',
   monitorista: '📷',
   coordinador: '🧭',
+  comercial: '💼',
+  pautas: '📆',
   manager: '🛡️',
   viewer: '👁️',
 };
@@ -56,6 +62,8 @@ export const ROLE_ICON: Record<string, string> = {
 export const ROLE_PRIORITY = [
   'manager',
   'coordinador',
+  'comercial',
+  'pautas',
   'validador',
   'reparacion',
   'reportante',

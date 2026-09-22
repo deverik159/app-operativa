@@ -21,7 +21,10 @@ export type AppRole =
   | 'manager'
   | 'viewer'
   | 'coordinador'
-  | 'fijador';
+  | 'fijador'
+  | 'monitorista'
+  | 'comercial'
+  | 'pautas';
 
 /** ENUM estatus_incidencia. */
 export type EstatusInc =
