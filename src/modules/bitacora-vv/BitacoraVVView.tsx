@@ -151,6 +151,32 @@ function textoAHoras(texto: string): number[] {
   return alguna ? [...horas] : [...TODAS_LAS_HORAS];
 }
 
+/**
+ * Del estado de franjas a los textos que se guardan, validando según los
+ * días que toca la vigencia. Lo comparten el alta en lote y la captura
+ * por espacio: una sola fuente de la regla.
+ */
+function textosHorario(
+  inicio: string,
+  fin: string,
+  horasLV: number[],
+  horasSD: number[],
+  sdIgual: boolean
+): { error?: string; lv: string; sd: string } {
+  const dias = diasEnRango(inicio, fin);
+  const hayLV = [0, 1, 2, 3, 4].some((d) => dias.has(d));
+  const haySD = dias.has(5) || dias.has(6);
+  const sdHereda = hayLV && sdIgual;
+  if (hayLV && horasLV.length === 0)
+    return { error: 'Marca las franjas del horario de lunes a viernes.', lv: '', sd: '' };
+  if (haySD && !sdHereda && horasSD.length === 0)
+    return { error: 'Marca las franjas del horario de sábado y domingo.', lv: '', sd: '' };
+  return {
+    lv: hayLV ? horasATexto(horasLV) : 'NO APLICA',
+    sd: haySD ? horasATexto(sdHereda ? horasLV : horasSD) : 'NO APLICA',
+  };
+}
+
 /** Rejilla de 24 franjas con "24 HRS" y "Limpiar", como el mockup de Erik. */
 function FranjaHoras({
   titulo,
@@ -278,6 +304,84 @@ function agrupar(pautas: Pauta[]): Grupo[] {
   // Vigencia más reciente arriba; a igual inicio, VENTA antes que BONUS.
   return [...m.values()].sort(
     (a, b) => b.inicio.localeCompare(a.inicio) || a.tipo_venta.localeCompare(b.tipo_venta)
+  );
+}
+
+/**
+ * Días derivados de la vigencia + rejillas de franjas. Si el rango no toca
+ * fin de semana, la sección S-D ni aparece (y al revés). Lo usan el alta
+ * en lote y la captura por espacio.
+ */
+function SelectorHorario({
+  inicio,
+  fin,
+  horasLV,
+  horasSD,
+  sdIgual,
+  onLV,
+  onSD,
+  onSdIgual,
+}: {
+  inicio: string;
+  fin: string;
+  horasLV: number[];
+  horasSD: number[];
+  sdIgual: boolean;
+  onLV: (h: number[]) => void;
+  onSD: (h: number[]) => void;
+  onSdIgual: (v: boolean) => void;
+}) {
+  const dias = diasEnRango(inicio, fin);
+  const hayLV = [0, 1, 2, 3, 4].some((d) => dias.has(d));
+  const haySD = dias.has(5) || dias.has(6);
+  return (
+    <>
+      <div className="field">
+        <label>Días que cubre la vigencia</label>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {DIAS_SEMANA.map((d, i) => {
+            const activo = dias.has(i);
+            return (
+              <span
+                key={d}
+                style={{
+                  padding: '6px 11px',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  border: '1px solid ' + (activo ? 'var(--accent)' : 'var(--line)'),
+                  background: activo ? 'var(--accent)' : 'transparent',
+                  color: activo ? '#151515' : 'var(--muted)',
+                  opacity: activo ? 1 : 0.55,
+                }}
+              >
+                {d}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      {hayLV && (
+        <FranjaHoras titulo="Horario lunes a viernes" horas={horasLV} onChange={onLV} />
+      )}
+      {haySD && hayLV && (
+        <div className="field">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={sdIgual}
+              onChange={(e) => onSdIgual(e.target.checked)}
+              style={{ width: 'auto' }}
+            />
+            Sábado y domingo con el mismo horario
+          </label>
+        </div>
+      )}
+      {haySD && !(hayLV && sdIgual) && (
+        <FranjaHoras titulo="Horario sábado y domingo" horas={horasSD} onChange={onSD} />
+      )}
+    </>
   );
 }
 
@@ -558,18 +662,10 @@ function BitacoraVVView({
 
     // El horario sale de las franjas, y solo el que aplica según los días
     // que toca la vigencia (una pauta de fin de semana no lleva L-V).
-    const dias = diasEnRango(nf.inicio, nf.fin);
-    const hayLV = [0, 1, 2, 3, 4].some((d) => dias.has(d));
-    const haySD = dias.has(5) || dias.has(6);
-    // S-D hereda de L-V solo cuando hay L-V y el palomeo está puesto; si la
-    // vigencia es puro fin de semana, su rejilla es la única que manda.
-    const sdHereda = hayLV && sdIgual;
-    if (hayLV && horasLV.length === 0)
-      return alert('Marca las franjas del horario de lunes a viernes.');
-    if (haySD && !sdHereda && horasSD.length === 0)
-      return alert('Marca las franjas del horario de sábado y domingo.');
-    const textoLV = hayLV ? horasATexto(horasLV) : 'NO APLICA';
-    const textoSD = haySD ? horasATexto(sdHereda ? horasLV : horasSD) : 'NO APLICA';
+    const th = textosHorario(nf.inicio, nf.fin, horasLV, horasSD, sdIgual);
+    if (th.error) return alert(th.error);
+    const textoLV = th.lv;
+    const textoSD = th.sd;
 
     setGuardando(true);
     const empalmes = await buscarEmpalmes(nf.claves, nf.inicio, nf.fin, campana.id);
@@ -599,6 +695,105 @@ function BitacoraVVView({
     if (error) alert('No se pudo guardar la pauta: ' + error.message);
     else setAddPauta(false);
     setGuardando(false);
+    cargar();
+  };
+
+  // ------------------------------------------------------------
+  // Pauta POR ESPACIO: para campañas tipo SAMS donde cada id lleva su
+  // propia línea de tiempo (el 459 tuvo 5 periodos con horarios
+  // distintos). Se elige el id, se ven sus periodos y se le agrega el
+  // siguiente; "guardar" deja el modal abierto listo para el que sigue.
+  // ------------------------------------------------------------
+  const [ppe, setPpe] = useState<null | {
+    clave: string;
+    version: string;
+    tipo_venta: string;
+    testigos: boolean;
+    inicio: string;
+    fin: string;
+  }>(null);
+
+  const abrirPorEspacio = () => {
+    if (!campana) return;
+    setPpe({
+      clave: '',
+      version: grupos[0]?.version || '',
+      tipo_venta: 'VENTA',
+      testigos: grupos[0]?.testigos || false,
+      inicio: campana.fecha_inicio,
+      fin: campana.fecha_fin,
+    });
+    setHorasLV([...TODAS_LAS_HORAS]);
+    setHorasSD([...TODAS_LAS_HORAS]);
+    setSdIgual(true);
+  };
+
+  /** Periodos ya capturados del espacio elegido, en orden cronológico. */
+  const periodosDe = (clave: string): Pauta[] =>
+    campana
+      ? (pautasDe.get(campana.id) || [])
+          .filter((p) => p.espacio_clave === clave)
+          .sort((a, b) => a.inicio.localeCompare(b.inicio))
+      : [];
+
+  const guardarPeriodo = async () => {
+    if (!campana || !ppe) return;
+    if (!ppe.clave) return alert('Elige el espacio.');
+    if (!ppe.version.trim()) return alert('Falta la versión.');
+    if (!ppe.inicio || !ppe.fin || ppe.fin < ppe.inicio)
+      return alert('Revisa la vigencia: fin no puede ser antes del inicio.');
+    if (ppe.inicio < campana.fecha_inicio || ppe.fin > campana.fecha_fin)
+      return alert(
+        `La vigencia debe caer dentro de la campaña (${fechaCorta(campana.fecha_inicio)} – ${fechaCorta(campana.fecha_fin)}).`
+      );
+    const th = textosHorario(ppe.inicio, ppe.fin, horasLV, horasSD, sdIgual);
+    if (th.error) return alert(th.error);
+
+    setGuardando(true);
+    const empalmes = await buscarEmpalmes([ppe.clave], ppe.inicio, ppe.fin, campana.id);
+    if (empalmes.length) {
+      const sigue = confirm(
+        `OJO — este espacio ya está pautado en OTRA campaña en esas fechas:\n\n${empalmes.join('\n')}\n\n¿Continuar de todos modos?`
+      );
+      if (!sigue) {
+        setGuardando(false);
+        return;
+      }
+    }
+    const { error } = await sb.from('vv_pautas').insert({
+      campana_id: campana.id,
+      espacio_clave: ppe.clave,
+      tipo_venta: ppe.tipo_venta,
+      version: ppe.version.trim(),
+      inicio: ppe.inicio,
+      fin: ppe.fin,
+      horario_lv: th.lv,
+      horario_sd: th.sd,
+      testigos: ppe.testigos,
+      observaciones: null,
+      creada_por: email,
+    });
+    setGuardando(false);
+    if (error) {
+      alert('No se pudo guardar el periodo: ' + error.message);
+      return;
+    }
+    // Listo para el periodo que sigue: mismo espacio, arrancando al día
+    // siguiente. Cambiar de espacio o cerrar, decide el usuario.
+    const siguiente = sumarDias(ppe.fin, 1);
+    setPpe({
+      ...ppe,
+      inicio: siguiente <= campana.fecha_fin ? siguiente : campana.fecha_fin,
+      fin: campana.fecha_fin,
+    });
+    cargar();
+  };
+
+  const quitarPeriodo = async (p: Pauta) => {
+    if (!confirm(`¿Quitar el periodo ${fechaCorta(p.inicio)} – ${fechaCorta(p.fin)} de ${p.espacio_clave}?`))
+      return;
+    const { error } = await sb.from('vv_pautas').delete().eq('id', p.id);
+    if (error) alert('No se pudo quitar: ' + error.message);
     cargar();
   };
 
@@ -859,6 +1054,15 @@ function BitacoraVVView({
           {puedeCapturar && campana.estatus === 'activa' && (
             <button className="btn" onClick={abrirAddPauta}>
               ➕ Agregar pauta
+            </button>
+          )}
+          {puedeCapturar && campana.estatus === 'activa' && (
+            <button
+              className="btn ghost"
+              title="Para campañas donde cada id lleva sus propias fechas y horarios"
+              onClick={abrirPorEspacio}
+            >
+              ⏱ Pauta por espacio
             </button>
           )}
           {puedeCapturar && (
@@ -1166,73 +1370,16 @@ function BitacoraVVView({
                 </div>
               </div>
 
-              {(() => {
-                // Los días salen SOLOS de la vigencia: si el rango no toca
-                // sábado ni domingo, la franja S-D ni aparece — no hay cómo
-                // capturar un horario que no aplica (pedido de Erik, 22-sep).
-                const dias = diasEnRango(nf.inicio, nf.fin);
-                const hayLV = [0, 1, 2, 3, 4].some((d) => dias.has(d));
-                const haySD = dias.has(5) || dias.has(6);
-                return (
-                  <>
-                    <div className="field">
-                      <label>Días que cubre la vigencia</label>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {DIAS_SEMANA.map((d, i) => {
-                          const activo = dias.has(i);
-                          return (
-                            <span
-                              key={d}
-                              style={{
-                                padding: '6px 11px',
-                                borderRadius: 8,
-                                fontSize: 12,
-                                fontWeight: 700,
-                                border: '1px solid ' + (activo ? 'var(--accent)' : 'var(--line)'),
-                                background: activo ? 'var(--accent)' : 'transparent',
-                                color: activo ? '#151515' : 'var(--muted)',
-                                opacity: activo ? 1 : 0.55,
-                              }}
-                            >
-                              {d}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {hayLV && (
-                      <FranjaHoras
-                        titulo="Horario lunes a viernes"
-                        horas={horasLV}
-                        onChange={setHorasLV}
-                      />
-                    )}
-                    {haySD && hayLV && (
-                      <div className="field">
-                        <label
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={sdIgual}
-                            onChange={(e) => setSdIgual(e.target.checked)}
-                            style={{ width: 'auto' }}
-                          />
-                          Sábado y domingo con el mismo horario
-                        </label>
-                      </div>
-                    )}
-                    {haySD && !(hayLV && sdIgual) && (
-                      <FranjaHoras
-                        titulo="Horario sábado y domingo"
-                        horas={horasSD}
-                        onChange={setHorasSD}
-                      />
-                    )}
-                  </>
-                );
-              })()}
+              <SelectorHorario
+                inicio={nf.inicio}
+                fin={nf.fin}
+                horasLV={horasLV}
+                horasSD={horasSD}
+                sdIgual={sdIgual}
+                onLV={setHorasLV}
+                onSD={setHorasSD}
+                onSdIgual={setSdIgual}
+              />
 
               <div className="field">
                 <label>
@@ -1253,13 +1400,15 @@ function BitacoraVVView({
                   >
                     Columnas CDMX
                   </button>
-                  <button
-                    type="button"
-                    className="btn ghost sm"
-                    onClick={() => setClaves(columnasEdoMex.map((e) => e.clave))}
-                  >
-                    Columnas EDO MEX
-                  </button>
+                  {columnasEdoMex.length > 0 && (
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      onClick={() => setClaves(columnasEdoMex.map((e) => e.clave))}
+                    >
+                      Columnas EDO MEX
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn ghost sm"
@@ -1328,6 +1477,173 @@ function BitacoraVVView({
                 </button>
                 <button className="btn" onClick={guardarPauta} disabled={guardando}>
                   {guardando ? 'Guardando…' : 'Guardar pauta'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------- Modal: pauta por espacio ---------- */}
+        {ppe && (
+          <div className="overlay" onClick={() => !guardando && setPpe(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ marginTop: 0 }}>⏱ Pauta por espacio — {campana.nombre}</h3>
+              <p className="phint">
+                Para campañas donde cada id lleva sus propias fechas y horarios:
+                elige el espacio, captura un periodo y guarda — el modal queda
+                listo para el siguiente periodo del mismo espacio.
+              </p>
+
+              <div className="row2">
+                <div className="field">
+                  <label>Espacio</label>
+                  <select
+                    value={ppe.clave}
+                    onChange={(e) => setPpe({ ...ppe, clave: e.target.value })}
+                  >
+                    <option value="">— elige —</option>
+                    {porticos.length > 0 && (
+                      <optgroup label="Pórticos">
+                        {porticos.map((e) => (
+                          <option key={e.clave} value={e.clave}>
+                            {nombreEspacio(e)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    <optgroup label="Columnas CDMX">
+                      {columnasCDMX.map((e) => (
+                        <option key={e.clave} value={e.clave}>
+                          {e.clave} ({e.tipo})
+                        </option>
+                      ))}
+                    </optgroup>
+                    {columnasEdoMex.length > 0 && (
+                      <optgroup label="Columnas EDO MEX">
+                        {columnasEdoMex.map((e) => (
+                          <option key={e.clave} value={e.clave}>
+                            {e.clave} ({e.tipo})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Tipo</label>
+                  <select
+                    value={ppe.tipo_venta}
+                    onChange={(e) => setPpe({ ...ppe, tipo_venta: e.target.value })}
+                  >
+                    <option>VENTA</option>
+                    <option>BONUS</option>
+                  </select>
+                </div>
+              </div>
+
+              {ppe.clave &&
+                (() => {
+                  const previos = periodosDe(ppe.clave);
+                  if (!previos.length) return null;
+                  return (
+                    <div
+                      style={{
+                        border: '1px dashed var(--line)',
+                        borderRadius: 10,
+                        padding: 10,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, marginBottom: 6 }}>
+                        PERIODOS DE {ppe.clave} EN ESTA CAMPAÑA
+                      </div>
+                      <div style={{ display: 'grid', gap: 5 }}>
+                        {previos.map((p) => (
+                          <div
+                            key={p.id}
+                            style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}
+                          >
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                              {fechaCorta(p.inicio)} – {fechaCorta(p.fin)} · {p.tipo_venta} ·{' '}
+                              <span style={{ color: 'var(--muted)' }}>{p.horario_lv}</span>
+                            </span>
+                            <button
+                              type="button"
+                              className="btn-icono"
+                              title="Quitar este periodo"
+                              onClick={() => quitarPeriodo(p)}
+                            >
+                              🗑
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              <div className="field">
+                <label>Versión</label>
+                <input
+                  list="vv-versiones"
+                  value={ppe.version}
+                  onChange={(e) => setPpe({ ...ppe, version: e.target.value })}
+                  placeholder="SAMS_PIZZA / SAMS_VINO"
+                />
+              </div>
+
+              <div className="row2">
+                <div className="field">
+                  <label>Inicio</label>
+                  <input
+                    type="date"
+                    value={ppe.inicio}
+                    min={campana.fecha_inicio}
+                    max={campana.fecha_fin}
+                    onChange={(e) => setPpe({ ...ppe, inicio: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label>Fin</label>
+                  <input
+                    type="date"
+                    value={ppe.fin}
+                    min={campana.fecha_inicio}
+                    max={campana.fecha_fin}
+                    onChange={(e) => setPpe({ ...ppe, fin: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <SelectorHorario
+                inicio={ppe.inicio}
+                fin={ppe.fin}
+                horasLV={horasLV}
+                horasSD={horasSD}
+                sdIgual={sdIgual}
+                onLV={setHorasLV}
+                onSD={setHorasSD}
+                onSdIgual={setSdIgual}
+              />
+
+              <div className="field">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={ppe.testigos}
+                    onChange={(e) => setPpe({ ...ppe, testigos: e.target.checked })}
+                    style={{ width: 'auto' }}
+                  />
+                  Requiere testigos
+                </label>
+              </div>
+
+              <div className="modal-actions">
+                <button className="btn ghost" onClick={() => setPpe(null)} disabled={guardando}>
+                  Cerrar
+                </button>
+                <button className="btn" onClick={guardarPeriodo} disabled={guardando}>
+                  {guardando ? 'Guardando…' : 'Guardar periodo'}
                 </button>
               </div>
             </div>
