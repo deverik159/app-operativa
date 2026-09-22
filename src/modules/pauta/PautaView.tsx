@@ -200,6 +200,55 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [misRutas, filas, asignaciones]);
 
+  /**
+   * Las rutas del archivo de pauta pueblan el módulo de Rutas: la RPC
+   * arma las filas de esta catorcena y las pasa por importar_rutas (el
+   * pipeline del Excel de rutas de siempre). Sin esto, un sitio cuya ruta
+   * no existe en rutas_monitoreo no se puede asignar a un monitorista.
+   */
+  const [sincronizando, setSincronizando] = useState(false);
+  const sincronizarRutas = async () => {
+    if (catSel == null) return;
+    if (
+      !confirm(
+        `Se crearán/actualizarán las rutas de monitoreo con los sitios y ` +
+          `secuencias de la catorcena ${catSel} (las foráneas PLAZA/EDOMEX ` +
+          `no aplican). ¿Continuar?`
+      )
+    )
+      return;
+    setSincronizando(true);
+    const { data, error } = await sb.rpc('sincronizar_rutas_desde_pauta', {
+      p_catorcena: catSel,
+    });
+    setSincronizando(false);
+    if (error) {
+      alert('No se pudo sincronizar: ' + error.message);
+      return;
+    }
+    const r = data as {
+      rutas_creadas: number;
+      ubicaciones_procesadas: number;
+      omitidas: number;
+      sitios_en_pauta: number;
+      foraneos_omitidos: number;
+    };
+    alert(
+      `Rutas sincronizadas: ${r.ubicaciones_procesadas} ubicaciones ` +
+        `procesadas, ${r.rutas_creadas} rutas creadas` +
+        (r.omitidas > 0
+          ? `, ${r.omitidas} omitidas (no están en inventario de Ecovallas/Impreso)`
+          : '') +
+        (r.foraneos_omitidos > 0
+          ? `, ${r.foraneos_omitidos} sitios foráneos fuera (PLAZA/EDOMEX)`
+          : '') +
+        '.'
+    );
+    // Recargar: ahora los sitios traen su ruta_monitoreo_id y ya se puede
+    // asignar la ruta a un monitorista.
+    cargar(catSel);
+  };
+
   const asignarRuta = async (rutaId: number, correo: string) => {
     if (!correo) return;
     setAsignando(true);
@@ -608,6 +657,17 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
         {puedeImportar && (
           <button className="btn ghost sm" onClick={() => setImportar(true)}>
             📥 Importar
+          </button>
+        )}
+        {puedeImportar && (
+          <button
+            className="btn ghost sm"
+            onClick={sincronizarRutas}
+            disabled={sincronizando || catSel == null}
+            title="Crea/actualiza las rutas de monitoreo con los sitios y secuencias de esta catorcena"
+          >
+            {sincronizando && <span className="spinner" />}
+            🗺️ Sincronizar rutas
           </button>
         )}
       </div>
