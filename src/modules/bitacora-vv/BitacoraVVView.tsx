@@ -382,6 +382,31 @@ function BitacoraVVView({
     setAddPauta(true);
   };
 
+  /**
+   * "Siguiente versión": el patrón real de las bitácoras (Amazon: R1 del
+   * 1-7 jun, AUDIFONOS/CAJA/GORRA del 9-23, otra más del 24-29 a 24HRS).
+   * Son periodos consecutivos sobre LOS MISMOS espacios, a veces con
+   * brecha entre fechas y horario distinto — no un corte a media vigencia
+   * (eso es "Cambiar versión"). Se abre el alta precargada con los
+   * espacios y horarios del grupo, empezando el día siguiente a su fin.
+   */
+  const abrirSiguienteVersion = (g: Grupo) => {
+    if (!campana) return;
+    const siguiente = sumarDias(g.fin, 1);
+    setNf({
+      version: '',
+      tipo_venta: g.tipo_venta,
+      inicio: siguiente <= campana.fecha_fin ? siguiente : campana.fecha_fin,
+      fin: campana.fecha_fin,
+      horario_lv: g.horario_lv,
+      horario_sd: g.horario_sd,
+      testigos: g.testigos,
+      observaciones: '',
+      claves: g.filas.map((f) => f.espacio_clave),
+    });
+    setAddPauta(true);
+  };
+
   const guardarPauta = async () => {
     if (!campana) return;
     if (!nf.version.trim()) return alert('Falta la versión (nombre del arte).');
@@ -905,8 +930,14 @@ function BitacoraVVView({
                   {(puedeCambiar || puedeProgramar) && (
                     <div className="inc-actions">
                       {puedeCambiar && (
+                        <button className="btn sm" onClick={() => abrirSiguienteVersion(g)}>
+                          ➕ Siguiente versión
+                        </button>
+                      )}
+                      {puedeCambiar && (
                         <button
-                          className="btn sm"
+                          className="btn ghost sm"
+                          title="Corta esta vigencia a media campaña y abre la nueva en la misma fecha"
                           onClick={() => {
                             setCambioDe(g);
                             setCv({ version: '', desde: '' });
