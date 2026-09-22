@@ -43,6 +43,7 @@ const TITULOS: Record<string, string> = {
   reasignacion: 'Reasignación aprobada',
   chat: 'Nuevo mensaje',
   ruta: 'Cambio en tu ruta',
+  pauta_toma: 'Toma regresada',
 };
 
 type Cuerpo = {

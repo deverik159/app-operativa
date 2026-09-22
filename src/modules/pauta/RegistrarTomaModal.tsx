@@ -39,9 +39,27 @@ type Props = {
   onClose: () => void;
   /** Avisa al padre que la toma quedó registrada, para refrescar la lista. */
   onRegistrada: (vendorFaceId: string) => void;
+  /**
+   * coordinador/manager: puede COMPROBAR la toma (validarla) y también
+   * regresarla con motivo. El botón vive AQUÍ y no en la lista a
+   * propósito: comprobar sin haber visto las fotos no debe ser posible.
+   */
+  puedeComprobar?: boolean;
+  /** Comprueba en la base y refleja en la lista. true = quedó. */
+  onComprobar?: (fila: PautaRuta) => Promise<boolean>;
+  /** La toma se regresó: el padre pone la cara en PENDIENTE con su motivo. */
+  onRegresada?: (vendorFaceId: string, motivo: string) => void;
 };
 
-function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
+function RegistrarTomaModal({
+  fila,
+  email,
+  onClose,
+  onRegistrada,
+  puedeComprobar = false,
+  onComprobar,
+  onRegresada,
+}: Props) {
   const [evidencias, setEvidencias] = useState<EvidenciaPauta[]>([]);
   const [cargando, setCargando] = useState(true);
   const [subiendo, setSubiendo] = useState(false);
@@ -50,6 +68,43 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
   const [err, setErr] = useState('');
 
   const yaRegistrada = !!fila.fecha_toma;
+
+  // --- Revisión del coordinador (solo con toma registrada sin comprobar) ---
+  const revisando =
+    puedeComprobar && yaRegistrada && !fila.fecha_comprobacion;
+  /** true = está escribiendo el motivo para regresar la toma. */
+  const [regresando, setRegresando] = useState(false);
+  const [motivoRegreso, setMotivoRegreso] = useState('');
+  const [resolviendo, setResolviendo] = useState(false);
+
+  const comprobarToma = async () => {
+    if (!onComprobar) return;
+    setResolviendo(true);
+    const ok = await onComprobar(fila);
+    setResolviendo(false);
+    if (ok) onClose();
+  };
+
+  const regresarToma = async () => {
+    if (!motivoRegreso.trim()) {
+      setErr('Escribe el motivo del regreso: el monitorista lo va a leer.');
+      return;
+    }
+    setResolviendo(true);
+    setErr('');
+    const { error } = await sb.rpc('rechazar_toma', {
+      p_catorcena: fila.catorcena,
+      p_vendor_face_id: fila.vendor_face_id,
+      p_motivo: motivoRegreso.trim(),
+    });
+    setResolviendo(false);
+    if (error) {
+      setErr('No se pudo regresar: ' + error.message);
+      return;
+    }
+    onRegresada?.(fila.vendor_face_id, motivoRegreso.trim());
+    onClose();
+  };
 
   /**
    * La especificación de toma manda cuántas fotos se exigen (3 si no hay).
@@ -274,6 +329,25 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
           </div>
         )}
 
+        {/* Toma de reposición: el monitorista ve POR QUÉ se la regresaron
+            antes de volver a disparar la cámara. */}
+        {!yaRegistrada && fila.rechazo_motivo && (
+          <div
+            style={{
+              background: '#3a1a1a',
+              border: '1px solid #5a2a2a',
+              color: '#ffb4b4',
+              fontSize: 13,
+              padding: '10px 12px',
+              borderRadius: 10,
+              marginBottom: 14,
+            }}
+          >
+            ⛔ El coordinador regresó la toma anterior: “{fila.rechazo_motivo}”.
+            Esta captura la repone.
+          </div>
+        )}
+
         <div className="field">
           <label>Referencia / ubicación (opcional)</label>
           <input
@@ -406,13 +480,28 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
           )}
         </div>
 
+        {/* Regreso de la toma: el motivo es obligatorio — es lo que el
+            monitorista va a leer en su notificación. */}
+        {revisando && regresando && (
+          <div className="field">
+            <label>Motivo del regreso</label>
+            <textarea
+              rows={2}
+              value={motivoRegreso}
+              onChange={(e) => setMotivoRegreso(e.target.value)}
+              placeholder="Ej. la foto salió movida; falta la toma larga…"
+              disabled={resolviendo}
+            />
+          </div>
+        )}
+
         <div className="modal-actions">
           <button
             className="btn ghost"
-            onClick={onClose}
-            disabled={subiendo || guardando}
+            onClick={() => (regresando ? setRegresando(false) : onClose())}
+            disabled={subiendo || guardando || resolviendo}
           >
-            {yaRegistrada ? 'Cerrar' : 'Cancelar'}
+            {regresando ? 'Cancelar regreso' : yaRegistrada ? 'Cerrar' : 'Cancelar'}
           </button>
           {!yaRegistrada && (
             <button
@@ -421,6 +510,33 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
               disabled={guardando || subiendo || cargando}
             >
               {guardando ? 'Registrando…' : '📷 Registrar toma'}
+            </button>
+          )}
+          {revisando && !regresando && (
+            <>
+              <button
+                className="btn hi"
+                onClick={() => setRegresando(true)}
+                disabled={resolviendo}
+              >
+                ⛔ Regresar
+              </button>
+              <button
+                className="btn ok"
+                onClick={comprobarToma}
+                disabled={resolviendo}
+              >
+                {resolviendo && <span className="spinner" />}✓ Comprobar
+              </button>
+            </>
+          )}
+          {revisando && regresando && (
+            <button
+              className="btn hi"
+              onClick={regresarToma}
+              disabled={resolviendo}
+            >
+              {resolviendo && <span className="spinner" />}⛔ Confirmar regreso
             </button>
           )}
         </div>

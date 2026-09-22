@@ -581,6 +581,14 @@ export interface PautaRuta {
    * Requiere la vista de pauta_espec_toma.sql; ausente = estándar (3).
    */
   espec_toma?: string | null;
+
+  /**
+   * La toma anterior fue regresada por el coordinador con este motivo;
+   * se limpia sola al registrar la toma de reposición
+   * (pauta_comprobacion_coordinador.sql).
+   */
+  rechazo_motivo?: string | null;
+  rechazada_por?: string | null;
 }
 
 /** Fila de `vw_pauta_resumen`: totales por ruta y campaña. */

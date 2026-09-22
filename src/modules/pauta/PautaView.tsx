@@ -431,23 +431,47 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
 
   // --- Acciones de campo ---
   /**
-   * Registra la comprobación (entrega del trabajo). No lleva fotos: la
-   * evidencia se capturó en la toma.
+   * Registra la comprobación (la VALIDACIÓN del coordinador — la RPC
+   * exige coordinador/manager desde pauta_comprobacion_coordinador.sql).
+   * Se dispara desde el visor de evidencia: comprobar sin ver las fotos
+   * no debe ser posible. Devuelve si quedó, para que el modal cierre.
    */
-  const comprobar = async (fila: PautaRuta) => {
+  const comprobar = async (fila: PautaRuta): Promise<boolean> => {
     const { error } = await sb.rpc('registrar_comprobacion', {
       p_catorcena: fila.catorcena,
       p_vendor_face_id: fila.vendor_face_id,
     });
     if (error) {
       alert('No se pudo registrar: ' + error.message);
-      return;
+      return false;
     }
     const ahora = new Date().toISOString();
     setFilas((prev) =>
       prev.map((f) =>
         f.vendor_face_id === fila.vendor_face_id
           ? { ...f, fecha_comprobacion: ahora, avance: 'COMPROBADA' }
+          : f
+      )
+    );
+    return true;
+  };
+
+  /**
+   * El coordinador regresó la toma (la RPC ya notificó al monitorista):
+   * la cara vuelve a PENDIENTE con su motivo visible.
+   */
+  const tomaRegresada = (vendorFaceId: string, motivo: string) => {
+    setFilas((prev) =>
+      prev.map((f) =>
+        f.vendor_face_id === vendorFaceId
+          ? {
+              ...f,
+              fecha_toma: null,
+              toma_por: null,
+              avance: 'PENDIENTE',
+              rechazo_motivo: motivo,
+              rechazada_por: email,
+            }
           : f
       )
     );
@@ -1051,29 +1075,52 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
                       }}
                     >
                       {/* Mismo patrón que Incidencias: la acción abre un
-                          modal con cámara y galería, no guarda a ciegas. */}
-                      <button
-                        className={f.fecha_toma ? 'btn ghost sm' : 'btn sm'}
-                        onClick={() => setTomaDe(f)}
-                      >
-                        📷{' '}
-                        {f.fecha_toma
-                          ? `Evidencia${f.fotos ? ` (${f.fotos})` : ''}`
-                          : 'Registrar toma'}
-                      </button>
-                      {f.fecha_toma && !f.fecha_comprobacion && (
-                        <button
-                          className="btn ok sm"
-                          onClick={() => comprobar(f)}
-                        >
-                          ✓ Comprobar
-                        </button>
-                      )}
+                          modal con cámara y galería, no guarda a ciegas.
+                          Comprobar YA NO vive aquí: es del coordinador y
+                          está DENTRO del visor — primero se ven las fotos,
+                          luego se valida o se regresa. */}
+                      {(() => {
+                        const porComprobar =
+                          !!f.fecha_toma && !f.fecha_comprobacion;
+                        const revisa = puedeImportar && porComprobar;
+                        return (
+                          <button
+                            className={
+                              revisa
+                                ? 'btn ok sm'
+                                : f.fecha_toma
+                                  ? 'btn ghost sm'
+                                  : 'btn sm'
+                            }
+                            onClick={() => setTomaDe(f)}
+                          >
+                            {revisa ? '🔎' : '📷'}{' '}
+                            {revisa
+                              ? `Revisar y comprobar${f.fotos ? ` (${f.fotos})` : ''}`
+                              : f.fecha_toma
+                                ? `Evidencia${f.fotos ? ` (${f.fotos})` : ''}`
+                                : 'Registrar toma'}
+                          </button>
+                        );
+                      })()}
                       {f.fecha_comprobacion && f.comprobacion_por && (
                         <span
                           style={{ fontSize: 11, color: 'var(--muted)' }}
                         >
                           Entregó {f.comprobacion_por.split('@')[0]}
+                        </span>
+                      )}
+                      {/* Toma regresada: el monitorista ve el motivo sin
+                          abrir nada — es su pendiente más urgente. */}
+                      {!f.fecha_toma && f.rechazo_motivo && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: '#ef4444',
+                            flexBasis: '100%',
+                          }}
+                        >
+                          ⛔ Regresada: “{f.rechazo_motivo}”
                         </span>
                       )}
                     </div>
@@ -1091,6 +1138,9 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
           email={email}
           onClose={() => setTomaDe(null)}
           onRegistrada={tomaRegistrada}
+          puedeComprobar={puedeImportar}
+          onComprobar={comprobar}
+          onRegresada={tomaRegresada}
         />
       )}
 
