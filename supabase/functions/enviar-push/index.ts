@@ -44,6 +44,7 @@ const TITULOS: Record<string, string> = {
   chat: 'Nuevo mensaje',
   ruta: 'Cambio en tu ruta',
   pauta_toma: 'Toma regresada',
+  pauta_revision: 'Toma por comprobar',
 };
 
 type Cuerpo = {

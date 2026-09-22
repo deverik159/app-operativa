@@ -9,12 +9,15 @@
 // La verificación de pauta_espec_toma.sql lista los textos distintos que
 // hay cargados, para ir cubriéndolos.
 //
-// La regla de negocio:
-//   · sin especificación (null/vacío)      → 3 fotos (el estándar)
-//   · "TOMA CORTA, MEDIA Y LARGA"          → 9 fotos (3 distancias × 3)
-//   · "TOMAS DE DÍA Y DE NOCHE"            → 6 fotos (2 momentos × 3)
-//   · cualquier otro texto                 → 3 fotos, pero se pinta en
-//     ámbar: es una espec sin homologar y el monitorista debe LEERLA.
+// La regla de negocio, HOMOLOGADA contra los textos reales de la pauta
+// (Erik, 22-sep-2026):
+//   · Pide tomas por DISTANCIA ("TOMA CORTA, MEDIA Y LARGA", "TOMA CORTA
+//     Y MEDIA", con comas de más o el typo "CORA")        → 9 fotos
+//   · Todo lo demás — comprobaciones del primer viernes (con o sin
+//     "tomas de día y de noche"), "TOMAS SIN OBSTRUCCIÓN",
+//     sin especificación                                   → 3 fotos
+//   · Texto que ninguna regla reconoce                     → 3 fotos en
+//     ámbar: el monitorista debe LEERLA.
 //
 // Se cuenta solo FOTOS: un video suma evidencia pero no sustituye las
 // tomas que pide la especificación.
@@ -33,18 +36,17 @@ export type ReglaToma = {
 /** Reglas por patrón, en orden: gana la primera que empata. */
 const REGLAS: { patron: RegExp; regla: ReglaToma }[] = [
   {
-    // "TOMA CORTA, MEDIA Y LARGA" (con o sin comas/acentos).
-    patron: /CORTA.*MEDIA.*LARGA/,
-    regla: { fotos: 9, color: '#a78bfa', resumen: '3 distancias × 3 = 9 fotos' },
+    // Tomas por distancia = 9. Cubre las variantes reales del archivo:
+    // "TOMA CORTA, MEDIA Y LARGA", "TOMA, CORTA, MEDIA Y LARGA" (comas de
+    // más), "TOMA CORTA Y MEDIA", y el typo "TOMA CORA MEDIA Y LARGA".
+    // Va PRIMERO: "…CORTA…, SIN OBSTRUCCIÓN" también es 9.
+    patron: /CORTA|CORA\s+MEDIA/,
+    regla: { fotos: 9, color: '#a78bfa', resumen: 'tomas por distancia: 9 fotos' },
   },
   {
-    // "... TOMAS DE DÍA Y DE NOCHE".
-    patron: /DIA.*NOCHE/,
-    regla: { fotos: 6, color: '#4f8cff', resumen: 'día y noche = 6 fotos' },
-  },
-  {
-    // "TOMAS SIN OBSTRUCCIÓN" y las comprobaciones estándar.
-    patron: /SIN OBSTRUCCION|COMPROBACION/,
+    // Comprobaciones del primer viernes (con o sin día/noche) y
+    // "TOMAS SIN OBSTRUCCIÓN": 3 fotos.
+    patron: /SIN OBSTRUCCION|COMPROBACION|DIA.*NOCHE/,
     regla: { fotos: 3, color: '#22c55e', resumen: '3 fotos' },
   },
 ];
