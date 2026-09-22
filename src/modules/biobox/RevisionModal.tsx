@@ -146,9 +146,12 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
       }
       const p = ((pl.data as ChecklistPlantilla[]) || [])[0] || null;
       if (!p) {
+        // Ya no existe el botón "Checklist" (la pantalla de administración
+        // se retiró junto con ChecklistConfigModal): las plantillas se
+        // siembran por SQL, así que la salida es pedirla, no buscarla aquí.
         setErr(
-          `No hay checklist configurado para ${unidad}. Un coordinador puede ` +
-            'crearlo desde el botón "Checklist" de esta pantalla.'
+          `No hay checklist configurado para ${unidad}. Solicita al ` +
+            'administrador que cargue una plantilla antes de continuar.'
         );
         setCargando(false);
         return;

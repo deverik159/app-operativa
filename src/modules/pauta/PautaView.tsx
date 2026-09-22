@@ -16,9 +16,20 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { sb } from '../../lib/supabase';
 import IrAqui from '../../components/IrAqui';
 import { tramosGoogleMaps } from '../../lib/navegacion';
+import { crearReporte } from '../../lib/crearReporte';
+import { resumenMaquinas, HORAS_ALARMA } from '../../lib/estadoMaquina';
+import type { MapaResumen } from '../../lib/estadoMaquina';
 import ImportarPautaModal from './ImportarPautaModal';
 import RegistrarTomaModal from './RegistrarTomaModal';
+import NuevaInc from '../incidencias/NuevaInc';
+import type { GrupoReporte } from '../incidencias/NuevaInc';
 import type { PautaRuta } from '../../types/db';
+
+/**
+ * La pauta es de Ecovallas Impreso (decisión de sep-2026): los reportes
+ * que nacen aquí se capturan en esa unidad, sin selector.
+ */
+const UNIDAD_PAUTA = 'Ecovallas';
 
 /** Tope de filas: el límite duro de Supabase es 1000 por consulta. */
 const PAGINA = 1000;
@@ -49,9 +60,11 @@ type Props = {
   puedeImportar: boolean;
   /** Correo del usuario, para firmar la evidencia que sube. */
   email: string;
+  /** Departamentos del usuario: area_reportante del reporte que levante. */
+  misDep: string[];
 };
 
-function PautaView({ puedeImportar, email }: Props) {
+function PautaView({ puedeImportar, email, misDep }: Props) {
   const [filas, setFilas] = useState<PautaRuta[]>([]);
   const [catorcenas, setCatorcenas] = useState<number[]>([]);
   const [catSel, setCatSel] = useState<number | null>(null);
@@ -83,6 +96,35 @@ function PautaView({ puedeImportar, email }: Props) {
     });
   /** Cara cuya toma se está registrando (abre el modal con cámara). */
   const [tomaDe, setTomaDe] = useState<PautaRuta | null>(null);
+
+  /**
+   * Sitio recién tomado al que se le ofrece levantar incidencia: al
+   * registrar la toma se pregunta —de forma sutil, un mini diálogo, no un
+   * confirm()— si algo del sitio amerita reporte.
+   */
+  const [ofrecerIncEn, setOfrecerIncEn] = useState<string | null>(null);
+  /** Sitio con NuevaInc abierto (el modal nace con este sitio ligado). */
+  const [nuevaEn, setNuevaEn] = useState<string | null>(null);
+
+  /**
+   * Incidencias ABIERTAS por sitio (misma fuente que el distintivo de
+   * Biobox: la RPC security definer, que ve todas las áreas). Aquí el
+   * monitorista NO repara — es pura visualización: saber que el sitio
+   * donde está parado ya tiene algo reportado.
+   */
+  const [abiertas, setAbiertas] = useState<MapaResumen>({});
+  const cargarAbiertas = useCallback(async (siteIds: string[]) => {
+    if (!siteIds.length) return;
+    const m = await resumenMaquinas(siteIds);
+    // merge y no replace: las recargas parciales (tras crear un reporte)
+    // no deben borrar los distintivos del resto de la ruta.
+    setAbiertas((prev) => ({ ...prev, ...m }));
+  }, []);
+  useEffect(() => {
+    const ids = [...new Set(filas.map((f) => f.site_id))];
+    setAbiertas({});
+    cargarAbiertas(ids);
+  }, [filas, cargarAbiertas]);
 
   // Filtros
   const [fRuta, setFRuta] = useState('Todas');
@@ -299,6 +341,25 @@ function PautaView({ puedeImportar, email }: Props) {
         };
       })
     );
+    // Con la toma cerrada, se ofrece levantar incidencia del sitio: el
+    // monitorista ya está parado frente a la valla y acaba de fotografiarla
+    // — es EL momento de reportar lo que vio mal.
+    const fila = filas.find((f) => f.vendor_face_id === vendorFaceId);
+    if (fila) setOfrecerIncEn(fila.site_id);
+  };
+
+  /**
+   * Guardado del reporte levantado desde Pauta. La lógica completa (regla
+   * de duplicidad, evidencia por grupo) vive en lib/crearReporte —la misma
+   * de Incidencias—; aquí solo se cierra el modal y se refresca el
+   * distintivo de abiertas del sitio.
+   */
+  const guardarReporte = async (grupos: GrupoReporte[]) => {
+    const creadas = await crearReporte(grupos, { email, misDep });
+    if (!creadas) return; // duplicado o error: el modal se queda abierto.
+    const sitio = nuevaEn;
+    setNuevaEn(null);
+    if (sitio) cargarAbiertas([sitio]);
   };
 
   /**
@@ -565,6 +626,37 @@ function PautaView({ puedeImportar, email }: Props) {
                   </div>
                   <div className="titulo">{s.site_id}</div>
                   <div className="meta">{s.direccion || '(sin dirección)'}</div>
+                  {/* Incidencias abiertas del sitio: aquí NO se reparan
+                      (eso es de Fijación/técnicos) — es visualización para
+                      que el monitorista sepa que donde está parado ya hay
+                      algo reportado. Misma fuente que el distintivo de
+                      Biobox; las áreas van EN el texto (no title: en táctil
+                      no existe). */}
+                  {(() => {
+                    const e = abiertas[s.site_id];
+                    if (!e || !e.abiertas) return null;
+                    const alarma =
+                      e.hay_critica || (e.horas_peor ?? 0) > HORAS_ALARMA;
+                    return (
+                      <div style={{ marginTop: 6 }}>
+                        <span
+                          className="tag"
+                          style={{
+                            color: alarma ? '#ef4444' : '#f97316',
+                            borderColor: alarma ? '#ef4444' : '#f97316',
+                            border: '1px solid',
+                            background: 'transparent',
+                            fontWeight: alarma ? 700 : 400,
+                          }}
+                        >
+                          {alarma ? '🔴' : '⚠'} {e.abiertas} incidencia
+                          {e.abiertas === 1 ? '' : 's'} abierta
+                          {e.abiertas === 1 ? '' : 's'}
+                          {e.areas ? ` · ${e.areas}` : ''}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <IrAqui
                   destino={{ lat: s.lat, lng: s.lng, nombre: s.site_id }}
@@ -711,6 +803,59 @@ function PautaView({ puedeImportar, email }: Props) {
           email={email}
           onClose={() => setTomaDe(null)}
           onRegistrada={tomaRegistrada}
+        />
+      )}
+
+      {/* La pregunta sutil tras registrar la toma: un diálogo chico y
+          centrado, no un confirm() del navegador. "No" no castiga: un tap
+          en el fondo también lo cierra. */}
+      {ofrecerIncEn && !nuevaEn && (
+        <div
+          className="overlay"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).className === 'overlay')
+              setOfrecerIncEn(null);
+          }}
+        >
+          <div className="modal" style={{ maxWidth: 360, margin: 'auto 0' }}>
+            <h2 style={{ margin: '0 0 3px', fontSize: 17 }}>
+              ✓ Toma registrada
+            </h2>
+            <p className="phint" style={{ marginBottom: 14 }}>
+              ¿Viste algo mal en <b>{ofrecerIncEn}</b>? Puedes levantar la
+              incidencia ahora mismo, con el sitio ya cargado.
+            </p>
+            <div className="modal-actions">
+              <button
+                className="btn ghost"
+                onClick={() => setOfrecerIncEn(null)}
+              >
+                No, todo bien
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  setNuevaEn(ofrecerIncEn);
+                  setOfrecerIncEn(null);
+                }}
+              >
+                ➕ Levantar incidencia
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NuevaInc con el sitio ligado: EL MISMO modal de Incidencias
+          (catálogo, caras, evidencia, GPS) y el mismo guardado compartido
+          (lib/crearReporte) — nada que aprender de nuevo ni gemelos que
+          mantener. */}
+      {nuevaEn && (
+        <NuevaInc
+          preset={{ un: UNIDAD_PAUTA, siteId: nuevaEn }}
+          unidades={[UNIDAD_PAUTA]}
+          onSave={guardarReporte}
+          onClose={() => setNuevaEn(null)}
         />
       )}
 

@@ -15,6 +15,7 @@
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { caraLabel } from '../../lib/helpers';
+import { reglaEspecToma } from '../../lib/especToma';
 import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
 import type { PautaRuta, TipoEvidencia } from '../../types/db';
@@ -49,6 +50,15 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
   const [err, setErr] = useState('');
 
   const yaRegistrada = !!fila.fecha_toma;
+
+  /**
+   * La especificación de toma manda cuántas fotos se exigen (3 si no hay).
+   * Los videos suman evidencia pero no cuentan para el mínimo: la espec
+   * habla de tomas fotográficas.
+   */
+  const regla = reglaEspecToma(fila.espec_toma);
+  const fotosSubidas = evidencias.filter((e) => e.tipo !== 'video').length;
+  const faltanFotos = Math.max(0, regla.fotos - fotosSubidas);
 
   const cargar = async () => {
     const { data, error } = await sb
@@ -139,6 +149,15 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
       );
       return;
     }
+    // La especificación es la condición: sin sus fotos, la toma no se
+    // registra — es exactamente lo que el validador rechazaría después.
+    if (faltanFotos > 0) {
+      setErr(
+        `La especificación pide ${regla.fotos} fotos (${regla.resumen}) y ` +
+          `llevas ${fotosSubidas}. Faltan ${faltanFotos}.`
+      );
+      return;
+    }
     setGuardando(true);
     setErr('');
     const { error } = await sb.rpc('registrar_toma', {
@@ -212,6 +231,39 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
             {fila.medio} · {fila.estatus}
             {fila.fecha_fijacion && ` · fijada ${fila.fecha_fijacion}`}
           </div>
+
+          {/* La especificación de toma, al pie y con su color: es LA
+              instrucción de trabajo — decide cuántas fotos van. El color
+              lo pone la regla (lib/especToma); ámbar = texto que la app
+              aún no homologa y hay que leer con cuidado. */}
+          <div
+            style={{
+              marginTop: 10,
+              paddingTop: 9,
+              borderTop: '1px solid var(--line)',
+              fontSize: 12,
+              lineHeight: 1.55,
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                padding: '4px 10px',
+                borderRadius: 8,
+                fontWeight: 700,
+                background: regla.color + '22',
+                color: regla.color,
+                border: `1px solid ${regla.color}55`,
+                overflowWrap: 'anywhere',
+              }}
+            >
+              📸 {fila.espec_toma?.trim() || 'Sin especificación de toma'}
+            </span>
+            <div style={{ color: 'var(--muted)', marginTop: 4 }}>
+              Requiere <b style={{ color: regla.color }}>{regla.fotos} fotos</b>{' '}
+              ({regla.resumen}).
+            </div>
+          </div>
         </div>
 
         {yaRegistrada && (
@@ -238,13 +290,14 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
         <div className="field">
           <label>
             Fotos de la cara —{' '}
-            {evidencias.length > 0 ? (
+            {faltanFotos === 0 ? (
               <span style={{ color: 'var(--ok)' }}>
-                ✓ {evidencias.length} adjunta
-                {evidencias.length > 1 ? 's' : ''}
+                ✓ {fotosSubidas}/{regla.fotos}
               </span>
             ) : (
-              <span style={{ color: 'var(--accent)' }}>obligatoria</span>
+              <span style={{ color: 'var(--accent)' }}>
+                {fotosSubidas}/{regla.fotos} · faltan {faltanFotos}
+              </span>
             )}
           </label>
 

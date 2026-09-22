@@ -574,6 +574,13 @@ export interface PautaRuta {
   navegable: boolean;
 
   ruta_monitoreo_id: number | null;
+
+  /**
+   * Especificación de toma del archivo ("TOMA CORTA, MEDIA Y LARGA"…).
+   * Decide cuántas fotos exige el registro — ver lib/especToma.ts.
+   * Requiere la vista de pauta_espec_toma.sql; ausente = estándar (3).
+   */
+  espec_toma?: string | null;
 }
 
 /** Fila de `vw_pauta_resumen`: totales por ruta y campaña. */

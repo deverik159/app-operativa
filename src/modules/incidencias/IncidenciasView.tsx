@@ -14,20 +14,16 @@ import {
   UNIDADES,
   AREAS_RESP,
   EST_LABEL,
-  AREAS_AUTORUTEO,
   SLA_VALIDACION_DEFAULT,
 } from '../../lib/constants';
 import {
   slaHoras,
   slaInfo,
   slaInfoValidador,
-  fueraHorarioValidador,
   areaEfectiva,
-  idCorto,
   sinAcentos,
 } from '../../lib/helpers';
-import { BUCKET_EVIDENCIAS } from '../../lib/storage';
-import { duplicadasEnProceso } from '../../lib/duplicados';
+import { crearReporte } from '../../lib/crearReporte';
 import IncCard from '../../components/IncCard';
 import NuevaInc from './NuevaInc';
 import type { PresetNueva, GrupoReporte } from './NuevaInc';
@@ -44,12 +40,10 @@ import MotivoModal from './MotivoModal';
 import type {
   CanInc,
   Incidencia,
-  IncidenciaNueva,
   EstatusInc,
   SlaMap,
   SlaArea,
   SlaValidacion,
-  TipoEvidencia,
   UsuarioRol,
 } from '../../types/db';
 
@@ -772,140 +766,16 @@ function IncidenciasView({
   /**
    * Inserta el reporte y liga la evidencia POR GRUPO.
    *
-   * El record_id se genera aquí (crypto.randomUUID), antes del insert. Eso
-   * permite saber de antemano qué filas pertenecen a qué grupo, sin depender
-   * del orden en que Postgres devuelva el insert.
+   * La lógica vive en lib/crearReporte.ts, COMPARTIDA con Pauta y
+   * Monitoreo (que levanta reportes al terminar una toma): regla de
+   * duplicidad, RLS silenciosa y evidencia por grupo son idénticas se
+   * capture desde donde se capture. Aquí solo queda lo local: meter las
+   * creadas a la lista y cerrar el modal. null = abortado (duplicado o
+   * insert fallido): el modal se queda abierto para corregir.
    */
   const crear = async (grupos: GrupoReporte[]) => {
-    const base = {
-      captured_by: email,
-      area_reportante: misDep[0] || null,
-      fecha_reporte: new Date().toISOString(),
-    };
-
-    // Se les pone id ANTES de insertar, conservando la agrupación.
-    const gruposConId = grupos.map((g) => ({
-      ...g,
-      filas: g.filas.map((d) => {
-        // Fuera del horario del validador, las áreas de auto-ruteo entran
-        // directo a en_proceso y prevalidan al recibir.
-        const auto =
-          AREAS_AUTORUTEO.includes(d.area_responsable || '') &&
-          fueraHorarioValidador();
-        return {
-          ...d,
-          ...base,
-          record_id: idCorto(),
-          estatus: (auto ? 'en_proceso' : 'por_validar') as EstatusInc,
-          requiere_prevalidacion: auto,
-        };
-      }),
-    }));
-
-    const rows = gruposConId.flatMap((g) => g.filas);
-
-    // ══ REGLA DE DUPLICIDAD ══ La regla y su porqué viven en
-    // lib/duplicados.ts, compartida con el flujo de Biobox (revisión →
-    // levantar incidencia): antes ese flujo se la brincaba y duplicaba.
-    const choques = await duplicadasEnProceso(rows);
-    if (choques.length) {
-      alert(
-        'Esta incidencia ya se encuentra registrada y en proceso, no es ' +
-          'necesario capturar una nueva.\n\n' +
-          choques
-            .map(
-              (c) =>
-                `• ${c.fila.nombre_incidencia} (cara ${c.fila.clave_medio}) → folio ${c.folio || '—'}`
-            )
-            .join('\n') +
-          '\n\nQuita esa partida del reporte para guardar el resto.'
-      );
-      return;
-    }
-
-    const { data, error } = await sb.from('incidencias').insert(rows).select();
-    if (error) {
-      alert('No se pudo crear: ' + error.message);
-      return;
-    }
-    // No basta con que no haya `error`. Si la RLS deja INSERTAR pero no
-    // deja LEER de vuelta la fila recién creada, PostgREST responde 200 con
-    // un arreglo vacío. El código anterior hacía `(data || rows)`, y como
-    // `[]` es truthy en JS, se quedaba con el arreglo vacío: no se agregaba
-    // nada a la lista y no se avisaba nada. Silencio total.
-    const devueltas = (data as Incidencia[] | null) ?? [];
-    if (devueltas.length !== rows.length) {
-      alert(
-        `Se guardaron ${devueltas.length} de ${rows.length} reportes. ` +
-          'Refresca con ↻ y verifica en Incidencias antes de volver a capturar, ' +
-          'para no duplicar.'
-      );
-    }
-    // Si la base no devolvió nada legible, se muestran las filas locales:
-    // más vale enseñar lo que se mandó que dejar la pantalla en blanco.
-    const creadas = (
-      devueltas.length ? devueltas : rows
-    ) as Incidencia[];
-
-    // Cada grupo sube SUS archivos y los liga SOLO a sus caras. Así, en un
-    // sitio con varias fallas, se sabe qué foto corresponde a cuál.
-    for (const g of gruposConId) {
-      if (!g.files.length) continue;
-      const ids = g.filas.map((f) => f.record_id);
-      const sitio = g.filas[0]?.clave_sitio || 'reporte';
-      const fecha = (g.filas[0]?.fecha_reporte || new Date().toISOString()).slice(
-        0,
-        10
-      );
-      // La cara va en el NOMBRE del archivo: así se identifica en Storage
-      // sin abrir la app.
-      const caraArchivo = (g.carasLabel || 'cara').replace(/[^\w-]/g, '_');
-
-      for (const f of g.files) {
-        const tipo: TipoEvidencia = f.type.startsWith('video')
-          ? 'video'
-          : 'foto';
-        const ext = (
-          f.name.split('.').pop() || (tipo === 'video' ? 'mp4' : 'jpg')
-        ).toLowerCase();
-        const path =
-          `${ids[0]}/${sitio}_${caraArchivo}_${fecha}_reporte_${Date.now()}.${ext}`.replace(
-            /[^\w/.\-]/g,
-            '_'
-          );
-        const { error: up } = await sb.storage
-          .from(BUCKET_EVIDENCIAS)
-          .upload(path, f);
-        if (up) {
-          // Las incidencias ya existen: se avisa pero no se aborta el resto.
-          alert('Se creó, pero falló subir evidencia: ' + up.message);
-          continue;
-        }
-        const url = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path).data
-          .publicUrl;
-        // `referencia` guarda la cara: es lo que se lee en la galería.
-        const evrows = ids.map((rid) => ({
-          record_id: rid,
-          etapa: 'reporte',
-          tipo,
-          url,
-          path,
-          subido_por: email,
-          referencia: g.carasLabel || null,
-        }));
-        // Antes esta línea iba sin destructurar: el error se tiraba a la
-        // basura. La foto quedaba en Storage, la fila no se creaba, y la
-        // galería salía vacía sin explicación.
-        const { error: evErr } = await sb.from('evidencias').insert(evrows);
-        if (evErr) {
-          alert(
-            'La incidencia se creó, pero no se pudo registrar una evidencia: ' +
-              evErr.message
-          );
-        }
-      }
-    }
-
+    const creadas = await crearReporte(grupos, { email, misDep });
+    if (!creadas) return;
     setItems((prev) => [...creadas, ...prev]);
     onCerrarNueva?.();
     setPresetNew(null);
