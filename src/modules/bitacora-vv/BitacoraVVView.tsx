@@ -16,6 +16,13 @@
 // ============================================================
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { sb } from '../../lib/supabase';
+import { prepararArchivos } from '../../lib/comprimirImagen';
+import {
+  aFotosLocales,
+  revocarPreviews,
+  subirFotos,
+  type FotoLocal,
+} from '../../lib/storage';
 
 type Espacio = {
   clave: string;
@@ -63,6 +70,16 @@ type Hist = {
   detalle: string | null;
   hecho_por: string;
   hecho_en: string;
+};
+
+/** Un visual de una versión: HOMBRE-MEX_A.jpg, MATADOR_PORT.jpg… */
+type Arte = {
+  id: number;
+  campana_id: number;
+  version: string;
+  etiqueta: string | null;
+  url: string;
+  subido_por: string;
 };
 
 const EST_PAUTA: Record<string, { l: string; c: string; bg: string }> = {
@@ -173,6 +190,7 @@ function BitacoraVVView({
   const [espacios, setEspacios] = useState<Espacio[]>([]);
   const [campanas, setCampanas] = useState<Campana[]>([]);
   const [pautas, setPautas] = useState<Pauta[]>([]);
+  const [artes, setArtes] = useState<Arte[]>([]);
   const [cargando, setCargando] = useState(true);
   const [err, setErr] = useState('');
 
@@ -193,16 +211,18 @@ function BitacoraVVView({
 
   const cargar = useCallback(async () => {
     setErr('');
-    const [re, rc, rp] = await Promise.all([
+    const [re, rc, rp, ra] = await Promise.all([
       sb.from('vv_espacios').select('*').eq('activo', true).order('clave'),
       sb.from('vv_campanas').select('*').order('fecha_inicio', { ascending: false }),
       sb.from('vv_pautas').select('*').order('inicio'),
+      sb.from('vv_artes').select('*').order('version').order('etiqueta'),
     ]);
-    const e = re.error || rc.error || rp.error;
+    const e = re.error || rc.error || rp.error || ra.error;
     if (e) setErr('No se pudo cargar la bitácora: ' + e.message);
     setEspacios((re.data as Espacio[]) || []);
     setCampanas((rc.data as Campana[]) || []);
     setPautas((rp.data as Pauta[]) || []);
+    setArtes((ra.data as Arte[]) || []);
     setCargando(false);
   }, []);
 
@@ -493,6 +513,85 @@ function BitacoraVVView({
   };
 
   // ------------------------------------------------------------
+  // Artes: los visuales de cada versión (como venían pegados en el Excel)
+  // ------------------------------------------------------------
+  const artesDe = useMemo(() => {
+    const m = new Map<number, Arte[]>();
+    artes.forEach((a) => {
+      const arr = m.get(a.campana_id) || [];
+      arr.push(a);
+      m.set(a.campana_id, arr);
+    });
+    return m;
+  }, [artes]);
+
+  /**
+   * Artes que ilustran una versión de pauta. Primero el empate exacto; si
+   * no hay, por contención en ambos sentidos: la pauta de Amazon decía
+   * "R1_HOMBRE-MEX / R1_MATADOR / R1_MUJER-MEX" y los artes se registran
+   * de uno en uno.
+   */
+  const artesParaVersion = (campanaId: number, version: string): Arte[] => {
+    const lista = artesDe.get(campanaId) || [];
+    const v = version.trim().toUpperCase();
+    const exactos = lista.filter((a) => a.version.trim().toUpperCase() === v);
+    if (exactos.length) return exactos;
+    return lista.filter((a) => {
+      const av = a.version.trim().toUpperCase();
+      return av.length >= 3 && (v.includes(av) || av.includes(v));
+    });
+  };
+
+  const [verArte, setVerArte] = useState<Arte | null>(null);
+  const [subiendoArtes, setSubiendoArtes] = useState(false);
+  const [sa, setSa] = useState<{ version: string; fotos: FotoLocal[] } | null>(null);
+
+  const cerrarSubirArtes = () => {
+    if (sa) revocarPreviews(sa.fotos);
+    setSa(null);
+  };
+
+  const guardarArtes = async () => {
+    if (!campana || !sa) return;
+    if (!sa.version.trim()) return alert('Falta a qué versión pertenecen estos artes.');
+    if (!sa.fotos.length) return alert('Elige al menos una imagen.');
+    setSubiendoArtes(true);
+    try {
+      const { listos, rechazos } = await prepararArchivos(sa.fotos.map((f) => f.file));
+      if (rechazos.length) alert(rechazos.join('\n'));
+      if (!listos.length) return;
+      const urls = await subirFotos(
+        listos.map((file) => ({ file, preview: '' })),
+        'bitacora-vv',
+        `c${campana.id}_${sa.version}`
+      );
+      const filas = urls.map((url, i) => ({
+        campana_id: campana.id,
+        version: sa.version.trim(),
+        // La variante viene del nombre del archivo: HOMBRE-MEX_A.jpg → HOMBRE-MEX_A
+        etiqueta: (listos[i].name || '').replace(/\.[^.]+$/, '') || null,
+        url,
+        subido_por: email,
+      }));
+      const { error } = await sb.from('vv_artes').insert(filas);
+      if (error) alert('Las imágenes subieron pero no se pudieron registrar: ' + error.message);
+      else cerrarSubirArtes();
+      cargar();
+    } catch (e) {
+      alert('No se pudieron subir los artes: ' + (e as Error).message);
+    } finally {
+      setSubiendoArtes(false);
+    }
+  };
+
+  const quitarArte = async (a: Arte) => {
+    if (!confirm(`¿Quitar el arte "${a.etiqueta || a.version}"?`)) return;
+    const { error } = await sb.from('vv_artes').delete().eq('id', a.id);
+    if (error) alert('No se pudo quitar: ' + error.message);
+    cargar();
+  };
+
+  // ------------------------------------------------------------
   // Selector de espacios del modal de pauta
   // ------------------------------------------------------------
   const toggleClave = (clave: string) =>
@@ -646,6 +745,86 @@ function BitacoraVVView({
           </div>
         )}
 
+        {(() => {
+          // Galería de artes agrupada por versión — el equivalente a los
+          // visuales pegados en cada hoja del Excel.
+          const deCampana = artesDe.get(campana.id) || [];
+          const porVersion = new Map<string, Arte[]>();
+          deCampana.forEach((a) => {
+            const arr = porVersion.get(a.version) || [];
+            arr.push(a);
+            porVersion.set(a.version, arr);
+          });
+          return (
+            <div className="inc" style={{ marginBottom: 14 }}>
+              <div className="inc-top">
+                <div className="folio">🎨 ARTES POR VERSIÓN</div>
+                {puedeCapturar && campana.estatus === 'activa' && (
+                  <button
+                    className="btn ghost sm"
+                    onClick={() => setSa({ version: '', fotos: [] })}
+                  >
+                    ➕ Subir artes
+                  </button>
+                )}
+              </div>
+              {deCampana.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+                  Sin visuales todavía. Sube aquí las imágenes de cada versión
+                  (como venían pegadas en el Excel) para que pautas sepa qué
+                  debe quedar al aire.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>
+                  {[...porVersion.entries()].map(([v, lista]) => (
+                    <div key={v}>
+                      <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                        {v}{' '}
+                        <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
+                          · {lista.length} arte{lista.length === 1 ? '' : 's'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {lista.map((a) => (
+                          <div key={a.id} style={{ width: 74, textAlign: 'center' }}>
+                            <img
+                              src={a.url}
+                              alt={a.etiqueta || a.version}
+                              onClick={() => setVerArte(a)}
+                              style={{
+                                width: 74,
+                                height: 104,
+                                objectFit: 'cover',
+                                borderRadius: 8,
+                                border: '1px solid var(--line)',
+                                cursor: 'pointer',
+                                display: 'block',
+                              }}
+                            />
+                            <div
+                              style={{
+                                fontSize: 10,
+                                color: 'var(--muted)',
+                                marginTop: 3,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={a.etiqueta || ''}
+                            >
+                              {a.etiqueta || '—'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {grupos.length === 0 ? (
           <div className="empty">
             Sin pautas todavía. {puedeCapturar ? 'Agrega la primera con "➕ Agregar pauta".' : ''}
@@ -695,6 +874,34 @@ function BitacoraVVView({
 
                   {g.observaciones && <div className="obs">{g.observaciones}</div>}
 
+                  {(() => {
+                    // El visual junto a la versión: pautas ve QUÉ debe estar
+                    // al aire, no solo cómo se llama.
+                    const suyos = artesParaVersion(campana.id, g.version);
+                    if (!suyos.length) return null;
+                    return (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 9 }}>
+                        {suyos.slice(0, 8).map((a) => (
+                          <img
+                            key={a.id}
+                            src={a.url}
+                            alt={a.etiqueta || a.version}
+                            title={a.etiqueta || a.version}
+                            onClick={() => setVerArte(a)}
+                            style={{
+                              width: 46,
+                              height: 66,
+                              objectFit: 'cover',
+                              borderRadius: 6,
+                              border: '1px solid var(--line)',
+                              cursor: 'pointer',
+                            }}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })()}
+
                   {(puedeCambiar || puedeProgramar) && (
                     <div className="inc-actions">
                       {puedeCambiar && (
@@ -736,6 +943,7 @@ function BitacoraVVView({
                 <div className="field">
                   <label>Versión (nombre del arte)</label>
                   <input
+                    list="vv-versiones"
                     value={nf.version}
                     onChange={(e) => setNf({ ...nf, version: e.target.value })}
                     placeholder="R1_HOMBRE-MEX"
@@ -908,6 +1116,7 @@ function BitacoraVVView({
               <div className="field">
                 <label>Versión nueva</label>
                 <input
+                  list="vv-versiones"
                   value={cv.version}
                   onChange={(e) => setCv({ ...cv, version: e.target.value })}
                   placeholder="R2_MUJER-MEX"
@@ -934,6 +1143,147 @@ function BitacoraVVView({
             </div>
           </div>
         )}
+
+        {/* ---------- Modal: subir artes ---------- */}
+        {sa && (
+          <div className="overlay" onClick={() => !subiendoArtes && cerrarSubirArtes()}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ marginTop: 0 }}>🎨 Subir artes — {campana.nombre}</h3>
+              <div className="field">
+                <label>Versión a la que pertenecen</label>
+                <input
+                  list="vv-versiones"
+                  value={sa.version}
+                  onChange={(e) => setSa({ ...sa, version: e.target.value })}
+                  placeholder="R1_HOMBRE-MEX"
+                />
+              </div>
+              <div className="field">
+                <label>Imágenes (la variante se toma del nombre: HOMBRE-MEX_A.jpg)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) =>
+                    setSa({ ...sa, fotos: [...sa.fotos, ...aFotosLocales(e.target.files)] })
+                  }
+                />
+              </div>
+              {sa.fotos.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {sa.fotos.map((f, i) => (
+                    <div key={i} style={{ position: 'relative' }}>
+                      <img
+                        src={f.preview}
+                        alt=""
+                        style={{
+                          width: 64,
+                          height: 90,
+                          objectFit: 'cover',
+                          borderRadius: 8,
+                          border: '1px solid var(--line)',
+                          display: 'block',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSa({ ...sa, fotos: sa.fotos.filter((_, j) => j !== i) })
+                        }
+                        style={{
+                          position: 'absolute',
+                          top: -6,
+                          right: -6,
+                          width: 22,
+                          height: 22,
+                          borderRadius: '50%',
+                          border: 'none',
+                          background: 'var(--bad)',
+                          color: '#fff',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          lineHeight: 1,
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="modal-actions">
+                <button className="btn ghost" onClick={cerrarSubirArtes} disabled={subiendoArtes}>
+                  Cancelar
+                </button>
+                <button className="btn" onClick={guardarArtes} disabled={subiendoArtes}>
+                  {subiendoArtes ? (
+                    <>
+                      <span className="spinner" /> Subiendo…
+                    </>
+                  ) : (
+                    'Subir'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------- Visor de arte ---------- */}
+        {verArte && (
+          <div className="overlay" onClick={() => setVerArte(null)}>
+            <div
+              className="modal"
+              style={{ maxWidth: 420, textAlign: 'center' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={verArte.url}
+                alt={verArte.etiqueta || verArte.version}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '65vh',
+                  borderRadius: 10,
+                  border: '1px solid var(--line)',
+                }}
+              />
+              <div style={{ fontSize: 13, marginTop: 8 }}>
+                <b>{verArte.version}</b>
+                {verArte.etiqueta && (
+                  <span style={{ color: 'var(--muted)' }}> · {verArte.etiqueta}</span>
+                )}
+              </div>
+              <div className="modal-actions" style={{ justifyContent: 'center' }}>
+                {puedeCapturar && (
+                  <button
+                    className="btn ghost sm"
+                    onClick={() => {
+                      setVerArte(null);
+                      quitarArte(verArte);
+                    }}
+                  >
+                    🗑 Quitar arte
+                  </button>
+                )}
+                <button className="btn sm" onClick={() => setVerArte(null)}>
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Versiones conocidas de esta campaña, para autocompletar. */}
+        <datalist id="vv-versiones">
+          {[
+            ...new Set([
+              ...(artesDe.get(campana.id) || []).map((a) => a.version),
+              ...grupos.map((g) => g.version),
+            ]),
+          ].map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
 
         {formCamp && modalCampana()}
       </>
