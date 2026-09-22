@@ -342,11 +342,14 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
       }),
     [filas, fRuta, fCampanas, q]
   );
-  const visibles = useMemo(
-    () =>
-      fAvance === 'Todos' ? base : base.filter((f) => f.avance === fAvance),
-    [base, fAvance]
-  );
+  /** Filtro de la tarjeta Incidencias: solo sitios con abiertas. */
+  const [fConInc, setFConInc] = useState(false);
+  const visibles = useMemo(() => {
+    let v = fAvance === 'Todos' ? base : base.filter((f) => f.avance === fAvance);
+    if (fConInc)
+      v = v.filter((f) => (abiertas[f.site_id]?.abiertas ?? 0) > 0);
+    return v;
+  }, [base, fAvance, fConInc, abiertas]);
 
   /** Agrupa las caras visibles por sitio, conservando el orden de recorrido. */
   const sitios = useMemo(() => {
@@ -394,20 +397,33 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
     [sitios]
   );
 
-  // Conteos sobre `base` (sin el filtro de avance): son las CIFRAS de las
-  // tarjetas-botón. sinCoord sí es de lo visible, que es lo que se navega.
+  // Conteos sobre `base` (sin los filtros de tarjeta): son las CIFRAS de
+  // las tarjetas-botón. sinCoord sí es de lo visible, que es lo navegable.
   const stats = useMemo(() => {
-    const t = { total: base.length, pend: 0, tom: 0, comp: 0, sinCoord: 0 };
+    const t = {
+      total: base.length,
+      pend: 0,
+      tom: 0,
+      comp: 0,
+      sinCoord: 0,
+      inc: 0,
+    };
+    const sitiosVistos = new Set<string>();
     base.forEach((f) => {
       if (f.avance === 'PENDIENTE') t.pend++;
       else if (f.avance === 'TOMADA') t.tom++;
       else t.comp++;
+      // Incidencias abiertas: se suman UNA vez por sitio, no por cara.
+      if (!sitiosVistos.has(f.site_id)) {
+        sitiosVistos.add(f.site_id);
+        t.inc += abiertas[f.site_id]?.abiertas ?? 0;
+      }
     });
     visibles.forEach((f) => {
       if (!f.navegable) t.sinCoord++;
     });
     return t;
-  }, [base, visibles]);
+  }, [base, visibles, abiertas]);
 
   /** Tarjeta-botón: toca para filtrar por ese avance; tocar de nuevo, quita. */
   const toggleAvance = (v: string) =>
@@ -647,42 +663,90 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
       <div className="cards">
         {(
           [
-            { l: 'Sitios', n: sitios.length, v: null, c: undefined },
-            { l: 'Caras', n: stats.total, v: null, c: undefined },
+            {
+              l: 'Sitios',
+              n: sitios.length,
+              activa: false,
+              // Sitios y Caras limpian TODOS los filtros de tarjeta.
+              click: () => {
+                setFAvance('Todos');
+                setFConInc(false);
+              },
+            },
+            {
+              l: 'Caras',
+              n: stats.total,
+              activa: false,
+              click: () => {
+                setFAvance('Todos');
+                setFConInc(false);
+              },
+            },
             // Pendientes en ámbar (atención: es lo que falta), como estaba.
-            { l: 'Pendientes', n: stats.pend, v: 'PENDIENTE', c: 'var(--warn)' },
-            { l: 'Tomadas', n: stats.tom, v: 'TOMADA', c: '#4f8cff' },
-            { l: 'Comprobadas', n: stats.comp, v: 'COMPROBADA', c: COLOR_AVANCE.COMPROBADA },
-          ] as { l: string; n: number; v: string | null; c?: string }[]
-        ).map((t) => {
-          const activa = t.v != null && fAvance === t.v;
-          return (
-            <button
-              type="button"
-              key={t.l}
-              className="card"
-              onClick={() => (t.v ? toggleAvance(t.v) : setFAvance('Todos'))}
-              aria-pressed={activa}
-              style={{
-                cursor: 'pointer',
-                textAlign: 'left',
-                font: 'inherit',
-                width: '100%',
-                color: 'var(--txt)',
-                borderColor: activa ? 'var(--accent)' : 'var(--line)',
-                background: activa ? '#241b17' : 'var(--panel)',
-              }}
-            >
-              <div className="n" style={{ color: t.c }}>
-                {t.n}
-              </div>
-              <div className="l">
-                {t.l}
-                {activa ? ' ✕' : ''}
-              </div>
-            </button>
-          );
-        })}
+            {
+              l: 'Pendientes',
+              n: stats.pend,
+              c: 'var(--warn)',
+              activa: fAvance === 'PENDIENTE',
+              click: () => toggleAvance('PENDIENTE'),
+            },
+            {
+              l: 'Tomadas',
+              n: stats.tom,
+              c: '#4f8cff',
+              activa: fAvance === 'TOMADA',
+              click: () => toggleAvance('TOMADA'),
+            },
+            {
+              l: 'Comprobadas',
+              n: stats.comp,
+              c: COLOR_AVANCE.COMPROBADA,
+              activa: fAvance === 'COMPROBADA',
+              click: () => toggleAvance('COMPROBADA'),
+            },
+            // Incidencias abiertas en los sitios de este filtro; tocarla
+            // deja SOLO los sitios que tienen alguna. Combina con el
+            // avance: "pendientes con incidencia" es una pregunta real.
+            {
+              l: 'Incidencias',
+              n: stats.inc,
+              c: '#ef4444',
+              activa: fConInc,
+              click: () => setFConInc((v) => !v),
+            },
+          ] as {
+            l: string;
+            n: number;
+            c?: string;
+            activa: boolean;
+            click: () => void;
+          }[]
+        ).map((t) => (
+          <button
+            type="button"
+            key={t.l}
+            className="card"
+            onClick={t.click}
+            aria-pressed={t.activa}
+            style={{
+              cursor: 'pointer',
+              textAlign: 'left',
+              font: 'inherit',
+              width: '100%',
+              color: 'var(--txt)',
+              borderColor: t.activa ? 'var(--accent)' : 'var(--line)',
+              background: t.activa ? '#241b17' : 'var(--panel)',
+            }}
+          >
+            <div className="n" style={{ color: t.c }}>
+              {t.n}
+            </div>
+            <div className="l">
+              {t.l}
+              {t.activa ? ' ✕' : ''}
+            </div>
+          </button>
+        ))}
       </div>
 
       {/* Asignación de la ruta (solo coordinador/manager, con una ruta
