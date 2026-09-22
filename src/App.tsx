@@ -590,8 +590,10 @@ function Main({ session }: { session: Session }) {
       ic: '🔎',
       t: 'Disponibilidad',
     },
-    // Fijación Externa es operación de Ecovallas Impreso.
-    (has('manager') || has('reparacion') || has('coordinador')) &&
+    // Fijación Externa es operación de Ecovallas Impreso. El coordinador
+    // ya no la ve: gestiona pauta y rutas, la fijación es de los técnicos
+    // (Erik, 21-sep-2026).
+    (has('manager') || has('reparacion')) &&
       enEcovallasImpreso && {
         k: 'fijacion_externa',
         ic: '📎',
@@ -773,7 +775,7 @@ function Main({ session }: { session: Session }) {
             {tab === 'fijacion_externa' && (
               <FijacionExternaView
                 email={email}
-                verTodo={has('manager') || has('coordinador')}
+                verTodo={has('manager')}
                 onNotifAtendida={notifs.marcarDeRegistro}
               />
             )}

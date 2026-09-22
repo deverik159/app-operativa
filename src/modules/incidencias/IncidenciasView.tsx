@@ -248,9 +248,11 @@ function IncidenciasView({
       if (misRoles.includes('manager')) return true;
       const area = areaEfectiva(i).trim().toLowerCase();
       const unidad = (i.unidad_negocio || '').trim().toLowerCase();
+      // Solo 'reparacion': el coordinador GESTIONA (pauta, rutas, tabla),
+      // no repara — en Incidencias es de consulta (Erik, 21-sep-2026).
       return rolesDetalle.some(
         (r) =>
-          (r.rol === 'reparacion' || r.rol === 'coordinador') &&
+          r.rol === 'reparacion' &&
           (!r.departamento || r.departamento.trim().toLowerCase() === area) &&
           (!r.unidad_negocio ||
             !unidad ||
@@ -260,12 +262,15 @@ function IncidenciasView({
     [misRoles, rolesDetalle]
   );
 
+  // El coordinador ya NO trae llaves de reparar ni reasignar: ve las
+  // incidencias (y conserva la tabla con export), pero no interactúa —
+  // su trabajo vive en Pauta y Rutas (Erik, 21-sep-2026).
   const can: CanInc = {
     crear: has('reportante'),
     validar: has('validador'),
-    reparar: has('reparacion') || has('coordinador'),
+    reparar: has('reparacion'),
     reparaEn,
-    reasignar: has('reparacion') || has('coordinador'),
+    reasignar: has('reparacion'),
     aprobarReasign: has('validador'),
   };
 
