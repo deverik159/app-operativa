@@ -174,7 +174,14 @@
      ============================================================ */
   @media(max-width:780px){
     .layout{display:block}
-    .main{padding:15px 12px 116px}
+    /* min-height con dvh (y vh de respaldo): mientras el módulo entrante
+       está en "Cargando…" el documento se encogía por debajo de la
+       pantalla, iOS recolocaba el scroll y la barra inferior daba un
+       brinco al cambiar de módulo; con el alto garantizado ya no hay
+       colapso que recolocar (Erik, 22-sep-2026). */
+    .main{padding:15px 12px 116px;
+      min-height:calc(100vh - 58px);
+      min-height:calc(100dvh - 58px)}
     .brand .sub{display:none}
     .who .info{display:none}
     .row2{grid-template-columns:1fr}

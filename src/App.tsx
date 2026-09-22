@@ -348,6 +348,15 @@ function Main({ session }: { session: Session }) {
    * Con `useCallback` el efecto corre cuando debe: al cambiar el foco.
    */
   const limpiarFoco = useCallback(() => setFocoRecordId(''), []);
+
+  // Al cambiar de módulo se arranca ARRIBA, de inmediato y sin animación.
+  // Llegar con el scroll de la vista anterior a un módulo que apenas está
+  // en "Cargando…" obligaba a iOS a recolocar el scroll a media carga, y
+  // la barra inferior daba un brinco antes de asentarse (Erik, 22-sep-2026).
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [tab]);
+
   const [nuevaAbierta, setNuevaAbierta] = useState(false);
   // Contador que dispara la recarga de incidencias desde el botón ↻.
   const [recargarSignal, setRecargarSignal] = useState(0);

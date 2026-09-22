@@ -1739,19 +1739,24 @@ function BitacoraVVView({
                         onClick={() =>
                           setSa({ ...sa, fotos: sa.fotos.filter((_, j) => j !== i) })
                         }
+                        aria-label="Quitar imagen"
                         style={{
                           position: 'absolute',
-                          top: -6,
-                          right: -6,
-                          width: 22,
-                          height: 22,
+                          top: 2,
+                          right: 2,
+                          /* 30 y no 22: mismo criterio que SubirArchivos — un
+                             ✕ de 22px en celular es imposible de atinar y se
+                             quitaba el arte equivocado. */
+                          width: 30,
+                          height: 30,
                           borderRadius: '50%',
                           border: 'none',
-                          background: 'var(--bad)',
+                          background: 'rgba(0,0,0,.75)',
                           color: '#fff',
-                          fontSize: 12,
+                          fontSize: 14,
                           cursor: 'pointer',
                           lineHeight: 1,
+                          padding: 0,
                         }}
                       >
                         ✕
