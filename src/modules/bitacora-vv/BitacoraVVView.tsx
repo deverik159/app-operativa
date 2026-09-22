@@ -90,6 +90,129 @@ const EST_PAUTA: Record<string, { l: string; c: string; bg: string }> = {
 
 const HORARIO_FULL = '00:00 - 23:59HRS';
 
+// ------------------------------------------------------------
+// Horario por franjas: el usuario marca horas, la base guarda el texto
+// del formato ('07:00 - 21:59HRS'). Sin cambios de esquema.
+// ------------------------------------------------------------
+const DIAS_SEMANA = ['LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB', 'DOM'];
+const TODAS_LAS_HORAS = Array.from({ length: 24 }, (_, i) => i);
+
+/** Qué días de la semana (0=lun … 6=dom) toca la vigencia elegida. */
+function diasEnRango(inicio: string, fin: string): Set<number> {
+  const s = new Set<number>();
+  if (!inicio || !fin || fin < inicio) return s;
+  const d = new Date(inicio + 'T12:00:00');
+  const limite = new Date(fin + 'T12:00:00');
+  for (let i = 0; i < 7 && d <= limite; i++) {
+    s.add((d.getDay() + 6) % 7);
+    d.setDate(d.getDate() + 1);
+  }
+  return s;
+}
+
+/** De franjas marcadas al texto del formato. Contiguas se colapsan. */
+function horasATexto(horas: number[]): string {
+  const set = [...new Set(horas)].sort((a, b) => a - b);
+  if (set.length === 24) return HORARIO_FULL;
+  if (!set.length) return '';
+  const partes: string[] = [];
+  let ini = set[0];
+  let prev = set[0];
+  for (let i = 1; i <= set.length; i++) {
+    const h = set[i];
+    if (h !== prev + 1) {
+      partes.push(
+        `${String(ini).padStart(2, '0')}:00 - ${String(prev).padStart(2, '0')}:59HRS`
+      );
+      ini = h;
+    }
+    prev = h;
+  }
+  return partes.join(' / ');
+}
+
+/** Del texto guardado a franjas, para precargar "Siguiente versión". */
+function textoAHoras(texto: string): number[] {
+  const t = (texto || '').trim();
+  if (!t || /24\s*HRS/i.test(t)) return [...TODAS_LAS_HORAS];
+  const horas = new Set<number>();
+  const re = /(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/g;
+  let m: RegExpExecArray | null;
+  let alguna = false;
+  while ((m = re.exec(t))) {
+    alguna = true;
+    const a = Math.min(23, parseInt(m[1], 10));
+    let b = Math.min(23, parseInt(m[3], 10));
+    // '22:00' como fin significa que la franja 22 ya NO va.
+    if (m[4] === '00' && b > a) b -= 1;
+    for (let h = a; h <= b; h++) horas.add(h);
+  }
+  // Texto a mano que no se entiende → día completo, que es el default del formato.
+  return alguna ? [...horas] : [...TODAS_LAS_HORAS];
+}
+
+/** Rejilla de 24 franjas con "24 HRS" y "Limpiar", como el mockup de Erik. */
+function FranjaHoras({
+  titulo,
+  horas,
+  onChange,
+}: {
+  titulo: string;
+  horas: number[];
+  onChange: (h: number[]) => void;
+}) {
+  const toggle = (h: number) =>
+    onChange(horas.includes(h) ? horas.filter((x) => x !== h) : [...horas, h]);
+  return (
+    <div className="field">
+      <label>{titulo}</label>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+        <button type="button" className="btn ghost sm" onClick={() => onChange([...TODAS_LAS_HORAS])}>
+          24 HRS
+        </button>
+        <button type="button" className="btn ghost sm" onClick={() => onChange([])}>
+          Limpiar
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+          {horas.length === 0
+            ? 'Marca las franjas (cada una = 1 hora)'
+            : horasATexto(horas)}
+        </span>
+      </div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(44px, 1fr))',
+          gap: 6,
+        }}
+      >
+        {TODAS_LAS_HORAS.map((h) => {
+          const activa = horas.includes(h);
+          return (
+            <button
+              key={h}
+              type="button"
+              onClick={() => toggle(h)}
+              style={{
+                padding: '7px 0',
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+                border: '1px solid ' + (activa ? 'var(--accent)' : 'var(--line)'),
+                background: activa ? 'var(--accent)' : 'var(--panel2)',
+                color: activa ? '#151515' : 'var(--txt)',
+              }}
+            >
+              {String(h).padStart(2, '0')}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function fechaCorta(iso: string): string {
   const [a, m, d] = iso.slice(0, 10).split('-');
   const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
@@ -359,12 +482,15 @@ function BitacoraVVView({
     tipo_venta: 'VENTA',
     inicio: '',
     fin: '',
-    horario_lv: HORARIO_FULL,
-    horario_sd: HORARIO_FULL,
     testigos: false,
     observaciones: '',
     claves: [] as string[],
   });
+  // Horario por franjas. sdIgual: en la mayoría de las pautas el fin de
+  // semana lleva el mismo horario; solo se abre la segunda rejilla si no.
+  const [horasLV, setHorasLV] = useState<number[]>([...TODAS_LAS_HORAS]);
+  const [horasSD, setHorasSD] = useState<number[]>([...TODAS_LAS_HORAS]);
+  const [sdIgual, setSdIgual] = useState(true);
 
   const abrirAddPauta = () => {
     if (!campana) return;
@@ -373,12 +499,13 @@ function BitacoraVVView({
       tipo_venta: 'VENTA',
       inicio: campana.fecha_inicio,
       fin: campana.fecha_fin,
-      horario_lv: HORARIO_FULL,
-      horario_sd: HORARIO_FULL,
       testigos: false,
       observaciones: '',
       claves: [],
     });
+    setHorasLV([...TODAS_LAS_HORAS]);
+    setHorasSD([...TODAS_LAS_HORAS]);
+    setSdIgual(true);
     setAddPauta(true);
   };
 
@@ -398,12 +525,13 @@ function BitacoraVVView({
       tipo_venta: g.tipo_venta,
       inicio: siguiente <= campana.fecha_fin ? siguiente : campana.fecha_fin,
       fin: campana.fecha_fin,
-      horario_lv: g.horario_lv,
-      horario_sd: g.horario_sd,
       testigos: g.testigos,
       observaciones: '',
       claves: g.filas.map((f) => f.espacio_clave),
     });
+    setHorasLV(textoAHoras(g.horario_lv));
+    setHorasSD(textoAHoras(g.horario_sd));
+    setSdIgual(g.horario_sd.trim() === g.horario_lv.trim());
     setAddPauta(true);
   };
 
@@ -417,8 +545,21 @@ function BitacoraVVView({
       return alert(
         `La vigencia debe caer dentro de la campaña (${fechaCorta(campana.fecha_inicio)} – ${fechaCorta(campana.fecha_fin)}).`
       );
-    if (!nf.horario_lv.trim() || !nf.horario_sd.trim())
-      return alert('Los horarios no pueden quedar vacíos: el formato exige cubrir el día completo o la franja explícita.');
+
+    // El horario sale de las franjas, y solo el que aplica según los días
+    // que toca la vigencia (una pauta de fin de semana no lleva L-V).
+    const dias = diasEnRango(nf.inicio, nf.fin);
+    const hayLV = [0, 1, 2, 3, 4].some((d) => dias.has(d));
+    const haySD = dias.has(5) || dias.has(6);
+    // S-D hereda de L-V solo cuando hay L-V y el palomeo está puesto; si la
+    // vigencia es puro fin de semana, su rejilla es la única que manda.
+    const sdHereda = hayLV && sdIgual;
+    if (hayLV && horasLV.length === 0)
+      return alert('Marca las franjas del horario de lunes a viernes.');
+    if (haySD && !sdHereda && horasSD.length === 0)
+      return alert('Marca las franjas del horario de sábado y domingo.');
+    const textoLV = hayLV ? horasATexto(horasLV) : 'NO APLICA';
+    const textoSD = haySD ? horasATexto(sdHereda ? horasLV : horasSD) : 'NO APLICA';
 
     setGuardando(true);
     const empalmes = await buscarEmpalmes(nf.claves, nf.inicio, nf.fin, []);
@@ -438,8 +579,8 @@ function BitacoraVVView({
       version: nf.version.trim(),
       inicio: nf.inicio,
       fin: nf.fin,
-      horario_lv: nf.horario_lv.trim(),
-      horario_sd: nf.horario_sd.trim(),
+      horario_lv: textoLV,
+      horario_sd: textoSD,
       testigos: nf.testigos,
       observaciones: nf.observaciones.trim() || null,
       creada_por: email,
@@ -1015,22 +1156,73 @@ function BitacoraVVView({
                 </div>
               </div>
 
-              <div className="row2">
-                <div className="field">
-                  <label>Horario lunes a viernes</label>
-                  <input
-                    value={nf.horario_lv}
-                    onChange={(e) => setNf({ ...nf, horario_lv: e.target.value })}
-                  />
-                </div>
-                <div className="field">
-                  <label>Horario sábado y domingo</label>
-                  <input
-                    value={nf.horario_sd}
-                    onChange={(e) => setNf({ ...nf, horario_sd: e.target.value })}
-                  />
-                </div>
-              </div>
+              {(() => {
+                // Los días salen SOLOS de la vigencia: si el rango no toca
+                // sábado ni domingo, la franja S-D ni aparece — no hay cómo
+                // capturar un horario que no aplica (pedido de Erik, 22-sep).
+                const dias = diasEnRango(nf.inicio, nf.fin);
+                const hayLV = [0, 1, 2, 3, 4].some((d) => dias.has(d));
+                const haySD = dias.has(5) || dias.has(6);
+                return (
+                  <>
+                    <div className="field">
+                      <label>Días que cubre la vigencia</label>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {DIAS_SEMANA.map((d, i) => {
+                          const activo = dias.has(i);
+                          return (
+                            <span
+                              key={d}
+                              style={{
+                                padding: '6px 11px',
+                                borderRadius: 8,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                border: '1px solid ' + (activo ? 'var(--accent)' : 'var(--line)'),
+                                background: activo ? 'var(--accent)' : 'transparent',
+                                color: activo ? '#151515' : 'var(--muted)',
+                                opacity: activo ? 1 : 0.55,
+                              }}
+                            >
+                              {d}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {hayLV && (
+                      <FranjaHoras
+                        titulo="Horario lunes a viernes"
+                        horas={horasLV}
+                        onChange={setHorasLV}
+                      />
+                    )}
+                    {haySD && hayLV && (
+                      <div className="field">
+                        <label
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={sdIgual}
+                            onChange={(e) => setSdIgual(e.target.checked)}
+                            style={{ width: 'auto' }}
+                          />
+                          Sábado y domingo con el mismo horario
+                        </label>
+                      </div>
+                    )}
+                    {haySD && !(hayLV && sdIgual) && (
+                      <FranjaHoras
+                        titulo="Horario sábado y domingo"
+                        horas={horasSD}
+                        onChange={setHorasSD}
+                      />
+                    )}
+                  </>
+                );
+              })()}
 
               <div className="field">
                 <label>
