@@ -450,24 +450,26 @@ function BitacoraVVView({
   };
 
   // ------------------------------------------------------------
-  // Empalmes: mismas fechas, mismo espacio, en cualquier campaña no
-  // cerrada. Devuelve las líneas del aviso, o [] si está libre.
+  // Empalmes: mismas fechas, mismo espacio, en OTRA campaña no cerrada.
+  // Dentro de la misma campaña encimarse es normal (la VENTA y su BONUS
+  // comparten fechas); el empalme que importa es la doble venta.
+  // Devuelve las líneas del aviso, o [] si está libre.
   // ------------------------------------------------------------
   const buscarEmpalmes = async (
     claves: string[],
     inicio: string,
     fin: string,
-    exceptoIds: number[]
+    campanaId: number
   ): Promise<string[]> => {
     const { data } = await sb
       .from('vv_pautas')
       .select('id,espacio_clave,version,inicio,fin,campana_id,vv_campanas(cliente,nombre)')
       .in('espacio_clave', claves)
       .neq('estatus', 'cerrada')
+      .neq('campana_id', campanaId)
       .lte('inicio', fin)
       .gte('fin', inicio);
     return ((data as unknown as (Pauta & { vv_campanas: { cliente: string; nombre: string } | null })[]) || [])
-      .filter((p) => !exceptoIds.includes(p.id))
       .map(
         (p) =>
           `· ${p.espacio_clave}: ${p.vv_campanas?.nombre || 'otra campaña'} (${p.version}) ${fechaCorta(p.inicio)}–${fechaCorta(p.fin)}`
@@ -492,20 +494,28 @@ function BitacoraVVView({
   const [horasSD, setHorasSD] = useState<number[]>([...TODAS_LAS_HORAS]);
   const [sdIgual, setSdIgual] = useState(true);
 
+  /**
+   * El alta arranca precargada con la vigencia MÁS RECIENTE de la campaña
+   * (ids, fechas y horario): casi nunca cambian, y el caso típico —agregar
+   * dos o tres ids como BONUS con todo igual— queda en ajustar la
+   * selección y escribir la versión (Erik, 22-sep-2026). Sin pautas
+   * previas, los defaults de siempre.
+   */
   const abrirAddPauta = () => {
     if (!campana) return;
+    const ultima = grupos[0]; // agrupar() ordena por inicio descendente
     setNf({
       version: '',
       tipo_venta: 'VENTA',
-      inicio: campana.fecha_inicio,
-      fin: campana.fecha_fin,
-      testigos: false,
+      inicio: ultima ? ultima.inicio : campana.fecha_inicio,
+      fin: ultima ? ultima.fin : campana.fecha_fin,
+      testigos: ultima ? ultima.testigos : false,
       observaciones: '',
-      claves: [],
+      claves: ultima ? ultima.filas.map((f) => f.espacio_clave) : [],
     });
-    setHorasLV([...TODAS_LAS_HORAS]);
-    setHorasSD([...TODAS_LAS_HORAS]);
-    setSdIgual(true);
+    setHorasLV(ultima ? textoAHoras(ultima.horario_lv) : [...TODAS_LAS_HORAS]);
+    setHorasSD(ultima ? textoAHoras(ultima.horario_sd) : [...TODAS_LAS_HORAS]);
+    setSdIgual(ultima ? ultima.horario_sd.trim() === ultima.horario_lv.trim() : true);
     setAddPauta(true);
   };
 
@@ -562,7 +572,7 @@ function BitacoraVVView({
     const textoSD = haySD ? horasATexto(sdHereda ? horasLV : horasSD) : 'NO APLICA';
 
     setGuardando(true);
-    const empalmes = await buscarEmpalmes(nf.claves, nf.inicio, nf.fin, []);
+    const empalmes = await buscarEmpalmes(nf.claves, nf.inicio, nf.fin, campana.id);
     if (empalmes.length) {
       const sigue = confirm(
         `OJO — ${empalmes.length} empalme(s) en esas fechas:\n\n${empalmes.slice(0, 12).join('\n')}${empalmes.length > 12 ? '\n…' : ''}\n\n¿Continuar de todos modos?`
