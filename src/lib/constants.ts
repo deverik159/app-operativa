@@ -34,6 +34,10 @@ export const ROLE_LABEL: Record<string, string> = {
   reportante: 'Reportante',
   validador: 'Validador',
   reparacion: 'Técnico',
+  // Quien recorre la ruta. SOLO ve Pauta y Monitoreo: el trabajo de
+  // monitoreo y el de reparación van separados (Erik, 21-sep-2026) —
+  // antes se le daba 'reparacion' y arrastraba bandeja e indicadores.
+  monitorista: 'Monitorista',
   coordinador: 'Coordinador',
   manager: 'Admin',
   viewer: 'Viewer',
@@ -43,6 +47,7 @@ export const ROLE_ICON: Record<string, string> = {
   reportante: '📝',
   validador: '✅',
   reparacion: '🔧',
+  monitorista: '📷',
   coordinador: '🧭',
   manager: '🛡️',
   viewer: '👁️',
@@ -54,6 +59,7 @@ export const ROLE_PRIORITY = [
   'validador',
   'reparacion',
   'reportante',
+  'monitorista',
   'viewer',
 ];
 

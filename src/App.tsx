@@ -456,6 +456,21 @@ function Main({ session }: { session: Session }) {
     ...new Set((roles || []).map((r) => r.departamento).filter(Boolean)),
   ] as string[];
   const role = ROLE_PRIORITY.find((r) => misRoles.includes(r)) || 'viewer';
+
+  /**
+   * ¿SOLO monitorista? Entonces su app es Pauta y Monitoreo y nada más:
+   * ni indicadores ni bandejas — el monitoreo va separado de la
+   * reparación (Erik, 21-sep-2026). Si además tiene otro rol, ese rol
+   * abre lo suyo con normalidad.
+   */
+  const esMonitoristaPuro =
+    misRoles.length > 0 && misRoles.every((r) => r === 'monitorista');
+
+  // Su pestaña de inicio es la suya, no un dashboard que no ve.
+  useEffect(() => {
+    if (ready && esMonitoristaPuro)
+      setTab((t) => (t === 'dashboard' ? 'pauta' : t));
+  }, [ready, esMonitoristaPuro]);
   const nombre =
     (session.user.user_metadata?.name as string) || email.split('@')[0];
 
@@ -563,7 +578,9 @@ function Main({ session }: { session: Session }) {
       ic: '🗂️',
       t: 'Incidencias',
     },
-    { k: 'dashboard', ic: '📊', t: 'Indicadores' },
+    // Indicadores no es del monitorista puro: mide reparación y carga de
+    // áreas, trabajo que no es el suyo.
+    !esMonitoristaPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores' },
     // Disponibilidad es para COMERCIAL, que hoy no tiene rol propio. Se
     // abre a viewer además de manager y coordinador: viewer es el rol con
     // el que entra quien solo consulta. Si algún día existe un rol
@@ -585,12 +602,14 @@ function Main({ session }: { session: Session }) {
       ic: '🗺️',
       t: 'Rutas de Monitoreo',
     },
-    // Trabajo de campo sobre la pauta. Lo ve también reparación/fijador:
-    // son quienes recorren la ruta, no solo quien la administra.
-    // Pauta y Monitoreo también es de Ecovallas Impreso.
+    // Trabajo de campo sobre la pauta: del MONITORISTA (rol propio desde
+    // el 21-sep-2026) y del fijador, que recorre las mismas rutas. El
+    // técnico de reparación YA NO la ve: su trabajo es otro y mezclarlos
+    // empalmaba funciones (antes se le daba 'reparacion' al monitorista
+    // por no existir su rol). Pauta y Monitoreo es de Ecovallas Impreso.
     (has('manager') ||
       has('coordinador') ||
-      has('reparacion') ||
+      has('monitorista') ||
       has('fijador')) &&
       enEcovallasImpreso && {
         k: 'pauta',
