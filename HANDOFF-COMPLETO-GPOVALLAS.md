@@ -1,7 +1,7 @@
 # HANDOFF COMPLETO — Central de Operaciones GPO VALLAS
 ### Documento de traspaso para retomar el proyecto sin empezar de cero
 
-_Última actualización: 17 de septiembre de 2026. Reemplaza la versión anterior
+_Última actualización: 22 de septiembre de 2026. Reemplaza la versión anterior
 (agosto 2026, "migración en curso"). Este documento captura TODO el contexto:
 arquitectura, módulos, esquema de datos, decisiones tomadas, errores cometidos
 y pendientes. Léelo completo antes de continuar._
@@ -54,6 +54,18 @@ compartidas. No se migran ni se duplican. Un módulo nuevo USA las existentes
 - El repositorio y Vercel se sincronizan por Git; no copiar ZIP entre Windows
   y macOS. Antes de desarrollar, ejecutar `git fetch origin` y confirmar que
   `main` coincide con `origin/main`.
+- **Roles separados por trabajo (21–22-sep):** existe el rol `monitorista`
+  (solo ve Pauta y Monitoreo, arranca ahí); el técnico ya NO ve Pauta; el
+  coordinador GESTIONA (Pauta y Rutas con acciones) pero en Incidencias es de
+  consulta — sin reparar, sin reasignar, sin Fijación Externa.
+- **El ciclo de campo de Pauta está completo y notificado en sus tres
+  esquinas:** ruta asignada → push al monitorista; toma nueva → push al
+  coordinador ("Toma por comprobar"); toma regresada con motivo → push al
+  monitorista. Tocar cualquiera de esos push aterriza en Pauta RECARGADA.
+- **Supabase sigue en plan Free**: sin backups automáticos, 1 GB de Storage y
+  5 GB/mes de egress. Acordado: upgrade a Pro ANTES del lanzamiento global
+  (la razón #1 son los respaldos). `medir_almacenamiento.sql` da el desglose;
+  a la fecha el video de reparaciones es el 81% del consumo.
 
 ---
 
@@ -224,10 +236,18 @@ La columna `usuario_roles.departamento` tiene dos significados según el rol:
 - **Reportante y Validador:** área de pertenencia del usuario. Catálogo actual:
   `Monitoreo`, `Operaciones`, `SRD`, `PPD`. Es obligatoria al crear el rol y
   nunca decide quién repara.
-- **Técnico y Coordinador:** área técnica responsable. Sí limita qué
-  incidencias puede atender: se compara contra `areaEfectiva(inc)` y la unidad
-  asignada al rol. Un coordinador sin área conserva alcance a todas las áreas
-  de su unidad cuando eso sea intencional.
+- **Técnico:** área técnica responsable. Sí limita qué incidencias puede
+  atender: se compara contra `areaEfectiva(inc)` y la unidad asignada al rol.
+- **Coordinador (desde 22-sep):** GESTIONA, no repara. Sus acciones viven en
+  Pauta y Rutas; en Incidencias es de consulta (conserva la tabla de
+  trazabilidad con export). `reparaEn` y `can.reparar/reasignar` ya no lo
+  incluyen. Si a un coordinador le llegan notificaciones de trabajo de área,
+  es que su cuenta trae el rol `reparacion` encimado: se limpia en Usuarios.
+- **Monitorista (desde 21-sep):** quien recorre la ruta. SOLO ve Pauta y
+  Monitoreo (un monitorista puro arranca ahí); levanta reportes desde el flujo
+  post-toma con políticas RLS aditivas propias (`inc_ins/sel_monitorista`,
+  `ev_ins_monitorista` — ver `rol_monitorista.sql`). Las rutas se asignan
+  únicamente a este rol.
 
 No mezclar los dos catálogos en Usuarios y roles. Para auditar roles existentes
 sin modificar datos, correr `auditar_areas_roles.sql` en Supabase. Su paso 4
@@ -245,7 +265,14 @@ las crean los triggers `security definer`.
 
 Eventos en uso: `captura`, `asignacion`, `asignacion_area`,
 `asignacion_tecnico`, `reparado`, `reparado_reportante`, `cierre`, `reabierta`,
-`reasignacion`, `chat`, `ruta`, `mant_autorizado`, `mant_correctivo`.
+`reasignacion`, `chat`, `ruta`, `pauta_toma` (toma regresada),
+`pauta_revision` (toma por comprobar), `mant_autorizado`, `mant_correctivo`.
+
+**Enrutamiento del clic (22-sep):** las notificaciones con `record_id` llevan a
+la incidencia; las de pauta (`pauta_toma`, `pauta_revision`, `ruta`) llevan a
+Pauta y Monitoreo RECARGADA — el sw.js agrega `?ir=pauta` a la URL y
+`enviar-push` manda el `evento` en el payload. Sin la recarga, una lista ya
+abierta seguía enseñando la toma vieja y el monitorista no podía reponer.
 
 Hay además un trigger `notificaciones` → `supabase_functions.http_request`
 hacia una Edge Function (`dynamic-worker`), que es lo que alimenta
@@ -280,11 +307,22 @@ un UNIQUE.
 trabajo físico es uno solo aunque haya varios contratos.
 
 **Vistas:** `vw_pauta_ruta` (pauta + avance + coordenadas + `navegable` y
-`avance` ya calculados) y `vw_pauta_resumen` (totales por ruta y campaña).
+`avance` ya calculados; desde el 21–22-sep expone también `fotos`,
+`espec_toma` y `rechazo_motivo`/`rechazada_por` — columnas nuevas SIEMPRE al
+final, `create or replace view` no permite en medio) y `vw_pauta_resumen`
+(totales por ruta y campaña).
 
-**RPCs:** `importar_pauta`, `registrar_toma`, `registrar_comprobacion`.
-`registrar_toma` NO pisa una toma anterior: la primera es la que responde
-"cuándo estuvo ahí".
+**RPCs:** `importar_pauta`, `registrar_toma`, `registrar_comprobacion`,
+`rechazar_toma`, `sincronizar_rutas_desde_pauta`, `usuarios_asignables`.
+`registrar_toma` NO pisa una toma anterior vigente (la primera responde
+"cuándo estuvo ahí"), limpia el rechazo cuando entra la reposición y notifica
+`pauta_revision` a los coordinadores solo en toma NUEVA.
+`registrar_comprobacion` y `rechazar_toma` exigen coordinador/manager: la
+comprobación es la validación del coordinador, con las fotos a la vista.
+
+**Asignación de rutas:** tabla `ruta_asignaciones` (ruta + usuario, leen
+todos, escriben coordinador/manager) con trigger que notifica `ruta` al
+asignar Y al retirar. `usuarios_asignables` regresa SOLO monitoristas.
 
 ### 3.6. Vistas existentes
 
@@ -304,6 +342,11 @@ pasaba nada (RLS filtra y afecta 0 filas sin lanzar excepción).
 
 Decisión (Erik, ago-2026): **no crear la política**. `asignarTecnico` y
 `asignarArea` van gateados en `validador` (con manager como comodín).
+
+Actualización (22-sep): el "hueco" se volvió DISEÑO. El coordinador es de
+consulta en Incidencias a propósito — la app tampoco le enseña ya los botones
+de reparar/reasignar, así que la RLS y la interfaz por fin cuentan la misma
+historia.
 
 ---
 
@@ -409,7 +452,51 @@ terminó el anterior). Verificado con 1, 5, 10, 11 y 43 paradas.
 
 Vive en pestaña propia, no dentro de Rutas: RutasView es **administración** de
 rutas y esto es **trabajo de campo** sobre una catorcena. Distinta audiencia y
-distinto momento. La ven manager, coordinador, reparación y fijador.
+distinto momento. La ven manager, coordinador, **monitorista** y fijador — el
+técnico de reparación YA NO (21-sep): su trabajo es otro y mezclarlos
+empalmaba funciones.
+
+**El ciclo de campo completo (21–22-sep):**
+
+1. **Importar la catorcena** (coordinador) y, con el botón **🗺️ Sincronizar
+   rutas**, poblar `rutas_monitoreo` con los sitios y secuencias del archivo
+   (RPC `sincronizar_rutas_desde_pauta`, que envuelve a `importar_rutas`;
+   solo rutas numéricas — PLAZA/EDOMEX no son rutas de monitoreo). Sin esto,
+   un sitio cuya ruta no existe en el módulo no se puede asignar.
+2. **Asignar la ruta** a un monitorista (panel al filtrar una ruta; selector
+   con SOLO monitoristas). Le llega push "Cambio en tu ruta" y al abrir Pauta
+   su ruta viene pre-filtrada con ⭐ (una vez: si cambia el filtro, se
+   respeta).
+3. **Registrar la toma**: el modal enseña la `espec_toma` del archivo al pie
+   de la tarjeta con color por regla, y EXIGE el mínimo de fotos —
+   homologado contra los textos reales: tomas por DISTANCIA
+   (corta/media/larga, "corta y media", comas de más, el typo "CORA") = 9;
+   todo lo demás (comprobaciones del primer viernes con o sin día/noche,
+   "sin obstrucción", vacío) = 3; texto no reconocido = 3 en ámbar. Las
+   reglas viven en `lib/especToma.ts` (agregar una redacción = una línea);
+   los videos suman evidencia pero no cuentan para el mínimo.
+4. Al terminar la toma, un diálogo discreto ofrece **levantar incidencia del
+   sitio**: abre el NuevaInc de siempre con el sitio ligado (unidad
+   Ecovallas), guardando por `lib/crearReporte.ts` — la MISMA pieza que usa
+   IncidenciasView (regla de duplicidad, RLS silenciosa y evidencia por
+   grupo idénticas). Cada sitio muestra además su tag "N incidencias
+   abiertas ›" (tocarlo abre un modal mínimo — nombre, área y estatus — para
+   no reportar lo que ya existe; fuente: RPC `estado_maquina`, que ve todas
+   las áreas).
+5. **Comprobar es del coordinador**, desde el visor de fotos ("🔎 Revisar y
+   comprobar"): el botón de la lista se retiró para que no se pueda validar
+   sin ver las fotos. Ahí mismo puede **⛔ Regresar** la toma con motivo
+   obligatorio: la cara vuelve a PENDIENTE con el motivo visible, el
+   monitorista recibe push "Toma regresada" (que lo lleva a Pauta recargada)
+   y su reposición limpia el rechazo sola.
+6. **Tarjetas-filtro**: Sitios / Caras / Pendientes / Tomadas / Comprobadas /
+   Incidencias son botones que filtran la lista al tocarse (los conteos
+   salen del filtrado SIN esa dimensión, para que no se pongan en cero).
+
+Los importadores de **Rutas de Monitoreo** son contextuales por unidad
+(22-sep): Biobox ve su Excel de operación y su mapa KML; las demás unidades
+ven el Excel genérico — con una línea de ayuda visible de qué archivo espera
+cada uno (los `title` no existen en táctil).
 
 Agrupa por sitio con sus caras dentro: se navega al poste una vez y ahí hay que
 saber qué anuncio va en cada cara. **Dos de cada tres sitios tienen más de una
@@ -632,6 +719,14 @@ Biobox.
 | `diagnostico_biobox.sql` | referencia, solo lectura — ✅ ya corrido |
 | `diagnostico_biobox_2.sql` | referencia, solo lectura — ✅ ya corrido (10-sep; OJO: los números de máquina SÍ se repiten entre claves, la tarjeta enseña la clave completa por eso) |
 | `diagnostico_qtm_campanias.sql` | referencia, solo lectura — ✅ ya corrido (columnas y RLS de qtm_pautas/qtm_contratos) |
+| `pauta_espec_toma.sql` | ✅ aplicado (21-sep) — expone `espec_toma` en la vista; su verificación lista los textos por homologar |
+| `ruta_asignaciones.sql` | ✅ aplicado (21-sep) — tabla ruta+usuario, trigger de notificación (asignar y retirar) y RPC `usuarios_asignables` |
+| `pauta_comprobacion_coordinador.sql` | ✅ aplicado (21-sep) — comprobar exige coordinador/manager; RPC `rechazar_toma` con motivo + notificación; vista con rechazo |
+| `rol_monitorista.sql` | ✅ aplicado (21-sep) — valor nuevo del enum (correr el PASO 1 SOLO y primero) + políticas aditivas inc/ev del monitorista |
+| `coordinador_solo_gestion.sql` | ✅ aplicado (21-sep) — `usuarios_asignables` solo monitoristas + diagnóstico de triggers que notifiquen a coordinador |
+| `notificar_toma_por_comprobar.sql` | ✅ aplicado (22-sep) — `registrar_toma` avisa a coordinadores (evento `pauta_revision`) solo en toma NUEVA |
+| `sincronizar_rutas_pauta.sql` | ✅ aplicado (22-sep) — RPC `sincronizar_rutas_desde_pauta`; ojo con la firma json/jsonb de `importar_rutas` (PASO 0) |
+| `medir_almacenamiento.sql` | referencia, solo lectura — Storage por módulo, pauta POR CATORCENA, foto vs video, top-20 y GB/semana |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
@@ -778,13 +873,31 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 - **Usar Git, no ZIP**, para sincronizar entre la Mac personal y la Windows de
   la empresa. `.gitattributes` ya normaliza CRLF/LF; sin eso, cambiar de
   máquina marca todos los archivos como modificados.
+- **Upgrade de Supabase a Pro ANTES del lanzamiento global** (acordado
+  22-sep). El plan Free no tiene backups automáticos — esa es la razón #1,
+  por encima del espacio: un borrado accidental hoy no tiene vuelta atrás.
+  Además: 1 GB de Storage (~3 meses al ritmo de pruebas) y 5 GB/mes de
+  egress, que con fotos vistas a diario en campo sería el primer muro.
+  Medición del 22-sep (`medir_almacenamiento.sql`): 113 MB usados; el VIDEO
+  de reparaciones es el 81% con el 12% de los archivos; las fotos comprimidas
+  salen a ~100–190 kB. Con 2–3 catorcenas reales medidas se decide el
+  purgador de evidencia de pauta (propuesta: conservar 3 catorcenas) y/o
+  capar el video (hoy hasta 50 MB por clip).
+- El CLI de Supabase ya está instalado y logueado en la Mac
+  (`brew install supabase/tap/supabase`). Para redesplegar la función de
+  push: `supabase functions deploy enviar-push --no-verify-jwt --project-ref
+  qztxpcfbbbmvgmtjnlxg`.
 
 ### 9.3. Evoluciones del módulo Pauta
 - Reporte descargable de avance por catorcena (Excel/PDF).
-- Ligar la evidencia fotográfica del monitorista a `pauta_monitoreo` (hoy solo
-  se registra la fecha, no las fotos).
+- ~~Ligar la evidencia fotográfica del monitorista a `pauta_monitoreo`~~ —
+  HECHO: `pauta_evidencias` guarda las fotos por cara/catorcena y el mínimo
+  lo exige la `espec_toma`.
 - Ordenar las paradas desde la posición GPS actual. `nearestRoute` ya está
   escrito en `lib/haversine.ts` y sin usar.
+- Si los push "Toma por comprobar" resultan demasiados en campo (es uno por
+  toma nueva), convertirlos en resumen (por sitio o por hora) — pendiente del
+  veredicto de los coordinadores.
 - Cruzar pauta con `vw_fijacion_externa`: hay un campo `campana` en el sistema
   de Mario. Si las dos fuentes nombran distinto la misma campaña, se va a
   contar doble. Conviene detectarlo antes de que crezca.
@@ -998,3 +1111,51 @@ Todo salió de las pruebas de campo de Erik (línea Windows, commits
   la comparta). Este handoff sigue siendo el documento técnico.
 - Al 17-sep-2026, `main` local y `origin/main` apuntan a `1daa96b` más este
   documento; sin cambios locales fuera de él.
+
+### 12.9. Actualización del 21–22-sep-2026: ciclo de campo de Pauta y roles separados
+
+Dos jornadas (Mac, sesiones con Claude) que convirtieron Pauta y Monitoreo de
+vista de consulta en el módulo de operación del monitorista, y separaron los
+roles por trabajo. Todo desplegado y verificado por Erik en producción.
+
+- **Reporte post-toma** (`da1f45c`): al registrar una toma, un diálogo
+  discreto ofrece levantar incidencia del sitio; abre el NuevaInc de siempre
+  con el sitio ligado (unidad Ecovallas) sin salir de Pauta. El guardado se
+  extrajo a `lib/crearReporte.ts`, COMPARTIDO con IncidenciasView — regla de
+  duplicidad, RLS silenciosa y evidencia por grupo idénticas se capture desde
+  donde se capture.
+- **Espec de toma** (`da1f45c`, homologada en `5ad1b68`): la vista expone
+  `espec_toma`, el modal la pinta con color por regla y EXIGE el mínimo de
+  fotos (distancia = 9; todo lo demás = 3; texto no reconocido = 3 en ámbar).
+  Reglas por patrón en `lib/especToma.ts`.
+- **Rutas asignables** (`ff02c75`): `ruta_asignaciones` + panel del
+  coordinador; push "Cambio en tu ruta" al asignar y al retirar; la ruta del
+  monitorista se pre-filtra con ⭐. El selector lista SOLO monitoristas
+  (`fd90930`).
+- **Tarjetas-filtro** (`ff02c75`, `9545bda`): Sitios/Caras/Pendientes/
+  Tomadas/Comprobadas/Incidencias son botones que filtran; los conteos se
+  calculan sin la dimensión propia para no ponerse en cero. La de
+  Incidencias usa la RPC `estado_maquina`, y el tag por sitio abre un modal
+  mínimo (nombre, área, estatus) para no reportar lo que ya existe
+  (`b8bb9a4`).
+- **Comprobación del coordinador** (`bb3b6f9`): `registrar_comprobacion`
+  exige coordinador/manager; el botón vive DENTRO del visor de evidencia
+  ("🔎 Revisar y comprobar") — no se valida sin ver las fotos. `rechazar_toma`
+  regresa la toma con motivo obligatorio, notifica al monitorista
+  (`pauta_toma`) y la reposición limpia el rechazo sola. La toma NUEVA avisa
+  a los coordinadores (`pauta_revision`, `5ad1b68`) — vigilar el volumen.
+- **Push que lleva a Pauta** (`b8bb9a4`): sw.js agrega `?ir=pauta`,
+  enviar-push manda el `evento`, y App enruta campana/push a Pauta RECARGADA.
+- **Rol monitorista** (`25a73e8`): solo ve Pauta, arranca ahí; el técnico ya
+  no ve Pauta. **Coordinador gestiona, no repara** (`fd90930`): sin
+  reparar/reasignar en Incidencias, sin Fijación Externa; migración de datos
+  = quitar roles encimados en Usuarios.
+- **Importadores de Rutas contextuales** (`7d23036`) y **sincronizar rutas
+  desde la pauta** (`484a1f8`): la catorcena puebla `rutas_monitoreo` vía
+  `sincronizar_rutas_desde_pauta` — sin segundo Excel, y los sitios quedan
+  asignables.
+- **Storage medido** (`8c25bb3`, resultados en §9.2): plan Free, upgrade a
+  Pro acordado antes del lanzamiento (backups primero).
+- Al 22-sep-2026, `main` local y `origin/main` apuntan a `b8bb9a4` más este
+  documento. La Edge Function `enviar-push` está desplegada con los títulos
+  `pauta_toma`/`pauta_revision` y el `evento` en el payload.
