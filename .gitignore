@@ -15,4 +15,7 @@ dist
 # El manual para repartir (7+ MB con capturas incrustadas): se genera
 # desde Claude Code, no se versiona
 /Manual de Incidencias.html
+# Restos de pruebas locales de generación de documentos (Erik, 22-sep-2026)
+/outputs/
+/build_biobox_pipeline_doc.py
 supabase/.temp/
