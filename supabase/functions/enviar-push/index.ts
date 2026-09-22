@@ -137,6 +137,9 @@ Deno.serve(async (req) => {
     cuerpo: texto,
     url: '/',
     record_id: cuerpo.record_id || null,
+    // El evento decide la sección al tocar la notificación: los de pauta
+    // (pauta_toma, pauta_revision, ruta) llevan a Pauta y Monitoreo.
+    evento: cuerpo.evento || null,
     // tag por registro Y tipo de evento: los chats de una incidencia se
     // reemplazan entre sí sin apilarse, pero un chat ya no pisa la solicitud
     // de reasignación de la misma incidencia (así se perdían en el celular).

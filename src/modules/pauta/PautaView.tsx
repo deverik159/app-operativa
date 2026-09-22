@@ -17,8 +17,13 @@ import { sb } from '../../lib/supabase';
 import IrAqui from '../../components/IrAqui';
 import { tramosGoogleMaps } from '../../lib/navegacion';
 import { crearReporte } from '../../lib/crearReporte';
-import { resumenMaquinas, HORAS_ALARMA } from '../../lib/estadoMaquina';
-import type { MapaResumen } from '../../lib/estadoMaquina';
+import { EST_LABEL, EST_COLOR } from '../../lib/constants';
+import {
+  resumenMaquinas,
+  detalleMaquina,
+  HORAS_ALARMA,
+} from '../../lib/estadoMaquina';
+import type { MapaResumen, IncidenciaAbierta } from '../../lib/estadoMaquina';
 import ImportarPautaModal from './ImportarPautaModal';
 import RegistrarTomaModal from './RegistrarTomaModal';
 import NuevaInc from '../incidencias/NuevaInc';
@@ -62,9 +67,16 @@ type Props = {
   email: string;
   /** Departamentos del usuario: area_reportante del reporte que levante. */
   misDep: string[];
+  /**
+   * Cambia cuando una notificación de pauta trae al usuario aquí (toma
+   * regresada, toma por comprobar, ruta asignada): recarga la catorcena
+   * para que vea el estado FRESCO — sin esto, una lista ya abierta seguía
+   * enseñando la toma como registrada aunque se la acabaran de regresar.
+   */
+  recargarSignal?: number;
 };
 
-function PautaView({ puedeImportar, email, misDep }: Props) {
+function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   const [filas, setFilas] = useState<PautaRuta[]>([]);
   const [catorcenas, setCatorcenas] = useState<number[]>([]);
   const [catSel, setCatSel] = useState<number | null>(null);
@@ -113,6 +125,22 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
    * donde está parado ya tiene algo reportado.
    */
   const [abiertas, setAbiertas] = useState<MapaResumen>({});
+
+  /**
+   * Detalle de las abiertas de UN sitio (modal). Lo mínimo para que el
+   * monitorista decida si su reporte ya existe: nombre, área y estatus —
+   * nada más, para no mezclarlo con el trabajo de reparación.
+   */
+  const [verIncDe, setVerIncDe] = useState<string | null>(null);
+  const [incsDelSitio, setIncsDelSitio] = useState<IncidenciaAbierta[] | null>(
+    null
+  );
+  const abrirIncidenciasDe = async (siteId: string) => {
+    setVerIncDe(siteId);
+    setIncsDelSitio(null); // muestra "cargando" mientras llega
+    const { filas } = await detalleMaquina(siteId);
+    setIncsDelSitio(filas);
+  };
   const cargarAbiertas = useCallback(async (siteIds: string[]) => {
     if (!siteIds.length) return;
     const m = await resumenMaquinas(siteIds);
@@ -335,6 +363,15 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
   useEffect(() => {
     if (catSel != null) cargar(catSel);
   }, [catSel, cargar]);
+
+  // Recarga pedida desde afuera (notificación de pauta abierta).
+  useEffect(() => {
+    if (recargarSignal && catSel != null) {
+      cargar(catSel);
+      cargarAsignaciones();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recargarSignal]);
 
   // --- Catálogos derivados de los datos ---
   const rutas = useMemo(() => {
@@ -998,12 +1035,11 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
                   </div>
                   <div className="titulo">{s.site_id}</div>
                   <div className="meta">{s.direccion || '(sin dirección)'}</div>
-                  {/* Incidencias abiertas del sitio: aquí NO se reparan
-                      (eso es de Fijación/técnicos) — es visualización para
-                      que el monitorista sepa que donde está parado ya hay
-                      algo reportado. Misma fuente que el distintivo de
-                      Biobox; las áreas van EN el texto (no title: en táctil
-                      no existe). */}
+                  {/* Incidencias abiertas del sitio: aquí NO se reparan —
+                      es para que el monitorista sepa si lo que va a
+                      reportar YA existe. El tag es sobrio (solo el conteo,
+                      sin áreas: mezclaba cosas) y al tocarlo abre el
+                      detalle mínimo. */}
                   {(() => {
                     const e = abiertas[s.site_id];
                     if (!e || !e.abiertas) return null;
@@ -1011,9 +1047,15 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
                       e.hay_critica || (e.horas_peor ?? 0) > HORAS_ALARMA;
                     return (
                       <div style={{ marginTop: 6 }}>
-                        <span
+                        <button
+                          type="button"
+                          onClick={() => abrirIncidenciasDe(s.site_id)}
                           className="tag"
                           style={{
+                            cursor: 'pointer',
+                            font: 'inherit',
+                            fontSize: 11,
+                            minHeight: 32,
                             color: alarma ? '#ef4444' : '#f97316',
                             borderColor: alarma ? '#ef4444' : '#f97316',
                             border: '1px solid',
@@ -1023,9 +1065,8 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
                         >
                           {alarma ? '🔴' : '⚠'} {e.abiertas} incidencia
                           {e.abiertas === 1 ? '' : 's'} abierta
-                          {e.abiertas === 1 ? '' : 's'}
-                          {e.areas ? ` · ${e.areas}` : ''}
-                        </span>
+                          {e.abiertas === 1 ? '' : 's'} ›
+                        </button>
                       </div>
                     );
                   })()}
@@ -1202,6 +1243,91 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
           onComprobar={comprobar}
           onRegresada={tomaRegresada}
         />
+      )}
+
+      {/* Detalle mínimo de las incidencias abiertas del sitio: nombre,
+          área y estatus — lo justo para que el monitorista sepa si lo que
+          iba a reportar ya existe. Sin folios ni botones de trabajo: eso
+          es del módulo de Incidencias. */}
+      {verIncDe && (
+        <div
+          className="overlay"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).className === 'overlay')
+              setVerIncDe(null);
+          }}
+        >
+          <div className="modal" style={{ maxWidth: 400, margin: 'auto 0' }}>
+            <h2 style={{ margin: '0 0 3px', fontSize: 17 }}>
+              Incidencias abiertas
+            </h2>
+            <p className="phint" style={{ marginBottom: 12 }}>
+              {verIncDe} — si lo que viste ya está aquí, no lo reportes de
+              nuevo.
+            </p>
+            {incsDelSitio === null ? (
+              <div className="loading" style={{ padding: 20 }}>
+                Cargando…
+              </div>
+            ) : incsDelSitio.length === 0 ? (
+              <div className="empty" style={{ padding: 20 }}>
+                Nada abierto en este sitio.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {incsDelSitio.map((i) => (
+                  <div
+                    key={i.record_id}
+                    style={{
+                      background: 'var(--panel2)',
+                      border: '1px solid var(--line)',
+                      borderRadius: 10,
+                      padding: '10px 12px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>
+                        {i.nombre_incidencia || '(sin nombre)'}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: 'var(--muted)',
+                          marginTop: 2,
+                        }}
+                      >
+                        {i.area || 'Sin área'}
+                      </div>
+                    </div>
+                    <span
+                      className="pill"
+                      style={{
+                        background: (EST_COLOR[i.estatus] || '#666') + '22',
+                        color: EST_COLOR[i.estatus] || '#aaa',
+                      }}
+                    >
+                      {EST_LABEL[i.estatus] || i.estatus}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="modal-actions" style={{ marginTop: 14 }}>
+              <button
+                className="btn ghost"
+                onClick={() => setVerIncDe(null)}
+                style={{ width: '100%' }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* La pregunta sutil tras registrar la toma: un diálogo chico y

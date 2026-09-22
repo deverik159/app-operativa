@@ -35,7 +35,12 @@ self.addEventListener('push', (event) => {
     tag: d.tag || undefined,
     renotify: !!d.tag,
     // Datos que necesita el clic para llevar al usuario al lugar correcto.
-    data: { url: d.url || '/', record_id: d.record_id || null },
+    // `evento` decide la sección: las notificaciones de pauta van a Pauta.
+    data: {
+      url: d.url || '/',
+      record_id: d.record_id || null,
+      evento: d.evento || null,
+    },
     // vibrate no lo soporta iOS, pero en Android ayuda a notarla en campo.
     vibrate: [80, 40, 80],
   };
@@ -48,14 +53,21 @@ self.addEventListener('notificationclick', (event) => {
   const datos = event.notification.data || {};
   const destino = datos.url || '/';
   const recordId = datos.record_id || null;
+  const evento = datos.evento || null;
+  // Estos eventos viven en Pauta y Monitoreo, no en Incidencias.
+  const esPauta =
+    evento === 'pauta_toma' || evento === 'pauta_revision' || evento === 'ruta';
   // La URL se usa tanto al abrir una ventana nueva como al navegar una ya
   // abierta. De esta manera la app arranca desde el bundle actual y lee el
-  // record_id en App.tsx, en vez de entregar el clic a JavaScript viejo que
+  // destino en App.tsx (`?record=` enfoca la incidencia; `?ir=pauta`
+  // aterriza en Pauta), en vez de entregar el clic a JavaScript viejo que
   // pudo quedarse abierto durante días.
+  const sep = destino.includes('?') ? '&' : '?';
   const url = recordId
-    ? destino + (destino.includes('?') ? '&' : '?') + 'record=' +
-      encodeURIComponent(recordId)
-    : destino;
+    ? destino + sep + 'record=' + encodeURIComponent(recordId)
+    : esPauta
+      ? destino + sep + 'ir=pauta'
+      : destino;
 
   event.waitUntil(
     (async () => {
@@ -77,6 +89,7 @@ self.addEventListener('notificationclick', (event) => {
               tipo: 'notificacion-abierta',
               url: destino,
               record_id: recordId,
+              evento,
             });
           }
           await v.focus();

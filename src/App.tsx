@@ -402,6 +402,17 @@ function Main({ session }: { session: Session }) {
     [notifs.recargar]
   );
 
+  /** Eventos cuyo destino es Pauta y Monitoreo, no Incidencias. */
+  const esEventoPauta = (e?: string | null) =>
+    e === 'pauta_toma' || e === 'pauta_revision' || e === 'ruta';
+
+  /** Abre Pauta RECARGADA: una lista ya abierta enseñaría la toma vieja. */
+  const irAPauta = useCallback(() => {
+    setTab('pauta');
+    setRecargarSignal((n) => n + 1);
+    notifs.recargar();
+  }, [notifs.recargar]);
+
   /**
    * Tocar una notificación push CON la app ya abierta.
    *
@@ -415,11 +426,12 @@ function Main({ session }: { session: Session }) {
     const onMsg = (e: MessageEvent) => {
       if (e.data?.tipo !== 'notificacion-abierta') return;
       if (e.data.record_id) enfocarDesdePush(e.data.record_id);
+      else if (esEventoPauta(e.data.evento)) irAPauta();
       else notifs.recargar();
     };
     navigator.serviceWorker.addEventListener('message', onMsg);
     return () => navigator.serviceWorker.removeEventListener('message', onMsg);
-  }, [enfocarDesdePush, notifs.recargar]);
+  }, [enfocarDesdePush, irAPauta, notifs.recargar]);
 
   /**
    * Tocar una notificación push con la app CERRADA: el SW abre la app con
@@ -428,10 +440,15 @@ function Main({ session }: { session: Session }) {
    * refresh no re-enfoque una incidencia vieja.
    */
   useEffect(() => {
-    const record = new URLSearchParams(window.location.search).get('record');
-    if (!record) return;
+    const params = new URLSearchParams(window.location.search);
+    const record = params.get('record');
+    const ir = params.get('ir');
+    if (!record && !ir) return;
     window.history.replaceState(null, '', window.location.pathname);
-    enfocarDesdePush(record);
+    if (record) enfocarDesdePush(record);
+    // `?ir=pauta`: push de pauta con la app cerrada (toma regresada, por
+    // comprobar, ruta asignada) — aterriza directo en su pestaña.
+    else if (ir === 'pauta') irAPauta();
     // Solo al montar: el parámetro llega únicamente en el arranque.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -684,6 +701,12 @@ function Main({ session }: { session: Session }) {
                 // el folio lo pone un trigger y la notificación no lo trae.
                 setTab('todas');
                 setFocoRecordId(n.record_id);
+              } else if (esEventoPauta(n.evento)) {
+                // Toma regresada / por comprobar / ruta asignada: el
+                // destino es Pauta, RECARGADA — una lista ya abierta
+                // seguía enseñando la toma vieja.
+                setTab('pauta');
+                setRecargarSignal((x) => x + 1);
               }
             }}
           />
@@ -790,6 +813,7 @@ function Main({ session }: { session: Session }) {
               email={email}
               misDep={misDep}
               puedeImportar={has('manager') || has('coordinador')}
+              recargarSignal={recargarSignal}
             />
           )}
           {tab === 'biobox' && (
