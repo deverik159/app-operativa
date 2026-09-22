@@ -132,6 +132,105 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
   const [fAvance, setFAvance] = useState('Todos');
   const [q, setQ] = useState('');
 
+  // --- Asignación de rutas (coordinador → monitorista) ---
+  /** Todas las asignaciones vigentes: ruta_id → correos. */
+  const [asignaciones, setAsignaciones] = useState<
+    { id: number; ruta_id: number; usuario_email: string }[]
+  >([]);
+  /** Personas asignables (RPC, solo la ve coordinador/manager). */
+  const [asignables, setAsignables] = useState<
+    { email: string; nombre: string }[]
+  >([]);
+  const [asignando, setAsignando] = useState(false);
+
+  const cargarAsignaciones = useCallback(async () => {
+    const { data } = await sb
+      .from('ruta_asignaciones')
+      .select('id,ruta_id,usuario_email');
+    setAsignaciones(
+      (data as { id: number; ruta_id: number; usuario_email: string }[]) || []
+    );
+  }, []);
+
+  useEffect(() => {
+    cargarAsignaciones();
+    if (puedeImportar) {
+      sb.rpc('usuarios_asignables').then(({ data }) => {
+        setAsignables((data as { email: string; nombre: string }[]) || []);
+      });
+    }
+  }, [cargarAsignaciones, puedeImportar]);
+
+  /** ruta_clave → ruta_monitoreo_id (para asignar) según la catorcena. */
+  const rutaIdDeClave = useMemo(() => {
+    const m = new Map<string, number>();
+    filas.forEach((f) => {
+      if (f.ruta_clave && f.ruta_monitoreo_id != null)
+        m.set(f.ruta_clave, f.ruta_monitoreo_id);
+    });
+    return m;
+  }, [filas]);
+
+  /** Claves de ruta asignadas a MÍ, presentes en esta catorcena. */
+  const misRutas = useMemo(() => {
+    const misIds = new Set(
+      asignaciones
+        .filter((a) => a.usuario_email.toLowerCase() === email.toLowerCase())
+        .map((a) => a.ruta_id)
+    );
+    const claves = new Set<string>();
+    filas.forEach((f) => {
+      if (f.ruta_clave && f.ruta_monitoreo_id != null && misIds.has(f.ruta_monitoreo_id))
+        claves.add(f.ruta_clave);
+    });
+    return claves;
+  }, [asignaciones, filas, email]);
+
+  /**
+   * Al abrir Pauta, la ruta asignada se pre-filtra SOLA — una vez. Si el
+   * usuario cambia el filtro después, se respeta: esto es un arranque
+   * cómodo, no una jaula.
+   */
+  const [prefiltrada, setPrefiltrada] = useState(false);
+  useEffect(() => {
+    if (prefiltrada || !filas.length || !asignaciones.length) return;
+    const primera = [...misRutas][0];
+    if (primera && fRuta === 'Todas') setFRuta(primera);
+    setPrefiltrada(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [misRutas, filas, asignaciones]);
+
+  const asignarRuta = async (rutaId: number, correo: string) => {
+    if (!correo) return;
+    setAsignando(true);
+    const { error } = await sb.from('ruta_asignaciones').insert({
+      ruta_id: rutaId,
+      usuario_email: correo.toLowerCase(),
+      asignado_por: email,
+    });
+    setAsignando(false);
+    if (error) {
+      // 23505 = ya estaba asignada: no es un error para el coordinador.
+      if (!error.message.toLowerCase().includes('duplicate'))
+        alert('No se pudo asignar: ' + error.message);
+      return;
+    }
+    cargarAsignaciones();
+  };
+
+  const quitarAsignacion = async (a: { id: number; usuario_email: string }) => {
+    if (!confirm(`¿Quitar la ruta a ${a.usuario_email.split('@')[0]}?`)) return;
+    const { error } = await sb
+      .from('ruta_asignaciones')
+      .delete()
+      .eq('id', a.id);
+    if (error) {
+      alert('No se pudo quitar: ' + error.message);
+      return;
+    }
+    cargarAsignaciones();
+  };
+
   /** Catorcenas disponibles. Se abre en la más reciente. */
   const cargarCatorcenas = useCallback(async () => {
     const { data, error } = await sb
@@ -224,13 +323,16 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
     );
 
   // --- Filtrado ---
-  const visibles = useMemo(
+  // En dos pasos a propósito: `base` aplica todo MENOS el avance, y las
+  // tarjetas (Pendientes/Tomadas/Comprobadas) cuentan sobre `base` — así
+  // al filtrar por Pendientes, la tarjeta de Comprobadas no se pone en
+  // cero y sigue siendo un botón con sentido.
+  const base = useMemo(
     () =>
       filas.filter((f) => {
         if (fRuta !== 'Todas' && f.ruta_clave !== fRuta) return false;
         if (fCampanas.length && !fCampanas.includes(f.campana || ''))
           return false;
-        if (fAvance !== 'Todos' && f.avance !== fAvance) return false;
         if (q) {
           const s =
             `${f.site_id} ${f.vendor_face_id} ${f.direccion} ${f.campana} ${f.version}`.toLowerCase();
@@ -238,7 +340,12 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
         }
         return true;
       }),
-    [filas, fRuta, fCampanas, fAvance, q]
+    [filas, fRuta, fCampanas, q]
+  );
+  const visibles = useMemo(
+    () =>
+      fAvance === 'Todos' ? base : base.filter((f) => f.avance === fAvance),
+    [base, fAvance]
   );
 
   /** Agrupa las caras visibles por sitio, conservando el orden de recorrido. */
@@ -287,16 +394,24 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
     [sitios]
   );
 
+  // Conteos sobre `base` (sin el filtro de avance): son las CIFRAS de las
+  // tarjetas-botón. sinCoord sí es de lo visible, que es lo que se navega.
   const stats = useMemo(() => {
-    const t = { total: visibles.length, pend: 0, tom: 0, comp: 0, sinCoord: 0 };
-    visibles.forEach((f) => {
+    const t = { total: base.length, pend: 0, tom: 0, comp: 0, sinCoord: 0 };
+    base.forEach((f) => {
       if (f.avance === 'PENDIENTE') t.pend++;
       else if (f.avance === 'TOMADA') t.tom++;
       else t.comp++;
+    });
+    visibles.forEach((f) => {
       if (!f.navegable) t.sinCoord++;
     });
     return t;
-  }, [visibles]);
+  }, [base, visibles]);
+
+  /** Tarjeta-botón: toca para filtrar por ese avance; tocar de nuevo, quita. */
+  const toggleAvance = (v: string) =>
+    setFAvance((prev) => (prev === v ? 'Todos' : v));
 
   // --- Acciones de campo ---
   /**
@@ -436,16 +551,14 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
           <option value="Todas">Ruta: todas</option>
           {rutas.map((r) => (
             <option key={r} value={r}>
+              {/* ⭐ = asignada a este usuario por el coordinador. */}
+              {misRutas.has(r) ? '⭐ ' : ''}
               {/^\d+$/.test(r) ? `Ruta ${r}` : r}
             </option>
           ))}
         </select>
-        <select value={fAvance} onChange={(e) => setFAvance(e.target.value)}>
-          <option value="Todos">Avance: todos</option>
-          <option value="PENDIENTE">Pendientes</option>
-          <option value="TOMADA">Tomadas</option>
-          <option value="COMPROBADA">Comprobadas</option>
-        </select>
+        {/* El filtro de avance ya no es un select: son las tarjetas de
+            abajo, que ahora se tocan para filtrar. */}
         <input
           className="search"
           placeholder="Buscar sitio, cara, campaña…"
@@ -526,28 +639,139 @@ function PautaView({ puedeImportar, email, misDep }: Props) {
         </div>
       )}
 
+      {/* Tarjetas DINÁMICAS: cada una es un botón que filtra la lista —
+          tocar Pendientes enseña solo lo pendiente; tocarla otra vez lo
+          quita. Sitios y Caras limpian el filtro de avance. Los conteos de
+          avance salen de `base` (sin ese filtro), para que las cifras no
+          se pongan en cero al filtrar. */}
       <div className="cards">
-        <div className="card">
-          <div className="n">{sitios.length}</div>
-          <div className="l">Sitios</div>
-        </div>
-        <div className="card">
-          <div className="n">{stats.total}</div>
-          <div className="l">Caras</div>
-        </div>
-        <div className="card">
-          <div className="n" style={{ color: COLOR_AVANCE.TOMADA }}>
-            {stats.pend}
-          </div>
-          <div className="l">Pendientes</div>
-        </div>
-        <div className="card">
-          <div className="n" style={{ color: COLOR_AVANCE.COMPROBADA }}>
-            {stats.comp}
-          </div>
-          <div className="l">Comprobadas</div>
-        </div>
+        {(
+          [
+            { l: 'Sitios', n: sitios.length, v: null, c: undefined },
+            { l: 'Caras', n: stats.total, v: null, c: undefined },
+            // Pendientes en ámbar (atención: es lo que falta), como estaba.
+            { l: 'Pendientes', n: stats.pend, v: 'PENDIENTE', c: 'var(--warn)' },
+            { l: 'Tomadas', n: stats.tom, v: 'TOMADA', c: '#4f8cff' },
+            { l: 'Comprobadas', n: stats.comp, v: 'COMPROBADA', c: COLOR_AVANCE.COMPROBADA },
+          ] as { l: string; n: number; v: string | null; c?: string }[]
+        ).map((t) => {
+          const activa = t.v != null && fAvance === t.v;
+          return (
+            <button
+              type="button"
+              key={t.l}
+              className="card"
+              onClick={() => (t.v ? toggleAvance(t.v) : setFAvance('Todos'))}
+              aria-pressed={activa}
+              style={{
+                cursor: 'pointer',
+                textAlign: 'left',
+                font: 'inherit',
+                width: '100%',
+                color: 'var(--txt)',
+                borderColor: activa ? 'var(--accent)' : 'var(--line)',
+                background: activa ? '#241b17' : 'var(--panel)',
+              }}
+            >
+              <div className="n" style={{ color: t.c }}>
+                {t.n}
+              </div>
+              <div className="l">
+                {t.l}
+                {activa ? ' ✕' : ''}
+              </div>
+            </button>
+          );
+        })}
       </div>
+
+      {/* Asignación de la ruta (solo coordinador/manager, con una ruta
+          elegida): quién la recorre. Asignar dispara la notificación al
+          usuario — el trigger de ruta_asignaciones.sql avisa a su campana
+          y a su celular. */}
+      {puedeImportar &&
+        fRuta !== 'Todas' &&
+        rutaIdDeClave.has(fRuta) &&
+        (() => {
+          const rutaId = rutaIdDeClave.get(fRuta)!;
+          const deEsta = asignaciones.filter((a) => a.ruta_id === rutaId);
+          const sinAsignar = asignables.filter(
+            (u) => !deEsta.some((a) => a.usuario_email === u.email)
+          );
+          return (
+            <div
+              style={{
+                background: 'var(--panel)',
+                border: '1px solid var(--line)',
+                borderRadius: 12,
+                padding: '11px 13px',
+                marginBottom: 14,
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+                👤 {/^\d+$/.test(fRuta) ? `Ruta ${fRuta}` : fRuta} asignada a
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                }}
+              >
+                {deEsta.length === 0 && (
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Nadie todavía.
+                  </span>
+                )}
+                {deEsta.map((a) => (
+                  <span
+                    key={a.id}
+                    className="pill"
+                    style={{ background: '#4f8cff22', color: '#4f8cff' }}
+                  >
+                    {a.usuario_email.split('@')[0]}
+                    <button
+                      type="button"
+                      className="btn-icono"
+                      onClick={() => quitarAsignacion(a)}
+                      aria-label={`Quitar la ruta a ${a.usuario_email}`}
+                      title="Quitar asignación"
+                      style={{
+                        minWidth: 32,
+                        minHeight: 32,
+                        margin: '-8px 0 -8px 2px',
+                        fontSize: 13,
+                        fontWeight: 800,
+                        color: 'inherit',
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+                <select
+                  value=""
+                  disabled={asignando}
+                  onChange={(e) => asignarRuta(rutaId, e.target.value)}
+                  style={{ width: 'auto', minWidth: 170 }}
+                >
+                  <option value="">＋ Asignar a…</option>
+                  {sinAsignar.map((u) => (
+                    <option key={u.email} value={u.email}>
+                      {u.nombre} ({u.email.split('@')[0]})
+                    </option>
+                  ))}
+                </select>
+                {asignando && <span className="spinner" />}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                Al asignar, le llega la notificación y su ruta se le abre sola
+                al entrar a Pauta.
+              </div>
+            </div>
+          );
+        })()}
 
       {/* Navegación del recorrido filtrado, por tramos de 10 paradas.
           Nace plegada: es material de inducción para quien no se sabe la
