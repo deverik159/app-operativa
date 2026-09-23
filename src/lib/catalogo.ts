@@ -153,6 +153,14 @@ export function catalogoParaMuebles(
  * de la reparación guiada) y después las entradas Digital del catálogo que
  * el árbol no menciona — esas se reparan sin guía, pero se pueden reportar.
  *
+ * El filtro de esos extras es área Digital + unidad de negocio, Y NADA MÁS
+ * (`cat` ya llega acotado a la unidad: NuevaInc lo pide con
+ * .ilike('unidad_negocio', un)). A propósito NO se restringen por mueble:
+ * un alta nueva del catálogo desaparecía cuando su tipo_mueble no empataba
+ * letra por letra con el del inventario (Erik, 23-sep-2026). En digital el
+ * área ya viene decidida, así que la restricción por mueble no aporta y
+ * solo esconde filas.
+ *
  * Toda la lista nace con área Digital. El nivel/origen/tipo del árbol se
  * heredan de la fila Digital de catalogo_incidencias cuando el mismo nombre
  * existe ahí (restringida al mueble primero); si no existe, van vacíos.
@@ -192,11 +200,21 @@ export function catalogoDesdeArbol(
         } as CatalogoIncidencia);
   });
 
-  // Las Digital del catálogo que el árbol NO trae, sin duplicar nombres
-  // (comparación sin acentos ni mayúsculas: "Lámpara" vs "lampara").
+  // Las Digital del catálogo (de ESTA unidad) que el árbol NO trae, sin
+  // duplicar nombres (comparación sin acentos ni mayúsculas: "Lámpara" vs
+  // "lampara"). Sobre deTodo y no delMueble: ver la nota de arriba.
   const clave = (d: string) => sinAcentos(d).trim().toLowerCase();
   const yaEsta = new Set(delArbol.map((c) => clave(c.detalle)));
-  const extras = delMueble.filter((c) => c.detalle && !yaEsta.has(clave(c.detalle)));
+  const extras: CatalogoIncidencia[] = [];
+  for (const c of deTodo) {
+    if (!c.detalle) continue;
+    const k = clave(c.detalle);
+    // El Set también dedupe DENTRO del catálogo: la misma incidencia existe
+    // repetida por mueble y aquí basta una.
+    if (yaEsta.has(k)) continue;
+    yaEsta.add(k);
+    extras.push(c);
+  }
 
   const lista = [...delArbol, ...extras].sort((a, b) =>
     a.detalle.localeCompare(b.detalle)
