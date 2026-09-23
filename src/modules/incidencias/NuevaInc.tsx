@@ -136,10 +136,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   const [caras, setCaras] = useState<InventarioItem[]>([]);
   const [selCaras, setSelCaras] = useState<string[]>([]);
   /** El catálogo TAL CUAL viene de la base, con todas sus copias. */
-  // El catálogo COMPLETO (todas las unidades): la parte de esta unidad sale
-  // en catCrudo; el resto solo sirve para saber qué nombres del árbol de
-  // Digital pertenecen a OTRA unidad y no deben ofrecerse aquí.
-  const [catTodas, setCatTodas] = useState<CatalogoIncidencia[]>([]);
+  const [catCrudo, setCatCrudo] = useState<CatalogoIncidencia[]>([]);
   /** Incidencias del árbol de Digital: el catálogo de las caras digitales. */
   const [arbolNombres, setArbolNombres] = useState<string[]>([]);
   const [catSel, setCatSel] = useState<CatalogoIncidencia | null>(null);
@@ -349,17 +346,13 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       // Ahora se guarda el catálogo COMPLETO y el colapso se hace abajo, ya
       // sabiendo qué caras se marcaron. `select('*')` porque `tipo_medio`
       // puede o no existir en la tabla y pedirla por nombre daría 400.
-      //
-      // SIN filtro de unidad en la consulta (23-sep-2026): se trae todo y
-      // la unidad se separa abajo. El catálogo completo hace falta para
-      // callar los nombres del árbol de Digital que pertenecen a OTRA
-      // unidad ("Falla en el proceso de reciclaje" salía en Ecovallas).
       const { data } = await sb
         .from('catalogo_incidencias')
         .select('*')
-        .limit(3000);
+        .ilike('unidad_negocio', un)
+        .limit(1000);
       if (!active) return;
-      setCatTodas((data as CatalogoIncidencia[]) || []);
+      setCatCrudo((data as CatalogoIncidencia[]) || []);
     })();
     (async () => {
       // El árbol de Digital es el catálogo de las caras DIGITALES: lo que se
@@ -650,18 +643,6 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
    * incidencia existe una sola vez, así que el área ya viene decidida y no
    * hay nada que adivinar. Ver lib/catalogo.ts.
    */
-  // La parte del catálogo que es de ESTA unidad (mismo criterio que el
-  // ilike que antes hacía la consulta: ignora mayúsculas, no acentos).
-  const catCrudo = useMemo(
-    () =>
-      catTodas.filter(
-        (c) =>
-          (c.unidad_negocio || '').trim().toLowerCase() ===
-          un.trim().toLowerCase()
-      ),
-    [catTodas, un]
-  );
-
   const cat = useMemo(() => {
     const marcadas = caras.filter((c) => selCaras.includes(c.vendor_face_id));
     const base = marcadas.length ? marcadas : caras;
@@ -678,15 +659,14 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       return catalogoDesdeArbol(
         arbolNombres,
         catCrudo,
-        base.map((c) => c.tipo_mueble),
-        catTodas
+        base.map((c) => c.tipo_mueble)
       );
     }
     return catalogoParaMuebles(
       catCrudo,
       base.map((c) => c.tipo_mueble)
     );
-  }, [catTodas, catCrudo, arbolNombres, caras, selCaras]);
+  }, [catCrudo, arbolNombres, caras, selCaras]);
 
   const catOpts = cat.opciones;
 
@@ -1220,9 +1200,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               )}
               {cat.desdeArbol && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                  Cara digital: la lista junta el árbol de Digital (el que guía
-                  la clasificación del técnico) con el resto del catálogo de
-                  este mueble — también las fallas de otras áreas, como TI.
+                  Cara digital: estas incidencias vienen del árbol de Digital,
+                  el mismo con el que el técnico clasifica la reparación.
                 </div>
               )}
               {mezclaMuebles && cat.restringido && !cat.desdeArbol && (

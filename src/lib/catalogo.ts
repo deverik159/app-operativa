@@ -138,73 +138,44 @@ export function catalogoParaMuebles(
 }
 
 /**
- * Catálogo para caras DIGITALES: el árbol de Digital MÁS las entradas
- * Digital de `catalogo_incidencias`.
+ * Catálogo para caras DIGITALES: la lista sale del árbol de Digital
+ * (`arbol_digital.incidencia`), no de `catalogo_incidencias`.
  *
  * El árbol es el catálogo que SRD mantiene para el medio digital, y es el
  * mismo con el que el técnico clasifica al reparar (RepararModal filtra por
  * `arbol_digital.incidencia == incidencias.nombre_incidencia`). Capturar
- * desde él garantiza que el reporte llegue al técnico con su clasificación
- * guiada (Erik, 10-sep-2026).
+ * desde él garantiza que TODO reporte digital llegue al técnico con su
+ * clasificación guiada, en vez de caer a "Sin clasificar" cuando el nombre
+ * del catálogo tradicional no empata con el árbol (Erik, 10-sep-2026).
  *
- * PERO el árbol no cubre todo lo capturable. Una máquina digital también
- * sufre fallas que NO son del área Digital: en Biobox el Teltonika (TI),
- * el sensor de mano (Op. Bio Box)… viven solo en catalogo_incidencias y
- * el árbol las tapaba (Erik, 23-sep-2026 — sus altas nuevas de TI no
- * aparecían). Por eso la lista es la UNIÓN:
+ * Toda captura del árbol nace con área Digital — el árbol ES de Digital.
+ * El nivel/origen/tipo se heredan de la fila Digital de catalogo_incidencias
+ * cuando el mismo nombre existe ahí (restringida al mueble primero); si no
+ * existe, van vacíos y el `detalle` conserva EXACTO el texto del árbol, que
+ * es lo que amarra la reparación guiada.
  *
- *   1. Los nombres del árbol (su texto exacto es la llave de la reparación
- *      guiada), con nivel/origen/tipo heredados de la fila Digital del
- *      catálogo cuando el mismo nombre existe ahí.
- *   2. MÁS el catálogo normal del mueble — TODAS las áreas, restringido al
- *      mueble y la unidad como siempre (`cat` ya llega acotado a la unidad:
- *      NuevaInc lo pide con .ilike('unidad_negocio', un)) — quitando los
- *      nombres que el árbol ya trae, para no duplicar.
- *
- * Si un nombre existe en el árbol Y en el catálogo con otra área, gana el
- * árbol (la reparación guiada manda). Lo capturado de los extras se repara
- * sin guía, igual que antes de existir el árbol.
- *
- * Y EL ÁRBOL TAMBIÉN SE ACOTA A LA UNIDAD (Erik, 23-sep-2026): el árbol es
- * global y sin columna de unidad, así que "Falla en el proceso de
- * reciclaje" (Biobox) salía en Ecovallas. Quién decide es el catálogo: un
- * nombre del árbol se ofrece si el catálogo de ESTA unidad lo conoce (en
- * cualquier área), o si no está en el catálogo de NINGUNA unidad — esos
- * son nombres que SRD mantiene solo en el árbol y no hay forma de
- * atribuirlos, mejor ofrecerlos que perder la captura guiada. Se calla
- * únicamente el nombre que otra unidad reclama y esta no.
+ * NO unir con catalogo_incidencias. Se intentó (sep-2026: árbol + catálogo
+ * del mueble, todas las áreas, acotado por unidad) y se revirtió: el árbol
+ * SÍ abarca todo lo capturable en el medio digital — SRD lo mantiene justo
+ * para eso — y la unión solo metía ruido de otras áreas (MKT,
+ * Implementaciones, Comprobaciones…) (Erik, 23-sep-2026).
  */
 export function catalogoDesdeArbol(
   nombresArbol: string[],
   cat: CatalogoIncidencia[],
-  muebles: (string | null | undefined)[],
-  /** El catálogo de TODAS las unidades; sin él no se acota el árbol. */
-  catTodas?: CatalogoIncidencia[]
+  muebles: (string | null | undefined)[]
 ): OpcionesCatalogo {
-  const r = catalogoParaMuebles(cat, muebles);
+  const { opciones } = catalogoParaMuebles(cat, muebles);
   const esDigital = (c: CatalogoIncidencia) =>
     (c.area || '').trim().toLowerCase() === 'digital';
-  // Para heredar datos a los nombres del árbol: primero la fila Digital del
-  // mueble; si no, la Digital de cualquier mueble de la unidad.
-  const delMueble = r.opciones.filter(esDigital);
+  const delMueble = opciones.filter(esDigital);
   const deTodo = cat.filter(esDigital);
-
-  const claveNombre = (d: string) => sinAcentos(d).trim().toLowerCase();
-  const enUnidad = new Set(
-    cat.filter((c) => c.detalle).map((c) => claveNombre(c.detalle))
-  );
-  const enAlguna = new Set(
-    (catTodas || cat).filter((c) => c.detalle).map((c) => claveNombre(c.detalle))
-  );
 
   const nombres = [
     ...new Set(nombresArbol.map((n) => (n || '').trim()).filter(Boolean)),
-  ].filter((n) => {
-    const k = claveNombre(n);
-    return enUnidad.has(k) || !enAlguna.has(k);
-  });
+  ].sort((a, b) => a.localeCompare(b));
 
-  const delArbol = nombres.map((nombre) => {
+  const lista = nombres.map((nombre) => {
     const fila =
       delMueble.find((c) => igual(c.detalle, nombre)) ||
       deTodo.find((c) => igual(c.detalle, nombre));
@@ -222,29 +193,7 @@ export function catalogoDesdeArbol(
         } as CatalogoIncidencia);
   });
 
-  // El catálogo del mueble completo (todas las áreas), menos los nombres
-  // que el árbol ya trae. Comparación sin acentos ni mayúsculas ("Lámpara"
-  // vs "lampara"). r.opciones ya viene colapsado y restringido al mueble,
-  // con su respaldo de siempre si el mueble no está en el catálogo.
-  const yaEsta = new Set(delArbol.map((c) => claveNombre(c.detalle)));
-  const extras = r.opciones.filter(
-    (c) => c.detalle && !yaEsta.has(claveNombre(c.detalle))
-  );
-
-  const lista = [...delArbol, ...extras].sort(
-    (a, b) =>
-      a.detalle.localeCompare(b.detalle) ||
-      (a.area || '').localeCompare(b.area || '')
-  );
-
-  // restringido/sinCatalogo se heredan de la parte del catálogo: si el
-  // mueble no existe ahí, la pantalla debe seguir avisándolo.
-  return {
-    opciones: lista,
-    restringido: r.restringido,
-    sinCatalogo: r.sinCatalogo,
-    desdeArbol: true,
-  };
+  return { opciones: lista, restringido: true, sinCatalogo: [], desdeArbol: true };
 }
 
 /**
