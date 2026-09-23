@@ -1201,8 +1201,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               {cat.desdeArbol && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
                   Cara digital: la lista junta el árbol de Digital (el que guía
-                  la clasificación del técnico) con las incidencias Digital del
-                  catálogo general.
+                  la clasificación del técnico) con el resto del catálogo de
+                  este mueble — también las fallas de otras áreas, como TI.
                 </div>
               )}
               {mezclaMuebles && cat.restringido && !cat.desdeArbol && (
