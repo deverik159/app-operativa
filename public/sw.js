@@ -57,6 +57,8 @@ self.addEventListener('notificationclick', (event) => {
   // Estos eventos viven en Pauta y Monitoreo, no en Incidencias.
   const esPauta =
     evento === 'pauta_toma' || evento === 'pauta_revision' || evento === 'ruta';
+  // Y estos en la Bitácora VV (versión por programar / programada).
+  const esBitacora = evento === 'vv_version' || evento === 'vv_programada';
   // La URL se usa tanto al abrir una ventana nueva como al navegar una ya
   // abierta. De esta manera la app arranca desde el bundle actual y lee el
   // destino en App.tsx (`?record=` enfoca la incidencia; `?ir=pauta`
@@ -67,7 +69,9 @@ self.addEventListener('notificationclick', (event) => {
     ? destino + sep + 'record=' + encodeURIComponent(recordId)
     : esPauta
       ? destino + sep + 'ir=pauta'
-      : destino;
+      : esBitacora
+        ? destino + sep + 'ir=bitacora'
+        : destino;
 
   event.waitUntil(
     (async () => {

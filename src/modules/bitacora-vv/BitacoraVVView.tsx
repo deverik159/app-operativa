@@ -409,10 +409,13 @@ function BitacoraVVView({
   email,
   puedeCapturar,
   puedeProgramar,
+  recargarSignal = 0,
 }: {
   email: string;
   puedeCapturar: boolean;
   puedeProgramar: boolean;
+  /** Se incrementa al tocar una notificación de la bitácora: recarga los datos. */
+  recargarSignal?: number;
 }) {
   const [espacios, setEspacios] = useState<Espacio[]>([]);
   const [campanas, setCampanas] = useState<Campana[]>([]);
@@ -453,9 +456,11 @@ function BitacoraVVView({
     setCargando(false);
   }, []);
 
+  // recargarSignal: tocar una notificación de la bitácora con la pestaña ya
+  // abierta debe refrescar los datos, no dejar la lista vieja.
   useEffect(() => {
     cargar();
-  }, [cargar]);
+  }, [cargar, recargarSignal]);
 
   const porClave = useMemo(() => {
     const m: Record<string, Espacio> = {};

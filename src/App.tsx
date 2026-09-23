@@ -416,9 +416,20 @@ function Main({ session }: { session: Session }) {
   const esEventoPauta = (e?: string | null) =>
     e === 'pauta_toma' || e === 'pauta_revision' || e === 'ruta';
 
+  /** Eventos cuyo destino es la Bitácora VV (versión por programar / programada). */
+  const esEventoBitacora = (e?: string | null) =>
+    e === 'vv_version' || e === 'vv_programada';
+
   /** Abre Pauta RECARGADA: una lista ya abierta enseñaría la toma vieja. */
   const irAPauta = useCallback(() => {
     setTab('pauta');
+    setRecargarSignal((n) => n + 1);
+    notifs.recargar();
+  }, [notifs.recargar]);
+
+  /** Abre la Bitácora VV recargada: misma razón que irAPauta. */
+  const irABitacora = useCallback(() => {
+    setTab('bitacora_vv');
     setRecargarSignal((n) => n + 1);
     notifs.recargar();
   }, [notifs.recargar]);
@@ -437,11 +448,12 @@ function Main({ session }: { session: Session }) {
       if (e.data?.tipo !== 'notificacion-abierta') return;
       if (e.data.record_id) enfocarDesdePush(e.data.record_id);
       else if (esEventoPauta(e.data.evento)) irAPauta();
+      else if (esEventoBitacora(e.data.evento)) irABitacora();
       else notifs.recargar();
     };
     navigator.serviceWorker.addEventListener('message', onMsg);
     return () => navigator.serviceWorker.removeEventListener('message', onMsg);
-  }, [enfocarDesdePush, irAPauta, notifs.recargar]);
+  }, [enfocarDesdePush, irAPauta, irABitacora, notifs.recargar]);
 
   /**
    * Tocar una notificación push con la app CERRADA: el SW abre la app con
@@ -459,6 +471,8 @@ function Main({ session }: { session: Session }) {
     // `?ir=pauta`: push de pauta con la app cerrada (toma regresada, por
     // comprobar, ruta asignada) — aterriza directo en su pestaña.
     else if (ir === 'pauta') irAPauta();
+    // `?ir=bitacora`: push de la Bitácora VV con la app cerrada.
+    else if (ir === 'bitacora') irABitacora();
     // Solo al montar: el parámetro llega únicamente en el arranque.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -735,6 +749,11 @@ function Main({ session }: { session: Session }) {
                 // seguía enseñando la toma vieja.
                 setTab('pauta');
                 setRecargarSignal((x) => x + 1);
+              } else if (esEventoBitacora(n.evento)) {
+                // Versión por programar / programada: a la Bitácora VV,
+                // también recargada.
+                setTab('bitacora_vv');
+                setRecargarSignal((x) => x + 1);
               }
             }}
           />
@@ -828,6 +847,7 @@ function Main({ session }: { session: Session }) {
                 email={email}
                 puedeCapturar={has('comercial')}
                 puedeProgramar={has('pautas')}
+                recargarSignal={recargarSignal}
               />
             )}
             {tab === 'fijacion_externa' && (

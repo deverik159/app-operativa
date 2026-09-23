@@ -45,6 +45,8 @@ const TITULOS: Record<string, string> = {
   ruta: 'Cambio en tu ruta',
   pauta_toma: 'Toma regresada',
   pauta_revision: 'Toma por comprobar',
+  vv_version: 'Pauta VV por programar',
+  vv_programada: 'Versión VV programada',
 };
 
 type Cuerpo = {
