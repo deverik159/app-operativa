@@ -164,11 +164,22 @@ export function catalogoParaMuebles(
  * Si un nombre existe en el árbol Y en el catálogo con otra área, gana el
  * árbol (la reparación guiada manda). Lo capturado de los extras se repara
  * sin guía, igual que antes de existir el árbol.
+ *
+ * Y EL ÁRBOL TAMBIÉN SE ACOTA A LA UNIDAD (Erik, 23-sep-2026): el árbol es
+ * global y sin columna de unidad, así que "Falla en el proceso de
+ * reciclaje" (Biobox) salía en Ecovallas. Quién decide es el catálogo: un
+ * nombre del árbol se ofrece si el catálogo de ESTA unidad lo conoce (en
+ * cualquier área), o si no está en el catálogo de NINGUNA unidad — esos
+ * son nombres que SRD mantiene solo en el árbol y no hay forma de
+ * atribuirlos, mejor ofrecerlos que perder la captura guiada. Se calla
+ * únicamente el nombre que otra unidad reclama y esta no.
  */
 export function catalogoDesdeArbol(
   nombresArbol: string[],
   cat: CatalogoIncidencia[],
-  muebles: (string | null | undefined)[]
+  muebles: (string | null | undefined)[],
+  /** El catálogo de TODAS las unidades; sin él no se acota el árbol. */
+  catTodas?: CatalogoIncidencia[]
 ): OpcionesCatalogo {
   const r = catalogoParaMuebles(cat, muebles);
   const esDigital = (c: CatalogoIncidencia) =>
@@ -178,9 +189,20 @@ export function catalogoDesdeArbol(
   const delMueble = r.opciones.filter(esDigital);
   const deTodo = cat.filter(esDigital);
 
+  const claveNombre = (d: string) => sinAcentos(d).trim().toLowerCase();
+  const enUnidad = new Set(
+    cat.filter((c) => c.detalle).map((c) => claveNombre(c.detalle))
+  );
+  const enAlguna = new Set(
+    (catTodas || cat).filter((c) => c.detalle).map((c) => claveNombre(c.detalle))
+  );
+
   const nombres = [
     ...new Set(nombresArbol.map((n) => (n || '').trim()).filter(Boolean)),
-  ];
+  ].filter((n) => {
+    const k = claveNombre(n);
+    return enUnidad.has(k) || !enAlguna.has(k);
+  });
 
   const delArbol = nombres.map((nombre) => {
     const fila =
@@ -204,10 +226,9 @@ export function catalogoDesdeArbol(
   // que el árbol ya trae. Comparación sin acentos ni mayúsculas ("Lámpara"
   // vs "lampara"). r.opciones ya viene colapsado y restringido al mueble,
   // con su respaldo de siempre si el mueble no está en el catálogo.
-  const clave = (d: string) => sinAcentos(d).trim().toLowerCase();
-  const yaEsta = new Set(delArbol.map((c) => clave(c.detalle)));
+  const yaEsta = new Set(delArbol.map((c) => claveNombre(c.detalle)));
   const extras = r.opciones.filter(
-    (c) => c.detalle && !yaEsta.has(clave(c.detalle))
+    (c) => c.detalle && !yaEsta.has(claveNombre(c.detalle))
   );
 
   const lista = [...delArbol, ...extras].sort(
