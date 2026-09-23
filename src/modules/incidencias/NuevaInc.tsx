@@ -113,11 +113,21 @@ type Props = {
    * Ecovallas no tiene por qué capturar en Biobox (Erik, ago-2026).
    */
   unidades?: string[];
+  /**
+   * true = quien captura pertenece al área MKT, que reporta EN NOMBRE de
+   * terceros: el alta pide correo (obligatorio) y teléfono del solicitante,
+   * y las observaciones cargan el detalle de lo que el usuario reporta.
+   * Mismo flujo de siempre, solo con esos campos extra (Erik, 22-sep-2026).
+   */
+  esMKT?: boolean;
 };
 
-function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
+function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   const misUnidades = unidades && unidades.length ? unidades : UNIDADES;
   const [un, setUn] = useState(preset?.un || misUnidades[0]);
+  /** Contacto del solicitante (solo MKT). Del REPORTE: baja a todas las filas. */
+  const [contactoCorreo, setContactoCorreo] = useState('');
+  const [contactoTelefono, setContactoTelefono] = useState('');
   const [siteQuery, setSiteQuery] = useState('');
   const [siteOpts, setSiteOpts] = useState<Sitio[]>([]);
   const [site, setSite] = useState<Sitio | null>(null);
@@ -755,6 +765,13 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
       return;
     }
 
+    // MKT reporta en nombre de un tercero: sin su correo no hay a quién
+    // regresarle respuesta. El teléfono sí es opcional.
+    if (esMKT && !contactoCorreo.trim()) {
+      alert('Agrega el correo de quien pidió el reporte.');
+      return;
+    }
+
     setBusy(true);
     // Un grupo por partida. Dentro de cada grupo, producto partida × cara →
     // una fila de incidencias por cara, todas compartiendo las mismas fotos.
@@ -792,6 +809,10 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
             : l.campania || null,
           observaciones: l.obs || null,
           lado: pideLado ? lado : null,
+          // Contacto del solicitante: solo lo captura MKT; fuera de ese
+          // flujo va null (las columnas viven en incidencias_contacto_mkt.sql).
+          contacto_correo: esMKT ? contactoCorreo.trim() || null : null,
+          contacto_telefono: esMKT ? contactoTelefono.trim() || null : null,
         };
       }),
     }));
@@ -990,6 +1011,35 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
               readOnly
               style={{ opacity: 0.75, cursor: 'default' }}
             />
+          </div>
+        )}
+
+        {/* MKT reporta en nombre de terceros: el contacto es del REPORTE
+            (baja a todas las filas), por eso vive aquí arriba y no dentro
+            del editor de partidas. */}
+        {site && esMKT && (
+          <div className="row2">
+            <div className="field">
+              <label>
+                Correo de quien pidió el reporte{' '}
+                <span style={{ color: 'var(--accent)' }}>*</span>
+              </label>
+              <input
+                type="email"
+                value={contactoCorreo}
+                onChange={(e) => setContactoCorreo(e.target.value)}
+                placeholder="persona@cliente.com"
+              />
+            </div>
+            <div className="field">
+              <label>Teléfono (opcional)</label>
+              <input
+                type="tel"
+                value={contactoTelefono}
+                onChange={(e) => setContactoTelefono(e.target.value)}
+                placeholder="55 0000 0000"
+              />
+            </div>
           </div>
         )}
 
@@ -1379,7 +1429,19 @@ function NuevaInc({ onClose, onSave, preset, unidades }: Props) {
               </div>
               <div className="field">
                 <label>Observaciones</label>
-                <input value={obs} onChange={(e) => setObs(e.target.value)} />
+                <input
+                  value={obs}
+                  onChange={(e) => setObs(e.target.value)}
+                  placeholder={
+                    esMKT ? 'El detalle de lo que el usuario reporta…' : undefined
+                  }
+                />
+                {esMKT && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                    Escribe aquí, con sus palabras, lo que el usuario está
+                    reportando: es lo que verán el validador y el técnico.
+                  </div>
+                )}
               </div>
             </div>
 

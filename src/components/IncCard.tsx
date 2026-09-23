@@ -162,6 +162,15 @@ function IncCard({
         </div>
       </div>
       {i.observaciones && <div className="obs">“{i.observaciones}”</div>}
+      {/* Contacto del solicitante (lo captura MKT): quien atiende ve a
+          quién regresarle respuesta sin buscar en ningún otro lado. */}
+      {(i.contacto_correo || i.contacto_telefono) && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 8px' }}>
+          👤 Solicitó: {[i.contacto_correo, i.contacto_telefono]
+            .filter(Boolean)
+            .join(' · ')}
+        </div>
+      )}
       {/* La foto del reporte, abajo del encabezado (pliego petitorio,
           ago-2026): el validador decide viendo, no abriendo la galería.
           El tamaño lo gobierna .inc-foto en index.css — en celular toma el

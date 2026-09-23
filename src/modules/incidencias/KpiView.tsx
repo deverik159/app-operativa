@@ -206,6 +206,8 @@ function KpiView({
   const [fNivel, setFNivel] = useState('Todos');
   const [fCat, setFCat] = useState('Todas');
   const [fSem, setFSem] = useState('Todas');
+  /** Área que REPORTÓ (area_reportante): con esto MKT ve SUS indicadores. */
+  const [fReporta, setFReporta] = useState('Todas');
 
   // Las áreas y catorcenas salen de los DATOS, no de una constante: así
   // aparecen también las áreas que no están en AREAS_RESP (Urban, Imprenta…).
@@ -220,6 +222,13 @@ function KpiView({
     () =>
       [
         ...new Set(items.map((i) => i.area_responsable).filter(Boolean)),
+      ].sort() as string[],
+    [items]
+  );
+  const areasReportantes = useMemo(
+    () =>
+      [
+        ...new Set(items.map((i) => i.area_reportante).filter(Boolean)),
       ].sort() as string[],
     [items]
   );
@@ -247,6 +256,8 @@ function KpiView({
       items.filter((i) => {
         if (fUN !== 'Todas' && i.unidad_negocio !== fUN) return false;
         if (fArea !== 'Todas' && i.area_responsable !== fArea) return false;
+        if (fReporta !== 'Todas' && (i.area_reportante || '') !== fReporta)
+          return false;
         if (fEst !== 'Todos' && i.estatus !== fEst) return false;
         if (fNivel !== 'Todos' && i.nivel !== fNivel) return false;
         if (fCat !== 'Todas' && String(i.catorcena) !== String(fCat))
@@ -255,7 +266,7 @@ function KpiView({
           return false;
         return true;
       }),
-    [items, fUN, fArea, fEst, fNivel, fCat, fSem]
+    [items, fUN, fArea, fReporta, fEst, fNivel, fCat, fSem]
   );
 
   const total = f.length;
@@ -428,6 +439,7 @@ function KpiView({
   const contexto = [
     fUN !== 'Todas' ? fUN : '',
     fArea !== 'Todas' ? fArea : '',
+    fReporta !== 'Todas' ? `Reporta ${fReporta}` : '',
     fEst !== 'Todos' ? EST_LABEL[fEst] || fEst : '',
     fNivel !== 'Todos' ? `Nivel ${fNivel}` : '',
     fCat !== 'Todas' ? `Cat-${fCat}` : '',
@@ -478,6 +490,16 @@ function KpiView({
         <select aria-label="Área responsable" value={fArea} onChange={(e) => setFArea(e.target.value)}>
           <option value="Todas">Área: todas</option>
           {areas.map((a) => (
+            <option key={a}>{a}</option>
+          ))}
+        </select>
+        <select
+          aria-label="Área que reporta"
+          value={fReporta}
+          onChange={(e) => setFReporta(e.target.value)}
+        >
+          <option value="Todas">Reporta: todas</option>
+          {areasReportantes.map((a) => (
             <option key={a}>{a}</option>
           ))}
         </select>

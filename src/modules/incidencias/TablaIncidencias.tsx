@@ -64,6 +64,7 @@ function exportar(items: Incidencia[]) {
     'reparada_por', 'fecha_reparacion', 'diagnostico', 'causa_raiz',
     'solucion', 'detalle_reparacion', 'rechazos_reparacion',
     'horas_validacion_a_reparacion', 'horas_en_proceso_ahora',
+    'area_reportante', 'contacto_correo', 'contacto_telefono',
   ];
   const filas = items.map((i) =>
     [
@@ -78,6 +79,7 @@ function exportar(items: Incidencia[]) {
       i.rechazos_reparacion || 0,
       horasValidacionReparacion(i)?.toFixed(1) ?? '',
       horasEnProceso(i)?.toFixed(1) ?? '',
+      i.area_reportante, i.contacto_correo, i.contacto_telefono,
     ]
       .map(csv)
       .join(',')
@@ -150,6 +152,17 @@ const COLUMNAS: {
     titulo: 'Reparó',
     k: 'reparo',
     valor: (i) => (i.repaired_by_email || '').split('@')[0] || null,
+  },
+  // El detalle de la reparación, visible sin exportar (Erik, 22-sep-2026):
+  // diagnóstico y reparación en las áreas de texto libre; causa raíz y
+  // solución en las guiadas por el árbol de Digital.
+  { titulo: 'Diagnóstico', k: 'diagnostico', valor: (i) => i.diagnostico },
+  { titulo: 'Causa raíz', k: 'causa_raiz', valor: (i) => i.causa_raiz },
+  { titulo: 'Solución', k: 'solucion', valor: (i) => i.solucion },
+  {
+    titulo: 'Reparación',
+    k: 'reparacion',
+    valor: (i) => i.detalle_reparacion,
   },
   {
     titulo: 'T. reparación',
@@ -242,7 +255,7 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
             width: '100%',
             // Todas las columnas se conservan legibles. En teléfono se
             // desplaza solo esta caja; la página nunca se desborda de lado.
-            minWidth: 1780,
+            minWidth: 2480,
             fontSize: 12,
           }}
         >
@@ -346,6 +359,18 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
                   </td>
                   <td style={{ ...celda, ...sinQuiebre }}>
                     {(i.repaired_by_email || '—').split('@')[0]}
+                  </td>
+                  <td style={{ ...celda, minWidth: 180, ...textoLegible }}>
+                    {i.diagnostico || '—'}
+                  </td>
+                  <td style={{ ...celda, minWidth: 170, ...textoLegible }}>
+                    {i.causa_raiz || '—'}
+                  </td>
+                  <td style={{ ...celda, minWidth: 170, ...textoLegible }}>
+                    {i.solucion || '—'}
+                  </td>
+                  <td style={{ ...celda, minWidth: 180, ...textoLegible }}>
+                    {i.detalle_reparacion || '—'}
                   </td>
                   <td style={{ ...celda, whiteSpace: 'nowrap' }}>
                     {tiempoReparacion != null ? fmtHoras(tiempoReparacion) : '—'}

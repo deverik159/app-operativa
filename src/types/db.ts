@@ -189,6 +189,14 @@ export interface Incidencia {
    */
   rechazos_reparacion?: number | null;
 
+  /**
+   * Contacto de quien pidió el reporte, capturado solo por MKT (que reporta
+   * en nombre de terceros). Opcionales en el tipo porque hasta correr
+   * incidencias_contacto_mkt.sql las columnas no existen.
+   */
+  contacto_correo?: string | null;
+  contacto_telefono?: string | null;
+
   // Reasignación (NOT NULL, default false)
   reasignacion_pendiente: boolean;
 

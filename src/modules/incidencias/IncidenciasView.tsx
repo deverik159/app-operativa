@@ -176,6 +176,8 @@ function IncidenciasView({
   const [fUN, setFUN] = useState('Todas');
   const [fEstado, setFEstado] = useState('Todos');
   const [fArea, setFArea] = useState('Todas');
+  /** Filtra por el ÁREA QUE REPORTÓ (area_reportante): MKT, Monitoreo… */
+  const [fReporta, setFReporta] = useState('Todas');
   /** Rango de fechas de captura. Vacío = sin límite por ese lado. */
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
@@ -577,6 +579,9 @@ function IncidenciasView({
       )
         return false;
       if (fEstado !== 'Todos' && i.estatus !== fEstado) return false;
+      // Quién reporta = el área de pertenencia con la que nació el reporte.
+      if (fReporta !== 'Todas' && (i.area_reportante || '') !== fReporta)
+        return false;
       // Rango de fechas de captura. `fecha_reporte` es un timestamp ISO en
       // UTC; los inputs date dan 'YYYY-MM-DD'. Comparar los primeros 10
       // caracteres evita convertir zonas horarias y que un reporte de las
@@ -606,10 +611,22 @@ function IncidenciasView({
     q,
     fUN,
     fArea,
+    fReporta,
     fEstado,
     fDesde,
     fHasta,
   ]);
+
+  /**
+   * Opciones del filtro "Reporta": las áreas reportantes que de verdad
+   * existen en lo cargado. Autoalimentado: si mañana reporta otra área,
+   * aparece sola sin tocar código.
+   */
+  const areasReportantes = useMemo(
+    () =>
+      [...new Set(items.map((i) => i.area_reportante).filter(Boolean))].sort() as string[],
+    [items]
+  );
 
   // --- Acciones ---
   /** Aplica un patch en memoria para no recargar toda la lista. */
@@ -864,6 +881,14 @@ function IncidenciasView({
             </option>
           ))}
         </select>
+        <select value={fReporta} onChange={(e) => setFReporta(e.target.value)}>
+          <option value="Todas">Reporta: todas</option>
+          {areasReportantes.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
         <select value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
           <option value="Todos">Estatus: todos</option>
           {/* `reportado` sale del selector: es un estatus heredado que ya
@@ -990,6 +1015,7 @@ function IncidenciasView({
         <NuevaInc
           preset={presetNew}
           unidades={misUnidades}
+          esMKT={misDep.some((d) => d.trim().toUpperCase() === 'MKT')}
           onClose={() => {
             onCerrarNueva?.();
             setPresetNew(null);

@@ -95,7 +95,7 @@ export const AREAS_RESP = [
  * Áreas a las que PERTENECE el personal que reporta o valida. No deciden a
  * quién se asigna una reparación: el catálogo de incidencias decide eso.
  */
-export const AREAS_USUARIOS = ['Monitoreo', 'Operaciones', 'SRD', 'PPD'];
+export const AREAS_USUARIOS = ['Monitoreo', 'Operaciones', 'SRD', 'PPD', 'MKT'];
 
 /** Áreas técnicas disponibles por unidad para Técnico/Coordinador. */
 export const AREAS_REPARACION_POR_UNIDAD: Record<string, string[]> = {
