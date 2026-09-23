@@ -164,11 +164,10 @@ function IncCard({
       {i.observaciones && <div className="obs">“{i.observaciones}”</div>}
       {/* Contacto del solicitante (lo captura MKT): quien atiende ve a
           quién regresarle respuesta sin buscar en ningún otro lado. */}
-      {(i.contacto_correo || i.contacto_telefono) && (
+      {(i.contacto_correo || i.contacto_telefono || i.via_reporte) && (
         <div style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 8px' }}>
-          👤 Solicitó: {[i.contacto_correo, i.contacto_telefono]
-            .filter(Boolean)
-            .join(' · ')}
+          👤 Solicitó{i.via_reporte ? ` por ${i.via_reporte}` : ''}:{' '}
+          {[i.contacto_correo, i.contacto_telefono].filter(Boolean).join(' · ')}
         </div>
       )}
       {/* La foto del reporte, abajo del encabezado (pliego petitorio,

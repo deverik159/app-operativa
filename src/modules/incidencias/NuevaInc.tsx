@@ -16,6 +16,7 @@ import {
   NIVEL_COLOR,
   LADOS,
   UNIDADES_CON_LADO,
+  VIAS_REPORTE,
 } from '../../lib/constants';
 import { caraLabel, distKm, ladoFijoDePortico } from '../../lib/helpers';
 import { explicarErrorGps } from '../../lib/plataforma';
@@ -128,6 +129,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   /** Contacto del solicitante (solo MKT). Del REPORTE: baja a todas las filas. */
   const [contactoCorreo, setContactoCorreo] = useState('');
   const [contactoTelefono, setContactoTelefono] = useState('');
+  const [viaReporte, setViaReporte] = useState('');
   const [siteQuery, setSiteQuery] = useState('');
   const [siteOpts, setSiteOpts] = useState<Sitio[]>([]);
   const [site, setSite] = useState<Sitio | null>(null);
@@ -771,6 +773,10 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       alert('Agrega el correo de quien pidió el reporte.');
       return;
     }
+    if (esMKT && !viaReporte) {
+      alert('Indica por qué vía llegó la solicitud (WhatsApp, Instagram, Facebook o Correo).');
+      return;
+    }
 
     setBusy(true);
     // Un grupo por partida. Dentro de cada grupo, producto partida × cara →
@@ -813,6 +819,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           // flujo va null (las columnas viven en incidencias_contacto_mkt.sql).
           contacto_correo: esMKT ? contactoCorreo.trim() || null : null,
           contacto_telefono: esMKT ? contactoTelefono.trim() || null : null,
+          via_reporte: esMKT ? viaReporte || null : null,
         };
       }),
     }));
@@ -1018,29 +1025,42 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             (baja a todas las filas), por eso vive aquí arriba y no dentro
             del editor de partidas. */}
         {site && esMKT && (
-          <div className="row2">
+          <>
             <div className="field">
               <label>
-                Correo de quien pidió el reporte{' '}
-                <span style={{ color: 'var(--accent)' }}>*</span>
+                Vía de reporte <span style={{ color: 'var(--accent)' }}>*</span>
               </label>
-              <input
-                type="email"
-                value={contactoCorreo}
-                onChange={(e) => setContactoCorreo(e.target.value)}
-                placeholder="persona@cliente.com"
-              />
+              <select value={viaReporte} onChange={(e) => setViaReporte(e.target.value)}>
+                <option value="">— ¿por dónde llegó la solicitud? —</option>
+                {VIAS_REPORTE.map((v) => (
+                  <option key={v}>{v}</option>
+                ))}
+              </select>
             </div>
-            <div className="field">
-              <label>Teléfono (opcional)</label>
-              <input
-                type="tel"
-                value={contactoTelefono}
-                onChange={(e) => setContactoTelefono(e.target.value)}
-                placeholder="55 0000 0000"
-              />
+            <div className="row2">
+              <div className="field">
+                <label>
+                  Correo de quien pidió el reporte{' '}
+                  <span style={{ color: 'var(--accent)' }}>*</span>
+                </label>
+                <input
+                  type="email"
+                  value={contactoCorreo}
+                  onChange={(e) => setContactoCorreo(e.target.value)}
+                  placeholder="persona@cliente.com"
+                />
+              </div>
+              <div className="field">
+                <label>Teléfono (opcional)</label>
+                <input
+                  type="tel"
+                  value={contactoTelefono}
+                  onChange={(e) => setContactoTelefono(e.target.value)}
+                  placeholder="55 0000 0000"
+                />
+              </div>
             </div>
-          </div>
+          </>
         )}
 
         {lineas.length > 0 && (

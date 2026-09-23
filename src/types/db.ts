@@ -196,6 +196,11 @@ export interface Incidencia {
    */
   contacto_correo?: string | null;
   contacto_telefono?: string | null;
+  /**
+   * Vía por la que llegó la solicitud (WhatsApp, Instagram, Facebook o
+   * Correo — CHECK en incidencias_via_reporte.sql). Solo la captura MKT.
+   */
+  via_reporte?: string | null;
 
   // Reasignación (NOT NULL, default false)
   reasignacion_pendiente: boolean;

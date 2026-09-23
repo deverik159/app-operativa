@@ -64,7 +64,7 @@ function exportar(items: Incidencia[]) {
     'reparada_por', 'fecha_reparacion', 'diagnostico', 'causa_raiz',
     'solucion', 'detalle_reparacion', 'rechazos_reparacion',
     'horas_validacion_a_reparacion', 'horas_en_proceso_ahora',
-    'area_reportante', 'contacto_correo', 'contacto_telefono',
+    'area_reportante', 'contacto_correo', 'contacto_telefono', 'via_reporte',
   ];
   const filas = items.map((i) =>
     [
@@ -79,7 +79,7 @@ function exportar(items: Incidencia[]) {
       i.rechazos_reparacion || 0,
       horasValidacionReparacion(i)?.toFixed(1) ?? '',
       horasEnProceso(i)?.toFixed(1) ?? '',
-      i.area_reportante, i.contacto_correo, i.contacto_telefono,
+      i.area_reportante, i.contacto_correo, i.contacto_telefono, i.via_reporte,
     ]
       .map(csv)
       .join(',')

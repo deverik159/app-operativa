@@ -159,6 +159,13 @@ export const SLA_VALIDACION_DEFAULT = {
 export const LADOS = ['Norte', 'Sur', 'Ambas'] as const;
 
 /**
+ * Vías por las que un tercero pide un reporte a MKT. Acompañan al contacto
+ * (incidencias_contacto_mkt.sql); el CHECK de `incidencias.via_reporte`
+ * acepta exactamente estos valores o NULL — ver incidencias_via_reporte.sql.
+ */
+export const VIAS_REPORTE = ['WhatsApp', 'Instagram', 'Facebook', 'Correo'] as const;
+
+/**
  * Unidades donde se pregunta el lado.
  *
  * Vive aquí y no en la base a propósito: la columna `incidencias.lado` es
