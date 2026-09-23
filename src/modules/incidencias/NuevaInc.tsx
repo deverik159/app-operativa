@@ -1200,8 +1200,9 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               )}
               {cat.desdeArbol && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                  Cara digital: estas incidencias vienen del árbol de Digital,
-                  el mismo con el que el técnico clasifica la reparación.
+                  Cara digital: la lista junta el árbol de Digital (el que guía
+                  la clasificación del técnico) con las incidencias Digital del
+                  catálogo general.
                 </div>
               )}
               {mezclaMuebles && cat.restringido && !cat.desdeArbol && (

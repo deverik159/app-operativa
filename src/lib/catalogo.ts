@@ -138,21 +138,24 @@ export function catalogoParaMuebles(
 }
 
 /**
- * Catálogo para caras DIGITALES: la lista sale del árbol de Digital
- * (`arbol_digital.incidencia`), no de `catalogo_incidencias`.
+ * Catálogo para caras DIGITALES: el árbol de Digital MÁS las entradas
+ * Digital de `catalogo_incidencias`.
  *
  * El árbol es el catálogo que SRD mantiene para el medio digital, y es el
  * mismo con el que el técnico clasifica al reparar (RepararModal filtra por
  * `arbol_digital.incidencia == incidencias.nombre_incidencia`). Capturar
- * desde él garantiza que TODO reporte digital llegue al técnico con su
- * clasificación guiada, en vez de caer a "Sin clasificar" cuando el nombre
- * del catálogo tradicional no empata con el árbol (Erik, 10-sep-2026).
+ * desde él garantiza que el reporte llegue al técnico con su clasificación
+ * guiada (Erik, 10-sep-2026).
  *
- * Toda captura del árbol nace con área Digital — el árbol ES de Digital.
- * El nivel/origen/tipo se heredan de la fila Digital de catalogo_incidencias
- * cuando el mismo nombre existe ahí (restringida al mueble primero); si no
- * existe, van vacíos y el `detalle` conserva EXACTO el texto del árbol, que
- * es lo que amarra la reparación guiada.
+ * PERO el árbol no cubre todo lo capturable: hay incidencias de Digital que
+ * solo viven en catalogo_incidencias (Erik, 22-sep-2026). Por eso la lista
+ * es la UNIÓN: primero los nombres del árbol (su texto exacto es la llave
+ * de la reparación guiada) y después las entradas Digital del catálogo que
+ * el árbol no menciona — esas se reparan sin guía, pero se pueden reportar.
+ *
+ * Toda la lista nace con área Digital. El nivel/origen/tipo del árbol se
+ * heredan de la fila Digital de catalogo_incidencias cuando el mismo nombre
+ * existe ahí (restringida al mueble primero); si no existe, van vacíos.
  */
 export function catalogoDesdeArbol(
   nombresArbol: string[],
@@ -162,14 +165,16 @@ export function catalogoDesdeArbol(
   const { opciones } = catalogoParaMuebles(cat, muebles);
   const esDigital = (c: CatalogoIncidencia) =>
     (c.area || '').trim().toLowerCase() === 'digital';
+  // Si la restricción al mueble no aplicó, `opciones` ya es el catálogo
+  // completo colapsado — el filtro Digital hereda ese respaldo.
   const delMueble = opciones.filter(esDigital);
   const deTodo = cat.filter(esDigital);
 
   const nombres = [
     ...new Set(nombresArbol.map((n) => (n || '').trim()).filter(Boolean)),
-  ].sort((a, b) => a.localeCompare(b));
+  ];
 
-  const lista = nombres.map((nombre) => {
+  const delArbol = nombres.map((nombre) => {
     const fila =
       delMueble.find((c) => igual(c.detalle, nombre)) ||
       deTodo.find((c) => igual(c.detalle, nombre));
@@ -186,6 +191,16 @@ export function catalogoDesdeArbol(
           tipo_mueble: null,
         } as CatalogoIncidencia);
   });
+
+  // Las Digital del catálogo que el árbol NO trae, sin duplicar nombres
+  // (comparación sin acentos ni mayúsculas: "Lámpara" vs "lampara").
+  const clave = (d: string) => sinAcentos(d).trim().toLowerCase();
+  const yaEsta = new Set(delArbol.map((c) => clave(c.detalle)));
+  const extras = delMueble.filter((c) => c.detalle && !yaEsta.has(clave(c.detalle)));
+
+  const lista = [...delArbol, ...extras].sort((a, b) =>
+    a.detalle.localeCompare(b.detalle)
+  );
 
   return { opciones: lista, restringido: true, sinCatalogo: [], desdeArbol: true };
 }
