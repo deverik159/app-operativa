@@ -15,6 +15,7 @@
 //     ellos y hay bonus legítimos encimados (Erik, 22-sep-2026).
 // ============================================================
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { sb } from '../../lib/supabase';
 import { prepararArchivos } from '../../lib/comprimirImagen';
 import {
@@ -250,6 +251,12 @@ function sumarDias(iso: string, dias: number): string {
   const d = new Date(iso.slice(0, 10) + 'T12:00:00');
   d.setDate(d.getDate() + dias);
   return d.toISOString().slice(0, 10);
+}
+
+/** Hoy en hora LOCAL: toISOString() es UTC y de noche ya marca mañana. */
+function hoyLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 /** Nombre presentable de un espacio: '414 (A)' o 'San Antonio Norte'. */
@@ -704,6 +711,197 @@ function BitacoraVVView({
   };
 
   // ------------------------------------------------------------
+  // "Hoy al aire": qué versión tiene cada espacio en una fecha — la vista
+  // que pautas nunca tuvo con el Excel. Sale de lo ya cargado, sin
+  // consultas nuevas: pautas vigentes de campañas activas.
+  // ------------------------------------------------------------
+  const [vistaAire, setVistaAire] = useState(false);
+  const [fechaAire, setFechaAire] = useState(hoyLocal());
+
+  const alAire = useMemo(() => {
+    const f = fechaAire || hoyLocal();
+    const activas = new Map(
+      campanas.filter((c) => c.estatus === 'activa').map((c) => [c.id, c])
+    );
+    const m = new Map<string, { c: Campana; p: Pauta }[]>();
+    pautas.forEach((p) => {
+      const c = activas.get(p.campana_id);
+      if (!c || p.estatus === 'cerrada') return;
+      if (p.inicio > f || p.fin < f) return;
+      const arr = m.get(p.espacio_clave) || [];
+      arr.push({ c, p });
+      m.set(p.espacio_clave, arr);
+    });
+    return m;
+  }, [pautas, campanas, fechaAire]);
+
+  // ------------------------------------------------------------
+  // Export a Excel con el FORMATO BITACORA: se sigue entregando el mismo
+  // archivo de siempre (cliente, Mediamonitor), pero generado, no tecleado.
+  // ------------------------------------------------------------
+  const exportarExcel = (c: Campana) => {
+    const filas = (pautasDe.get(c.id) || [])
+      .slice()
+      .sort(
+        (a, b) =>
+          a.espacio_clave.localeCompare(b.espacio_clave) ||
+          a.inicio.localeCompare(b.inicio)
+      );
+    const aoa: (string | number)[][] = [
+      ['CLIENTE', c.cliente],
+      ['CAMPAÑA', c.nombre],
+      ['VENDEDOR', c.vendedor || '', '', 'ADMINISTRADOR', c.administrador || ''],
+      ['FECHA INICIO', c.fecha_inicio, '', 'FECHA FIN', c.fecha_fin],
+      ['MEDIAMONITOR', c.mediamonitor ? 'SI' : 'NO', '', 'QUANTUM', c.quantum || ''],
+      ['ESPECIFICACIONES DE TOMAS', c.espec_tomas || ''],
+      [],
+      [
+        'ID COLUMNA', 'TIPO', 'UBICACIÓN', 'CAMPAÑA', 'TIPO (VENTA O BONUS)',
+        'VERSION', 'INICIO', 'FIN', 'HORARIO LUNES A VIERNES',
+        'HORARIO SABADO Y DOMINGO', 'TESTIGOS', 'OBSERVACIONES', 'ESTATUS',
+      ],
+      ...filas.map((p) => {
+        const e = porClave[p.espacio_clave];
+        return [
+          p.espacio_clave,
+          e ? (e.tipo_espacio === 'portico' ? 'PÓRTICO' : e.tipo || '') : '',
+          e ? (e.tipo_espacio === 'portico' ? `${e.sitio} ${e.nombre}` : e.tramo || '') : '',
+          c.nombre,
+          p.tipo_venta,
+          p.version,
+          p.inicio,
+          p.fin,
+          p.horario_lv,
+          p.horario_sd,
+          p.testigos ? 'SI' : 'NO',
+          p.observaciones || '',
+          EST_PAUTA[p.estatus]?.l || p.estatus,
+        ];
+      }),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 9 }, { wch: 16 }, { wch: 24 }, { wch: 12 },
+      { wch: 30 }, { wch: 11 }, { wch: 11 }, { wch: 24 }, { wch: 24 },
+      { wch: 9 }, { wch: 34 }, { wch: 14 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'BITACORA');
+    const limpio = (t: string) => t.replace(/[^\p{L}\p{N} _-]/gu, '').trim();
+    XLSX.writeFile(wb, `BITACORA_${limpio(c.cliente)}_${limpio(c.nombre)}.xlsx`);
+  };
+
+  // ------------------------------------------------------------
+  // FULL con rotación: todas las columnas, cada una con SU versión, en
+  // ciclo (el patrón de IKEA: CAMASTRO → FRUTERO → MESA CAFÉ → … repetido
+  // en el orden del inventario), con la previa editable espacio por
+  // espacio. Los pórticos llevan su versión propia (MESA EXTERIOR_PORT).
+  // ------------------------------------------------------------
+  const [full, setFull] = useState<null | {
+    versiones: string;
+    tipo_venta: string;
+    inicio: string;
+    fin: string;
+    testigos: boolean;
+    incluirPorticos: boolean;
+    versionPorticos: string;
+    asignacion: Record<string, string> | null;
+  }>(null);
+
+  const abrirFull = () => {
+    if (!campana) return;
+    setFull({
+      versiones: '',
+      tipo_venta: 'VENTA',
+      inicio: campana.fecha_inicio,
+      fin: campana.fecha_fin,
+      testigos: false,
+      incluirPorticos: true,
+      versionPorticos: '',
+      asignacion: null,
+    });
+    setHorasLV([...TODAS_LAS_HORAS]);
+    setHorasSD([...TODAS_LAS_HORAS]);
+    setSdIgual(true);
+  };
+
+  const versionesDeFull = (texto: string): string[] =>
+    texto
+      .split('\n')
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+  const generarRotacion = () => {
+    if (!full) return;
+    const lista = versionesDeFull(full.versiones);
+    if (!lista.length) return alert('Escribe las versiones, una por renglón, en el orden del layout.');
+    if (full.incluirPorticos && !full.versionPorticos.trim())
+      return alert('Falta la versión de los pórticos (o desmarca "incluir pórticos").');
+    const asignacion: Record<string, string> = {};
+    // El catálogo ya viene ordenado por clave: la rotación sigue ese orden,
+    // igual que el layout recorre la vía.
+    espacios
+      .filter((e) => e.tipo_espacio === 'columna')
+      .forEach((e, i) => {
+        asignacion[e.clave] = lista[i % lista.length];
+      });
+    if (full.incluirPorticos) {
+      espacios
+        .filter((e) => e.tipo_espacio === 'portico')
+        .forEach((e) => {
+          asignacion[e.clave] = full.versionPorticos.trim();
+        });
+    }
+    setFull({ ...full, asignacion });
+  };
+
+  const guardarFull = async () => {
+    if (!campana || !full || !full.asignacion) return;
+    if (!full.inicio || !full.fin || full.fin < full.inicio)
+      return alert('Revisa la vigencia: fin no puede ser antes del inicio.');
+    if (full.inicio < campana.fecha_inicio || full.fin > campana.fecha_fin)
+      return alert(
+        `La vigencia debe caer dentro de la campaña (${fechaCorta(campana.fecha_inicio)} – ${fechaCorta(campana.fecha_fin)}).`
+      );
+    const th = textosHorario(full.inicio, full.fin, horasLV, horasSD, sdIgual);
+    if (th.error) return alert(th.error);
+
+    const claves = Object.keys(full.asignacion);
+    setGuardando(true);
+    const empalmes = await buscarEmpalmes(claves, full.inicio, full.fin, campana.id);
+    if (empalmes.length) {
+      const sigue = confirm(
+        `OJO — ${empalmes.length} empalme(s) con otras campañas:\n\n${empalmes.slice(0, 12).join('\n')}${empalmes.length > 12 ? '\n…' : ''}\n\n¿Continuar de todos modos?`
+      );
+      if (!sigue) {
+        setGuardando(false);
+        return;
+      }
+    }
+    const filas = claves.map((clave) => ({
+      campana_id: campana.id,
+      espacio_clave: clave,
+      tipo_venta: full.tipo_venta,
+      version: full.asignacion![clave],
+      inicio: full.inicio,
+      fin: full.fin,
+      horario_lv: th.lv,
+      horario_sd: th.sd,
+      testigos: full.testigos,
+      observaciones: null,
+      creada_por: email,
+    }));
+    const { error } = await sb.from('vv_pautas').insert(filas);
+    setGuardando(false);
+    if (error) {
+      alert('No se pudo guardar el FULL: ' + error.message);
+      return;
+    }
+    setFull(null);
+    cargar();
+  };
+
+  // ------------------------------------------------------------
   // Pauta POR ESPACIO: para campañas tipo SAMS donde cada id lleva su
   // propia línea de tiempo (el 459 tuvo 5 periodos con horarios
   // distintos). Se elige el id, se ven sus periodos y se le agrega el
@@ -1070,6 +1268,22 @@ function BitacoraVVView({
               ⏱ Pauta por espacio
             </button>
           )}
+          {puedeCapturar && campana.estatus === 'activa' && (
+            <button
+              className="btn ghost"
+              title="Todas las columnas, cada una con su versión en rotación"
+              onClick={abrirFull}
+            >
+              🎠 FULL (rotación)
+            </button>
+          )}
+          <button
+            className="btn ghost"
+            title="El mismo archivo de siempre, pero generado"
+            onClick={() => exportarExcel(campana)}
+          >
+            ⬇️ Exportar Excel
+          </button>
           {puedeCapturar && (
             <button
               className="btn ghost"
@@ -1484,6 +1698,198 @@ function BitacoraVVView({
                   {guardando ? 'Guardando…' : 'Guardar pauta'}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ---------- Modal: FULL con rotación ---------- */}
+        {full && (
+          <div className="overlay" onClick={() => !guardando && setFull(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3 style={{ marginTop: 0 }}>🎠 FULL con rotación — {campana.nombre}</h3>
+              <p className="phint">
+                Todas las columnas, cada una con su versión: escribe las
+                versiones en el orden del layout (una por renglón) y se
+                reparten en ciclo siguiendo el orden de las columnas. Después
+                puedes ajustar cualquier espacio antes de guardar.
+              </p>
+
+              <div className="field">
+                <label>Versiones, en orden (una por renglón)</label>
+                <textarea
+                  rows={4}
+                  value={full.versiones}
+                  onChange={(e) => setFull({ ...full, versiones: e.target.value, asignacion: null })}
+                  placeholder={'CAMASTRO\nFRUTERO\nMESA CAFÉ\nMESA EXTERIOR'}
+                />
+              </div>
+
+              <div className="row2">
+                <div className="field">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={full.incluirPorticos}
+                      onChange={(e) =>
+                        setFull({ ...full, incluirPorticos: e.target.checked, asignacion: null })
+                      }
+                      style={{ width: 'auto' }}
+                    />
+                    Incluir los 4 pórticos
+                  </label>
+                </div>
+                {full.incluirPorticos && (
+                  <div className="field">
+                    <label>Versión de los pórticos</label>
+                    <input
+                      value={full.versionPorticos}
+                      onChange={(e) =>
+                        setFull({ ...full, versionPorticos: e.target.value, asignacion: null })
+                      }
+                      placeholder="MESA EXTERIOR_PORT"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="row2">
+                <div className="field">
+                  <label>Inicio</label>
+                  <input
+                    type="date"
+                    value={full.inicio}
+                    min={campana.fecha_inicio}
+                    max={campana.fecha_fin}
+                    onChange={(e) => setFull({ ...full, inicio: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label>Fin</label>
+                  <input
+                    type="date"
+                    value={full.fin}
+                    min={campana.fecha_inicio}
+                    max={campana.fecha_fin}
+                    onChange={(e) => setFull({ ...full, fin: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <SelectorHorario
+                inicio={full.inicio}
+                fin={full.fin}
+                horasLV={horasLV}
+                horasSD={horasSD}
+                sdIgual={sdIgual}
+                onLV={setHorasLV}
+                onSD={setHorasSD}
+                onSdIgual={setSdIgual}
+              />
+
+              <div className="row2">
+                <div className="field">
+                  <label>Tipo</label>
+                  <select
+                    value={full.tipo_venta}
+                    onChange={(e) => setFull({ ...full, tipo_venta: e.target.value })}
+                  >
+                    <option>VENTA</option>
+                    <option>BONUS</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginTop: 22 }}>
+                    <input
+                      type="checkbox"
+                      checked={full.testigos}
+                      onChange={(e) => setFull({ ...full, testigos: e.target.checked })}
+                      style={{ width: 'auto' }}
+                    />
+                    Requiere testigos
+                  </label>
+                </div>
+              </div>
+
+              {!full.asignacion ? (
+                <div className="modal-actions">
+                  <button className="btn ghost" onClick={() => setFull(null)}>
+                    Cancelar
+                  </button>
+                  <button className="btn" onClick={generarRotacion}>
+                    Generar rotación →
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="field">
+                    <label>
+                      Rotación ({Object.keys(full.asignacion).length} espacios) — ajusta el que haga falta
+                    </label>
+                    <div
+                      style={{
+                        border: '1px dashed var(--line)',
+                        borderRadius: 10,
+                        padding: 10,
+                        maxHeight: 300,
+                        overflow: 'auto',
+                        display: 'grid',
+                        gap: 6,
+                      }}
+                    >
+                      {Object.keys(full.asignacion).map((clave) => {
+                        const e = porClave[clave];
+                        const opciones = [
+                          ...new Set([
+                            ...versionesDeFull(full.versiones),
+                            ...(full.incluirPorticos && full.versionPorticos.trim()
+                              ? [full.versionPorticos.trim()]
+                              : []),
+                          ]),
+                        ];
+                        return (
+                          <div
+                            key={clave}
+                            style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}
+                          >
+                            <span style={{ width: 130, flexShrink: 0, fontWeight: 700 }}>
+                              {e ? nombreEspacio(e) : clave}
+                            </span>
+                            <select
+                              value={full.asignacion![clave]}
+                              style={{ flex: 1 }}
+                              onChange={(ev) =>
+                                setFull({
+                                  ...full,
+                                  asignacion: { ...full.asignacion!, [clave]: ev.target.value },
+                                })
+                              }
+                            >
+                              {opciones.map((v) => (
+                                <option key={v}>{v}</option>
+                              ))}
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="modal-actions">
+                    <button className="btn ghost" onClick={() => setFull(null)} disabled={guardando}>
+                      Cancelar
+                    </button>
+                    <button
+                      className="btn ghost"
+                      onClick={() => setFull({ ...full, asignacion: null })}
+                      disabled={guardando}
+                    >
+                      ← Editar versiones
+                    </button>
+                    <button className="btn" onClick={guardarFull} disabled={guardando}>
+                      {guardando ? 'Guardando…' : 'Guardar FULL'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -1985,6 +2391,12 @@ function BitacoraVVView({
           onChange={(e) => setQ(e.target.value)}
           placeholder="Cliente, campaña o Quantum…"
         />
+        <button
+          className={'btn sm' + (vistaAire ? '' : ' ghost')}
+          onClick={() => setVistaAire((v) => !v)}
+        >
+          📡 {vistaAire ? 'Ver campañas' : 'Hoy al aire'}
+        </button>
         <button className="btn ghost sm" onClick={() => setVerCerradas((v) => !v)}>
           {verCerradas ? 'Ocultar cerradas' : 'Ver cerradas'}
         </button>
@@ -2001,7 +2413,118 @@ function BitacoraVVView({
         )}
       </div>
 
-      {visibles.length === 0 ? (
+      {vistaAire ? (
+        (() => {
+          const ocupados = [...alAire.keys()].filter(
+            (k) => (alAire.get(k) || []).length > 0
+          ).length;
+          const seccion = (titulo: string, lista: Espacio[]) => (
+            <div key={titulo} style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'var(--muted)',
+                  fontWeight: 700,
+                  letterSpacing: '.4px',
+                  margin: '0 0 8px',
+                }}
+              >
+                {titulo}
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                  gap: 8,
+                }}
+              >
+                {lista.map((e) => {
+                  const encima = alAire.get(e.clave) || [];
+                  const libre = encima.length === 0;
+                  return (
+                    <div
+                      key={e.clave}
+                      onClick={() => {
+                        if (!libre) abrirCampana(encima[0].c);
+                      }}
+                      title={libre ? 'Libre' : 'Abrir la campaña'}
+                      style={{
+                        border: '1px solid var(--line)',
+                        borderLeft: `3px solid ${libre ? 'var(--line)' : 'var(--ok)'}`,
+                        borderRadius: 10,
+                        padding: '8px 10px',
+                        background: 'var(--panel)',
+                        cursor: libre ? 'default' : 'pointer',
+                        opacity: libre ? 0.65 : 1,
+                        minWidth: 0,
+                      }}
+                    >
+                      <div style={{ fontWeight: 800, fontSize: 13 }}>{nombreEspacio(e)}</div>
+                      {libre ? (
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                          libre
+                        </div>
+                      ) : (
+                        encima.map(({ c, p }) => (
+                          <div key={p.id} style={{ fontSize: 11, marginTop: 3, minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontWeight: 700,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={p.version}
+                            >
+                              {p.version}
+                              {p.tipo_venta === 'BONUS' && (
+                                <span style={{ color: 'var(--accent2)' }}> · BONUS</span>
+                              )}
+                            </div>
+                            <div
+                              style={{
+                                color: 'var(--muted)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={c.nombre}
+                            >
+                              {c.nombre}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+          return (
+            <>
+              <div className="chips" style={{ marginBottom: 14, alignItems: 'center' }}>
+                <input
+                  type="date"
+                  value={fechaAire}
+                  onChange={(e) => setFechaAire(e.target.value)}
+                  style={{ width: 'auto' }}
+                  title="Cualquier fecha: también sirve para ver qué estará al aire mañana"
+                />
+                <span className="tag" style={{ color: 'var(--ok)' }}>
+                  {ocupados} al aire
+                </span>
+                <span className="tag">
+                  {espacios.length - ocupados} libre{espacios.length - ocupados === 1 ? '' : 's'}
+                </span>
+              </div>
+              {seccion('PÓRTICOS', porticos)}
+              {seccion('COLUMNAS CDMX', columnasCDMX)}
+              {columnasEdoMex.length > 0 && seccion('COLUMNAS EDO MEX', columnasEdoMex)}
+            </>
+          );
+        })()
+      ) : visibles.length === 0 ? (
         <div className="empty">
           {campanas.length === 0
             ? 'Todavía no hay campañas. Crea la primera con "➕ Nueva campaña".'
