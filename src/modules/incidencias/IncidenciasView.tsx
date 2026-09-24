@@ -50,6 +50,15 @@ import type {
 /** Tope de filas por consulta: el límite duro de Supabase es 1000. */
 const LIMITE_INCIDENCIAS = 1000;
 
+/**
+ * ¿Dos marcas de tiempo son el mismo instante? Se compara el valor y no el
+ * texto: la base devuelve "…+00:00" y el cliente escribe "…Z".
+ */
+function mismoInstante(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return !a && !b;
+  return Date.parse(a) === Date.parse(b);
+}
+
 type ModoVista = 'bandeja' | 'todas';
 
 /** Motivo pendiente de capturar: rechazar una reparación o descartar. */
@@ -277,17 +286,74 @@ function IncidenciasView({
   };
 
   // --- Carga ---
+  /**
+   * Solo la PRIMERA carga pone la pantalla en "Cargando…". Las recargas
+   * (↻, o el aviso nuevo que dispara App) actualizan la lista EN SU LUGAR.
+   *
+   * El bug que esto corrige (auditoría, 24-sep-2026): toda recarga ponía
+   * `loading`, el render hacía return antes de los modales y los DESMONTABA.
+   * Un validador a media captura en Nueva incidencia —con fotos en
+   * memoria— la perdía entera en cuanto llegaba cualquier aviso.
+   */
+  const yaCargo = useRef(false);
+  const [recargando, setRecargando] = useState(false);
+
+  /**
+   * Recargar EN SU LUGAR abre una carrera: mientras la consulta viaja (con
+   * mala señal, segundos), el usuario puede validar o capturar; si luego la
+   * respuesta —tomada ANTES de su acción— reemplazara la lista, su cambio
+   * "se revertiría" en pantalla. Por eso cada carga lleva un número (la
+   * respuesta de una carga superada por otra más nueva se descarta) y
+   * registra las incidencias que el usuario TOCÓ mientras viajaba: esas
+   * conservan su versión local al fusionar.
+   */
+  const cargaSeq = useRef(0);
+  const tocadasEnCarga = useRef<Set<string> | null>(null);
+  const marcarTocada = (rid: string) => tocadasEnCarga.current?.add(rid);
+
   const cargar = useCallback(async () => {
-    setLoading(true);
+    const miCarga = ++cargaSeq.current;
+    const tocadas = new Set<string>();
+    tocadasEnCarga.current = tocadas;
+    if (yaCargo.current) setRecargando(true);
+    else setLoading(true);
     setErr('');
     const { data, error } = await sb
       .from('incidencias')
       .select('*')
       .order('fecha_reporte', { ascending: false })
       .limit(LIMITE_INCIDENCIAS);
-    if (error) setErr('incidencias: ' + error.message);
-    setItems((data as Incidencia[]) || []);
+    // Una carga más nueva ya está en camino: esta respuesta es vieja.
+    if (miCarga !== cargaSeq.current) return;
+    tocadasEnCarga.current = null;
+    // Pasado el primer intento —bien o mal— ninguna recarga vuelve a poner
+    // la pantalla en "Cargando…" (que desmontaría los modales abiertos).
+    yaCargo.current = true;
     setLoading(false);
+    setRecargando(false);
+    // Con error (mala señal) se CONSERVA la lista anterior —y sus fotos—:
+    // vaciarla hacía desaparecer el trabajo de la pantalla justo cuando no
+    // hay red para volver a traerlo.
+    if (error) {
+      setErr('incidencias: ' + error.message);
+      return;
+    }
+    const delServidor = (data as Incidencia[]) || [];
+    setItems((prev) => {
+      if (!tocadas.size) return delServidor;
+      const locales = new Map(prev.map((i) => [i.record_id, i]));
+      const idsServidor = new Set(delServidor.map((i) => i.record_id));
+      // Las recién creadas que el servidor aún no devolvía, al frente.
+      const nuevas = [...tocadas]
+        .filter((rid) => !idsServidor.has(rid) && locales.has(rid))
+        .map((rid) => locales.get(rid) as Incidencia);
+      return [
+        ...nuevas,
+        ...delServidor.map((s) =>
+          tocadas.has(s.record_id) ? locales.get(s.record_id) ?? s : s
+        ),
+      ];
+    });
 
     // Las fotos de la tarjeta (pliego petitorio, ago-2026). Van DESPUÉS de
     // soltar el loading: la lista se usa igual sin fotos, y así no se le
@@ -301,7 +367,7 @@ function IncidenciasView({
     //     más RECIENTE, que es el estado final del trabajo.
     // La evidencia de reasignación no vive en `evidencias`: viaja como URL
     // en `reasignaciones.evidencia`, y solo importa la solicitud abierta.
-    const [{ data: evs }, { data: reasEv }] = await Promise.all([
+    const [{ data: evs, error: errEv }, { data: reasEv, error: errReas }] = await Promise.all([
       sb
         .from('evidencias')
         .select('record_id,url,etapa')
@@ -316,6 +382,9 @@ function IncidenciasView({
         .not('evidencia', 'is', null)
         .limit(500),
     ]);
+    // Si fallaron (mala señal), las tarjetas conservan las fotos que ya
+    // tenían: mapas vacíos las dejaban a todas sin foto.
+    if (errEv || errReas || miCarga !== cargaSeq.current) return;
     const mReporte: Record<string, string> = {};
     const mReparacion: Record<string, string> = {};
     (
@@ -396,6 +465,8 @@ function IncidenciasView({
         if (data) {
           // Se agrega a la lista actual para que los filtros y el resaltado
           // funcionen igual que con cualquier fila de la carga principal.
+          // Tocada: una recarga en vuelo no debe borrarla al fusionar.
+          tocadasEnCarga.current?.add(focoRecordId);
           setItems((prev) =>
             prev.some((i) => i.record_id === focoRecordId)
               ? prev
@@ -630,10 +701,62 @@ function IncidenciasView({
 
   // --- Acciones ---
   /** Aplica un patch en memoria para no recargar toda la lista. */
-  const patchInc = (rid: string, patch: Partial<Incidencia>) =>
+  const patchInc = (rid: string, patch: Partial<Incidencia>) => {
+    marcarTocada(rid);
     setItems((prev) =>
       prev.map((i) => (i.record_id === rid ? { ...i, ...patch } : i))
     );
+  };
+
+  /**
+   * Un cambio de estatus que afectó 0 filas puede ser dos cosas distintas:
+   * que OTRA persona ya movió la incidencia (la precondición de estatus ya
+   * no se cumple) o que la RLS no te deja. Se distingue releyendo la fila;
+   * si cambió, la tarjeta se actualiza con lo real.
+   *
+   * Por qué existe (auditoría, 24-sep-2026): los updates iban solo por
+   * record_id y ganaba el último que escribía. Con varios validadores sobre
+   * la misma cola, un "aprobar" y un "rechazar" casi simultáneos dejaban
+   * una incidencia cerrada de vuelta en proceso, sin aviso para nadie.
+   */
+  /**
+   * Devuelve true si la causa fue que otra persona ya la movió.
+   * `reparadaEn`: al aprobar/rechazar una reparación también se exige que
+   * sea LA MISMA que se está viendo (ver cambiarEstatus); si otro la rechazó
+   * y el técnico volvió a repararla, el estatus coincide pero el trabajo no.
+   */
+  const explicarSinCambio = async (
+    rid: string,
+    esperado: EstatusInc,
+    reparadaEn?: string | null
+  ): Promise<boolean> => {
+    const { data } = await sb
+      .from('incidencias')
+      .select('*')
+      .eq('record_id', rid)
+      .maybeSingle();
+    const actual = data as Incidencia | null;
+    const otraReparacion =
+      reparadaEn !== undefined && !mismoInstante(actual?.repaired_at, reparadaEn);
+    if (actual && (actual.estatus !== esperado || otraReparacion)) {
+      marcarTocada(rid);
+      setItems((prev) => prev.map((i) => (i.record_id === rid ? actual : i)));
+      alert(
+        actual.estatus !== esperado
+          ? 'Esta incidencia ya la atendió otra persona: ahora está en "' +
+              (EST_LABEL[actual.estatus] || actual.estatus) +
+              '". Tu lista ya se actualizó.'
+          : 'Esta reparación cambió mientras la revisabas (la rechazaron y ' +
+              'el técnico la volvió a reparar). Tu lista ya se actualizó: ' +
+              'revisa la reparación nueva antes de decidir.'
+      );
+      return true;
+    }
+    alert(
+      'No se guardó: tu rol o tu área no permiten este cambio en esta incidencia.'
+    );
+    return false;
+  };
 
   const cambiarEstatus = async (rid: string, estatus: EstatusInc) => {
     const patch: Partial<Incidencia> = { estatus };
@@ -647,12 +770,29 @@ function IncidenciasView({
       patch.repaired_by_email = email;
       patch.repaired_at = new Date().toISOString();
     }
-    const { error } = await sb
-      .from('incidencias')
-      .update(patch)
-      .eq('record_id', rid);
+    // Precondición: la incidencia sigue en el estatus que el usuario VE. Al
+    // aprobar una reparación (→ cerrada) además debe ser LA MISMA reparación
+    // que se revisó: si otro la rechazó y el técnico la volvió a reparar, el
+    // estatus vuelve a 'reparado' y solo repaired_at delata el cambio.
+    const actual = items.find((i) => i.record_id === rid);
+    const esperado = actual?.estatus;
+    const exigeReparacion = estatus === 'cerrada' && !!actual?.repaired_at;
+    let q = sb.from('incidencias').update(patch).eq('record_id', rid);
+    if (esperado) q = q.eq('estatus', esperado);
+    if (exigeReparacion) q = q.eq('repaired_at', actual!.repaired_at as string);
+    const { data, error } = await q.select('record_id');
     if (error) {
       alert('No se pudo actualizar: ' + error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      if (esperado)
+        await explicarSinCambio(
+          rid,
+          esperado,
+          exigeReparacion ? actual!.repaired_at : undefined
+        );
+      else alert('No se guardó: tu rol no permite este cambio.');
       return;
     }
     patchInc(rid, patch);
@@ -693,6 +833,8 @@ function IncidenciasView({
       .from('incidencias')
       .update(patch)
       .eq('record_id', inc.record_id)
+      // Precondición: sigue en el estatus en que se abrió el modal.
+      .eq('estatus', inc.estatus)
       .select(
         'record_id,incidencia_srd,arbol_digital_id,causa_raiz,diagnostico,solucion'
       );
@@ -702,12 +844,11 @@ function IncidenciasView({
     }
     // La RLS no lanza error cuando el update no te toca: afecta 0 filas y
     // regresa "éxito". Sin esta verificación la app pintaba la incidencia
-    // como reparada aunque la base no hubiera guardado nada.
+    // como reparada aunque la base no hubiera guardado nada. 0 filas también
+    // es "alguien más ya la movió": explicarSinCambio distingue los dos.
     if (!data || data.length === 0) {
-      alert(
-        'No se guardó: esta incidencia no pertenece a tu área, ' +
-          'o tu rol no permite repararla.'
-      );
+      // Si otro ya la movió, el modal de reparación ya no tiene sentido.
+      if (await explicarSinCambio(inc.record_id, inc.estatus)) setRepairing(null);
       return;
     }
     const guardada = data[0] as Partial<Incidencia>;
@@ -733,12 +874,28 @@ function IncidenciasView({
       estatus: 'en_proceso',
       motivo_rechazo_reparacion: motivo,
     };
-    const { error } = await sb
+    // Solo se rechaza lo que sigue 'reparado' Y con la misma reparación que
+    // se revisó: si otro validador ya la cerró, rechazarla la regresaba a en
+    // proceso sin contar el rechazo; si la reparación es otra, se estaría
+    // rechazando un trabajo que nadie vio.
+    let q = sb
       .from('incidencias')
       .update(patch)
-      .eq('record_id', inc.record_id);
+      .eq('record_id', inc.record_id)
+      .eq('estatus', inc.estatus);
+    if (inc.repaired_at) q = q.eq('repaired_at', inc.repaired_at);
+    const { data, error } = await q.select('record_id');
     if (error) {
       alert('No se pudo rechazar: ' + error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      await explicarSinCambio(
+        inc.record_id,
+        inc.estatus,
+        inc.repaired_at ? inc.repaired_at : undefined
+      );
+      setMotivoOf(null);
       return;
     }
     // El contador de rechazos lo incrementa el trigger inc_cuenta_rechazo
@@ -755,12 +912,18 @@ function IncidenciasView({
   };
 
   const prevalidar = async (inc: Incidencia) => {
-    const { error } = await sb
+    const { data, error } = await sb
       .from('incidencias')
       .update({ prevalidada: true })
-      .eq('record_id', inc.record_id);
+      .eq('record_id', inc.record_id)
+      .eq('estatus', inc.estatus)
+      .select('record_id');
     if (error) {
       alert('No se pudo prevalidar: ' + error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      await explicarSinCambio(inc.record_id, inc.estatus);
       return;
     }
     patchInc(inc.record_id, { prevalidada: true });
@@ -772,12 +935,19 @@ function IncidenciasView({
       prevalidada: false,
       motivo_rechazo_reparacion: motivo,
     };
-    const { error } = await sb
+    const { data, error } = await sb
       .from('incidencias')
       .update(patch)
-      .eq('record_id', inc.record_id);
+      .eq('record_id', inc.record_id)
+      .eq('estatus', inc.estatus)
+      .select('record_id');
     if (error) {
       alert('No se pudo descartar: ' + error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      await explicarSinCambio(inc.record_id, inc.estatus);
+      setMotivoOf(null);
       return;
     }
     patchInc(inc.record_id, patch);
@@ -798,7 +968,11 @@ function IncidenciasView({
   const crear = async (grupos: GrupoReporte[]) => {
     const creadas = await crearReporte(grupos, { email, misDep });
     if (!creadas) return;
-    setItems((prev) => [...creadas, ...prev]);
+    creadas.forEach((c) => marcarTocada(c.record_id));
+    // Sin duplicar: si una recarga terminó mientras se subían las fotos, la
+    // lista ya trae estas filas desde el servidor.
+    const ids = new Set(creadas.map((c) => c.record_id));
+    setItems((prev) => [...creadas, ...prev.filter((p) => !ids.has(p.record_id))]);
     onCerrarNueva?.();
     setPresetNew(null);
     setTimeout(onRecargarNotifs, 400);
@@ -822,6 +996,14 @@ function IncidenciasView({
             ? 'Mis pendientes'
             : 'Mi bandeja'
           : 'Incidencias'}
+        {recargando && (
+          <span
+            style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)', marginLeft: 10 }}
+          >
+            <span className="spinner" />
+            Actualizando…
+          </span>
+        )}
       </h2>
       <p className="phint">
         {modo === 'bandeja' && role === 'validador'

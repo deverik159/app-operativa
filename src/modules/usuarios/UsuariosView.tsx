@@ -40,7 +40,12 @@ const ROL_VACIO: NuevoRol = {
 
 const USUARIO_VACIO: NuevoUsuario = { nombre: '', email: '', telefono: '' };
 
-function UsuariosView() {
+/** ¿La RPC no existe (el SQL aún no se corrió)? PostgREST responde PGRST202. */
+function faltaFuncion(e: { code?: string; message?: string }): boolean {
+  return e.code === 'PGRST202' || /could not find the function/i.test(e.message || '');
+}
+
+function UsuariosView({ email = '' }: { email?: string }) {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [roles, setRoles] = useState<UsuarioRol[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,6 +86,13 @@ function UsuariosView() {
       alert('No se pudo crear: ' + error.message);
       return;
     }
+    // Si ese correo había sido dado de baja, su cuenta de acceso sigue
+    // bloqueada: se reactiva aquí. Sin cuenta previa, o si la función aún no
+    // existe, no pasa nada.
+    const email = nu.email.trim().toLowerCase();
+    const { data: rea } = await sb.rpc('reactivar_usuario', { p_email: email });
+    if ((rea as { reactivado?: boolean } | null)?.reactivado)
+      alert(email + ' estaba dado de baja: su acceso quedó reactivado.');
     setNu(USUARIO_VACIO);
     cargar();
   };
@@ -101,11 +113,46 @@ function UsuariosView() {
     );
   };
 
+  /**
+   * Baja REAL, en la base (RPC dar_baja_usuario, ver
+   * prelanzamiento_300.sql): quita roles y ficha, desactiva su push y
+   * bloquea su cuenta de acceso cerrando sus sesiones.
+   *
+   * Antes solo se borraba la fila de `usuarios`: la cuenta de Supabase Auth
+   * y su sesión seguían vivas, y un exempleado podía seguir leyendo por la
+   * API todo lo abierto a "cualquiera con sesión" (auditoría, 24-sep-2026).
+   */
   const delUser = async (em: string) => {
-    if (!confirm('¿Eliminar a ' + em + ' y todos sus roles?')) return;
-    const { error } = await sb.from('usuarios').delete().eq('email', em);
-    if (error) alert(error.message);
-    else cargar();
+    if (
+      !confirm(
+        '¿Dar de baja a ' +
+          em +
+          '?\n\nSe le quitan todos sus roles, se desactivan sus notificaciones ' +
+          'y se bloquea su acceso a la app.'
+      )
+    )
+      return;
+    const { data, error } = await sb.rpc('dar_baja_usuario', { p_email: em });
+    if (error) {
+      alert(
+        faltaFuncion(error)
+          ? 'La baja todavía no está habilitada: falta correr ' +
+              'prelanzamiento_300.sql en Supabase. Avisa a sistemas.'
+          : 'No se pudo dar de baja: ' + error.message
+      );
+      return;
+    }
+    const r = (data || {}) as { acceso_bloqueado?: boolean; detalle?: string };
+    if (!r.acceso_bloqueado)
+      alert(
+        'Se quitaron sus roles y sus notificaciones, pero NO se pudo bloquear ' +
+          'su cuenta desde aquí' +
+          (r.detalle ? ' (' + r.detalle + ')' : '') +
+          '.\n\nTermina la baja en Supabase → Authentication → Users → ' +
+          em +
+          ' → Delete user.'
+      );
+    cargar();
   };
 
   const addRole = async (em: string) => {
@@ -324,9 +371,12 @@ function UsuariosView() {
                 >
                   {rolesFor === u.email ? 'Cerrar' : '➕ Asignar rol'}
                 </button>
-                <button className="btn ghost sm" onClick={() => delUser(u.email)}>
-                  🗑 Eliminar
-                </button>
+                {/* A uno mismo no se le ofrece: la base también lo impide. */}
+                {u.email.toLowerCase() !== email.toLowerCase() && (
+                  <button className="btn ghost sm" onClick={() => delUser(u.email)}>
+                    🗑 Dar de baja
+                  </button>
+                )}
               </div>
 
               {rolesFor === u.email && (

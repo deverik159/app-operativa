@@ -23,6 +23,7 @@ import { vigilarNuevaVersion } from './lib/versionApp';
 import CampanaNotifs from './components/CampanaNotifs';
 import BotonPush from './components/BotonPush';
 import MenuUsuario from './components/MenuUsuario';
+import ErrorBoundary from './components/ErrorBoundary';
 import IncidenciasView from './modules/incidencias/IncidenciasView';
 import IndicadoresView from './modules/incidencias/IndicadoresView';
 import FijacionExternaView from './modules/fijacion-externa/FijacionExternaView';
@@ -817,6 +818,13 @@ function Main({ session }: { session: Session }) {
         <div className="main">
           {errRoles && <div className="err">{errRoles}</div>}
 
+          {/* Un error de render queda contenido en el módulo: la barra y el
+              menú sobreviven. Las dos pestañas de incidencias comparten
+              nombre para que alternar entre ellas no resetee nada. */}
+          <ErrorBoundary
+            modulo={esTabIncidencias ? 'incidencias' : tab}
+            resetKey={`${tab}|${recargarSignal}|${focoRecordId || ''}|${nuevaAbierta}`}
+          >
           {/* Una sola instancia para ambas pestañas: no se remonta al
             alternar, así que conserva lista, filtros y búsqueda. */}
             {esTabIncidencias && (
@@ -878,7 +886,8 @@ function Main({ session }: { session: Session }) {
               recargarSignal={recargarSignal}
             />
           )}
-          {tab === 'usuarios' && <UsuariosView />}
+          {tab === 'usuarios' && <UsuariosView email={email} />}
+          </ErrorBoundary>
         </div>
       </div>
 

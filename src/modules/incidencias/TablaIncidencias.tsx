@@ -50,7 +50,13 @@ function fecha(iso: string | null): string {
  * de medio archivo sin avisar.
  */
 function csv(v: unknown): string {
-  const s = v == null ? '' : String(v);
+  let s = v == null ? '' : String(v);
+  // Inyección de fórmulas: un texto libre que empieza con = + - @ (o tab /
+  // retorno) Excel lo EVALÚA aunque vaya entre comillas — un
+  // =HYPERLINK(...) en observaciones se ejecutaba en la máquina de quien
+  // exporta. El apóstrofo lo fuerza a texto. Los números se dejan tal cual
+  // para que sigan siendo números (auditoría, 24-sep-2026).
+  if (typeof v !== 'number' && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return '"' + s.replace(/"/g, '""') + '"';
 }
 

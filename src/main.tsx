@@ -8,6 +8,10 @@ import 'leaflet/dist/leaflet.css';
 import './index.css';
 import App from './App';
 import { registrarSW } from './lib/push';
+import { instalarReporteGlobal } from './lib/reportarError';
+
+// Antes del render: así también se registra lo que truene al arrancar.
+instalarReporteGlobal();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -20,11 +20,44 @@ import { useState, useEffect, useCallback } from 'react';
 import { sb } from './supabase';
 import type { Notificacion } from '../types/db';
 
-/** Cada cuánto se re-consultan las notificaciones. */
-const INTERVALO_MS = 25000;
+/**
+ * Cada cuánto se re-consultan las notificaciones, CON LA APP A LA VISTA.
+ *
+ * Eran 25 s sin pausa: con 300 usuarios, ~24 consultas por segundo
+ * constantes aunque nadie estuviera mirando (auditoría, 24-sep-2026). Ahora
+ * 60 s, y con la app oculta (otra pestaña, pantalla bloqueada, en segundo
+ * plano) NO se consulta nada: al volver a primer plano se consulta de
+ * inmediato, así que el usuario no ve la campana atrasada. El aviso
+ * instantáneo lo sigue dando el push.
+ */
+const INTERVALO_MS = 60000;
 
 /** Cuántas notificaciones pendientes se traen para la campana. */
 const LIMITE = 60;
+
+/** Tope del conteo de chats sin leer (solo alimenta los globitos 💬). */
+const LIMITE_CHATS = 500;
+
+/**
+ * Las columnas que de verdad usan la campana y App. Antes era select('*'):
+ * cada tick bajaba columnas que nadie pinta, multiplicado por 300 usuarios.
+ */
+const COLUMNAS = 'id,record_id,evento,mensaje,unidad_negocio,creado_en,leida';
+
+/** ¿Misma lista? Evita re-pintar App (y hasta 1000 tarjetas) si nada cambió. */
+function mismasNotifs(a: Notificacion[], b: Notificacion[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].id !== b[i].id || a[i].leida !== b[i].leida) return false;
+  }
+  return true;
+}
+
+function mismosConteos(a: Record<string, number>, b: Record<string, number>): boolean {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => a[k] === b[k]);
+}
 
 export type UseNotificaciones = {
   notifs: Notificacion[];
@@ -56,7 +89,7 @@ export function useNotificaciones(): UseNotificaciones {
   const cargarNotifs = useCallback(async () => {
     const { data, error: err } = await sb
       .from('notificaciones')
-      .select('*')
+      .select(COLUMNAS)
       .eq('leida', false)
       .order('creado_en', { ascending: false })
       .limit(LIMITE);
@@ -66,7 +99,8 @@ export function useNotificaciones(): UseNotificaciones {
       return;
     }
     setError('');
-    setNotifs((data as Notificacion[]) || []);
+    const nuevas = (data as Notificacion[]) || [];
+    setNotifs((prev) => (mismasNotifs(prev, nuevas) ? prev : nuevas));
   }, []);
 
   const cargarChats = useCallback(async () => {
@@ -75,7 +109,8 @@ export function useNotificaciones(): UseNotificaciones {
       .from('notificaciones')
       .select('record_id')
       .eq('evento', 'chat')
-      .eq('leida', false);
+      .eq('leida', false)
+      .limit(LIMITE_CHATS);
     if (err) {
       console.error('[notificaciones] fallo al contar chats:', err);
       return;
@@ -84,7 +119,7 @@ export function useNotificaciones(): UseNotificaciones {
     ((data as { record_id: string | null }[]) || []).forEach((r) => {
       if (r.record_id) m[r.record_id] = (m[r.record_id] || 0) + 1;
     });
-    setChatCounts(m);
+    setChatCounts((prev) => (mismosConteos(prev, m) ? prev : m));
   }, []);
 
   const recargar = useCallback(() => {
@@ -93,9 +128,25 @@ export function useNotificaciones(): UseNotificaciones {
   }, [cargarNotifs, cargarChats]);
 
   useEffect(() => {
-    recargar();
-    const t = setInterval(recargar, INTERVALO_MS);
-    return () => clearInterval(t);
+    let t: ReturnType<typeof setInterval> | null = null;
+    const arrancar = () => {
+      if (t) return;
+      recargar();
+      t = setInterval(recargar, INTERVALO_MS);
+    };
+    const detener = () => {
+      if (t) clearInterval(t);
+      t = null;
+    };
+    const alCambiarVisibilidad = () =>
+      document.visibilityState === 'visible' ? arrancar() : detener();
+
+    if (document.visibilityState === 'visible') arrancar();
+    document.addEventListener('visibilitychange', alCambiarVisibilidad);
+    return () => {
+      detener();
+      document.removeEventListener('visibilitychange', alCambiarVisibilidad);
+    };
   }, [recargar]);
 
   const marcarLeida = useCallback(async (id: number) => {

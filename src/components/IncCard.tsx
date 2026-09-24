@@ -8,6 +8,7 @@ import {
   NIVEL_COLOR,
 } from '../lib/constants';
 import { slaInfo, slaInfoValidador, caraIncidencia, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
+import { alFallarMiniatura, urlMiniatura } from '../lib/storage';
 import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
 
 /** Modo del modal de reasignación: pedirla, o revisarla como coordinador. */
@@ -178,8 +179,16 @@ function IncCard({
           tarjeta tres pantallas. Clic = galería completa. */}
       {foto && (
         <img
+          // key: si la tarjeta cambia de foto (p. ej. al pasar a reparado),
+          // se crea un <img> nuevo y no hereda el estado del anterior.
+          key={foto}
           className="inc-foto"
-          src={foto}
+          // La MINIATURA (640 px, ~50 KB) y no el original de 1600 px que se
+          // pintaba a 200 px de alto: con 300 usuarios era el grueso del
+          // egress (auditoría, 24-sep-2026). Las fotos subidas antes de las
+          // miniaturas no la tienen y caen solas al original.
+          src={urlMiniatura(foto)}
+          onError={alFallarMiniatura(foto)}
           alt={'Evidencia del reporte ' + (i.folio || '')}
           loading="lazy"
           onClick={() => onEvidence(i)}

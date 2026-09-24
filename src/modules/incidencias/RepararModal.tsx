@@ -16,9 +16,86 @@
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { caraIncidencia, codigoCara } from '../../lib/helpers';
-import { BUCKET_EVIDENCIAS } from '../../lib/storage';
+import {
+  BUCKET_EVIDENCIAS,
+  CACHE_INMUTABLE,
+  alFallarMiniatura,
+  rutaMiniatura,
+  subirMiniatura,
+  urlMiniatura,
+} from '../../lib/storage';
+import { reportarError } from '../../lib/reportarError';
 import SubirArchivos from '../../components/SubirArchivos';
 import type { ArbolDigital, Evidencia, Incidencia, TipoEvidencia } from '../../types/db';
+
+/**
+ * Miniatura de una evidencia (foto) o enlace (video).
+ *
+ * Vive FUERA de RepararModal a propósito: declarada adentro, cada tecla en
+ * diagnóstico/detalle creaba un tipo de componente nuevo y React remontaba
+ * el <img> — que volvía a pedir la miniatura (404 en fotos sin mini/) y
+ * parpadeaba al caer al original en cada tecla.
+ */
+function Miniatura({
+  e,
+  size,
+  onBorrar,
+  deshabilitado = false,
+}: {
+  e: Evidencia;
+  size: number;
+  /** Con esto, la miniatura trae su 🗑 debajo (solo evidencia propia). */
+  onBorrar?: () => void;
+  deshabilitado?: boolean;
+}) {
+  const visual =
+    e.tipo === 'foto' ? (
+      <a href={e.url} target="_blank" rel="noreferrer" title={e.referencia || ''}>
+        <img
+          // Miniatura de 56-64 px: bajar el original de 1600 px aquí era
+          // puro egress. Las fotos viejas sin miniatura caen al original.
+          src={urlMiniatura(e.url)}
+          onError={alFallarMiniatura(e.url)}
+          alt={e.referencia || `Evidencia de ${e.etapa}`}
+          style={{
+            width: size,
+            height: size,
+            objectFit: 'cover',
+            borderRadius: 7,
+            border: '1px solid var(--line)',
+            display: 'block',
+          }}
+        />
+      </a>
+    ) : (
+      <a href={e.url} target="_blank" rel="noreferrer" className="tag">
+        🎥 video
+      </a>
+    );
+  if (!onBorrar) return visual;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 2,
+      }}
+    >
+      {visual}
+      <button
+        type="button"
+        className="btn-icono"
+        onClick={onBorrar}
+        disabled={deshabilitado}
+        aria-label="Eliminar evidencia"
+        title="Eliminar"
+      >
+        🗑
+      </button>
+    </div>
+  );
+}
 
 /** Lo que el modal devuelve al padre para escribir en incidencias. */
 export type DatosReparacion = {
@@ -176,11 +253,13 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
 
       const { error: up } = await sb.storage
         .from(BUCKET_EVIDENCIAS)
-        .upload(path, f);
+        .upload(path, f, { cacheControl: CACHE_INMUTABLE });
       if (up) {
+        reportarError('RepararModal.subida', up, { path, tipo, bytes: f.size }, path);
         alert('Error al subir: ' + up.message);
         continue;
       }
+      if (tipo === 'foto') await subirMiniatura(path, f);
       const url = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path).data
         .publicUrl;
       const { data, error: insErr } = await sb
@@ -224,8 +303,11 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
     // Mismo orden que la galería: primero el archivo, luego la fila. Si el
     // archivo falla, la fila queda y se reintenta; al revés quedaría un
     // archivo colgado sin referencia.
+    // La miniatura va en la misma llamada; si no existe, Storage la ignora.
     if (item.path)
-      await sb.storage.from(BUCKET_EVIDENCIAS).remove([item.path]);
+      await sb.storage
+        .from(BUCKET_EVIDENCIAS)
+        .remove([item.path, rutaMiniatura(item.path)]);
     const { data, error } = await sb
       .from('evidencias')
       .delete()
@@ -300,62 +382,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
     setBusy(false);
   };
 
-  /** Miniatura de una evidencia (foto) o enlace (video). */
-  const Miniatura = ({
-    e,
-    size,
-    onBorrar,
-  }: {
-    e: Evidencia;
-    size: number;
-    /** Con esto, la miniatura trae su 🗑 debajo (solo evidencia propia). */
-    onBorrar?: () => void;
-  }) => {
-    const visual =
-      e.tipo === 'foto' ? (
-        <a href={e.url} target="_blank" rel="noreferrer" title={e.referencia || ''}>
-          <img
-            src={e.url}
-            alt={e.referencia || `Evidencia de ${e.etapa}`}
-            style={{
-              width: size,
-              height: size,
-              objectFit: 'cover',
-              borderRadius: 7,
-              border: '1px solid var(--line)',
-              display: 'block',
-            }}
-          />
-        </a>
-      ) : (
-        <a href={e.url} target="_blank" rel="noreferrer" className="tag">
-          🎥 video
-        </a>
-      );
-    if (!onBorrar) return visual;
-    return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: 2,
-        }}
-      >
-        {visual}
-        <button
-          type="button"
-          className="btn-icono"
-          onClick={onBorrar}
-          disabled={busy || subiendoRep || borrandoEv}
-          aria-label="Eliminar evidencia"
-          title="Eliminar"
-        >
-          🗑
-        </button>
-      </div>
-    );
-  };
+  const ocupado = busy || subiendoRep || borrandoEv;
 
   return (
     <div
@@ -417,7 +444,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
           {evReporte.length > 0 ? (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 9 }}>
               {evReporte.map((e) => (
-                <Miniatura key={e.id} e={e} size={64} />
+                <Miniatura key={e.id} e={e} size={64} deshabilitado={ocupado} />
               ))}
             </div>
           ) : (
@@ -498,6 +525,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                       key={e.id}
                       e={e}
                       size={56}
+                      deshabilitado={ocupado}
                       onBorrar={
                         puedeBorrarEv(e) ? () => borrarEvRep(e) : undefined
                       }

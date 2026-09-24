@@ -11,7 +11,8 @@ import { candadoTactil } from '../../lib/mapaTactil';
 import { prepararArchivos } from '../../lib/comprimirImagen';
 import RepararModal, { DatosReparacion } from '../incidencias/RepararModal';
 import { EST_COLOR, EST_LABEL } from '../../lib/constants';
-import { caraIncidencia, areaEfectiva } from '../../lib/helpers';
+import { caraIncidencia, areaEfectiva, escHtml } from '../../lib/helpers';
+import { CACHE_INMUTABLE } from '../../lib/storage';
 import type { Incidencia } from '../../types/db';
 
 /**
@@ -259,6 +260,9 @@ function FijacionExternaView({
       .from('incidencias')
       .update(patch)
       .eq('record_id', inc.record_id)
+      // Precondición: sigue en el estatus en que se abrió el modal. Sin esto
+      // ganaba el último que escribía (auditoría, 24-sep-2026).
+      .eq('estatus', inc.estatus)
       .select(
         'record_id,incidencia_srd,arbol_digital_id,causa_raiz,diagnostico,solucion'
       );
@@ -267,8 +271,28 @@ function FijacionExternaView({
       return;
     }
     // La RLS no lanza error cuando el update no te toca: afecta 0 filas y
-    // regresa "éxito". Sin esto, se pintaba como reparada sin estarlo.
+    // regresa "éxito". Sin esto, se pintaba como reparada sin estarlo. 0
+    // filas también puede ser "otra persona ya la movió": se relee la fila
+    // para decir cuál de las dos fue.
     if (!data || data.length === 0) {
+      const { data: fila } = await sb
+        .from('incidencias')
+        .select('*')
+        .eq('record_id', inc.record_id)
+        .maybeSingle();
+      const actual = fila as Incidencia | null;
+      if (actual && actual.estatus !== inc.estatus) {
+        setIncs((prev) =>
+          prev.map((x) => (x.record_id === inc.record_id ? actual : x))
+        );
+        setReparando(null);
+        alert(
+          'Esta incidencia ya la atendió otra persona: ahora está en "' +
+            (EST_LABEL[actual.estatus] || actual.estatus) +
+            '". Tu lista ya se actualizó.'
+        );
+        return;
+      }
       alert(
         'No se guardó: esta incidencia no pertenece a tu área, ' +
           'o tu rol no permite repararla.'
@@ -312,7 +336,7 @@ function FijacionExternaView({
         const path = `fijacion-externa/${fijando.clave || fijando.id}_${Date.now()}_${i}.${ext}`;
         const { error: upErr } = await sb.storage
           .from(BUCKET)
-          .upload(path, f, { upsert: false });
+          .upload(path, f, { upsert: false, cacheControl: CACHE_INMUTABLE });
         if (upErr) {
           setErr('Error al subir foto: ' + upErr.message);
           setGuardando(false);
@@ -512,7 +536,8 @@ function FijacionExternaView({
     const idsVisibles = new Set(visibles.map((v) => v.id));
     conCoords.forEach((r, idx) => {
       latlngs.push([r.lat, r.lng]);
-      const popup = `<b>${r.clave || ''}</b><br>${r.direccion || '(sin dirección)'}<br>${r.campana || ''}`;
+      // Datos de la base del proveedor: se escapan, bindPopup inserta HTML.
+      const popup = `<b>${escHtml(r.clave)}</b><br>${escHtml(r.direccion || '(sin dirección)')}<br>${escHtml(r.campana)}`;
       if (idsVisibles.has(r.id)) {
         const icon = L.divIcon({
           className: '',

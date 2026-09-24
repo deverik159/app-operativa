@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import * as XLSX from 'xlsx';
 import { sb } from '../../lib/supabase';
+import { escHtml } from '../../lib/helpers';
 import { candadoTactil } from '../../lib/mapaTactil';
 import IrAqui from '../../components/IrAqui';
 import ImportarKmlModal from './ImportarKmlModal';
@@ -390,13 +391,15 @@ function RutasView({
           fillColor: ruta.color,
           fillOpacity: 0.95,
         })
+          // Todo va escapado: el nombre de la ruta y el estatus llegan de un
+          // KML o Excel ajeno, y bindPopup inserta el string como HTML.
           .bindPopup(
-            `<b>Ruta ${ruta.numero}${ruta.nombre ? ' · ' + ruta.nombre : ''}</b>` +
-              `${p.seq != null ? ` · secuencia ${p.seq}` : ''}<br>` +
-              `${p.vfid}<br>${p.dir || ''}<br>` +
-              `<small>Caras: ${p.carasReal ?? '?'} en inventario` +
-              `${p.carasArch != null && p.carasArch !== p.carasReal ? ` (archivo: ${p.carasArch})` : ''}` +
-              `${p.estatus ? ` · ${p.estatus}` : ''}</small>`
+            `<b>Ruta ${escHtml(ruta.numero)}${ruta.nombre ? ' · ' + escHtml(ruta.nombre) : ''}</b>` +
+              `${p.seq != null ? ` · secuencia ${escHtml(p.seq)}` : ''}<br>` +
+              `${escHtml(p.vfid)}<br>${escHtml(p.dir)}<br>` +
+              `<small>Caras: ${escHtml(p.carasReal ?? '?')} en inventario` +
+              `${p.carasArch != null && p.carasArch !== p.carasReal ? ` (archivo: ${escHtml(p.carasArch)})` : ''}` +
+              `${p.estatus ? ` · ${escHtml(p.estatus)}` : ''}</small>`
           )
           .addTo(grp);
       });

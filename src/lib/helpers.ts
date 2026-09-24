@@ -133,6 +133,23 @@ export function ladoFijoDePortico(
  * las dos puntas pasan por esta misma función—, pero por lo mismo esta
  * función es SOLO para comparar, nunca para mostrar texto.
  */
+/**
+ * Escapa texto para meterlo en HTML armado a mano (popups de Leaflet).
+ *
+ * bindPopup(string) inserta el string COMO HTML. Las direcciones y campañas
+ * de Fijación vienen de la base del proveedor y los nombres de ruta de un
+ * KML ajeno: un "<img onerror=…>" ahí se ejecutaba en el navegador de
+ * coordinadores y managers, con acceso a su sesión (auditoría, 24-sep-2026).
+ */
+export function escHtml(s: unknown): string {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function sinAcentos(s: string | null | undefined): string {
   return (s || '')
     .toLowerCase()

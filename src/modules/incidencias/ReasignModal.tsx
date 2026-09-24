@@ -24,7 +24,11 @@ import {
 } from '../../lib/catalogo';
 import type { OpcionesCatalogo } from '../../lib/catalogo';
 import type { CatalogoIncidencia } from '../../types/db';
-import { BUCKET_EVIDENCIAS } from '../../lib/storage';
+import {
+  BUCKET_EVIDENCIAS,
+  CACHE_INMUTABLE,
+  subirMiniatura,
+} from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
 import type { Incidencia, Reasignacion } from '../../types/db';
 
@@ -152,12 +156,14 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
     )}`;
     const { error: upErr } = await sb.storage
       .from(BUCKET_EVIDENCIAS)
-      .upload(path, file);
+      .upload(path, file, { cacheControl: CACHE_INMUTABLE });
     if (upErr) {
       setBusy(false);
       alert('No se pudo subir la foto: ' + upErr.message + '. Inténtalo de nuevo.');
       return;
     }
+    // La tarjeta pinta esta foto mientras la solicitud está pendiente.
+    if (file.type.startsWith('image/')) await subirMiniatura(path, file);
     const evidenciaUrl = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path)
       .data.publicUrl;
 

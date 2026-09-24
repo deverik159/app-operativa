@@ -18,7 +18,8 @@
 // insert falló) — en ese caso el modal debe seguir abierto para corregir.
 // ============================================================
 import { sb } from './supabase';
-import { BUCKET_EVIDENCIAS } from './storage';
+import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE, subirMiniatura } from './storage';
+import { reportarError } from './reportarError';
 import { AREAS_AUTORUTEO } from './constants';
 import { fueraHorarioValidador, idCorto } from './helpers';
 import { duplicadasEnProceso } from './duplicados';
@@ -123,12 +124,17 @@ export async function crearReporte(
         );
       const { error: up } = await sb.storage
         .from(BUCKET_EVIDENCIAS)
-        .upload(path, f);
+        .upload(path, f, { cacheControl: CACHE_INMUTABLE });
       if (up) {
         // Las incidencias ya existen: se avisa pero no se aborta el resto.
+        // Y queda registrado: con mala señal esto pasa en campo y, sin
+        // telemetría, nadie sabía cuántos reportes quedaban sin foto.
+        reportarError('crearReporte.subida', up, { path, tipo, bytes: f.size }, path);
         alert('Se creó, pero falló subir evidencia: ' + up.message);
         continue;
       }
+      // La miniatura es la que pintan las tarjetas (de mejor esfuerzo).
+      if (tipo === 'foto') await subirMiniatura(path, f);
       const url = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path).data
         .publicUrl;
       // `referencia` guarda la cara: es lo que se lee en la galería.

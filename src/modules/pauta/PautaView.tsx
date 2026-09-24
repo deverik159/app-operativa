@@ -12,7 +12,7 @@
 // vez, y ahí se necesita saber qué anuncio va en cada cara. Dos de cada tres
 // sitios tienen más de una campaña.
 // ============================================================
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import IrAqui from '../../components/IrAqui';
 import { tramosGoogleMaps } from '../../lib/navegacion';
@@ -327,8 +327,26 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
     if (cats.length === 0) setLoading(false);
   }, []);
 
-  const cargar = useCallback(async (cat: number) => {
-    setLoading(true);
+  /** Número de carga: la respuesta de una carga superada se descarta. */
+  const cargaSeq = useRef(0);
+  /** Cuenta los cambios locales de filas (tomas) para detectar respuestas viejas. */
+  const cambiosLocales = useRef(0);
+  const setFilasLocal: typeof setFilas = (v) => {
+    cambiosLocales.current++;
+    setFilas(v);
+  };
+
+  /**
+   * `silenciosa` = recarga pedida desde afuera (aviso nuevo): NO pone la
+   * pantalla en "Cargando…". Ese return temprano desmontaba el modal de la
+   * toma con sus fotos en memoria cada vez que llegaba cualquier aviso
+   * (mismo bug que Incidencias, auditoría 24-sep-2026). Y si falla la red,
+   * se conserva lo que ya estaba en pantalla.
+   */
+  const cargar = useCallback(async (cat: number, silenciosa = false) => {
+    const miCarga = ++cargaSeq.current;
+    const marca = cambiosLocales.current;
+    if (!silenciosa) setLoading(true);
     setErr('');
     // Paginado: una catorcena pasa de 1000 filas y Supabase corta ahí.
     let todas: PautaRuta[] = [];
@@ -341,6 +359,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
         .order('ruta_numero', { ascending: true, nullsFirst: false })
         .order('secuencia', { ascending: true })
         .range(desde, desde + PAGINA - 1);
+      if (miCarga !== cargaSeq.current) return; // otra carga más nueva manda
       if (error) {
         setErr('pauta: ' + error.message);
         setLoading(false);
@@ -351,6 +370,16 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       if (lote.length < PAGINA) break;
       desde += PAGINA;
       if (desde > 20000) break; // salvavidas
+    }
+    // Recarga silenciosa y el monitorista registró/comprobó/regresó una toma
+    // mientras viajaba: esta respuesta se tomó ANTES de su cambio y lo
+    // "revertiría" en pantalla. Se descarta y se pide otra de inmediato,
+    // que ya trae su cambio (y lo remoto que motivó la recarga).
+    if (silenciosa && cambiosLocales.current !== marca) {
+      // `cargar` es estable (useCallback sin dependencias): la referencia
+      // dentro de su propio cuerpo apunta a la misma función.
+      setTimeout(() => void cargar(cat, true), 0);
+      return;
     }
     setFilas(todas);
     setLoading(false);
@@ -367,7 +396,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   // Recarga pedida desde afuera (notificación de pauta abierta).
   useEffect(() => {
     if (recargarSignal && catSel != null) {
-      cargar(catSel);
+      cargar(catSel, true);
       cargarAsignaciones();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -532,7 +561,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       return false;
     }
     const ahora = new Date().toISOString();
-    setFilas((prev) =>
+    setFilasLocal((prev) =>
       prev.map((f) =>
         f.vendor_face_id === fila.vendor_face_id
           ? { ...f, fecha_comprobacion: ahora, avance: 'COMPROBADA' }
@@ -547,7 +576,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
    * la cara vuelve a PENDIENTE con su motivo visible.
    */
   const tomaRegresada = (vendorFaceId: string, motivo: string) => {
-    setFilas((prev) =>
+    setFilasLocal((prev) =>
       prev.map((f) =>
         f.vendor_face_id === vendorFaceId
           ? {
@@ -569,7 +598,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
    */
   const tomaRegistrada = (vendorFaceId: string) => {
     const ahora = new Date().toISOString();
-    setFilas((prev) =>
+    setFilasLocal((prev) =>
       prev.map((f) => {
         if (f.vendor_face_id !== vendorFaceId) return f;
         // La RPC no pisa una toma anterior: aquí se respeta igual.

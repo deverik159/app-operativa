@@ -9,7 +9,7 @@
 // el botón 📎 Evidencia, que no caduca.
 // ============================================================
 import { sb } from './supabase';
-import { BUCKET_EVIDENCIAS } from './storage';
+import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from './storage';
 
 /** Foto: 5 MB. Una foto de celular ronda 2-4 MB. */
 export const MAX_FOTO_BYTES = 5 * 1024 * 1024;
@@ -111,7 +111,7 @@ export async function subirAdjunto(
 
   const { error } = await sb.storage
     .from(BUCKET_EVIDENCIAS)
-    .upload(path, file, { upsert: false });
+    .upload(path, file, { upsert: false, cacheControl: CACHE_INMUTABLE });
   if (error) throw new Error('No se pudo subir el archivo: ' + error.message);
 
   const { data } = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path);

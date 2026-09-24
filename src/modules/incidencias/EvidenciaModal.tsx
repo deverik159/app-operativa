@@ -14,7 +14,13 @@ import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { codigoCara } from '../../lib/helpers';
 import { ETAPA_LABEL } from '../../lib/constants';
-import { BUCKET_EVIDENCIAS } from '../../lib/storage';
+import {
+  BUCKET_EVIDENCIAS,
+  CACHE_INMUTABLE,
+  rutaMiniatura,
+  subirMiniatura,
+} from '../../lib/storage';
+import { reportarError } from '../../lib/reportarError';
 import SubirArchivos from '../../components/SubirArchivos';
 import type {
   Evidencia,
@@ -174,11 +180,13 @@ function EvidenciaModal({
 
       const { error: upErr } = await sb.storage
         .from(BUCKET_EVIDENCIAS)
-        .upload(path, f, { upsert: false });
+        .upload(path, f, { upsert: false, cacheControl: CACHE_INMUTABLE });
       if (upErr) {
+        reportarError('EvidenciaModal.subida', upErr, { path, tipo, bytes: f.size }, path);
         alert('Error al subir ' + f.name + ': ' + upErr.message);
         continue;
       }
+      if (tipo === 'foto') await subirMiniatura(path, f);
       const { data: pub } = sb.storage
         .from(BUCKET_EVIDENCIAS)
         .getPublicUrl(path);
@@ -207,8 +215,11 @@ function EvidenciaModal({
     if (!confirm('¿Eliminar esta evidencia?')) return;
     // Primero el archivo, luego la fila: si falla el archivo, la fila queda
     // y se puede reintentar. Al revés quedaría un archivo sin referencia.
+    // La miniatura va en la misma llamada; si no existe, Storage la ignora.
     if (item.path)
-      await sb.storage.from(BUCKET_EVIDENCIAS).remove([item.path]);
+      await sb.storage
+        .from(BUCKET_EVIDENCIAS)
+        .remove([item.path, rutaMiniatura(item.path)]);
     const { error } = await sb.from('evidencias').delete().eq('id', item.id);
     if (error) {
       alert('No se pudo eliminar: ' + error.message);

@@ -24,7 +24,11 @@
 // ============================================================
 import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
-import { BUCKET_EVIDENCIAS } from '../../lib/storage';
+import {
+  BUCKET_EVIDENCIAS,
+  CACHE_INMUTABLE,
+  subirMiniatura,
+} from '../../lib/storage';
 import { idCorto, sinAcentos } from '../../lib/helpers';
 import { explicarErrorGps } from '../../lib/plataforma';
 import { duplicadasEnProcesoDeSitio } from '../../lib/duplicados';
@@ -343,9 +347,12 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     const path = `${CARPETA}/${ubic.site_id}/${nombre}`;
     const { error } = await sb.storage
       .from(BUCKET_EVIDENCIAS)
-      .upload(path, f, { upsert: false });
+      .upload(path, f, { upsert: false, cacheControl: CACHE_INMUTABLE });
     // El motivo real importa: "Payload too large" no se arregla con señal.
     if (error) throw new Error(`${f.name}: ${error.message}`);
+    // Estas fotos también las pinta la tarjeta de la incidencia que se
+    // levante (etapa 'reporte'): sin miniatura bajaba el original de 1600 px.
+    if (tipo === 'foto') await subirMiniatura(path, f);
     return {
       tipo,
       path,

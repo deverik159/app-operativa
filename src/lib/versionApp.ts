@@ -11,6 +11,10 @@ export function vigilarNuevaVersion(alEncontrar: () => void): () => void {
   let detenida = false;
 
   const revisar = async () => {
+    // Con la app oculta no se pregunta: al volver a primer plano `alVolver`
+    // revisa de inmediato. Con 300 usuarios, el sondeo en segundo plano eran
+    // miles de peticiones por jornada que nadie iba a ver (auditoría, 24-sep).
+    if (document.visibilityState !== 'visible') return;
     try {
       const res = await fetch(`/version.json?_=${Date.now()}`, {
         cache: 'no-store',
@@ -29,7 +33,7 @@ export function vigilarNuevaVersion(alEncontrar: () => void): () => void {
   };
   void revisar();
   document.addEventListener('visibilitychange', alVolver);
-  const intervalo = window.setInterval(revisar, 5 * 60 * 1000);
+  const intervalo = window.setInterval(revisar, 15 * 60 * 1000);
   return () => {
     detenida = true;
     window.clearInterval(intervalo);

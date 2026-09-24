@@ -1,7 +1,7 @@
 # HANDOFF COMPLETO — Central de Operaciones GPO VALLAS
 ### Documento de traspaso para retomar el proyecto sin empezar de cero
 
-_Última actualización: 22 de septiembre de 2026. Reemplaza la versión anterior
+_Última actualización: 24 de septiembre de 2026. Reemplaza la versión anterior
 (agosto 2026, "migración en curso"). Este documento captura TODO el contexto:
 arquitectura, módulos, esquema de datos, decisiones tomadas, errores cometidos
 y pendientes. Léelo completo antes de continuar._
@@ -727,6 +727,7 @@ Biobox.
 | `notificar_toma_por_comprobar.sql` | ✅ aplicado (22-sep) — `registrar_toma` avisa a coordinadores (evento `pauta_revision`) solo en toma NUEVA |
 | `sincronizar_rutas_pauta.sql` | ✅ aplicado (22-sep) — RPC `sincronizar_rutas_desde_pauta`; ojo con la firma json/jsonb de `importar_rutas` (PASO 0) |
 | `medir_almacenamiento.sql` | referencia, solo lectura — Storage por módulo, pauta POR CATORCENA, foto vs video, top-20 y GB/semana |
+| `prelanzamiento_300.sql` | ⏳ pendiente — CORRER ANTES de publicar el bloque del 24-sep: índices, purgas por pg_cron, `errores_cliente`, anon sin permisos (tablas, vistas y RPC definer), `app_config` cerrada, `pauta_monitoreo` sin escritura directa, `dar_baja_usuario` / `reactivar_usuario`. Re-ejecutable; el PASO 6 es una sola consulta de verificación |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
@@ -1159,3 +1160,56 @@ roles por trabajo. Todo desplegado y verificado por Erik en producción.
 - Al 22-sep-2026, `main` local y `origin/main` apuntan a `b8bb9a4` más este
   documento. La Edge Function `enviar-push` está desplegada con los títulos
   `pauta_toma`/`pauta_revision` y el `evento` en el payload.
+
+### 12.10. Bloque "antes de abrir a 300" (24-sep-2026)
+
+Salió de una auditoría de 80 hallazgos (7 dimensiones, verificados contra el
+código; ninguno refutado) y pasó DOS revisiones adversariales antes de
+subirse. Supabase Pro y respaldos quedaron fuera: los ve dirección. Todo lo
+de base de datos vive en `prelanzamiento_300.sql`, que se corre ANTES de
+publicar este frontend (la baja de usuarios llama funciones que crea).
+
+- **Campana** (`useNotificaciones.ts`, `versionApp.ts`): no consulta con la
+  app oculta y consulta al volver a primer plano; 60 s en lugar de 25; solo
+  las columnas que se pintan; no re-renderiza si nada cambió. Con 300
+  usuarios eran ~24 consultas/s constantes. Versión nueva cada 15 min.
+- **La recarga ya no destruye capturas** (IncidenciasView, PautaView,
+  BitacoraVV): solo la PRIMERA carga pone "Cargando…"; antes toda recarga
+  (↻ o un aviso nuevo) desmontaba NuevaInc/RegistrarToma con las fotos en
+  memoria. Con error de red se conserva la lista y sus fotos. Como ahora se
+  puede accionar mientras viaja una recarga: cada carga lleva número (la
+  superada se descarta) y lo que el usuario toca en ese lapso conserva su
+  versión local al fusionar (`tocadasEnCarga`); en Pauta la respuesta vieja
+  se descarta y se pide otra.
+- **Concurrencia en estatus** (IncidenciasView, FijacionExternaView): cada
+  cambio de estatus exige el estatus que el usuario VE (`.eq('estatus', …)`)
+  y, al aprobar o rechazar una reparación, que sea la MISMA (`repaired_at`).
+  0 filas se explica releyendo la fila (`explicarSinCambio`): "ya la atendió
+  otra persona" vs "sin permiso". Antes ganaba el último que escribía.
+- **Errores visibles**: `ErrorBoundary` por módulo (la barra y el menú
+  sobreviven; se limpia al cambiar de módulo, tocar un aviso o ↻) y
+  `reportarError` → tabla `errores_cliente` (render, `window.error`,
+  promesas y subidas fallidas). Tope por sesión, dedupe, cola de 10 que se
+  reenvía al volver la red; los rechazos definitivos no se reintentan.
+  Consultar como manager: `select * from errores_cliente order by creado_en desc`.
+- **Egress de fotos** (`storage.ts`): toda subida lleva caché de 1 año
+  (nombres únicos, sin upsert). Las fotos que pintan tarjetas generan una
+  miniatura de 640 px en `…/mini/…jpg` (reporte, evidencia, reparación,
+  reasignación, revisión Biobox); la tarjeta la pide y cae sola al original
+  si no existe (fotos anteriores al 24-sep). La miniatura es de mejor
+  esfuerzo con tope de 8 s: nunca frena el guardado.
+- **Seguridad**: popups de Leaflet escapados (`escHtml`; datos de Mario y de
+  KML ajenos), CSV sin inyección de fórmulas, anon sin ningún permiso en
+  public (tablas, vistas y RPC SECURITY DEFINER, también las futuras),
+  `app_config` cerrada, `pauta_monitoreo` solo por sus RPC. **Baja real**:
+  "Dar de baja" llama `dar_baja_usuario` (roles, ficha, rutas y push fuera;
+  cuenta de Auth bloqueada con `banned_until` y sesiones cerradas); volver a
+  dar de alta el correo llama `reactivar_usuario`. El PASO 6 del SQL lista
+  las cuentas VIVAS sin ficha — las "eliminadas" con el botón anterior, que
+  siguen pudiendo usar la API.
+- **Quedó para el primer mes** (auditoría): bandeja y KPIs en servidor (hoy
+  truncan a 1000 en silencio), captura idempotente con reintento y borrador
+  local, migraciones + staging + prueba de carga, `React.lazy` por módulo
+  (bundle 1.3 MB), rutas por URL. Pendientes chicos: backfill de miniaturas
+  para las fotos viejas (o Image Transformations ya en Pro), `enviar-push`
+  con `.ilike` sin escapar (redeploy con Verify JWT apagado) y tope de video.

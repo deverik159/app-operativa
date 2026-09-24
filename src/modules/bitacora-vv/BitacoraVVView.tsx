@@ -455,7 +455,13 @@ function BitacoraVVView({
       sb.from('vv_artes').select('*').order('version').order('etiqueta'),
     ]);
     const e = re.error || rc.error || rp.error || ra.error;
-    if (e) setErr('No se pudo cargar la bitácora: ' + e.message);
+    if (e) {
+      // Con mala señal se CONSERVA lo que ya estaba: vaciar las listas en
+      // una recarga fallida hacía desaparecer la bitácora de la pantalla.
+      setErr('No se pudo cargar la bitácora: ' + e.message);
+      setCargando(false);
+      return;
+    }
     setEspacios((re.data as Espacio[]) || []);
     setCampanas((rc.data as Campana[]) || []);
     setPautas((rp.data as Pauta[]) || []);

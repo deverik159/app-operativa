@@ -16,7 +16,7 @@ import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { caraLabel } from '../../lib/helpers';
 import { reglaEspecToma } from '../../lib/especToma';
-import { BUCKET_EVIDENCIAS } from '../../lib/storage';
+import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
 import type { PautaRuta, TipoEvidencia } from '../../types/db';
 
@@ -154,7 +154,7 @@ function RegistrarTomaModal({
 
       const { error: up } = await sb.storage
         .from(BUCKET_EVIDENCIAS)
-        .upload(path, f, { upsert: false });
+        .upload(path, f, { upsert: false, cacheControl: CACHE_INMUTABLE });
       if (up) {
         setErr('Error al subir ' + f.name + ': ' + up.message);
         continue;
