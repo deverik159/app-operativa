@@ -80,8 +80,16 @@ create index if not exists evid_tarjetas_idx
   on public.evidencias (tipo, etapa, creado_en desc);
 
 -- Chat y reasignaciones.
-create index if not exists msg_record_idx
-  on public.mensajes (record_id, creado_en);
+-- Solo si no hay ya uno igual (la base heredó idx_msg_record con estas
+-- mismas columnas; limpiar_indices_duplicados.sql quitó el duplicado).
+do $$
+begin
+  if not exists (select 1 from pg_indexes
+                  where schemaname = 'public' and tablename = 'mensajes'
+                    and indexdef ~* 'using btree \(record_id, creado_en\)') then
+    create index msg_record_idx on public.mensajes (record_id, creado_en);
+  end if;
+end $$;
 create index if not exists reas_record_idx
   on public.reasignaciones (record_id);
 create index if not exists reas_solicitadas_idx
