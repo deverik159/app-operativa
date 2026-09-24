@@ -736,7 +736,7 @@ Biobox.
 | `medir_almacenamiento.sql` | referencia, solo lectura — Storage por módulo, pauta POR CATORCENA, foto vs video, top-20 y GB/semana |
 | `prelanzamiento_300.sql` | ✅ aplicado y verificado (24-sep) — índices, purgas por pg_cron, `errores_cliente`, anon sin permisos (tablas, vistas y RPC definer), `app_config` cerrada, `pauta_monitoreo` sin escritura directa, `dar_baja_usuario` / `reactivar_usuario`. Re-ejecutable; el PASO 6 es una sola consulta de verificación. Sin cuentas vivas sin ficha |
 | `limpiar_indices_duplicados.sql` | ✅ aplicado (24-sep) — quitó 3 duplicados exactos (inc_estatus_idx, evid_record_idx, msg_record_idx); quedan los heredados equivalentes. prelanzamiento_300.sql ya no los recrea |
-| `primer_mes.sql` | ⏳ por correr — RPC `fotos_tarjetas(p_ids)` (SECURITY INVOKER, un jsonb por lote) para las fotos de tarjeta. Sin ella la app cae a la consulta vieja de 3000 evidencias. Verificación en una sola consulta: anon sin EXECUTE |
+| `primer_mes.sql` | ✅ aplicado y verificado (24-sep) — RPC `fotos_tarjetas(p_ids)` (SECURITY INVOKER, stable, un jsonb por lote) para las fotos de tarjeta; EXECUTE solo authenticated y service_role (anon no). La prueba con 5 incidencias recientes devolvió sus fotos de reporte y la de reparación |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
@@ -1228,8 +1228,9 @@ publicar este frontend (la baja de usuarios llama funciones que crea).
 
 Cuatro frentes en paralelo, una revisión adversarial (24 hallazgos
 confirmados, 6 refutados) y una segunda vuelta que verificó cada corrección.
-Lo único de base es `primer_mes.sql` (fotos de tarjeta); la app funciona sin
-él, con la consulta anterior.
+Lo único de base es `primer_mes.sql` (fotos de tarjeta; aplicado y
+verificado el 24-sep). Si faltara la función, la app cae a la consulta
+anterior.
 
 - **Datos completos** (IncidenciasView, IndicadoresView): lo ABIERTO
   (todo menos `cerrada`/`no_reparado`) se trae completo, paginado de 1000 en
@@ -1275,7 +1276,7 @@ Lo único de base es `primer_mes.sql` (fotos de tarjeta); la app funciona sin
   `scripts/usuarios-carga.mjs` (crear/borrar usuarios de prueba en staging),
   `supabase/migrations/README.md`. `tests/carga/.usuarios.json` está en
   `.gitignore`.
-- **Falta de Erik**: correr `primer_mes.sql`; decidir con dirección el
+- **Falta de Erik**: decidir con dirección el
   proyecto de staging; subir el límite de logins por IP de Auth (~100–150 /
   5 min) antes del arranque; probar en un iPhone real: capturar sin señal,
   cerrar la app, volver a abrir y ver que el aviso lo mande.
