@@ -1,8 +1,8 @@
 // ============================================================
 // src/lib/idb.ts
 // IndexedDB mínimo, a mano, para lo que tiene que sobrevivir en el
-// teléfono: la cola de envíos (lib/envios.ts) y el borrador del alta de
-// incidencias (lib/borrador.ts).
+// teléfono: la cola de envíos (lib/envios.ts), el borrador del alta de
+// incidencias (lib/borrador.ts) y la cola de acciones (lib/acciones.ts).
 //
 // POR QUÉ (auditoría primer mes, 24-sep-2026): con mala señal en campo, un
 // reporte con sus fotos solo existía en memoria. Cerrar la app —o que iOS
@@ -15,42 +15,116 @@
 //     contesta "no disponible" y quien llama sigue en memoria.
 //   · NUNCA revienta la app: los fallos se regresan como rechazo de la
 //     promesa y cada llamador decide (siempre con try/catch).
-//   · Sin dependencias: son tres almacenes y cinco operaciones.
+//   · Sin dependencias: son dos bases, cinco almacenes y cinco operaciones.
+//
+// VERSIÓN DE LA BASE SIN NÚMERO FIJO (modo sin señal, 24-sep-2026). Se abre
+// SIN número de versión (la que el teléfono ya tenga) y, si falta algún
+// almacén, se reabre con versión+1 creando solo los que faltan. Así nunca
+// hay VersionError entre builds: con el armazón en caché del service
+// worker, sin señal puede arrancar un build distinto del que escribió la
+// base, y con un número fijo el más viejo pedía una versión menor, recibía
+// VersionError y dejaba de ver la cola.
+//
+// DOS BASES; 'gpo-capturas' NO SUBE DE VERSIÓN (revisión sin señal,
+// 24-sep-2026). El código de ANTES de este cambio abre 'gpo-capturas' con la
+// versión 1 FIJA. Si esa base pasara a v2, revertir en Vercel a un build de
+// antes dejaba a TODOS los teléfonos que ya abrieron el nuevo con
+// VersionError en cada operación: sin cola de reportes ni borrador, y lo
+// capturado sin señal se perdía al cerrar la app. Eso no tiene arreglo desde
+// el código viejo. Por eso lo nuevo (la cola de acciones y sus archivos) va
+// en su propia base, 'gpo-acciones', y 'gpo-capturas' se queda en v1 con sus
+// tres almacenes de siempre.
+//   · NUNCA agregues almacenes a 'gpo-capturas': lo nuevo va en una base
+//     aparte (como 'gpo-acciones' aquí o 'gpo-datos' en lib/idbDatos.ts).
+//   · SI HAY QUE REVERTIR a un build anterior a este cambio: reportes y
+//     borrador siguen funcionando. Las acciones en cola (validaciones y
+//     reparaciones sin señal) no se pierden, pero el build viejo no las
+//     conoce: salen solas en cuanto se vuelva a desplegar un build con
+//     lib/acciones.ts (si alguien la repitió mientras tanto, la de la cola
+//     sale como "ya la atendió otra persona" y no pisa nada).
+//   · Un teléfono de prueba que ya había subido 'gpo-capturas' a v2 (con un
+//     almacén 'acciones' adentro) sigue funcionando: se abre sin número. Lo
+//     que haya quedado en ese almacén viejo ya no se lee. En producción
+//     nunca se publicó esa v2.
 // ============================================================
 
-const NOMBRE_BD = 'gpo-capturas';
-const VERSION_BD = 1;
+const BD_CAPTURAS = 'gpo-capturas';
+const BD_ACCIONES = 'gpo-acciones';
 
 /** Tope para abrir la base: más que esto y se da por no disponible. */
 const ESPERA_APERTURA_MS = 3000;
 /** Tope por transacción normal (metadatos, lecturas). */
 const ESPERA_TX_MS = 15000;
+/** Reaperturas máximas para crear almacenes faltantes (carreras entre pestañas). */
+const MAX_REAPERTURAS = 3;
 
 /**
- * Los almacenes:
+ * Los almacenes. En 'gpo-capturas' (v1, no sube de versión; ver arriba):
  *   envios     → un registro por envío en cola (solo metadatos y estado).
  *   archivos   → los Blobs (fotos/videos), aparte: el estado de un envío se
  *                reescribe tras cada paso y no debe arrastrar 50 MB cada vez.
+ *                Prefijos de llave: 'e:' envíos, 'b:' borrador del alta,
+ *                'r:' borrador de la reparación (lib/borradorReparacion.ts).
  *   borradores → un borrador del alta por correo de usuario.
+ * En 'gpo-acciones' (lib/acciones.ts; modo sin señal, 24-sep-2026):
+ *   acciones          → validaciones y reparaciones en cola.
+ *   archivos_acciones → sus fotos/videos ('a:<acción>:<n>'). En la MISMA base
+ *                       que 'acciones': registro y archivos se escriben y se
+ *                       borran en una sola transacción, sin huérfanos.
  */
-export type Almacen = 'envios' | 'archivos' | 'borradores';
+export type Almacen = 'envios' | 'archivos' | 'borradores' | 'acciones' | 'archivos_acciones';
+
+/** Almacenes de Blobs (los que leen leerArchivo y leerArchivoGuardado). */
+export type AlmacenArchivos = 'archivos' | 'archivos_acciones';
 
 const LLAVES: Record<Almacen, string> = {
   envios: 'id',
   archivos: 'clave',
   borradores: 'email',
+  acciones: 'id',
+  archivos_acciones: 'clave',
 };
 
-let conexion: Promise<IDBDatabase | null> | null = null;
+/** Estado de apertura de una base (una conexión por base y por pestaña). */
+type Base = {
+  nombre: string;
+  almacenes: Almacen[];
+  conexion: Promise<IDBDatabase | null> | null;
+  /**
+   * Hay una apertura que no contestó a tiempo y sigue pendiente (el Safari
+   * cuyo indexedDB.open nunca responde). Mientras siga así, abrir() contesta
+   * "no disponible" AL INSTANTE (revisión primer mes, 24-sep-2026): antes
+   * cada operación volvía a esperar el tope completo, y un Guardar con buena
+   * red tardaba ~6 s de más (guardar el envío + quitarlo al terminar).
+   */
+  aperturaColgada: boolean;
+};
 
-/**
- * Hay una apertura que no contestó a tiempo y sigue pendiente (el Safari
- * cuyo indexedDB.open nunca responde). Mientras siga así, abrir() contesta
- * "no disponible" AL INSTANTE (revisión primer mes, 24-sep-2026): antes cada
- * operación volvía a esperar el tope completo, y un Guardar con buena red
- * tardaba ~6 s de más (guardar el envío + quitarlo al terminar).
- */
-let aperturaColgada = false;
+const CAPTURAS: Base = {
+  nombre: BD_CAPTURAS,
+  almacenes: ['envios', 'archivos', 'borradores'],
+  conexion: null,
+  aperturaColgada: false,
+};
+const ACCIONES: Base = {
+  nombre: BD_ACCIONES,
+  almacenes: ['acciones', 'archivos_acciones'],
+  conexion: null,
+  aperturaColgada: false,
+};
+
+/** La base de unos almacenes. Una transacción no puede cruzar dos bases. */
+function baseDe(almacenes: Almacen[]): Base {
+  const enAcciones = almacenes.filter((a) => ACCIONES.almacenes.includes(a)).length;
+  if (enAcciones === 0) return CAPTURAS;
+  if (enAcciones === almacenes.length) return ACCIONES;
+  throw new ErrorIdb('Una transacción no puede usar almacenes de dos bases', 'otro');
+}
+
+/** Almacenes que esta versión de la app necesita y la base no tiene. */
+function almacenesFaltantes(bd: Base, db: IDBDatabase): Almacen[] {
+  return bd.almacenes.filter((a) => !db.objectStoreNames.contains(a));
+}
 
 /**
  * Abre (una sola vez por pestaña) la base. Resuelve null si no hay
@@ -60,9 +134,9 @@ let aperturaColgada = false;
  * se abre otra mientras esa siga pendiente, y si contesta tarde, esa
  * conexión se adopta.
  */
-function abrir(): Promise<IDBDatabase | null> {
-  if (conexion) return conexion;
-  if (aperturaColgada) return Promise.resolve(null);
+function abrir(bd: Base): Promise<IDBDatabase | null> {
+  if (bd.conexion) return bd.conexion;
+  if (bd.aperturaColgada) return Promise.resolve(null);
   const p = new Promise<IDBDatabase | null>((res) => {
     let listo = false;
     let reloj: ReturnType<typeof setTimeout> | undefined;
@@ -71,9 +145,9 @@ function abrir(): Promise<IDBDatabase | null> {
         // Llegó tarde (ya se había dado por no disponible). Si abrió, la
         // conexión sirve para lo que sigue; si falló, la siguiente
         // operación vuelve a intentar.
-        aperturaColgada = false;
-        if (db && !conexion) {
-          conexion = Promise.resolve(db);
+        bd.aperturaColgada = false;
+        if (db && !bd.conexion) {
+          bd.conexion = Promise.resolve(db);
           return;
         }
         // Ya hay otra: se cierra esta para no dejar conexiones colgadas que
@@ -89,18 +163,37 @@ function abrir(): Promise<IDBDatabase | null> {
       if (reloj !== undefined) clearTimeout(reloj);
       res(db);
     };
-    try {
-      if (typeof indexedDB === 'undefined' || !indexedDB) return fin(null);
-      const req = indexedDB.open(NOMBRE_BD, VERSION_BD);
+    /**
+     * Una apertura. `version` undefined = la que tenga el teléfono (o la 1
+     * si la base no existe). Si al abrir faltan almacenes, se cierra y se
+     * reabre con versión+1 para crearlos. Si otra pestaña ya subió la
+     * versión entre medio (VersionError al pedir una menor), se vuelve a
+     * abrir sin número. Nunca deja escapar un VersionError.
+     */
+    const intentar = (version: number | undefined, vuelta: number): void => {
+      let req: IDBOpenDBRequest;
+      try {
+        req = version === undefined ? indexedDB.open(bd.nombre) : indexedDB.open(bd.nombre, version);
+      } catch {
+        return fin(null);
+      }
       req.onupgradeneeded = () => {
+        // Crea solo lo que falta: los datos de los almacenes que ya existen
+        // (la cola y el borrador de un teléfono real) no se tocan.
         const db = req.result;
-        (Object.keys(LLAVES) as Almacen[]).forEach((a) => {
-          if (!db.objectStoreNames.contains(a))
-            db.createObjectStore(a, { keyPath: LLAVES[a] });
-        });
+        almacenesFaltantes(bd, db).forEach((a) => db.createObjectStore(a, { keyPath: LLAVES[a] }));
       };
       req.onsuccess = () => {
         const db = req.result;
+        if (almacenesFaltantes(bd, db).length && vuelta < MAX_REAPERTURAS) {
+          const v = db.version;
+          try {
+            db.close();
+          } catch {
+            /* ya cerrada */
+          }
+          return intentar(v + 1, vuelta + 1);
+        }
         // Otra pestaña con una versión nueva de la app pide actualizar el
         // esquema: se cede la conexión en vez de bloquearla.
         db.onversionchange = () => {
@@ -109,36 +202,50 @@ function abrir(): Promise<IDBDatabase | null> {
           } catch {
             /* ya cerrada */
           }
-          conexion = null;
+          bd.conexion = null;
         };
         // El navegador puede cerrarla por su cuenta (borrado de datos del
         // sitio, presión de espacio): la siguiente operación reabre.
         db.onclose = () => {
-          conexion = null;
+          bd.conexion = null;
         };
+        // Si aún faltara algún almacén (carrera rara entre pestañas), la
+        // base sirve para los que sí están; una transacción sobre el que
+        // falta truena, idbTx olvida la conexión y la siguiente reabre.
         fin(db);
       };
-      req.onerror = () => fin(null);
-      // onblocked: otra pestaña vieja no suelta la versión anterior. No se
-      // hace nada: el tope de abajo contesta "no disponible" y se sigue.
+      req.onerror = (ev) => {
+        if (req.error?.name === 'VersionError' && vuelta < MAX_REAPERTURAS) {
+          ev.preventDefault?.();
+          return intentar(undefined, vuelta + 1);
+        }
+        fin(null);
+      };
+      // onblocked: otra pestaña no suelta la versión anterior (las de esta
+      // app la sueltan solas con onversionchange). No se hace nada: el tope
+      // de abajo contesta "no disponible" y, si luego abre, se adopta.
+    };
+    try {
+      if (typeof indexedDB === 'undefined' || !indexedDB) return fin(null);
       reloj = setTimeout(() => {
-        aperturaColgada = true;
+        bd.aperturaColgada = true;
         fin(null);
       }, ESPERA_APERTURA_MS);
+      intentar(undefined, 0);
     } catch {
       fin(null);
     }
   });
-  conexion = p;
+  bd.conexion = p;
   p.then((db) => {
-    if (!db && conexion === p) conexion = null;
+    if (!db && bd.conexion === p) bd.conexion = null;
   });
   return p;
 }
 
-/** ¿Se puede usar IndexedDB en este navegador, ahora? */
+/** ¿Se puede usar IndexedDB en este navegador, ahora? (la base de reportes y borrador) */
 export async function idbDisponible(): Promise<boolean> {
-  return (await abrir()) !== null;
+  return (await abrir(CAPTURAS)) !== null;
 }
 
 /**
@@ -184,7 +291,8 @@ export async function idbTx<T>(
   trabajo: (tx: IDBTransaction) => T,
   topeMs = ESPERA_TX_MS
 ): Promise<T> {
-  const db = await abrir();
+  const bd = baseDe(almacenes);
+  const db = await abrir(bd);
   if (!db) throw new ErrorIdb('IndexedDB no disponible', 'no-disponible');
   return new Promise<T>((res, rej) => {
     let listo = false;
@@ -220,7 +328,7 @@ export async function idbTx<T>(
     } catch (e) {
       // db.transaction truena si la conexión ya se cerró: se olvida para
       // que la siguiente operación reabra.
-      conexion = null;
+      bd.conexion = null;
       if (listo) return;
       listo = true;
       clearTimeout(reloj);
@@ -274,8 +382,8 @@ export async function idbDelete(almacen: Almacen, llave: string): Promise<void> 
 
 /**
  * Rango de todas las llaves que empiezan con `prefijo`. Las llaves de
- * archivos llevan el dueño al frente ('e:<envío>:<n>', 'b:<sesión>:<n>'),
- * así se borran todos los de un dueño de un jalón.
+ * archivos llevan el dueño al frente ('e:<envío>:<n>', 'b:<sesión>:<n>',
+ * 'a:<acción>:<n>'), así se borran todos los de un dueño de un jalón.
  */
 export function rangoPrefijo(prefijo: string): IDBKeyRange {
   return IDBKeyRange.bound(prefijo, prefijo + '￿');
@@ -388,7 +496,7 @@ export function archivoDeRegistro(r: RegistroArchivo): File | null {
   }
 }
 
-/** Lee un archivo guardado y lo regresa como File; null si no está. */
+/** Lee un archivo guardado y lo regresa como File; null si no está (o si IndexedDB falló). */
 export async function leerArchivo(clave: string): Promise<File | null> {
   try {
     const r = await idbGet<RegistroArchivo>('archivos', clave);
@@ -396,4 +504,20 @@ export async function leerArchivo(clave: string): Promise<File | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Como leerArchivo, pero SIN tragarse la falla (revisión sin señal,
+ * 24-sep-2026): null = el archivo de verdad no está (no cupo, se borró o
+ * quedó ilegible); si IndexedDB falla (Safari perdió la conexión al volver
+ * de otra app, o se agotó el tope) lanza ErrorIdb. Las colas lo necesitan:
+ * con leerArchivo, una falla pasajera se tomaba como "ya no estaba", la foto
+ * se abandonaba y al terminar la acción se borraba el Blob que sí existía.
+ */
+export async function leerArchivoGuardado(
+  clave: string,
+  almacen: AlmacenArchivos = 'archivos'
+): Promise<File | null> {
+  const r = await idbGet<RegistroArchivo>(almacen, clave);
+  return r ? archivoDeRegistro(r) : null;
 }

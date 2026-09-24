@@ -1285,3 +1285,65 @@ anterior.
   (`sw.js` navigate) y un envío que no cupo en IndexedDB se perdería; un
   envío solo en memoria cuya respuesta se perdió puede volver a ofrecer su
   borrador; paginación por offset puede saltar una fila con >1000 abiertas.
+
+### 12.12. Modo sin señal (24-sep-2026)
+
+Lo pidió Erik tras probar en iPhone: la captura en cola ya funcionaba, pero
+sin señal el buscador de sitios no enseñaba inventario, validar y reparar
+daban "Load failed" y, si iOS cerraba la PWA, no volvía a abrir. Salió de una
+lectura del código en 4 frentes, 5 frentes de implementación, una revisión
+adversarial (34 hallazgos confirmados, ninguno alto) y una vuelta de
+correcciones con verificador por grupo. **No hay SQL.**
+
+- **Abrir sin señal** (`public/sw.js`, `vite.config.ts`): el SW ahora SÍ
+  guarda el armazón. El build inyecta la lista de precarga en `dist/sw.js`
+  (`self.__PRECACHE__`); el núcleo se precarga estricto y los módulos en
+  "lo que se pueda" (xlsx no). Navegación = **red primero** con tope de 4 s
+  (con red siempre abre la versión nueva; la copia es solo respaldo);
+  `/assets` caché primero; nunca se guarda un 404; `version.json`, Supabase,
+  OSM y Google no pasan por el SW. Se conservan la caché actual y la
+  anterior. "Actualizar ahora" navega sin tope. **Interruptor**: variable
+  de build `SW_SIN_CACHE=1` en Vercel + redeploy (con commit) deja el SW
+  como antes (solo push) y borra sus cachés. Tras cada despliegue, cada
+  teléfono debe abrir la app una vez con señal para precargar.
+- **Sesión y roles sin red** (`App.tsx`): si `getSession` falla por red y hay
+  sesión guardada (`sb-<ref>-auth-token`), entra con ella "sin verificar";
+  roles en `localStorage` (`gpovallas_roles:<email>`); franja "📴 Sin
+  señal"; Salir funciona sin red (borra la sesión local y la lista guardada;
+  la cola se queda y sale al volver a entrar con esa cuenta). La campana no
+  sondea sin red.
+- **Datos en el teléfono** (`lib/datosLocales.ts`, base IndexedDB
+  `gpo-datos`): inventario de las unidades del usuario, catálogo, árbol
+  Digital, nombres de pantalla, catorcenas, qtm_pautas (ventana) y la última
+  lista de incidencias por usuario. Se refresca con red y sesión real (cada
+  12 h; pautas cada 6 h) y NUNCA se reemplaza con datos pedidos sin sesión
+  (al volver la señal hay ~60 s en que las peticiones salen como anon).
+  `redOLocal`: red con tope corto si hay copia; sin copia espera a la red
+  (~20 s). El buscador de NuevaInc responde al instante desde la copia y
+  agrega al final lo que llegue de la red. Corrección, Reasignar, Evidencia y
+  Editar dicen "Necesitas señal" en vez de errores crudos (no van en cola).
+- **Validar y reparar en cola** (`lib/acciones.ts`, base `gpo-acciones`):
+  validar, aprobar/rechazar reparación, prevalidar, descartar y reparación con
+  fotos. Se guarda en el teléfono ANTES de mandar; precondiciones de estatus,
+  `repaired_at` y `validator_at` (si otra persona ya la atendió, NO se pisa:
+  se avisa); reconciliación releyendo la fila; fotos con nombre por huella
+  del contenido (reintentar no duplica evidencia); guardia de sesión real y
+  del DUEÑO antes de cada paso (también en la cola de reportes: antes, una
+  subida en la ventana sin sesión se marcaba fallida para siempre). Las
+  tarjetas con algo en cola llevan "⏳ En cola" y no regresan a su estado
+  viejo al recargar. `EnviosPendientes` muestra y manda las dos colas.
+- **Reparar** (`RepararModal`): las fotos ya NO se suben al elegirlas; se
+  guardan en el teléfono al momento (`lib/borradorReparacion.ts`, prefijo
+  `r:`) y se recuperan si iOS recarga la app al volver de la cámara; 🗑 las
+  quita antes de guardar. Se suben al tocar Guardar (con progreso).
+- **Regla IndexedDB**: `gpo-capturas` se queda en **v1** y no se le agregan
+  almacenes (así, revertir en Vercel a un build anterior no deja sin cola de
+  reportes ni borrador). Lo nuevo va en `gpo-datos` y `gpo-acciones`.
+- **Decisión pendiente de Erik**: `usuario_roles` se consulta sin `medio`,
+  así que el filtro "Ecovallas Impreso" de Fijación Externa y Pauta nunca
+  aplica; pedirlo cambiaría quién ve esos módulos.
+- **Queda abierto**: una acción que termina en segundo plano con Incidencias
+  cerrada no actualiza la lista guardada hasta la siguiente carga con red;
+  con el árbol Digital en copia pero sin filas para esa incidencia, Guardar
+  puede esperar hasta 20 s; falta la prueba en un iPhone real con el SW
+  activo (el navegador de pruebas no registra service workers).

@@ -13,9 +13,16 @@
 // reclasifica (nombre + nivel + origen + tipo + área) y hasta entonces le
 // llega al técnico del área nueva. Requiere la columna
 // `reasignaciones.nueva_incidencia` (ver reasignacion_incidencia.sql).
+//
+// SIN SEÑAL (modo sin señal, 24-sep-2026): el catálogo sale de la red con
+// tope corto o de la copia del teléfono (lib/datosLocales.ts). Solicitar y
+// resolver SÍ necesitan señal (no se encolan); sin red se dice claro. Y al
+// revisar, una consulta que falla por red ya no se hace pasar por "No hay
+// una solicitud pendiente".
 // ============================================================
 import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
+import { catalogoLocal, haySenal, motivoSinRed, redOLocal } from '../../lib/datosLocales';
 import { idCorto } from '../../lib/helpers';
 import {
   catalogoParaMuebles,
@@ -42,6 +49,35 @@ type Props = {
   onDone: (recordId: string, patch: Partial<Incidencia>) => void;
 };
 
+const SIN_SENAL = 'Necesitas señal para esto.';
+
+/**
+ * ¿Hay sesión real? (modo sin señal, 24-sep-2026). En la ventana en que
+ * auth-js aún no renueva el token las peticiones salen como anónimas: una
+ * lectura da 0 filas y una subida a Storage, 400/403. Tope de 3 s: sin red y
+ * con el token vencido, getSession espera la renovación.
+ */
+function haySesionReal(): Promise<boolean> {
+  return Promise.race([
+    sb.auth.getSession().then(
+      ({ data }) => !!data.session,
+      () => false
+    ),
+    new Promise<boolean>((res) => setTimeout(() => res(false), 3000)),
+  ]);
+}
+
+/** ¿El error de postgrest-js es de red? status 0 = sin respuesta; 401/5xx = de paso. */
+function esRedPg(status: number | undefined): boolean {
+  return !haySenal() || !status || status === 401 || status >= 500;
+}
+
+/** ¿El error de storage-js es de red? Sin red llega StorageUnknownError sin status. */
+function esRedStorage(err: unknown): boolean {
+  const e = (err || {}) as { name?: string; status?: number };
+  return !haySenal() || e.name === 'StorageUnknownError' || !e.status || e.status >= 500;
+}
+
 function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
   const [busy, setBusy] = useState(false);
 
@@ -55,6 +91,8 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
   });
   const [cargandoCat, setCargandoCat] = useState(mode === 'solicitar');
   const [errCat, setErrCat] = useState('');
+  /** Sube con "Reintentar" cuando no llegó el catálogo (revisión sin señal, 24-sep-2026). */
+  const [reintentoCat, setReintentoCat] = useState(0);
   const [llave, setLlave] = useState('');
   const [busca, setBusca] = useState('');
   const [motivo, setMotivo] = useState('');
@@ -63,27 +101,43 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
   useEffect(() => {
     if (mode !== 'solicitar') return;
     let vivo = true;
+    setCargandoCat(true);
+    setErrCat('');
     (async () => {
-      const { data, error } = await sb
-        .from('catalogo_incidencias')
-        .select('*')
-        .ilike('unidad_negocio', inc.unidad_negocio || '%')
-        .limit(1000);
+      // Sin señal o si la red falla, el de la copia del teléfono (modo sin
+      // señal, 24-sep-2026). Igualdad sin mayúsculas, como el `ilike` sin
+      // comodín de la red; el '%' solo aplica si la incidencia no trae
+      // unidad (con prefijo, 'Biobox' se traería también 'Biobox Perú').
+      const unidad = inc.unidad_negocio || '';
+      const r = await redOLocal<CatalogoIncidencia[]>(
+        (senal) =>
+          sb
+            .from('catalogo_incidencias')
+            .select('*')
+            .ilike('unidad_negocio', inc.unidad_negocio || '%')
+            .limit(1000)
+            .retry(false)
+            .abortSignal(senal),
+        () => catalogoLocal(unidad, { prefijo: !unidad })
+      ).catch(() => ({ datos: [] as CatalogoIncidencia[], origen: 'local' as const }));
       if (!vivo) return;
-      if (error) setErrCat('No se pudo cargar el catálogo: ' + error.message);
+      // Sin señal no es lo mismo que una red que tardó (revisión sin señal,
+      // 24-sep-2026): con 3G lenta lo que sirve es Reintentar.
+      if (r.origen === 'local' && r.datos.length === 0)
+        setErrCat(
+          motivoSinRed() === 'Sin señal'
+            ? 'Sin señal, y este teléfono no tiene copia del catálogo. Abre la app una vez con señal.'
+            : 'La red tardó demasiado, y este teléfono no tiene copia del catálogo.'
+        );
       // Restringido al mueble de esta cara, como en el alta: ahí cada
       // incidencia existe una vez y el área ya viene decidida.
-      setCat(
-        catalogoParaMuebles((data as CatalogoIncidencia[]) || [], [
-          inc.tipo_mueble,
-        ])
-      );
+      setCat(catalogoParaMuebles(r.datos, [inc.tipo_mueble]));
       setCargandoCat(false);
     })();
     return () => {
       vivo = false;
     };
-  }, [mode, inc.unidad_negocio, inc.tipo_mueble]);
+  }, [mode, inc.unidad_negocio, inc.tipo_mueble, reintentoCat]);
 
   const sel = useMemo(
     () => cat.opciones.find((c) => llaveCatalogo(c) === llave) || null,
@@ -104,23 +158,48 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
   // --- modo aprobar ---
   const [req, setReq] = useState<Reasignacion | null>(null);
   const [loading, setLoading] = useState(mode === 'aprobar');
+  /** La solicitud no se pudo leer por falta de señal (modo sin señal, 24-sep-2026). */
+  const [sinRed, setSinRed] = useState(false);
   const [comentario, setComentario] = useState('');
+
+  const cargarSolicitud = async () => {
+    setLoading(true);
+    setSinRed(false);
+    // La más reciente que siga abierta. Puede no haber ninguna si otro
+    // validador ya la resolvió mientras este usuario tenía la lista vieja.
+    //
+    // No hay copia en el teléfono: si la red falla (o no hay señal), el
+    // respaldo devuelve null y se dice que falta señal, en vez del falso
+    // "No hay una solicitud pendiente" de antes (modo sin señal, 24-sep-2026).
+    const r = await redOLocal<Reasignacion[] | null>(
+      (senal) =>
+        sb
+          .from('reasignaciones')
+          .select('*')
+          .eq('record_id', inc.record_id)
+          .eq('estado', 'Solicitada')
+          .order('fecha_solicitud', { ascending: false })
+          .limit(1)
+          .abortSignal(senal),
+      async () => null,
+      { topeMs: 10000 }
+    ).catch(() => ({ datos: null, origen: 'local' as const }));
+    // redOLocal solo da 'red' con sesión real: un [] pedido como anónimo
+    // (la RLS da 0 filas) cae al respaldo y aquí cuenta como "sin señal",
+    // no como "ya la resolvieron".
+    const filas = r.origen === 'red' ? r.datos : null;
+    if (!filas) {
+      setSinRed(true);
+      setReq(null);
+    } else {
+      setReq(filas[0] || null);
+    }
+    setLoading(false);
+  };
 
   useEffect(() => {
     if (mode !== 'aprobar') return;
-    (async () => {
-      // La más reciente que siga abierta. Puede no haber ninguna si otro
-      // validador ya la resolvió mientras este usuario tenía la lista vieja.
-      const { data } = await sb
-        .from('reasignaciones')
-        .select('*')
-        .eq('record_id', inc.record_id)
-        .eq('estado', 'Solicitada')
-        .order('fecha_solicitud', { ascending: false })
-        .limit(1);
-      setReq(((data as Reasignacion[]) || [])[0] || null);
-      setLoading(false);
-    })();
+    cargarSolicitud();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -146,7 +225,19 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       alert('Adjunta la foto de evidencia de la reasignación.');
       return;
     }
+    // La solicitud no se encola (modo sin señal, 24-sep-2026): sin señal se
+    // dice claro y lo capturado sigue en el modal para intentarlo luego. Sin
+    // sesión real la subida saldría como anónima y Storage la rechazaría.
+    if (!haySenal()) {
+      alert(SIN_SENAL);
+      return;
+    }
     setBusy(true);
+    if (!(await haySesionReal())) {
+      setBusy(false);
+      alert(SIN_SENAL);
+      return;
+    }
 
     // La evidencia es obligatoria (misma regla que el alta): si la subida
     // falla, la solicitud NO se envía — sin foto el validador decide a ciegas.
@@ -159,7 +250,11 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       .upload(path, file, { cacheControl: CACHE_INMUTABLE });
     if (upErr) {
       setBusy(false);
-      alert('No se pudo subir la foto: ' + upErr.message + '. Inténtalo de nuevo.');
+      alert(
+        esRedStorage(upErr)
+          ? SIN_SENAL
+          : 'No se pudo subir la foto: ' + upErr.message + '. Inténtalo de nuevo.'
+      );
       return;
     }
     // La tarjeta pinta esta foto mientras la solicitud está pendiente.
@@ -168,7 +263,7 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       .data.publicUrl;
 
     const rid = idCorto();
-    const { error } = await sb.from('reasignaciones').insert({
+    const { error, status } = await sb.from('reasignaciones').insert({
       reassign_id: rid,
       record_id: inc.record_id,
       folio: inc.folio,
@@ -186,18 +281,22 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
     });
     if (error) {
       setBusy(false);
-      alert('No se pudo solicitar: ' + error.message);
+      alert(esRedPg(status) ? SIN_SENAL : 'No se pudo solicitar: ' + error.message);
       return;
     }
 
-    const { error: e2 } = await sb
+    const { error: e2, status: s2 } = await sb
       .from('incidencias')
       .update({ reasignacion_pendiente: true })
       .eq('record_id', inc.record_id);
     setBusy(false);
     if (e2) {
       // La solicitud SÍ quedó registrada; solo falló marcar la incidencia.
-      alert('Se registró, pero no se marcó pendiente: ' + e2.message);
+      alert(
+        esRedPg(s2)
+          ? 'Se registró la solicitud, pero se cortó la señal antes de marcar la incidencia como pendiente.'
+          : 'Se registró, pero no se marcó pendiente: ' + e2.message
+      );
       return;
     }
     onDone(inc.record_id, { reasignacion_pendiente: true });
@@ -209,9 +308,19 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       alert('Escribe el motivo del rechazo.');
       return;
     }
+    // Resolver no se encola (modo sin señal, 24-sep-2026).
+    if (!haySenal()) {
+      alert(SIN_SENAL);
+      return;
+    }
     setBusy(true);
+    if (!(await haySesionReal())) {
+      setBusy(false);
+      alert(SIN_SENAL);
+      return;
+    }
 
-    const { error } = await sb
+    const { error, status } = await sb
       .from('reasignaciones')
       .update({
         estado: aprobar ? 'Aprobada' : 'Rechazada',
@@ -222,7 +331,7 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       .eq('reassign_id', req.reassign_id);
     if (error) {
       setBusy(false);
-      alert('No se pudo resolver: ' + error.message);
+      alert(esRedPg(status) ? SIN_SENAL : 'No se pudo resolver: ' + error.message);
       return;
     }
 
@@ -260,13 +369,17 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       }
     }
 
-    const { error: e2 } = await sb
+    const { error: e2, status: s2 } = await sb
       .from('incidencias')
       .update(patch)
       .eq('record_id', inc.record_id);
     setBusy(false);
     if (e2) {
-      alert('Se resolvió, pero no se actualizó la incidencia: ' + e2.message);
+      alert(
+        esRedPg(s2)
+          ? 'Se resolvió la solicitud, pero se cortó la señal antes de actualizar la incidencia.'
+          : 'Se resolvió, pero no se actualizó la incidencia: ' + e2.message
+      );
       return;
     }
     onDone(inc.record_id, patch);
@@ -290,7 +403,19 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
 
         {mode === 'solicitar' ? (
           <>
-            {errCat && <div className="err">{errCat}</div>}
+            {errCat && (
+              <div className="err">
+                {errCat}{' '}
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={() => setReintentoCat((n) => n + 1)}
+                  disabled={cargandoCat}
+                >
+                  Reintentar
+                </button>
+              </div>
+            )}
             <div className="banner" style={{ marginBottom: 14 }}>
               Elige <b>qué incidencia es en realidad</b>: el área a la que se
               reasigna la decide el catálogo con esa entrada. El validador
@@ -395,6 +520,23 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
           </>
         ) : loading ? (
           <div className="loading">Cargando…</div>
+        ) : sinRed ? (
+          <>
+            <div className="empty">
+              {/* Con 3G lenta no es "sin señal" (revisión sin señal, 24-sep-2026). */}
+              {motivoSinRed() === 'Sin señal'
+                ? '📴 Necesitas señal para revisar esta solicitud.'
+                : 'La red tardó demasiado en traer esta solicitud.'}
+            </div>
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={onClose}>
+                Cerrar
+              </button>
+              <button className="btn" onClick={cargarSolicitud}>
+                Reintentar
+              </button>
+            </div>
+          </>
         ) : !req ? (
           <div className="empty">No hay una solicitud pendiente.</div>
         ) : (

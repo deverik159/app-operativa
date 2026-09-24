@@ -10,9 +10,18 @@ import { sb } from '../../lib/supabase';
 import { candadoTactil } from '../../lib/mapaTactil';
 import { prepararArchivos } from '../../lib/comprimirImagen';
 import RepararModal, { DatosReparacion } from '../incidencias/RepararModal';
+import type { FinReparacion } from '../incidencias/RepararModal';
 import { EST_COLOR, EST_LABEL } from '../../lib/constants';
-import { caraIncidencia, areaEfectiva, escHtml } from '../../lib/helpers';
+import { caraIncidencia, areaEfectiva, escHtml, codigoCara } from '../../lib/helpers';
 import { CACHE_INMUTABLE } from '../../lib/storage';
+import {
+  accionesPendientes,
+  descartarAccion,
+  ejecutarAccion,
+  suscribirAcciones,
+} from '../../lib/acciones';
+import type { AccionPendiente, ResultadoAccion } from '../../lib/acciones';
+import { haySenal, haySesionReal } from '../../lib/datosLocales';
 import type { Incidencia } from '../../types/db';
 
 /**
@@ -94,6 +103,24 @@ const ESTADO_FIJ: Record<string, { bg: string; fg: string }> = {
 };
 type RegistroConCoords = Registro & { lat: number; lng: number };
 type FotoLocal = { file: File; preview: string };
+
+/** Tope de la relectura de reparaciones que salieron solas de la cola. */
+const TOPE_RELECTURA_MS = 12000;
+
+/** AbortSignal con tope (AbortSignal.timeout no existe en Safari < 16). */
+function senalConTope(ms: number): AbortSignal {
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
+/**
+ * La acción se quedó en la cola con un error que no es de red: no se
+ * enviará sola (AccionPendiente.conError del motor; se lee sin exigir el
+ * campo para no depender de la versión del contrato).
+ */
+const conErrorDe = (p: AccionPendiente): boolean =>
+  (p as AccionPendiente & { conError?: boolean }).conError === true;
 
 function FijacionExternaView({
   email,
@@ -225,10 +252,138 @@ function FijacionExternaView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- La cola del teléfono (revisión sin señal, 24-sep-2026) ---
+  /**
+   * Acciones de este usuario que siguen en el teléfono (lib/acciones.ts).
+   * Antes esta lista no sabía de la cola: al volver a montar el módulo con
+   * una reparación en cola ofrecía otra vez "Registrar reparación", y el
+   * candado solo saltaba al final, tirando la captura nueva (U10). Ahora se
+   * superponen como en IncidenciasView (`incsVista`), salvo las que se
+   * quedaron con error (conError): esas no se enviarán solas (U4).
+   */
+  const [pendientes, setPendientes] = useState<AccionPendiente[]>([]);
+  const pendientesRef = useRef<AccionPendiente[]>([]);
+  /**
+   * Las que salieron solas de la cola: se siguen superponiendo hasta releer
+   * su fila del servidor (si no, la tarjeta regresaba a 'en_proceso' con el
+   * botón otra vez).
+   */
+  const [pegadas, setPegadas] = useState<AccionPendiente[]>([]);
+  /** record_id guardados desde este módulo: su salida de la cola no se relee. */
+  const enPantalla = useRef(new Map<string, number>());
+
+  const releerSalidas = async (salidas: AccionPendiente[]) => {
+    const rids = [...new Set(salidas.map((p) => p.record_id))];
+    const ids = new Set(salidas.map((p) => p.id));
+    if (!haySenal() || !(await haySesionReal(email))) return;
+    const { data, error } = await sb
+      .from('incidencias')
+      .select('*')
+      .in('record_id', rids)
+      .retry(false)
+      .abortSignal(senalConTope(TOPE_RELECTURA_MS));
+    // Sin red: siguen pegadas hasta la siguiente salida o volver a montar.
+    if (error) return;
+    const filas = (data as Incidencia[] | null) || [];
+    const porId = new Map(filas.map((f) => [f.record_id, f]));
+    setIncs((prev) => prev.map((x) => porId.get(x.record_id) ?? x));
+    setPegadas((prev) => prev.filter((p) => !ids.has(p.id)));
+    // La campana de lo que sí quedó reparado (U9, parte de la vista): el
+    // 'enCola' la apagó sin red y su UPDATE no llegó.
+    salidas.forEach((p) => {
+      const f = porId.get(p.record_id);
+      if (f && (p.patch.estatus === undefined || f.estatus === p.patch.estatus))
+        onNotifAtendida?.(p.record_id);
+    });
+  };
+
+  const refrescarPendientes = async () => {
+    let lista: AccionPendiente[];
+    try {
+      lista = await accionesPendientes(email);
+    } catch {
+      return;
+    }
+    const siguen = new Set(lista.map((p) => p.id));
+    const ahora = Date.now();
+    const salieron = pendientesRef.current.filter(
+      (p) => !siguen.has(p.id) && (enPantalla.current.get(p.record_id) ?? 0) < ahora
+    );
+    pendientesRef.current = lista;
+    setPendientes(lista);
+    if (!salieron.length) return;
+    // Sin señal nada pudo salir enviado (fue un descarte): no se pega.
+    const fijar = haySenal() ? salieron.filter((p) => !conErrorDe(p)) : [];
+    if (fijar.length) setPegadas((prev) => [...prev, ...fijar]);
+    void releerSalidas(salieron);
+  };
+  const refrescarRef = useRef(refrescarPendientes);
+  refrescarRef.current = refrescarPendientes;
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const refrescar = () => {
+      clearTimeout(t);
+      t = setTimeout(() => void refrescarRef.current(), 150);
+    };
+    refrescar();
+    const quitar = suscribirAcciones(refrescar);
+    return () => {
+      clearTimeout(t);
+      quitar();
+    };
+  }, []);
+
+  /** Lo que se ve: las incidencias con lo que sigue en la cola encima. */
+  const incsVista = useMemo(() => {
+    const encima = [...pegadas, ...pendientes.filter((p) => !conErrorDe(p))];
+    if (!encima.length) return incs;
+    return incs.map((i) =>
+      encima.reduce(
+        (r, p) => (p.record_id === i.record_id ? { ...r, ...p.patch } : r),
+        i
+      )
+    );
+  }, [incs, pendientes, pegadas]);
+  /** Reparaciones guardadas que no se pudieron enviar (se dice en la tarjeta). */
+  const reparacionConError = useMemo(
+    () =>
+      new Set(
+        pendientes
+          .filter((p) => p.clase === 'reparacion' && conErrorDe(p))
+          .map((p) => p.record_id)
+      ),
+    [pendientes]
+  );
+
+  /**
+   * Abrir el modal. El candado contra una reparación que ya espera en la
+   * cola va AQUÍ, antes de capturar nada (U10): antes saltaba al Guardar y
+   * la captura nueva se tiraba sin preguntar.
+   */
+  const abrirReparacion = (inc: Incidencia) => {
+    if (
+      pendientesRef.current.some(
+        (p) => p.record_id === inc.record_id && p.clase === 'reparacion' && !conErrorDe(p)
+      )
+    ) {
+      alert(
+        'Esta reparación ya está guardada en el teléfono y se enviará sola ' +
+          'al volver la red.'
+      );
+      return;
+    }
+    setReparando(inc);
+  };
+
   /**
    * Igual que guardarReparacion en IncidenciasView: la cuadrilla repara
    * desde aquí y el flujo sigue su curso normal (el validador la ve como
    * 'reparado' en Incidencias, puede aprobarla o rechazarla, etc.).
+   *
+   * Modo sin señal (24-sep-2026): va por lib/acciones.ts con las fotos del
+   * modal. Se guarda en el teléfono ANTES de mandar; sin red queda en la
+   * cola y sale sola. La precondición (mismo estatus, sin otra reparación
+   * encima) y el "ya la atendió otra persona" viven allá.
    */
   const guardarReparacion = async (
     inc: Incidencia,
@@ -239,8 +394,10 @@ function FijacionExternaView({
       arbolDigitalId,
       causa,
       solucion,
-    }: DatosReparacion
-  ) => {
+      archivos,
+    }: DatosReparacion,
+    op?: { alProgreso?: (texto: string) => void }
+  ): Promise<FinReparacion | undefined> => {
     const patch: Partial<Incidencia> = {
       estatus: 'reparado',
       diagnostico: diagnostico || null,
@@ -254,70 +411,139 @@ function FijacionExternaView({
       causa_raiz: causa || null,
       solucion: solucion || null,
       repaired_by_email: email,
+      // Fijada UNA vez, al tocar Guardar (la cola puede salir más tarde).
       repaired_at: new Date().toISOString(),
     };
-    const { data, error } = await sb
-      .from('incidencias')
-      .update(patch)
-      .eq('record_id', inc.record_id)
-      // Precondición: sigue en el estatus en que se abrió el modal. Sin esto
-      // ganaba el último que escribía (auditoría, 24-sep-2026).
-      .eq('estatus', inc.estatus)
-      .select(
-        'record_id,incidencia_srd,arbol_digital_id,causa_raiz,diagnostico,solucion'
+    // Si esta reparación ya espera señal en el teléfono, no se encola otra
+    // igual (chocarían entre sí). Por si acaso: el botón ya no se ofrece
+    // (ver abrirReparacion). El modal se queda abierto con la captura (y su
+    // borrador en el teléfono): antes se cerraba y la tiraba sin preguntar.
+    const enCola = await accionesPendientes(email).catch(() => [] as AccionPendiente[]);
+    const previa = enCola.find(
+      (p) => p.record_id === inc.record_id && p.clase === 'reparacion'
+    );
+    if (previa && !conErrorDe(previa)) {
+      alert(
+        'Esta reparación ya está guardada en el teléfono y se enviará sola ' +
+          'al volver la red.'
       );
-    if (error) {
-      alert('No se pudo guardar la reparación: ' + error.message);
-      return;
+      return undefined;
     }
-    // La RLS no lanza error cuando el update no te toca: afecta 0 filas y
-    // regresa "éxito". Sin esto, se pintaba como reparada sin estarlo. 0
-    // filas también puede ser "otra persona ya la movió": se relee la fila
-    // para decir cuál de las dos fue.
-    if (!data || data.length === 0) {
-      const { data: fila } = await sb
-        .from('incidencias')
-        .select('*')
-        .eq('record_id', inc.record_id)
-        .maybeSingle();
-      const actual = fila as Incidencia | null;
-      if (actual && actual.estatus !== inc.estatus) {
-        setIncs((prev) =>
-          prev.map((x) => (x.record_id === inc.record_id ? actual : x))
+    // La anterior se quedó con error y no se enviará (revisión sin señal,
+    // 24-sep-2026): antes se decía "se enviará sola". Se ofrece reemplazarla.
+    if (previa) {
+      if (
+        !confirm(
+          `La reparación anterior de ${inc.folio || 'esta incidencia'} no se pudo enviar` +
+            (previa.ultimoError ? `: ${previa.ultimoError}` : '.') +
+            '\n\n¿Descartarla y mandar ésta?'
+        )
+      )
+        return undefined;
+      if ((await descartarAccion(previa.id).catch(() => 'ocupado' as const)) !== 'ok') {
+        alert(
+          'La anterior se está intentando enviar en este momento. Espera unos segundos y vuelve a intentarlo.'
         );
+        return undefined;
+      }
+    }
+    const otrasAntes = enCola.filter(
+      (p) => p.record_id === inc.record_id && p.id !== previa?.id
+    );
+    // Su salida de la cola se refleja aquí: no se relee.
+    enPantalla.current.set(inc.record_id, Infinity);
+    let r: ResultadoAccion;
+    try {
+      r = await ejecutarAccion(
+        email,
+        {
+          clase: 'reparacion',
+          record_id: inc.record_id,
+          folio: inc.folio,
+          resumen: `Reparación ${inc.folio || '(sin folio)'}${inc.clave_sitio ? ' · ' + inc.clave_sitio : ''}`,
+          // Precondición: sigue en el estatus en que se abrió el modal. Sin
+          // esto ganaba el último que escribía (auditoría, 24-sep-2026). Y
+          // sin otra reparación hecha mientras tanto.
+          esperado: inc.estatus,
+          repairedAtVisto: inc.repaired_at ?? null,
+          patch,
+          archivos,
+          // El mismo nombre de archivo que antes subía RepararModal.
+          nombreArchivo: {
+            folio: inc.folio,
+            cara: codigoCara(inc.clave_medio) || inc.clave_sitio || 'sitio',
+          },
+        },
+        { alProgreso: op?.alProgreso }
+      );
+    } catch (e) {
+      r = {
+        tipo: 'error',
+        mensaje:
+          'No se pudo guardar la reparación: ' +
+          (e instanceof Error ? e.message : String(e)),
+      };
+    }
+    const reflejar = (cambio: Partial<Incidencia>) =>
+      setIncs((prev) =>
+        prev.map((x) => (x.record_id === inc.record_id ? { ...x, ...cambio } : x))
+      );
+    // Lo que queda en la cola se superpone (incsVista); en cola, su salida
+    // SÍ será de fondo y se relee.
+    if (r.tipo === 'enCola') enPantalla.current.delete(inc.record_id);
+    else enPantalla.current.set(inc.record_id, Date.now() + 8000);
+    await refrescarPendientes();
+    switch (r.tipo) {
+      case 'hecha':
+        reflejar({ ...patch, ...(r.fila ?? {}) });
+        setReparando(null);
+        onNotifAtendida?.(inc.record_id);
+        // P. ej. "Supabase no devolvió la clasificación técnica…".
+        if (r.aviso) alert(r.aviso);
+        return 'terminada';
+      case 'enCola':
+        // Se pinta como reparada (ya no ofrece el botón) aunque el servidor
+        // aún no lo sepa: sale de la superposición de la cola, no de un
+        // cambio en `incs` (revisión sin señal, 24-sep-2026). Así, si la
+        // acción se descarta o se queda con error, la tarjeta vuelve sola a
+        // lo que es.
+        setReparando(null);
+        onNotifAtendida?.(inc.record_id);
+        // Detrás de otra acción de la incidencia espera aunque haya señal, y
+        // detrás de una con error no sale hasta descartarla (U4).
+        alert(
+          otrasAntes.some(conErrorDe)
+            ? 'Quedó guardado en el teléfono, pero la acción anterior de esta incidencia no se pudo enviar: descártala en el aviso de pendientes («Ver detalle») para que ésta salga.'
+            : otrasAntes.length && haySenal()
+              ? 'Quedó guardado en el teléfono: se envía en cuanto salga la acción anterior de esta incidencia.'
+              : 'Sin señal: quedó guardado en el teléfono y se enviará solo al volver la red.'
+        );
+        return 'enCola';
+      case 'conflicto':
+        // Otra persona ya la movió: la fila real y el porqué.
+        if (r.fila) {
+          const actual = r.fila;
+          setIncs((prev) =>
+            prev.map((x) => (x.record_id === inc.record_id ? actual : x))
+          );
+        }
         setReparando(null);
         alert(
-          'Esta incidencia ya la atendió otra persona: ahora está en "' +
-            (EST_LABEL[actual.estatus] || actual.estatus) +
-            '". Tu lista ya se actualizó.'
+          r.mensaje ||
+            'Esta incidencia ya la atendió otra persona: ' +
+              (r.fila
+                ? 'ahora está en "' +
+                  (EST_LABEL[r.fila.estatus] || r.fila.estatus) +
+                  '". '
+                : '') +
+              'Tu lista ya se actualizó.'
         );
-        return;
-      }
-      alert(
-        'No se guardó: esta incidencia no pertenece a tu área, ' +
-          'o tu rol no permite repararla.'
-      );
-      return;
+        return 'terminada';
+      default:
+        // Sin permiso o error: el modal sigue abierto con lo capturado.
+        alert(r.mensaje);
+        return undefined;
     }
-    const guardada = data[0] as Partial<Incidencia>;
-    if (
-      incidenciaSrd &&
-      (guardada.incidencia_srd !== incidenciaSrd ||
-        String(guardada.arbol_digital_id) !== String(arbolDigitalId))
-    ) {
-      alert(
-        'La reparación se guardó, pero Supabase no devolvió la clasificación ' +
-          'técnica de Digital. Recarga y revisa esta incidencia.'
-      );
-      return;
-    }
-    setIncs((prev) =>
-      prev.map((x) =>
-        x.record_id === inc.record_id ? { ...x, ...patch, ...guardada } : x
-      )
-    );
-    setReparando(null);
-    onNotifAtendida?.(inc.record_id);
   };
 
   const confirmarFijado = async () => {
@@ -441,11 +667,14 @@ function FijacionExternaView({
     return clave.trim();
   };
 
-  /** Incidencias indexadas por cara exacta y por sitio. */
+  /**
+   * Incidencias indexadas por cara exacta y por sitio. Con lo de la cola
+   * encima (incsVista; revisión sin señal, 24-sep-2026).
+   */
   const { incsPorCara, incsPorSitio } = useMemo(() => {
     const porCara = new Map<string, Incidencia[]>();
     const porSitio = new Map<string, Incidencia[]>();
-    incs.forEach((i) => {
+    incsVista.forEach((i) => {
       if (i.clave_medio) {
         const arr = porCara.get(i.clave_medio) || [];
         arr.push(i);
@@ -458,7 +687,7 @@ function FijacionExternaView({
       }
     });
     return { incsPorCara: porCara, incsPorSitio: porSitio };
-  }, [incs]);
+  }, [incsVista]);
 
   /**
    * La lista como ÓRDENES DE TRABAJO de la cuadrilla: cada parada de pauta
@@ -940,11 +1169,21 @@ function FijacionExternaView({
                   {inc.estatus === 'en_proceso' && (
                     <button
                       className="btn warn sm"
-                      onClick={() => setReparando(inc)}
+                      onClick={() => abrirReparacion(inc)}
                     >
                       🔧 Registrar reparación
                     </button>
                   )}
+                  {inc.estatus === 'en_proceso' &&
+                    reparacionConError.has(inc.record_id) && (
+                      <span
+                        className="tag"
+                        style={{ color: '#ef4444' }}
+                        title="No se enviará sola: vuelve a registrarla (se ofrece descartar la anterior) o descártala en el aviso de pendientes"
+                      >
+                        ⚠ La reparación guardada no se pudo enviar
+                      </span>
+                    )}
                   {inc.estatus === 'reparado' && (
                     <span className="tag">
                       ✓ Reparada · esperando validación
@@ -1186,7 +1425,7 @@ function FijacionExternaView({
           inc={reparando}
           email={email}
           onClose={() => setReparando(null)}
-          onSave={(d) => guardarReparacion(reparando, d)}
+          onSave={(d, op) => guardarReparacion(reparando, d, op)}
         />
       )}
     </div>

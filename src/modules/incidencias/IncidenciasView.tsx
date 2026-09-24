@@ -11,6 +11,15 @@
 // Carga (auditoría primer mes, 24-sep-2026): lo ABIERTO llega completo
 // (paginado); del historial terminal, las 1000 más recientes, y más atrás
 // solo si se filtra por fecha. Ver `cargar`.
+//
+// Modo sin señal (24-sep-2026):
+//   - Cada carga buena se guarda en el teléfono (lib/datosLocales.ts). Si
+//     la primera no llega, se enseña esa copia con su fecha, no el error
+//     crudo "incidencias: TypeError: Load failed".
+//   - Validar, aprobar, rechazar, prevalidar, descartar y reparar pasan por
+//     lib/acciones.ts: sin red quedan guardadas en el teléfono y se mandan
+//     solas. Mientras tanto se SUPERPONEN a la lista (ver `superponer`)
+//     para que la tarjeta no regrese a su estatus viejo tras un ↻.
 // ============================================================
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { sb } from '../../lib/supabase';
@@ -26,13 +35,32 @@ import {
   slaInfoValidador,
   areaEfectiva,
   sinAcentos,
+  codigoCara,
 } from '../../lib/helpers';
 import { crearReporte } from '../../lib/crearReporte';
+import {
+  haySenal,
+  guardarListaLocal,
+  leerListaLocal,
+} from '../../lib/datosLocales';
+import type { ListaLocal } from '../../lib/datosLocales';
+import {
+  accionesPendientes,
+  descartarAccion,
+  ejecutarAccion,
+  suscribirAcciones,
+} from '../../lib/acciones';
+import type {
+  AccionNueva,
+  AccionPendiente,
+  ClaseAccion,
+  ResultadoAccion,
+} from '../../lib/acciones';
 import IncCard from '../../components/IncCard';
 import NuevaInc from './NuevaInc';
 import type { PresetNueva, GrupoReporte } from './NuevaInc';
 import RepararModal from './RepararModal';
-import type { DatosReparacion } from './RepararModal';
+import type { DatosReparacion, FinReparacion } from './RepararModal';
 import EvidenciaModal from './EvidenciaModal';
 import ChatModal from './ChatModal';
 import ReasignModal from './ReasignModal';
@@ -98,9 +126,196 @@ const PASO_PINTADO = 150;
  */
 let faltaRpcFotos = false;
 
+// --- Modo sin señal (24-sep-2026) ---
+
+/**
+ * Topes de las lecturas de la lista. Ya hay copia en el teléfono de
+ * respaldo, así que no se reintenta a ciegas (postgrest-js reintenta cada
+ * GET 3 veces, ~7 s): una página de 1000 filas con mala señal cabe de sobra
+ * en 25 s; más que eso es una conexión colgada.
+ */
+const TOPE_PAGINA_MS = 25000;
+const TOPE_FOTOS_MS = 20000;
+const TOPE_SLA_MS = 15000;
+/** Primera carga lenta: a los 5 s se enseña la copia mientras sigue llegando. */
+const ESPERA_COPIA_MS = 5000;
+/**
+ * Tope para saber si hay sesión: getSession espera a que se renueve el
+ * token, y sin red eso son ~25 s.
+ */
+const TOPE_SESION_MS = 6000;
+/**
+ * Acción atendida en pantalla: su salida de la cola durante este lapso NO
+ * recarga la lista (ya se reflejó con patchInc). Pasado el lapso, una
+ * salida es de fondo (se mandó sola al volver la red) y sí recarga.
+ */
+const GRACIA_PRIMER_PLANO_MS = 8000;
+const MENSAJE_EN_COLA =
+  'Sin señal: quedó guardado en el teléfono y se enviará solo al volver la red.';
+
+// --- Revisión sin señal (24-sep-2026) ---
+
+/** Tope de la relectura de las filas de acciones que salieron solas de la cola. */
+const TOPE_RELECTURA_MS = 12000;
+/**
+ * Separación mínima entre escrituras de la copia del teléfono. La copia es
+ * la lista completa (1–2 MB, más si se amplió el historial) y cada escritura
+ * la clona en el hilo principal: antes se reescribía 2 s después de cada
+ * cambio (40 validaciones seguidas = 40 escrituras y tirones al desplazar).
+ * Lo pendiente se escribe de inmediato al irse a segundo plano o al salir.
+ */
+const ESPACIO_COPIAS_MS = 30000;
+/** Respiro para que React asiente lista y fotos antes de copiarlas. */
+const MIN_ESPERA_COPIA_MS = 500;
+/**
+ * Reintentos de una página de la lista ante una falla PASAJERA (fetch que
+ * se cae al cambiar de antena, 503 mientras PostgREST recarga su esquema,
+ * 520 de Cloudflare). Solo cuando no hay nada que enseñar mientras (ni
+ * lista en pantalla ni copia): con respaldo se enseña enseguida y el reloj
+ * de abajo reintenta solo. Antes de `.retry(false)` postgrest-js los hacía
+ * siempre (1, 2 y 4 s, ~7 s sin red).
+ */
+const ESPERAS_REINTENTO_MS = [1000, 2000];
+/** Con la copia en pantalla y el teléfono "con red", se reintenta cada tanto. */
+const INTERVALO_REINTENTO_MS = 45000;
+
+/** Nombre de cada acción en los avisos de la vista. */
+const NOMBRE_ACCION: Record<ClaseAccion, string> = {
+  validar: 'La validación',
+  aprobar_reparacion: 'La aprobación de la reparación',
+  rechazar_reparacion: 'El rechazo de la reparación',
+  prevalidar: 'La prevalidación',
+  descartar_prevalidacion: 'El descarte',
+  reparacion: 'La reparación',
+};
+
+/**
+ * La acción se quedó en la cola con un error que NO es de red: no se
+ * enviará sola (lib/acciones.ts la reintenta, pero da lo mismo). Viene en
+ * AccionPendiente.conError (motor, revisión sin señal); se lee sin exigir
+ * el campo para no depender de la versión del contrato.
+ */
+const conErrorDe = (p: AccionPendiente): boolean =>
+  (p as AccionPendiente & { conError?: boolean }).conError === true;
+
+/**
+ * ¿La fila del servidor ya trae lo que la acción cambiaba? (estatus y
+ * prevalidación: lo que decide qué botón sale y si la campana sobra.)
+ */
+const aplicadaEn = (p: AccionPendiente, fila: Incidencia): boolean =>
+  (p.patch.estatus === undefined || fila.estatus === p.patch.estatus) &&
+  (p.patch.prevalidada === undefined || fila.prevalidada === p.patch.prevalidada);
+
+/**
+ * ¿Falla pasajera que vale un reintento corto? Un tope vencido (conexión
+ * colgada) NO: repetirlo sería otra espera larga.
+ */
+function esTransitoria(status: number, mensaje: string): boolean {
+  if (status === 503 || status === 520) return true;
+  return status === 0 && !/abort|timed? ?out|timeout/i.test(mensaje);
+}
+
+const dormir = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
+
+/**
+ * AbortSignal con tope. AbortSignal.timeout no existe en Safari < 16: ahí
+ * se arma a mano (mismo patrón que lib/envios.ts). Un abort regresa
+ * status 0, que cuenta como falla de red.
+ */
+function tope(ms: number): AbortSignal {
+  const AS = AbortSignal as unknown as { timeout?: (ms: number) => AbortSignal };
+  if (typeof AS.timeout === 'function') return AS.timeout(ms);
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
+/**
+ * ¿Hay sesión REAL? Al volver la red hay hasta ~60 s en que getSession da
+ * null y las consultas salen como anónimo: la RLS contesta 200 con lista
+ * VACÍA. Una carga así vaciaría la pantalla y, peor, la copia del teléfono.
+ * Sin sesión (o si tarda más del tope) la carga cuenta como sin red.
+ */
+async function haySesionReal(): Promise<boolean> {
+  try {
+    const r = await Promise.race([
+      sb.auth.getSession(),
+      new Promise<null>((res) => setTimeout(() => res(null), TOPE_SESION_MS)),
+    ]);
+    return !!r?.data.session;
+  } catch {
+    return false;
+  }
+}
+
+/** Mensajes de fetch sin red (Chrome, Safari, WebViews); como lib/envios.ts. */
+const RE_RED =
+  /failed to fetch|load failed|networkerror|network request failed|network connection was lost|internet connection appears to be offline|timed? ?out|timeout|aborterror|operation was aborted|fetcherror|err_network|err_internet_disconnected/i;
+
+/**
+ * ¿La consulta falló por red? Sin status (fetch no llegó o se cortó por
+ * tope), status transitorio (sesión por renovar, gateway caído) o mensaje
+ * de fetch sin red.
+ */
+function esFallaRed(status: number, mensaje: string): boolean {
+  if (!status || status >= 500 || [401, 408, 425, 429].includes(status))
+    return true;
+  return RE_RED.test(mensaje);
+}
+
+/** "dd/mm hh:mm" en hora del teléfono, para decir de cuándo es la copia. */
+function fechaHoraCorta(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const dos = (n: number) => String(n).padStart(2, '0');
+  return `${dos(d.getDate())}/${dos(d.getMonth() + 1)} ${dos(d.getHours())}:${dos(d.getMinutes())}`;
+}
+
+/**
+ * Lista + acciones que siguen en el teléfono. Sin esto, un ↻ (o cualquier
+ * recarga) traía la versión del servidor —que aún no tiene la acción— y la
+ * tarjeta validada o reparada "regresaba" a su estatus viejo con el botón
+ * otra vez a la mano. Se aplican en orden de creación. El rechazo de
+ * reparación también suma el contador que en la base suma el trigger
+ * inc_cuenta_rechazo (solo si la fila todavía está en 'reparado').
+ */
+function superponer(
+  items: Incidencia[],
+  acciones: AccionPendiente[]
+): Incidencia[] {
+  if (!acciones.length) return items;
+  const porId = new Map<string, AccionPendiente[]>();
+  for (const a of acciones) {
+    const l = porId.get(a.record_id);
+    if (l) l.push(a);
+    else porId.set(a.record_id, [a]);
+  }
+  return items.map((i) => {
+    const lista = porId.get(i.record_id);
+    if (!lista) return i;
+    let r = i;
+    for (const a of lista) {
+      const cuenta =
+        a.clase === 'rechazar_reparacion' && r.estatus === 'reparado'
+          ? { rechazos_reparacion: (r.rechazos_reparacion || 0) + 1 }
+          : {};
+      r = { ...r, ...a.patch, ...cuenta };
+    }
+    return r;
+  });
+}
+
+/** Texto corto de la acción para la cola: "Validar EV00012 · MX_CM_EV_3299". */
+function resumenDe(verbo: string, i: Incidencia): string {
+  const donde = i.clave_sitio || i.clave_medio || '';
+  return `${verbo} ${i.folio || '(sin folio)'}${donde ? ' · ' + donde : ''}`;
+}
+
 type ResultadoPaginado = {
   filas: Incidencia[];
   error: string | null;
+  /** HTTP de la respuesta que falló (0 = no llegó). */
+  status: number;
   /** Se llegó al tope de páginas con la última llena: puede haber más. */
   topado: boolean;
 };
@@ -119,26 +334,45 @@ type ResultadoPaginado = {
  * o repetirse. Las repetidas se quitan al unir; una saltada reaparece en la
  * siguiente recarga. Con < 1000 abiertas (lo normal) es una sola página y
  * el caso no existe.
+ *
+ * `reintentar` (revisión sin señal, 24-sep-2026) decide, ante una página
+ * fallida, si se vuelve a pedir ESA página (y espera lo que toque); sin él,
+ * la primera falla termina la carga.
  */
 async function traerPaginado(
   pagina: (
     desde: number,
     hasta: number
-  ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+  ) => PromiseLike<{
+    data: unknown[] | null;
+    error: { message: string } | null;
+    status?: number;
+  }>,
   topePaginas: number,
-  vigente: () => boolean
+  vigente: () => boolean,
+  reintentar?: (status: number, mensaje: string, intento: number) => Promise<boolean>
 ): Promise<ResultadoPaginado> {
   let filas: Incidencia[] = [];
   for (let n = 0; n < topePaginas; n++) {
     const desde = n * PAGINA;
-    const { data, error } = await pagina(desde, desde + PAGINA - 1);
-    if (error) return { filas, error: error.message, topado: false };
+    let intento = 0;
+    let r = await pagina(desde, desde + PAGINA - 1);
+    while (
+      r.error &&
+      reintentar &&
+      vigente() &&
+      (await reintentar(r.status ?? 0, r.error.message, intento++))
+    )
+      r = await pagina(desde, desde + PAGINA - 1);
+    const { data, error, status } = r;
+    if (error)
+      return { filas, error: error.message, status: status ?? 0, topado: false };
     const lote = (data as Incidencia[] | null) || [];
     filas = filas.concat(lote);
     if (lote.length < PAGINA || !vigente())
-      return { filas, error: null, topado: false };
+      return { filas, error: null, status: status ?? 200, topado: false };
   }
-  return { filas, error: null, topado: true };
+  return { filas, error: null, status: 200, topado: true };
 }
 
 /**
@@ -223,7 +457,12 @@ async function traerFotosTarjetas(
     const trabajador = async () => {
       while (!fallo && siguiente < lotes.length) {
         const lote = lotes[siguiente++];
-        const { data, error } = await sb.rpc('fotos_tarjetas', { p_ids: lote });
+        // Con tope (modo sin señal, 24-sep-2026): con la conexión colgada,
+        // la copia de la lista no se guardaba nunca (se guarda al terminar
+        // las fotos).
+        const { data, error } = await sb
+          .rpc('fotos_tarjetas', { p_ids: lote })
+          .abortSignal(tope(TOPE_FOTOS_MS));
         if (error) {
           fallo = error;
           return;
@@ -266,7 +505,9 @@ async function traerFotosTarjetas(
     .eq('tipo', 'foto')
     .in('etapa', ['reporte', 'reparacion'])
     .order('creado_en', { ascending: false })
-    .limit(3000);
+    .limit(3000)
+    .retry(false)
+    .abortSignal(tope(TOPE_FOTOS_MS));
   if (errEv) return null;
   (
     (evs as { record_id: string | null; url: string; etapa: string }[]) || []
@@ -276,15 +517,6 @@ async function traerFotosTarjetas(
     else if (!mapas.reparacion[e.record_id]) mapas.reparacion[e.record_id] = e.url;
   });
   return mapas;
-}
-
-/**
- * ¿Dos marcas de tiempo son el mismo instante? Se compara el valor y no el
- * texto: la base devuelve "…+00:00" y el cliente escribe "…Z".
- */
-function mismoInstante(a?: string | null, b?: string | null): boolean {
-  if (!a || !b) return !a && !b;
-  return Date.parse(a) === Date.parse(b);
 }
 
 type ModoVista = 'bandeja' | 'todas';
@@ -345,7 +577,15 @@ function IncidenciasView({
   recargarSignal,
   onBandejaCount,
 }: Props) {
+  /**
+   * Lo que dijo el servidor (o la copia del teléfono), más lo que el
+   * usuario ya aplicó con éxito. Las acciones que siguen en la cola NO van
+   * aquí: se superponen en `itemsVista` (ver `superponer`).
+   */
   const [items, setItems] = useState<Incidencia[]>([]);
+  // Para guardar la copia con la lista YA fusionada (la de pantalla).
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   /**
    * Fotos para la tarjeta, por record_id. La tarjeta enseña LA foto que
    * cuenta la historia del momento (ajuste de Erik, ago-2026):
@@ -358,6 +598,8 @@ function IncidenciasView({
     reparacion: Record<string, string>;
     reasign: Record<string, string>;
   }>({ reporte: {}, reparacion: {}, reasign: {} });
+  const fotosRef = useRef(fotos);
+  fotosRef.current = fotos;
 
   /**
    * La foto que le toca a la tarjeta según su momento:
@@ -407,6 +649,147 @@ function IncidenciasView({
   }>({
     ...SLA_VALIDACION_DEFAULT,
   });
+  // Para la copia del teléfono: el SLA vigente y si llegó del servidor.
+  const slaRef = useRef({ map: slaMap, val: slaValidacion });
+  slaRef.current = { map: slaMap, val: slaValidacion };
+  const slaLlego = useRef(false);
+
+  /**
+   * La lista en pantalla NO es fresca (modo sin señal, 24-sep-2026):
+   *   desde — cuándo se guardó lo que se ve (null = no hay copia)
+   *   lenta — la primera carga sigue en camino y, mientras, se ve la copia
+   *   error — no fue la red sino otro error (el recuadro rojo lo dice)
+   *   conSenal — el teléfono dice tener red (revisión sin señal,
+   *              24-sep-2026): la falla fue del servidor o pasajera, y el
+   *              aviso no dice "Sin señal" en falso
+   * null = la lista es la del servidor.
+   */
+  const [sinRed, setSinRed] = useState<{
+    desde: string | null;
+    lenta: boolean;
+    error: boolean;
+    conSenal: boolean;
+  } | null>(null);
+  const sinRedRef = useRef(sinRed);
+  sinRedRef.current = sinRed;
+  /**
+   * Cuándo se obtuvo la lista en pantalla (servidor o copia). Es también la
+   * fecha con la que se escribe la copia (revisión sin señal, 24-sep-2026):
+   * lo que se ve es de entonces más lo aplicado después. Antes una bandera
+   * `listaFresca` solo dejaba escribir tras una carga buena y lo aplicado
+   * sobre la copia se perdía (U3). Nunca hay datos pedidos sin sesión: esa
+   * carga cae a la copia.
+   */
+  const listaDe = useRef<string | null>(null);
+  /** Hay una carga en camino (los reintentos automáticos no la duplican). */
+  const cargandoRef = useRef(false);
+
+  /**
+   * Acciones de este usuario que siguen en el teléfono (lib/acciones.ts) y
+   * las que acaban de salir de la cola en segundo plano (`pegadas`): éstas
+   * se siguen superponiendo hasta que termine la recarga que las refleja,
+   * para que la tarjeta no parpadee a su estatus viejo.
+   */
+  const [pendientes, setPendientes] = useState<AccionPendiente[]>([]);
+  const pendientesRef = useRef<AccionPendiente[]>([]);
+  const [pegadas, setPegadas] = useState<AccionPendiente[]>([]);
+  const pegadasRef = useRef<AccionPendiente[]>([]);
+  /** Tarjetas con una acción mandándose ahora (candado de doble toque). */
+  const [ocupadas, setOcupadas] = useState<Set<string>>(() => new Set());
+  const ocupadasRef = useRef<Set<string>>(new Set());
+  /** record_id → hasta cuándo su salida de la cola es "de primer plano". */
+  const primerPlanoHasta = useRef(new Map<string, number>());
+  const recargaTrasCola = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
+  /** La campana, en ref: las vueltas de la cola la usan sin re-suscribirse. */
+  const avisosCampana = useRef({ onNotifAtendida, onRecargarNotifs });
+  avisosCampana.current = { onNotifAtendida, onRecargarNotifs };
+
+  /**
+   * La copia del teléfono (revisión sin señal, 24-sep-2026). Se escribe
+   * SOLO tras una carga buena del servidor o un cambio de fila (acción
+   * aplicada, edición, alta), con ESPACIO_COPIAS_MS entre escrituras, y lo
+   * pendiente de inmediato al irse a segundo plano o al salir de la vista.
+   * Antes: 2 s después de CUALQUIER cambio de lista, fotos o SLA (X5), y
+   * nunca mientras la lista en pantalla fuera la copia o una recarga
+   * fallida: lo que se validaba o reparaba en ese estado no entraba a la
+   * copia y, al volver a montar la vista sin señal, la tarjeta regresaba a
+   * su estatus viejo con el botón a la mano (U3: conflicto falso y fotos
+   * duplicadas al repetir).
+   *
+   * Se escribe la lista de pantalla (con las acciones que acaban de salir
+   * solas de la cola encima, `pegadas`) con la fecha de LO QUE SE VE
+   * (`listaDe`): la de la carga buena, o la de la copia si de ahí salió. Así
+   * una copia vieja con una fila corregida no se hace pasar por nueva
+   * (guardarListaLocal respeta `guardado`; sin él pone la de ahora).
+   */
+  const ultimaCopia = useRef(0);
+  const relojCopia = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const cadenaCopia = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * Desmontada, no se programa nada: una relectura que llega tarde no debe
+   * reescribir la copia después de Salir (App la borra a los 2 s).
+   */
+  const montada = useRef(true);
+  useEffect(() => {
+    // Otra vez en true: StrictMode (dev) desmonta y vuelve a montar.
+    montada.current = true;
+    return () => {
+      montada.current = false;
+    };
+  }, []);
+  const escribirCopia = useCallback((): Promise<void> => {
+    clearTimeout(relojCopia.current);
+    relojCopia.current = undefined;
+    // Una a la vez: dos escrituras cruzadas podían dejar la más vieja.
+    cadenaCopia.current = cadenaCopia.current
+      .then(async () => {
+        const desde = listaDe.current;
+        // Sin lista que guardar todavía (ni del servidor ni copia).
+        if (desde === null) return;
+        ultimaCopia.current = Date.now();
+        const lista: ListaLocal = {
+          // '' = copia de una versión anterior sin fecha.
+          guardado: desde || new Date().toISOString(),
+          items: superponer(itemsRef.current, pegadasRef.current),
+          fotos: fotosRef.current,
+          slaMap: slaRef.current.map,
+          slaValidacion: slaRef.current.val,
+        };
+        await guardarListaLocal(email, lista);
+      })
+      .catch(() => {
+        /* sin copia: la siguiente lo vuelve a intentar */
+      });
+    return cadenaCopia.current;
+  }, [email]);
+  const pedirCopia = useCallback(() => {
+    if (!montada.current) return;
+    // Ya hay una programada: esa lleva lo de ahora (lee los refs al correr).
+    if (relojCopia.current !== undefined) return;
+    const espera = Math.max(
+      MIN_ESPERA_COPIA_MS,
+      ultimaCopia.current + ESPACIO_COPIAS_MS - Date.now()
+    );
+    relojCopia.current = setTimeout(() => void escribirCopia(), espera);
+  }, [escribirCopia]);
+  useEffect(() => {
+    const volcar = () => {
+      if (relojCopia.current !== undefined) void escribirCopia();
+    };
+    const alOcultar = () => {
+      if (document.visibilityState === 'hidden') volcar();
+    };
+    document.addEventListener('visibilitychange', alOcultar);
+    window.addEventListener('pagehide', volcar);
+    return () => {
+      document.removeEventListener('visibilitychange', alOcultar);
+      window.removeEventListener('pagehide', volcar);
+      // Al salir de la vista (otro módulo, Salir) se escribe lo pendiente.
+      volcar();
+    };
+  }, [escribirCopia]);
 
   // Filtros
   const [q, setQ] = useState('');
@@ -596,6 +979,231 @@ function IncidenciasView({
   const vistaVeTerminales = modo === 'todas' || bandejaVeTerminales;
 
   /**
+   * La copia del teléfono, cuando la red no alcanza (modo sin señal,
+   * 24-sep-2026). Solo SUSTITUYE la lista si todavía no hay ninguna en
+   * pantalla: en una recarga fallida se conserva la de pantalla y solo
+   * cambia el aviso.
+   *   'lenta'  — la primera carga sigue en camino: se enseña la copia
+   *              mientras (si no hay copia, se sigue en "Cargando…").
+   *   'sinRed' — no hubo red (o no hubo sesión real): se queda la copia.
+   *   'error'  — error que NO es de red: la copia, con el error a la vista.
+   */
+  const usarCopia = useCallback(
+    async (miCarga: number, motivo: 'lenta' | 'sinRed' | 'error') => {
+      if (miCarga !== cargaSeq.current) return;
+      const lenta = motivo === 'lenta';
+      let puso = false;
+      if (!yaCargo.current) {
+        const copia = await leerListaLocal(email).catch(() => null);
+        if (miCarga !== cargaSeq.current) return;
+        if (!yaCargo.current) {
+          if (lenta && !copia) return;
+          if (copia) {
+            setItems(copia.items || []);
+            if (copia.fotos) setFotos(copia.fotos);
+            // SLA de la copia si el servidor no lo ha dado.
+            if (!slaLlego.current) {
+              if (copia.slaMap) setSlaMap(copia.slaMap);
+              if (copia.slaValidacion) setSlaValidacion(copia.slaValidacion);
+            }
+            // Lo de pantalla ya no es del servidor: si se vuelve a guardar
+            // (una acción aplicada), va con SU fecha, no la de ahora.
+            listaDe.current = copia.guardado;
+            puso = true;
+          }
+          yaCargo.current = true;
+          setLoading(false);
+        } else if (lenta) return; // la red llegó mientras se leía la copia
+      } else if (lenta) return;
+      // Error que no es de red en una recarga: basta el recuadro del error;
+      // la lista de pantalla no cambió.
+      if (motivo === 'error' && !puso) {
+        setRecargando(false);
+        return;
+      }
+      setRecargando(lenta);
+      setSinRed({
+        desde: listaDe.current,
+        lenta,
+        error: motivo === 'error',
+        conSenal: haySenal(),
+      });
+    },
+    [email]
+  );
+
+  /**
+   * SLA por área y de validación. Si no llegan (sin señal), se toman de la
+   * copia del teléfono; se vuelven a pedir tras la siguiente carga buena.
+   */
+  const slaEnCamino = useRef(false);
+  const cargarSla = useCallback(async () => {
+    if (slaLlego.current || slaEnCamino.current) return;
+    slaEnCamino.current = true;
+    try {
+      if (haySenal() && (await haySesionReal())) {
+        // slaMap: horas de SLA por área, en minúsculas (así lo espera IncCard).
+        const [r1, r2] = await Promise.all([
+          sb
+            .from('sla_areas')
+            .select('area,sla_horas')
+            .retry(false)
+            .abortSignal(tope(TOPE_SLA_MS)),
+          sb
+            .from('sla_validacion')
+            .select('etapa,minutos')
+            .retry(false)
+            .abortSignal(tope(TOPE_SLA_MS)),
+        ]);
+        if (!r1.error && !r2.error) {
+          const m: SlaMap = {};
+          ((r1.data as SlaArea[]) || []).forEach((r) => {
+            if (r.area) {
+              const h = slaHoras(r.sla_horas);
+              if (h) m[r.area.trim().toLowerCase()] = h;
+            }
+          });
+          setSlaMap(m);
+          const siguiente: { reporte: number; reparacion: number } = {
+            ...SLA_VALIDACION_DEFAULT,
+          };
+          ((r2.data as SlaValidacion[]) || []).forEach((s) => {
+            if (
+              (s.etapa === 'reporte' || s.etapa === 'reparacion') &&
+              Number.isFinite(Number(s.minutos)) &&
+              Number(s.minutos) > 0
+            )
+              siguiente[s.etapa] = Number(s.minutos);
+          });
+          setSlaValidacion(siguiente);
+          slaLlego.current = true;
+          // Si ya hay lista, la copia se lleva el SLA bueno (revisión sin
+          // señal: la copia ya no se reescribe en cada cambio de estado).
+          if (listaDe.current) pedirCopia();
+          return;
+        }
+      }
+      const copia = await leerListaLocal(email).catch(() => null);
+      if (copia && !slaLlego.current) {
+        if (copia.slaMap) setSlaMap(copia.slaMap);
+        if (copia.slaValidacion) setSlaValidacion(copia.slaValidacion);
+      }
+    } finally {
+      slaEnCamino.current = false;
+    }
+  }, [email, pedirCopia]);
+
+  /**
+   * Acciones pendientes del teléfono → estado. Si alguna SALIÓ de la cola en
+   * segundo plano (se mandó sola al volver la red, chocó con otra persona o
+   * se descartó), se queda superpuesta ("pegada") y se relee su fila para
+   * traer lo que de verdad quedó en el servidor (ver confirmarSalidas). Las
+   * que se atendieron en pantalla no: ya se reflejaron con patchInc.
+   */
+  const cargarRef = useRef<() => Promise<void>>(async () => {});
+  /** Suelta pegadas: su efecto ya está en `items` (o nunca se aplicó). */
+  const soltarPegadas = useCallback((ids: Set<string>) => {
+    if (!ids.size) return;
+    setPegadas((prev) => {
+      const sig = prev.filter((p) => !ids.has(p.id));
+      pegadasRef.current = sig;
+      return sig;
+    });
+  }, []);
+
+  /**
+   * Acciones que salieron SOLAS de la cola (revisión sin señal,
+   * 24-sep-2026): se releen SUS filas (una consulta chica) y se ponen en
+   * `items`. Antes solo quedaban "pegadas" hasta una recarga completa (1000
+   * filas con '*'); si esa recarga fallaba con señal débil —el PATCH chico
+   * sí llegó— se soltaban igual y la tarjeta regresaba a su estatus viejo
+   * con el botón otra vez (U2): repetir daba un conflicto falso y, en una
+   * reparación, fotos duplicadas. La relectura también resuelve bien las que
+   * salieron por conflicto o descarte: trae lo que de verdad hay.
+   * Si la relectura no se puede, se recurre a la recarga completa, y las
+   * pegadas ya NO se sueltan en una carga fallida: solo en una buena.
+   * También se apaga la campana de las que sí quedaron aplicadas (U9, parte
+   * de la vista): el 'enCola' la apagó sin red y su UPDATE no llegó.
+   */
+  const confirmarSalidas = useCallback(
+    async (salidas: AccionPendiente[]) => {
+      const rids = [...new Set(salidas.map((p) => p.record_id))];
+      let filas: Incidencia[] | null = null;
+      if (haySenal() && (await haySesionReal())) {
+        const { data, error } = await sb
+          .from('incidencias')
+          .select('*')
+          .in('record_id', rids)
+          .retry(false)
+          .abortSignal(tope(TOPE_RELECTURA_MS));
+        if (!error) filas = (data as Incidencia[] | null) || [];
+      }
+      if (!filas) {
+        clearTimeout(recargaTrasCola.current);
+        recargaTrasCola.current = setTimeout(() => void cargarRef.current(), 800);
+        return;
+      }
+      const porId = new Map(filas.map((f) => [f.record_id, f]));
+      filas.forEach((f) => tocadasEnCarga.current?.add(f.record_id));
+      if (filas.length)
+        setItems((prev) => prev.map((i) => porId.get(i.record_id) ?? i));
+      // Sin fila (la RLS ya no la deja ver): la siguiente carga la quita.
+      soltarPegadas(new Set(salidas.map((p) => p.id)));
+      pedirCopia();
+      const aplicadas = salidas.filter((p) => {
+        const f = porId.get(p.record_id);
+        return !!f && aplicadaEn(p, f);
+      });
+      if (aplicadas.length) {
+        [...new Set(aplicadas.map((p) => p.record_id))].forEach((rid) =>
+          avisosCampana.current.onNotifAtendida(rid)
+        );
+        setTimeout(() => avisosCampana.current.onRecargarNotifs(), 400);
+      }
+    },
+    [soltarPegadas, pedirCopia]
+  );
+
+  const refrescarPendientes = useCallback(async (): Promise<
+    AccionPendiente[]
+  > => {
+    let lista: AccionPendiente[];
+    try {
+      lista = await accionesPendientes(email);
+    } catch {
+      return pendientesRef.current;
+    }
+    const antes = pendientesRef.current;
+    pendientesRef.current = lista;
+    setPendientes(lista);
+    const siguen = new Set(lista.map((p) => p.id));
+    const ahora = Date.now();
+    const salieron = antes.filter(
+      (p) =>
+        !siguen.has(p.id) &&
+        !ocupadasRef.current.has(p.record_id) &&
+        (primerPlanoHasta.current.get(p.record_id) ?? 0) < ahora
+    );
+    if (salieron.length) {
+      // Se quedan superpuestas mientras se confirma. No las que tenían
+      // error (nunca se superpusieron: repintarlas mentiría si se
+      // descartaron) ni sin señal: sin red nada pudo haberse enviado, así
+      // que salieron por descarte y la tarjeta vuelve a lo que es.
+      const fijar = haySenal() ? salieron.filter((p) => !conErrorDe(p)) : [];
+      if (fijar.length) {
+        setPegadas((prev) => {
+          const sig = [...prev, ...fijar];
+          pegadasRef.current = sig;
+          return sig;
+        });
+        pedirCopia();
+      }
+      void confirmarSalidas(salieron);
+    }
+    return lista;
+  }, [email, confirmarSalidas, pedirCopia]);
+
+  /**
    * DOS consultas en paralelo, no una (auditoría primer mes, 24-sep-2026).
    *
    * Antes era UNA: las 1000 más recientes de todo. La bandeja, el globito del
@@ -612,199 +1220,320 @@ function IncidenciasView({
    *
    * Si cualquiera de las dos falla, cuenta como error de carga y se conserva
    * lo anterior: una lista a medias se leería como completa.
+   *
+   * Sin señal (modo sin señal, 24-sep-2026): sin red o sin sesión REAL no
+   * se pide nada (una lectura como anónimo da lista vacía SIN error) y se
+   * usa la copia del teléfono (`usarCopia`). Cada carga buena reescribe esa
+   * copia al terminar las fotos. Las páginas van sin reintentos y con tope:
+   * el respaldo ya es la copia.
    */
   const cargar = useCallback(async () => {
     const miCarga = ++cargaSeq.current;
+    // Esta carga ya trae lo que pedía una recarga "tras la cola" pendiente
+    // (p. ej. el aviso global recargó primero al terminar su vuelta).
+    clearTimeout(recargaTrasCola.current);
     const tocadas = new Set<string>();
     tocadasEnCarga.current = tocadas;
-    if (yaCargo.current) setRecargando(true);
-    else setLoading(true);
+    cargandoRef.current = true;
+    const primera = !yaCargo.current;
+    if (primera) setLoading(true);
+    else setRecargando(true);
     setErr('');
     const vigente = () => miCarga === cargaSeq.current;
     const desdeHist = desdeHistorial.current;
     desdePedido.current = desdeHist;
-    const [abiertas, terminales] = await Promise.all([
-      traerPaginado(
-        (desde, hasta) =>
-          sb
-            .from('incidencias')
-            .select('*')
-            .not('estatus', 'in', TERMINALES_LISTA)
-            .order('fecha_reporte', { ascending: false })
-            .order('record_id', { ascending: true })
-            .range(desde, hasta),
-        TOPE_PAGINAS_ABIERTAS,
-        vigente
-      ),
-      traerPaginado(
-        (desde, hasta) => {
-          let consulta = sb
-            .from('incidencias')
-            .select('*')
-            .in('estatus', TERMINALES);
-          // Las que no traen fecha se incluyen: sin esto, pedir historial
-          // por fecha las sacaba de la lista para siempre.
-          if (desdeHist)
-            consulta = consulta.or(
-              `fecha_reporte.gte."${desdeHist}T00:00:00Z",fecha_reporte.is.null`
-            );
-          return consulta
-            .order('fecha_reporte', { ascending: false })
-            .order('record_id', { ascending: true })
-            .range(desde, hasta);
-        },
-        // Sin fecha pedida: UNA página (las 1000 más recientes). "Topado"
-        // con una sola página = vino llena = el historial está recortado.
-        desdeHist ? TOPE_PAGINAS_HISTORIAL : 1,
-        vigente
-      ),
-    ]);
-    // Una carga más nueva ya está en camino: esta respuesta es vieja.
-    if (miCarga !== cargaSeq.current) return;
-    tocadasEnCarga.current = null;
-    // Pasado el primer intento —bien o mal— ninguna recarga vuelve a poner
-    // la pantalla en "Cargando…" (que desmontaría los modales abiertos).
-    yaCargo.current = true;
-    setLoading(false);
-    setRecargando(false);
-    // Con error (mala señal) se CONSERVA la lista anterior —y sus fotos—:
-    // vaciarla hacía desaparecer el trabajo de la pantalla justo cuando no
-    // hay red para volver a traerlo.
-    const error = abiertas.error || terminales.error;
-    if (error) {
-      setErr('incidencias: ' + error);
-      // De esa fecha no llegó nada: ya no "va en camino". Sin esto, tras un
-      // fallo, poner la misma fecha o una más reciente no volvía a pedirla
-      // (el efecto de "Desde" la daba por pedida) y solo ↻ la traía
-      // (revisión primer mes, 24-sep-2026).
-      desdePedido.current = null;
-      return;
-    }
-    // Unión sin duplicados: una que cambió de estatus entre las dos
-    // consultas puede venir en ambas. Gana la TERMINAL (revisión primer mes,
-    // 24-sep-2026): cerrada y no_reparado no se revierten desde la app, así
-    // que si una consulta la vio abierta y la otra terminal, la terminal es
-    // forzosamente la más nueva. Antes ganaba la abierta y la tarjeta seguía
-    // ofreciendo "Aprobar reparación" sobre una ya cerrada. OJO: si algún
-    // día otra vía (app vieja, SQL) reabre incidencias, este supuesto deja
-    // de valer, y `incidencias` no trae una columna de última modificación
-    // con la cual desempatar. El orden final lo da porFechaDesc.
-    const vistos = new Set<string>();
-    const delServidor: Incidencia[] = [];
-    for (const i of [...terminales.filas, ...abiertas.filas]) {
-      if (vistos.has(i.record_id)) continue;
-      vistos.add(i.record_id);
-      delServidor.push(i);
-    }
-    delServidor.sort(porFechaDesc);
-    setTopeAbiertas(abiertas.topado);
-    // La más vieja CON fecha: es la frontera del historial cargado.
-    let masVieja: string | null = null;
-    let masViejaMs = Infinity;
-    for (const i of terminales.filas) {
-      const ms = i.fecha_reporte ? Date.parse(i.fecha_reporte) : NaN;
-      if (!Number.isNaN(ms) && ms < masViejaMs) {
-        masViejaMs = ms;
-        masVieja = i.fecha_reporte;
+    // Las pegadas de ANTES de esta carga quedan reflejadas al terminarla.
+    const pegadasAlEmpezar = new Set(pegadasRef.current.map((p) => p.id));
+    // Primera carga lenta: a los pocos segundos, la copia mientras llega.
+    const espera = primera
+      ? setTimeout(() => void usarCopia(miCarga, 'lenta'), ESPERA_COPIA_MS)
+      : undefined;
+    // Falla pasajera de una página SIN nada que enseñar mientras (ni lista
+    // en pantalla ni copia): un par de reintentos cortos, como los que hacía
+    // postgrest-js antes de `.retry(false)`. Con respaldo, o sin señal, no se
+    // espera: se enseña enseguida y los disparadores (y el reloj) reintentan
+    // (revisión sin señal, 24-sep-2026).
+    const reintentar = async (status: number, mensaje: string, intento: number) => {
+      if (intento >= ESPERAS_REINTENTO_MS.length) return false;
+      if (!haySenal() || !esTransitoria(status, mensaje)) return false;
+      if (yaCargo.current || (await leerListaLocal(email).catch(() => null))) return false;
+      await dormir(ESPERAS_REINTENTO_MS[intento]);
+      return vigente() && haySenal();
+    };
+    try {
+      if (!haySenal() || !(await haySesionReal())) {
+        if (!vigente()) return;
+        desdePedido.current = null;
+        // Las pegadas NO se sueltan aquí (U2): sin red ni sesión no se sabe
+        // qué quedó; se quedan hasta una carga (o relectura) buena.
+        await usarCopia(miCarga, 'sinRed');
+        return;
       }
-    }
-    // Umbral de "Desde" para pedir historial (ver fronteraLigera): solo lo
-    // mueve una carga ligera, que es la que dice dónde se corta por omisión.
-    if (!desdeHist) fronteraLigera.current = terminales.topado ? masVieja : null;
-    // Sin fecha pedida: si la página vino llena, lo completo empieza en la
-    // más vieja cargada. Pedido por fecha: completo desde ese día (lo de
-    // antes no se pidió), salvo que se haya topado.
-    setHistorial({
-      frontera: terminales.topado
-        ? masVieja
-        : desdeHist
-          ? desdeHist + 'T00:00:00Z'
-          : null,
-      n: terminales.filas.length,
-      tope: !!desdeHist && terminales.topado,
-    });
-    setItems((prev) => {
-      if (!tocadas.size) return delServidor;
-      const locales = new Map(prev.map((i) => [i.record_id, i]));
-      const idsServidor = new Set(delServidor.map((i) => i.record_id));
-      // Las recién creadas que el servidor aún no devolvía, al frente.
-      const nuevas = [...tocadas]
-        .filter((rid) => !idsServidor.has(rid) && locales.has(rid))
-        .map((rid) => locales.get(rid) as Incidencia);
-      return [
-        ...nuevas,
-        ...delServidor.map((s) =>
-          tocadas.has(s.record_id) ? locales.get(s.record_id) ?? s : s
+      const [abiertas, terminales] = await Promise.all([
+        traerPaginado(
+          (desde, hasta) =>
+            sb
+              .from('incidencias')
+              .select('*')
+              .not('estatus', 'in', TERMINALES_LISTA)
+              .order('fecha_reporte', { ascending: false })
+              .order('record_id', { ascending: true })
+              .range(desde, hasta)
+              .retry(false)
+              .abortSignal(tope(TOPE_PAGINA_MS)),
+          TOPE_PAGINAS_ABIERTAS,
+          vigente,
+          reintentar
         ),
-      ];
-    });
-
-    // Las fotos de la tarjeta (pliego petitorio, ago-2026). Van DESPUÉS de
-    // soltar el loading: la lista se usa igual sin fotos, y así no se le
-    // cobra la espera.
-    //
-    // Por record_id de lo cargado, con la RPC fotos_tarjetas (ver
-    // traerFotosTarjetas): cada tarjeta recibe la suya aunque sea vieja.
-    // Van también las tocadas en vuelo (p. ej. recién creadas que el
-    // servidor aún no devolvía), que se conservan en la lista.
-    // La evidencia de reasignación no vive en `evidencias`: viaja como URL
-    // en `reasignaciones.evidencia`, y solo importa la solicitud abierta.
-    const ids = [
-      ...new Set([...delServidor.map((i) => i.record_id), ...tocadas]),
-    ];
-    const [mapas, { data: reasEv, error: errReas }] = await Promise.all([
-      traerFotosTarjetas(ids),
-      sb
-        .from('reasignaciones')
-        .select('record_id,evidencia')
-        .eq('estado', 'Solicitada')
-        .not('evidencia', 'is', null)
-        .limit(500),
-    ]);
-    // Si fallaron (mala señal), las tarjetas conservan las fotos que ya
-    // tenían: mapas vacíos las dejaban a todas sin foto.
-    if (!mapas || errReas || miCarga !== cargaSeq.current) return;
-    const mReporte = mapas.reporte;
-    const mReparacion = mapas.reparacion;
-    const mReasign: Record<string, string> = {};
-    ((reasEv as { record_id: string; evidencia: string }[]) || []).forEach(
-      (r) => {
-        if (!mReasign[r.record_id]) mReasign[r.record_id] = r.evidencia;
+        traerPaginado(
+          (desde, hasta) => {
+            let consulta = sb
+              .from('incidencias')
+              .select('*')
+              .in('estatus', TERMINALES);
+            // Las que no traen fecha se incluyen: sin esto, pedir historial
+            // por fecha las sacaba de la lista para siempre.
+            if (desdeHist)
+              consulta = consulta.or(
+                `fecha_reporte.gte."${desdeHist}T00:00:00Z",fecha_reporte.is.null`
+              );
+            return consulta
+              .order('fecha_reporte', { ascending: false })
+              .order('record_id', { ascending: true })
+              .range(desde, hasta)
+              .retry(false)
+              .abortSignal(tope(TOPE_PAGINA_MS));
+          },
+          // Sin fecha pedida: UNA página (las 1000 más recientes). "Topado"
+          // con una sola página = vino llena = el historial está recortado.
+          desdeHist ? TOPE_PAGINAS_HISTORIAL : 1,
+          vigente,
+          reintentar
+        ),
+      ]);
+      // Una carga más nueva ya está en camino: esta respuesta es vieja.
+      if (!vigente()) return;
+      tocadasEnCarga.current = null;
+      // Con error (mala señal) se CONSERVA la lista anterior —y sus fotos—:
+      // vaciarla hacía desaparecer el trabajo de la pantalla justo cuando no
+      // hay red para volver a traerlo. Si es la primera carga, la copia del
+      // teléfono (y el aviso dice de cuándo es, no "TypeError: Load failed").
+      const fallo = abiertas.error ? abiertas : terminales.error ? terminales : null;
+      if (fallo) {
+        // De esa fecha no llegó nada: ya no "va en camino". Sin esto, tras un
+        // fallo, poner la misma fecha o una más reciente no volvía a pedirla
+        // (el efecto de "Desde" la daba por pedida) y solo ↻ la traía
+        // (revisión primer mes, 24-sep-2026).
+        desdePedido.current = null;
+        // Las pegadas NO se sueltan en una carga fallida (U2): la tarjeta
+        // volvía a su estatus viejo aunque la acción sí hubiera llegado.
+        const deRed = esFallaRed(fallo.status, fallo.error || '');
+        if (!deRed) setErr('incidencias: ' + fallo.error);
+        await usarCopia(miCarga, deRed ? 'sinRed' : 'error');
+        // Pasado el primer intento —bien o mal— ninguna recarga vuelve a
+        // poner la pantalla en "Cargando…" (desmontaría los modales).
+        if (vigente()) {
+          yaCargo.current = true;
+          setLoading(false);
+          setRecargando(false);
+        }
+        return;
       }
-    );
-    setFotos({ reporte: mReporte, reparacion: mReparacion, reasign: mReasign });
-  }, []);
+      yaCargo.current = true;
+      setLoading(false);
+      setRecargando(false);
+      setSinRed(null);
+      // Carga BUENA con sesión real: la copia que se escriba lleva esta fecha.
+      listaDe.current = new Date().toISOString();
+      // Unión sin duplicados: una que cambió de estatus entre las dos
+      // consultas puede venir en ambas. Gana la TERMINAL (revisión primer mes,
+      // 24-sep-2026): cerrada y no_reparado no se revierten desde la app, así
+      // que si una consulta la vio abierta y la otra terminal, la terminal es
+      // forzosamente la más nueva. Antes ganaba la abierta y la tarjeta seguía
+      // ofreciendo "Aprobar reparación" sobre una ya cerrada. OJO: si algún
+      // día otra vía (app vieja, SQL) reabre incidencias, este supuesto deja
+      // de valer, y `incidencias` no trae una columna de última modificación
+      // con la cual desempatar. El orden final lo da porFechaDesc.
+      const vistos = new Set<string>();
+      const delServidor: Incidencia[] = [];
+      for (const i of [...terminales.filas, ...abiertas.filas]) {
+        if (vistos.has(i.record_id)) continue;
+        vistos.add(i.record_id);
+        delServidor.push(i);
+      }
+      delServidor.sort(porFechaDesc);
+      setTopeAbiertas(abiertas.topado);
+      // La más vieja CON fecha: es la frontera del historial cargado.
+      let masVieja: string | null = null;
+      let masViejaMs = Infinity;
+      for (const i of terminales.filas) {
+        const ms = i.fecha_reporte ? Date.parse(i.fecha_reporte) : NaN;
+        if (!Number.isNaN(ms) && ms < masViejaMs) {
+          masViejaMs = ms;
+          masVieja = i.fecha_reporte;
+        }
+      }
+      // Umbral de "Desde" para pedir historial (ver fronteraLigera): solo lo
+      // mueve una carga ligera, que es la que dice dónde se corta por omisión.
+      if (!desdeHist) fronteraLigera.current = terminales.topado ? masVieja : null;
+      // Sin fecha pedida: si la página vino llena, lo completo empieza en la
+      // más vieja cargada. Pedido por fecha: completo desde ese día (lo de
+      // antes no se pidió), salvo que se haya topado.
+      setHistorial({
+        frontera: terminales.topado
+          ? masVieja
+          : desdeHist
+            ? desdeHist + 'T00:00:00Z'
+            : null,
+        n: terminales.filas.length,
+        tope: !!desdeHist && terminales.topado,
+      });
+      setItems((prev) => {
+        if (!tocadas.size) return delServidor;
+        const locales = new Map(prev.map((i) => [i.record_id, i]));
+        const idsServidor = new Set(delServidor.map((i) => i.record_id));
+        // Las recién creadas que el servidor aún no devolvía, al frente.
+        const nuevas = [...tocadas]
+          .filter((rid) => !idsServidor.has(rid) && locales.has(rid))
+          .map((rid) => locales.get(rid) as Incidencia);
+        return [
+          ...nuevas,
+          ...delServidor.map((s) =>
+            tocadas.has(s.record_id) ? locales.get(s.record_id) ?? s : s
+          ),
+        ];
+      });
+      soltarPegadas(pegadasAlEmpezar);
+      // Carga buena: la copia del teléfono la recibe ya (sin esperar a las
+      // fotos, que pueden tardar) y otra vez con las fotos, con la
+      // separación mínima entre las dos (ver pedirCopia).
+      pedirCopia();
+      // Las acciones que siguen en el teléfono se vuelven a superponer, y el
+      // SLA se pide otra vez si al abrir no llegó.
+      void refrescarPendientes();
+      if (!slaLlego.current) void cargarSla();
+
+      // Las fotos de la tarjeta (pliego petitorio, ago-2026). Van DESPUÉS de
+      // soltar el loading: la lista se usa igual sin fotos, y así no se le
+      // cobra la espera.
+      //
+      // Por record_id de lo cargado, con la RPC fotos_tarjetas (ver
+      // traerFotosTarjetas): cada tarjeta recibe la suya aunque sea vieja.
+      // Van también las tocadas en vuelo (p. ej. recién creadas que el
+      // servidor aún no devolvía), que se conservan en la lista.
+      // La evidencia de reasignación no vive en `evidencias`: viaja como URL
+      // en `reasignaciones.evidencia`, y solo importa la solicitud abierta.
+      const ids = [
+        ...new Set([...delServidor.map((i) => i.record_id), ...tocadas]),
+      ];
+      const [mapas, { data: reasEv, error: errReas }] = await Promise.all([
+        traerFotosTarjetas(ids),
+        sb
+          .from('reasignaciones')
+          .select('record_id,evidencia')
+          .eq('estado', 'Solicitada')
+          .not('evidencia', 'is', null)
+          .limit(500)
+          .retry(false)
+          .abortSignal(tope(TOPE_FOTOS_MS)),
+      ]);
+      if (!vigente()) return;
+      // Si fallaron (mala señal), las tarjetas conservan las fotos que ya
+      // tenían: mapas vacíos las dejaban a todas sin foto.
+      if (mapas && !errReas) {
+        const mReasign: Record<string, string> = {};
+        ((reasEv as { record_id: string; evidencia: string }[]) || []).forEach(
+          (r) => {
+            if (!mReasign[r.record_id]) mReasign[r.record_id] = r.evidencia;
+          }
+        );
+        setFotos({
+          reporte: mapas.reporte,
+          reparacion: mapas.reparacion,
+          reasign: mReasign,
+        });
+        pedirCopia();
+      }
+    } finally {
+      clearTimeout(espera);
+      if (vigente()) {
+        cargandoRef.current = false;
+        tocadasEnCarga.current = null;
+      }
+    }
+  }, [email, usarCopia, cargarSla, refrescarPendientes, soltarPegadas, pedirCopia]);
+  cargarRef.current = cargar;
 
   useEffect(() => {
     cargar();
-    (async () => {
-      // slaMap: horas de SLA por área, en minúsculas (así lo espera IncCard).
-      const [{ data }, { data: validaciones }] = await Promise.all([
-        sb.from('sla_areas').select('area,sla_horas'),
-        sb.from('sla_validacion').select('etapa,minutos'),
-      ]);
-      const m: SlaMap = {};
-      ((data as SlaArea[]) || []).forEach((r) => {
-        if (r.area) {
-          const h = slaHoras(r.sla_horas);
-          if (h) m[r.area.trim().toLowerCase()] = h;
-        }
-      });
-      setSlaMap(m);
-      const siguiente: { reporte: number; reparacion: number } = {
-        ...SLA_VALIDACION_DEFAULT,
-      };
-      ((validaciones as SlaValidacion[]) || []).forEach((s) => {
-        if (
-          (s.etapa === 'reporte' || s.etapa === 'reparacion') &&
-          Number.isFinite(Number(s.minutos)) &&
-          Number(s.minutos) > 0
-        )
-          siguiente[s.etapa] = Number(s.minutos);
-      });
-      setSlaValidacion(siguiente);
-    })();
+    void cargarSla();
+  }, [cargar, cargarSla]);
+
+  /**
+   * Con la lista de la copia en pantalla, se reintenta sola cuando vuelve la
+   * señal, cuando la app regresa a primer plano y cuando se renueva la sesión
+   * (al volver la red hay hasta ~60 s sin sesión real: la carga que cae ahí
+   * se queda en la copia y la trae el TOKEN_REFRESHED). Sin esto, la copia
+   * se quedaba hasta tocar ↻ (modo sin señal, 24-sep-2026).
+   */
+  useEffect(() => {
+    const intentar = () => {
+      if (sinRedRef.current && !cargandoRef.current && haySenal()) void cargar();
+    };
+    const alVisible = () => {
+      if (document.visibilityState === 'visible') intentar();
+    };
+    window.addEventListener('online', intentar);
+    document.addEventListener('visibilitychange', alVisible);
+    // Sin await dentro del aviso de auth: auth-js lo llama con su candado
+    // tomado y una consulta ahí adentro se puede trabar.
+    const { data } = sb.auth.onAuthStateChange((evento, sesion) => {
+      if (sesion && (evento === 'TOKEN_REFRESHED' || evento === 'SIGNED_IN'))
+        setTimeout(intentar, 0);
+    });
+    // Una falla pasajera CON señal (503 al recargar el esquema, antena que
+    // cambia) no dispara 'online': sin reloj, la lista vieja se quedaba hasta
+    // tocar ↻ (revisión sin señal, 24-sep-2026). Solo a la vista, con el
+    // teléfono "con red" y si fue la red (un error de otro tipo se repetiría).
+    const reloj = setInterval(() => {
+      const s = sinRedRef.current;
+      if (s && !s.error && document.visibilityState === 'visible') intentar();
+    }, INTERVALO_REINTENTO_MS);
+    return () => {
+      window.removeEventListener('online', intentar);
+      document.removeEventListener('visibilitychange', alVisible);
+      data.subscription.unsubscribe();
+      clearInterval(reloj);
+    };
   }, [cargar]);
+
+  /**
+   * Acciones en la cola del teléfono: al montar y cada vez que la cola
+   * cambia (en esta pestaña o en otra). Con un respiro, para no releer
+   * IndexedDB en ráfaga mientras una acción avanza paso por paso.
+   */
+  useEffect(() => {
+    let vivo = true;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const refrescar = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        if (vivo) void refrescarPendientes();
+      }, 150);
+    };
+    refrescar();
+    const quitar = suscribirAcciones(refrescar);
+    return () => {
+      vivo = false;
+      clearTimeout(t);
+      clearTimeout(recargaTrasCola.current);
+      quitar();
+    };
+  }, [refrescarPendientes]);
+
+  // La copia del teléfono (modo sin señal, 24-sep-2026) ya no se escribe
+  // desde un efecto sobre la lista, las fotos y el SLA: ver pedirCopia
+  // (revisión sin señal, 24-sep-2026).
 
   /**
    * "Desde" más viejo que el historial cargado → se trae del servidor.
@@ -852,6 +1581,34 @@ function IncidenciasView({
     return () => clearTimeout(t);
   }, [fDesde, vistaVeTerminales, historial, cargar]);
 
+  /**
+   * La lista TAL COMO LA VE el usuario: la de `items` con las acciones que
+   * siguen en el teléfono encima (modo sin señal, 24-sep-2026). De aquí
+   * salen la bandeja, el globito del menú, los filtros y las tarjetas: una
+   * validación en cola no debe seguir contando como "por validar".
+   *
+   * Las que se quedaron con un error que no es de red (conError) NO se
+   * superponen (revisión sin señal, 24-sep-2026): no se van a enviar solas,
+   * y pintarlas como hechas sacaba la incidencia de la bandeja, escondía el
+   * botón y el reloj de SLA seguía corriendo sin que nadie la atendiera.
+   */
+  const itemsVista = useMemo(
+    () =>
+      superponer(items, [...pegadas, ...pendientes.filter((p) => !conErrorDe(p))]),
+    [items, pegadas, pendientes]
+  );
+  /** Tarjetas con una acción esperando señal (chip ⏳ En cola). */
+  const enColaIds = useMemo(
+    () =>
+      new Set(pendientes.filter((p) => !conErrorDe(p)).map((p) => p.record_id)),
+    [pendientes]
+  );
+  /** Tarjetas con una acción que no se pudo enviar (chip ⚠, ver IncCard). */
+  const conErrorIds = useMemo(
+    () => new Set(pendientes.filter(conErrorDe).map((p) => p.record_id)),
+    [pendientes]
+  );
+
   // Al llegar desde una notificación: se limpian los filtros y se busca por
   // folio. Lo ABIERTO ya viene completo en la carga; lo que puede faltar es
   // una terminal vieja (fuera de las 1000 más recientes del historial). Si
@@ -869,17 +1626,34 @@ function IncidenciasView({
     // que todavía no llega.
     if (loading) return;
 
-    const it = items.find((i) => i.record_id === focoRecordId);
+    const it = itemsVista.find((i) => i.record_id === focoRecordId);
 
     if (!it) {
       let cancelado = false;
       (async () => {
-        const { data, error } = await sb
+        // Sin red (o sin sesión real, que daría un falso "ya no está
+        // disponible") no se puede saber: se dice eso (modo sin señal,
+        // 24-sep-2026).
+        const avisoSinRed =
+          '📴 Sin señal: la incidencia de la notificación no está en la ' +
+          'lista guardada. Ábrela de nuevo al volver la red.';
+        if (!haySenal() || !(await haySesionReal())) {
+          if (cancelado) return;
+          setAvisoFoco(avisoSinRed);
+          onFocoAplicado?.();
+          return;
+        }
+        const { data, error, status } = await sb
           .from('incidencias')
           .select('*')
           .eq('record_id', focoRecordId)
           .maybeSingle();
         if (cancelado) return;
+        if (error && esFallaRed(status, error.message)) {
+          setAvisoFoco(avisoSinRed);
+          onFocoAplicado?.();
+          return;
+        }
 
         if (data) {
           // Se agrega a la lista actual para que los filtros y el resaltado
@@ -931,7 +1705,7 @@ function IncidenciasView({
     setFHasta('');
     setResaltado(focoRecordId);
     onFocoAplicado?.();
-  }, [focoRecordId, items, loading, onFocoAplicado]);
+  }, [focoRecordId, itemsVista, loading, onFocoAplicado]);
 
   /**
    * Lleva la tarjeta resaltada a la vista y apaga el resalte a los 4 s.
@@ -982,11 +1756,11 @@ function IncidenciasView({
     // Manager, coordinador y viewer no tienen bandeja acotada: ven todo.
     // Se conserva tal cual estaba.
     if (tiene('manager') || tiene('coordinador') || tiene('viewer'))
-      return items;
+      return itemsVista;
 
     const yo = (email || '').toLowerCase();
 
-    return items.filter((i) => {
+    return itemsVista.filter((i) => {
       // Al validador le toca también REVISAR las reasignaciones pendientes:
       // viven en 'en_proceso' y sin esta condición jamás caían en su
       // bandeja, aunque el botón "Revisar reasignación" es suyo.
@@ -1011,7 +1785,7 @@ function IncidenciasView({
 
       return false;
     });
-  }, [items, misRoles, email, reparaEn]);
+  }, [itemsVista, misRoles, email, reparaEn]);
 
   /** Aviso sutil para el validador: solo pendientes con reloj naranja o rojo. */
   const alertasValidacion = useMemo(() => {
@@ -1041,7 +1815,7 @@ function IncidenciasView({
     if (tiene('manager') || tiene('coordinador') || tiene('viewer'))
       return bandeja.length;
     const yo = (email || '').toLowerCase();
-    return items.filter(
+    return itemsVista.filter(
       (i) =>
         (tiene('validador') &&
           (i.estatus === 'por_validar' ||
@@ -1052,7 +1826,7 @@ function IncidenciasView({
           (i.captured_by || '').toLowerCase() === yo &&
           i.estatus === 'rechazada')
     ).length;
-  }, [items, bandeja.length, misRoles, email, reparaEn]);
+  }, [itemsVista, bandeja.length, misRoles, email, reparaEn]);
 
   useEffect(() => {
     onBandejaCount?.(accionables);
@@ -1063,15 +1837,15 @@ function IncidenciasView({
   // AREAS_RESP, y sin esto no se podrían elegir).
   const areasElegibles = useMemo(() => {
     const set = new Set<string>(AREAS_RESP);
-    items.forEach((i) => {
+    itemsVista.forEach((i) => {
       if (i.area_responsable) set.add(i.area_responsable);
       if (i.assigned_area) set.add(i.assigned_area);
     });
     return [...set].sort();
-  }, [items]);
+  }, [itemsVista]);
 
   const visibles = useMemo(() => {
-    const base = modo === 'bandeja' ? bandeja : items;
+    const base = modo === 'bandeja' ? bandeja : itemsVista;
     return base.filter((i) => {
       if (fUN !== 'Todas' && i.unidad_negocio !== fUN) return false;
       // El filtro de área acepta las dos: las que le tocan por catálogo y
@@ -1110,7 +1884,7 @@ function IncidenciasView({
       return true;
     });
   }, [
-    items,
+    itemsVista,
     bandeja,
     modo,
     q,
@@ -1166,109 +1940,219 @@ function IncidenciasView({
    */
   const areasReportantes = useMemo(
     () =>
-      [...new Set(items.map((i) => i.area_reportante).filter(Boolean))].sort() as string[],
-    [items]
+      [...new Set(itemsVista.map((i) => i.area_reportante).filter(Boolean))].sort() as string[],
+    [itemsVista]
   );
 
   // --- Acciones ---
-  /** Aplica un patch en memoria para no recargar toda la lista. */
+  /**
+   * Aplica un patch en memoria para no recargar toda la lista. También a la
+   * copia del teléfono, aunque lo de pantalla sea esa copia o una recarga
+   * fallida (U3, ver pedirCopia).
+   */
   const patchInc = (rid: string, patch: Partial<Incidencia>) => {
     marcarTocada(rid);
     setItems((prev) =>
       prev.map((i) => (i.record_id === rid ? { ...i, ...patch } : i))
     );
+    pedirCopia();
   };
 
-  /**
-   * Un cambio de estatus que afectó 0 filas puede ser dos cosas distintas:
-   * que OTRA persona ya movió la incidencia (la precondición de estatus ya
-   * no se cumple) o que la RLS no te deja. Se distingue releyendo la fila;
-   * si cambió, la tarjeta se actualiza con lo real.
-   *
-   * Por qué existe (auditoría, 24-sep-2026): los updates iban solo por
-   * record_id y ganaba el último que escribía. Con varios validadores sobre
-   * la misma cola, un "aprobar" y un "rechazar" casi simultáneos dejaban
-   * una incidencia cerrada de vuelta en proceso, sin aviso para nadie.
-   */
-  /**
-   * Devuelve true si la causa fue que otra persona ya la movió.
-   * `reparadaEn`: al aprobar/rechazar una reparación también se exige que
-   * sea LA MISMA que se está viendo (ver cambiarEstatus); si otro la rechazó
-   * y el técnico volvió a repararla, el estatus coincide pero el trabajo no.
-   */
-  const explicarSinCambio = async (
-    rid: string,
-    esperado: EstatusInc,
-    reparadaEn?: string | null
-  ): Promise<boolean> => {
-    const { data } = await sb
-      .from('incidencias')
-      .select('*')
-      .eq('record_id', rid)
-      .maybeSingle();
-    const actual = data as Incidencia | null;
-    const otraReparacion =
-      reparadaEn !== undefined && !mismoInstante(actual?.repaired_at, reparadaEn);
-    if (actual && (actual.estatus !== esperado || otraReparacion)) {
-      marcarTocada(rid);
-      setItems((prev) => prev.map((i) => (i.record_id === rid ? actual : i)));
-      alert(
-        actual.estatus !== esperado
-          ? 'Esta incidencia ya la atendió otra persona: ahora está en "' +
-              (EST_LABEL[actual.estatus] || actual.estatus) +
-              '". Tu lista ya se actualizó.'
-          : 'Esta reparación cambió mientras la revisabas (la rechazaron y ' +
-              'el técnico la volvió a reparar). Tu lista ya se actualizó: ' +
-              'revisa la reparación nueva antes de decidir.'
-      );
-      return true;
-    }
-    alert(
-      'No se guardó: tu rol o tu área no permiten este cambio en esta incidencia.'
+  /** Reemplaza una fila entera por la que devolvió el servidor (y en la copia). */
+  const reemplazarFila = (fila: Incidencia) => {
+    marcarTocada(fila.record_id);
+    setItems((prev) =>
+      prev.map((i) => (i.record_id === fila.record_id ? fila : i))
     );
-    return false;
+    pedirCopia();
   };
 
-  const cambiarEstatus = async (rid: string, estatus: EstatusInc) => {
-    const patch: Partial<Incidencia> = { estatus };
-    // Se deja rastro de quién aprobó/reparó, además del estatus.
-    if (estatus === 'en_proceso') {
-      patch.validator_approved = true;
-      patch.validator_email = email;
-      patch.validator_at = new Date().toISOString();
+  const marcarOcupada = (rid: string, si: boolean) => {
+    if (si) ocupadasRef.current.add(rid);
+    else ocupadasRef.current.delete(rid);
+    setOcupadas(new Set(ocupadasRef.current));
+  };
+
+  /**
+   * Aviso tras una acción. Va un instante después para que primero se pinte
+   * el cambio (el modal que se cierra, la tarjeta que cambia): un alert
+   * congela la pantalla tal como está.
+   */
+  const avisar = (texto: string) => {
+    setTimeout(() => alert(texto), 60);
+  };
+
+  /**
+   * Corre una acción de validación o reparación por lib/acciones.ts (modo
+   * sin señal, 24-sep-2026). Ahí se guarda en el teléfono ANTES de mandar,
+   * se manda enseguida y, si no hay red, se queda en la cola y sale sola.
+   * La precondición (el estatus que el usuario VE, y la misma reparación)
+   * y la reconciliación de 0 filas —"otra persona ya la atendió" contra "tu
+   * rol no lo permite", que antes hacía explicarSinCambio aquí— viven allá.
+   *
+   * Aquí queda lo de pantalla:
+   *   - candado por tarjeta: un doble toque no manda (ni encola) dos veces;
+   *   - la misma acción no se encola dos veces (otra distinta sí: sale en
+   *     orden detrás, y su precondición es el estatus que ya se ve). Si la
+   *     que ya está se quedó con error (conError), no se promete que "se
+   *     enviará sola": se ofrece descartarla y mandar ésta;
+   *   - 'enCola'    → la campana local, y el aviso de que saldrá sola;
+   *   - 'conflicto' → la fila real (si vino) y el mensaje;
+   *   - 'sinPermiso' / 'error' → el mensaje.
+   * 'hecha' la resuelve quien llama (cada acción refleja distinto).
+   */
+  const correrAccion = async (
+    a: AccionNueva,
+    op?: { alProgreso?: (texto: string) => void }
+  ): Promise<ResultadoAccion | null> => {
+    const rid = a.record_id;
+    if (ocupadasRef.current.has(rid)) return null;
+    // La MISMA acción dos veces no (la tarjeta ya enseña su resultado, pero
+    // por si acaso). Otra distinta sí: sale en orden detrás de la primera
+    // (p. ej. reparar tras prevalidar, sin señal).
+    const previa = pendientesRef.current.find(
+      (p) => p.record_id === rid && p.clase === a.clase
+    );
+    if (previa && !conErrorDe(previa)) {
+      avisar(
+        'Esto ya está guardado en el teléfono y se enviará solo al volver la red.'
+      );
+      return null;
     }
-    if (estatus === 'reparado') {
-      patch.repaired_by_email = email;
-      patch.repaired_at = new Date().toISOString();
+    // La anterior no se va a enviar (revisión sin señal, 24-sep-2026): antes
+    // se decía "se enviará sola" y nunca salía. Se ofrece reemplazarla; si
+    // no, el modal (si lo hay) sigue abierto con lo capturado.
+    if (
+      previa &&
+      !confirm(
+        `${NOMBRE_ACCION[a.clase]} anterior de ${a.folio || 'esta incidencia'} no se pudo enviar` +
+          (previa.ultimoError ? `: ${previa.ultimoError}` : '.') +
+          '\n\n¿Descartarla y mandar ésta?'
+      )
+    )
+      return null;
+    /** Otras acciones de esta incidencia que siguen en la cola (van antes). */
+    const otrasAntes = pendientesRef.current.filter(
+      (p) => p.record_id === rid && p.id !== previa?.id
+    );
+    marcarOcupada(rid, true);
+    let r: ResultadoAccion;
+    try {
+      r =
+        previa && (await descartarAccion(previa.id).catch(() => 'ocupado' as const)) !== 'ok'
+          ? {
+              tipo: 'error',
+              mensaje:
+                'La anterior se está intentando enviar en este momento. Espera unos segundos y vuelve a intentarlo.',
+            }
+          : await ejecutarAccion(email, a, op);
+    } catch (e) {
+      r = {
+        tipo: 'error',
+        mensaje:
+          'No se pudo guardar: ' + (e instanceof Error ? e.message : String(e)),
+      };
     }
-    // Precondición: la incidencia sigue en el estatus que el usuario VE. Al
-    // aprobar una reparación (→ cerrada) además debe ser LA MISMA reparación
-    // que se revisó: si otro la rechazó y el técnico la volvió a reparar, el
-    // estatus vuelve a 'reparado' y solo repaired_at delata el cambio.
-    const actual = items.find((i) => i.record_id === rid);
-    const esperado = actual?.estatus;
-    const exigeReparacion = estatus === 'cerrada' && !!actual?.repaired_at;
-    let q = sb.from('incidencias').update(patch).eq('record_id', rid);
-    if (esperado) q = q.eq('estatus', esperado);
-    if (exigeReparacion) q = q.eq('repaired_at', actual!.repaired_at as string);
-    const { data, error } = await q.select('record_id');
-    if (error) {
-      alert('No se pudo actualizar: ' + error.message);
-      return;
-    }
-    if (!data || data.length === 0) {
-      if (esperado)
-        await explicarSinCambio(
-          rid,
-          esperado,
-          exigeReparacion ? actual!.repaired_at : undefined
+    // Su salida de la cola ya se refleja aquí (patchInc / fila real): que
+    // no dispare una recarga completa. Si quedó en cola, su salida SÍ será
+    // de fondo y sí recarga.
+    if (r.tipo === 'enCola') primerPlanoHasta.current.delete(rid);
+    else primerPlanoHasta.current.set(rid, Date.now() + GRACIA_PRIMER_PLANO_MS);
+    await refrescarPendientes();
+    marcarOcupada(rid, false);
+    switch (r.tipo) {
+      case 'enCola':
+        // La campana deja de avisar de esta incidencia: el usuario ya hizo
+        // su parte, aunque el servidor aún no lo sepa.
+        onNotifAtendida(rid);
+        // Detrás de otra acción de la misma incidencia la cola la deja
+        // esperando aunque haya señal, y detrás de una con error no sale
+        // hasta descartar esa: no se promete "al volver la red" en falso
+        // (revisión sin señal, 24-sep-2026).
+        avisar(
+          otrasAntes.some(conErrorDe)
+            ? 'Quedó guardado en el teléfono, pero la acción anterior de esta incidencia no se pudo enviar: descártala en el aviso de pendientes («Ver detalle») para que ésta salga.'
+            : otrasAntes.length && haySenal()
+              ? 'Quedó guardado en el teléfono: se envía en cuanto salga la acción anterior de esta incidencia.'
+              : MENSAJE_EN_COLA
         );
-      else alert('No se guardó: tu rol no permite este cambio.');
+        break;
+      case 'conflicto':
+        if (r.fila) reemplazarFila(r.fila);
+        avisar(
+          r.mensaje ||
+            'Esta incidencia ya la atendió otra persona. Tu lista ya se actualizó.'
+        );
+        break;
+      case 'sinPermiso':
+      case 'error':
+        avisar(r.mensaje);
+        break;
+    }
+    return r;
+  };
+
+  /**
+   * ¿La acción que falló se quedó de todos modos en la cola (p. ej. un
+   * error que se reintenta solo)? Entonces el modal se cierra: volver a
+   * guardar encolaría otra igual.
+   */
+  const quedoEnCola = (rid: string, clase: ClaseAccion) =>
+    pendientesRef.current.some(
+      (p) => p.record_id === rid && p.clase === clase && !conErrorDe(p)
+    );
+
+  /** Validar (→ en_proceso) y aprobar reparación (→ cerrada). */
+  const cambiarEstatus = async (rid: string, estatus: EstatusInc) => {
+    // La fila que el usuario VE (con lo de la cola encima, ver itemsVista):
+    // su estatus es la precondición.
+    const actual = itemsVista.find((i) => i.record_id === rid);
+    if (!actual) return;
+    let a: AccionNueva;
+    if (estatus === 'en_proceso') {
+      // Se deja rastro de quién validó y cuándo (la hora del teléfono AL
+      // TOCAR, aunque la acción salga más tarde de la cola).
+      a = {
+        clase: 'validar',
+        record_id: rid,
+        folio: actual.folio,
+        resumen: resumenDe('Validar', actual),
+        esperado: actual.estatus,
+        // La MISMA vuelta del ciclo que se ve (M7, revisión sin señal,
+        // 24-sep-2026): por_validar → validada → descartada → corregida
+        // regresa al mismo estatus, y solo validator_at delata el cambio.
+        validatorAtVisto: actual.validator_at ?? null,
+        patch: {
+          estatus: 'en_proceso',
+          validator_approved: true,
+          validator_email: email,
+          validator_at: new Date().toISOString(),
+        },
+      };
+    } else if (estatus === 'cerrada') {
+      // Al aprobar una reparación además debe ser LA MISMA reparación que se
+      // revisó: si otro la rechazó y el técnico la volvió a reparar, el
+      // estatus vuelve a 'reparado' y solo repaired_at delata el cambio.
+      a = {
+        clase: 'aprobar_reparacion',
+        record_id: rid,
+        folio: actual.folio,
+        resumen: resumenDe('Aprobar reparación', actual),
+        esperado: actual.estatus,
+        repairedAtVisto: actual.repaired_at ? actual.repaired_at : undefined,
+        patch: { estatus: 'cerrada' },
+      };
+    } else {
+      // IncCard solo pide estos dos; reparar va por guardarReparacion.
+      console.warn('[incidencias] cambio de estatus no soportado:', estatus);
       return;
     }
-    patchInc(rid, patch);
+    const r = await correrAccion(a);
+    if (r?.tipo !== 'hecha') return;
+    patchInc(rid, { ...a.patch, ...(r.fila ?? {}) });
     onNotifAtendida(rid);
     setTimeout(onRecargarNotifs, 400);
+    if (r.aviso) avisar(r.aviso);
   };
 
   const guardarReparacion = async (
@@ -1280,8 +2164,10 @@ function IncidenciasView({
       arbolDigitalId,
       causa,
       solucion,
-    }: DatosReparacion
-  ) => {
+      archivos,
+    }: DatosReparacion,
+    op?: { alProgreso?: (texto: string) => void }
+  ): Promise<FinReparacion | undefined> => {
     const patch: Partial<Incidencia> = {
       estatus: 'reparado',
       diagnostico: diagnostico || null,
@@ -1298,46 +2184,60 @@ function IncidenciasView({
       causa_raiz: causa || null,
       solucion: solucion || null,
       repaired_by_email: email,
+      // Fijada UNA vez, al tocar Guardar: es la marca con la que la cola
+      // reconoce su propia reparación si la respuesta se pierde.
       repaired_at: new Date().toISOString(),
     };
-    const { data, error } = await sb
-      .from('incidencias')
-      .update(patch)
-      .eq('record_id', inc.record_id)
-      // Precondición: sigue en el estatus en que se abrió el modal.
-      .eq('estatus', inc.estatus)
-      .select(
-        'record_id,incidencia_srd,arbol_digital_id,causa_raiz,diagnostico,solucion'
-      );
-    if (error) {
-      alert('No se pudo guardar la reparación: ' + error.message);
-      return;
+    const r = await correrAccion(
+      {
+        clase: 'reparacion',
+        record_id: inc.record_id,
+        folio: inc.folio,
+        resumen: resumenDe('Reparación', inc),
+        // Precondición: sigue en el estatus en que se abrió el modal, y sin
+        // otra reparación hecha mientras tanto (la cola puede salir tarde).
+        esperado: inc.estatus,
+        repairedAtVisto: inc.repaired_at ?? null,
+        patch,
+        archivos,
+        // Mismo nombre que antes subía el modal al elegir cada foto: el
+        // FOLIO abre el nombre para que la URL diga de qué incidencia es.
+        nombreArchivo: {
+          folio: inc.folio,
+          cara: codigoCara(inc.clave_medio) || inc.clave_sitio || 'sitio',
+        },
+      },
+      { alProgreso: op?.alProgreso }
+    );
+    // Lo que se devuelve le dice al modal qué hacer con su borrador del
+    // teléfono (ver FinReparacion; revisión sin señal, 24-sep-2026).
+    if (!r) return undefined;
+    switch (r.tipo) {
+      case 'hecha':
+        patchInc(inc.record_id, { ...patch, ...(r.fila ?? {}) });
+        setRepairing(null);
+        onNotifAtendida(inc.record_id);
+        setTimeout(onRecargarNotifs, 400);
+        // P. ej. "Supabase no devolvió la clasificación técnica…".
+        if (r.aviso) avisar(r.aviso);
+        return 'terminada';
+      case 'enCola':
+        // En la cola ya va.
+        setRepairing(null);
+        return 'enCola';
+      case 'conflicto':
+        // Si otro ya la movió, el modal no tiene sentido.
+        setRepairing(null);
+        return 'terminada';
+      default:
+        // Sin permiso o error: el modal sigue abierto con fotos y textos
+        // para corregir o reintentar… salvo que se haya quedado en la cola.
+        if (quedoEnCola(inc.record_id, 'reparacion')) {
+          setRepairing(null);
+          return 'enCola';
+        }
+        return undefined;
     }
-    // La RLS no lanza error cuando el update no te toca: afecta 0 filas y
-    // regresa "éxito". Sin esta verificación la app pintaba la incidencia
-    // como reparada aunque la base no hubiera guardado nada. 0 filas también
-    // es "alguien más ya la movió": explicarSinCambio distingue los dos.
-    if (!data || data.length === 0) {
-      // Si otro ya la movió, el modal de reparación ya no tiene sentido.
-      if (await explicarSinCambio(inc.record_id, inc.estatus)) setRepairing(null);
-      return;
-    }
-    const guardada = data[0] as Partial<Incidencia>;
-    if (
-      incidenciaSrd &&
-      (guardada.incidencia_srd !== incidenciaSrd ||
-        String(guardada.arbol_digital_id) !== String(arbolDigitalId))
-    ) {
-      alert(
-        'La reparación se guardó, pero Supabase no devolvió la clasificación ' +
-          'técnica de Digital. Recarga y revisa esta incidencia antes de continuar.'
-      );
-      return;
-    }
-    patchInc(inc.record_id, { ...patch, ...guardada });
-    setRepairing(null);
-    onNotifAtendida(inc.record_id);
-    setTimeout(onRecargarNotifs, 400);
   };
 
   const rechazarReparacion = async (inc: Incidencia, motivo: string) => {
@@ -1349,55 +2249,55 @@ function IncidenciasView({
     // se revisó: si otro validador ya la cerró, rechazarla la regresaba a en
     // proceso sin contar el rechazo; si la reparación es otra, se estaría
     // rechazando un trabajo que nadie vio.
-    let q = sb
-      .from('incidencias')
-      .update(patch)
-      .eq('record_id', inc.record_id)
-      .eq('estatus', inc.estatus);
-    if (inc.repaired_at) q = q.eq('repaired_at', inc.repaired_at);
-    const { data, error } = await q.select('record_id');
-    if (error) {
-      alert('No se pudo rechazar: ' + error.message);
-      return;
-    }
-    if (!data || data.length === 0) {
-      await explicarSinCambio(
+    const r = await correrAccion({
+      clase: 'rechazar_reparacion',
+      record_id: inc.record_id,
+      folio: inc.folio,
+      resumen: resumenDe('Rechazar reparación', inc),
+      esperado: inc.estatus,
+      repairedAtVisto: inc.repaired_at ? inc.repaired_at : undefined,
+      patch,
+    });
+    if (!r) return;
+    if (r.tipo === 'hecha') {
+      // El contador de rechazos lo incrementa el trigger inc_cuenta_rechazo
+      // en la base (por eso NO va en el patch que se manda). Si la acción no
+      // devolvió la fila, se refleja aquí para que la tarjeta lo enseñe sin
+      // esperar una recarga.
+      patchInc(
         inc.record_id,
-        inc.estatus,
-        inc.repaired_at ? inc.repaired_at : undefined
+        r.fila
+          ? { ...patch, ...r.fila }
+          : { ...patch, rechazos_reparacion: (inc.rechazos_reparacion || 0) + 1 }
       );
       setMotivoOf(null);
-      return;
+      onNotifAtendida(inc.record_id);
+      setTimeout(onRecargarNotifs, 400);
+      if (r.aviso) avisar(r.aviso);
+    } else if (
+      r.tipo === 'enCola' ||
+      r.tipo === 'conflicto' ||
+      quedoEnCola(inc.record_id, 'rechazar_reparacion')
+    ) {
+      setMotivoOf(null);
     }
-    // El contador de rechazos lo incrementa el trigger inc_cuenta_rechazo
-    // en la base (por eso NO va en el patch que se manda). Aquí solo se
-    // refleja en el estado local para que la tarjeta lo enseñe sin esperar
-    // una recarga.
-    patchInc(inc.record_id, {
-      ...patch,
-      rechazos_reparacion: (inc.rechazos_reparacion || 0) + 1,
-    });
-    setMotivoOf(null);
-    onNotifAtendida(inc.record_id);
-    setTimeout(onRecargarNotifs, 400);
   };
 
   const prevalidar = async (inc: Incidencia) => {
-    const { data, error } = await sb
-      .from('incidencias')
-      .update({ prevalidada: true })
-      .eq('record_id', inc.record_id)
-      .eq('estatus', inc.estatus)
-      .select('record_id');
-    if (error) {
-      alert('No se pudo prevalidar: ' + error.message);
-      return;
-    }
-    if (!data || data.length === 0) {
-      await explicarSinCambio(inc.record_id, inc.estatus);
-      return;
-    }
-    patchInc(inc.record_id, { prevalidada: true });
+    const patch: Partial<Incidencia> = { prevalidada: true };
+    const r = await correrAccion({
+      clase: 'prevalidar',
+      record_id: inc.record_id,
+      folio: inc.folio,
+      resumen: resumenDe('Prevalidar', inc),
+      esperado: inc.estatus,
+      // Misma vuelta del ciclo que se ve (M7, ver cambiarEstatus).
+      validatorAtVisto: inc.validator_at ?? null,
+      patch,
+    });
+    if (r?.tipo !== 'hecha') return;
+    patchInc(inc.record_id, { ...patch, ...(r.fila ?? {}) });
+    if (r.aviso) avisar(r.aviso);
   };
 
   const descartarPrevalidacion = async (inc: Incidencia, motivo: string) => {
@@ -1406,24 +2306,29 @@ function IncidenciasView({
       prevalidada: false,
       motivo_rechazo_reparacion: motivo,
     };
-    const { data, error } = await sb
-      .from('incidencias')
-      .update(patch)
-      .eq('record_id', inc.record_id)
-      .eq('estatus', inc.estatus)
-      .select('record_id');
-    if (error) {
-      alert('No se pudo descartar: ' + error.message);
-      return;
-    }
-    if (!data || data.length === 0) {
-      await explicarSinCambio(inc.record_id, inc.estatus);
+    const r = await correrAccion({
+      clase: 'descartar_prevalidacion',
+      record_id: inc.record_id,
+      folio: inc.folio,
+      resumen: resumenDe('Descartar', inc),
+      esperado: inc.estatus,
+      // Misma vuelta del ciclo que se ve (M7, ver cambiarEstatus).
+      validatorAtVisto: inc.validator_at ?? null,
+      patch,
+    });
+    if (!r) return;
+    if (r.tipo === 'hecha') {
+      patchInc(inc.record_id, { ...patch, ...(r.fila ?? {}) });
       setMotivoOf(null);
-      return;
+      onNotifAtendida(inc.record_id);
+      if (r.aviso) avisar(r.aviso);
+    } else if (
+      r.tipo === 'enCola' ||
+      r.tipo === 'conflicto' ||
+      quedoEnCola(inc.record_id, 'descartar_prevalidacion')
+    ) {
+      setMotivoOf(null);
     }
-    patchInc(inc.record_id, patch);
-    setMotivoOf(null);
-    onNotifAtendida(inc.record_id);
   };
 
   /**
@@ -1444,6 +2349,9 @@ function IncidenciasView({
     // lista ya trae estas filas desde el servidor.
     const ids = new Set(creadas.map((c) => c.record_id));
     setItems((prev) => [...creadas, ...prev.filter((p) => !ids.has(p.record_id))]);
+    // A la copia del teléfono también (ya no la escribe un efecto por cada
+    // cambio de lista; ver pedirCopia).
+    pedirCopia();
     onCerrarNueva?.();
     setPresetNew(null);
     setTimeout(onRecargarNotifs, 400);
@@ -1455,6 +2363,30 @@ function IncidenciasView({
   return (
     <>
       {err && <div className="err">{err}</div>}
+      {/* La lista NO es fresca: se dice de cuándo es, en vez del error crudo
+          "incidencias: TypeError: Load failed" (modo sin señal, 24-sep-2026). */}
+      {sinRed && (
+        <div
+          className="banner"
+          style={{ borderColor: 'var(--warn)', color: 'var(--warn)' }}
+          role="status"
+        >
+          {/* Con el teléfono "con red" la falla fue pasajera o del
+              servidor: no se dice "Sin señal" en falso (revisión sin señal,
+              24-sep-2026); se reintenta sola (ver el reloj de arriba). */}
+          {sinRed.lenta
+            ? `⏳ La lista sigue cargando; mientras, ves la guardada el ${fechaHoraCorta(sinRed.desde || '')}.`
+            : !sinRed.desde
+              ? sinRed.conSenal && !sinRed.error
+                ? 'No se pudo cargar la lista; se reintenta sola.'
+                : '📴 Sin señal: este teléfono aún no guarda una lista. Se cargará sola al volver la red.'
+              : sinRed.error
+                ? `Se muestra la lista guardada el ${fechaHoraCorta(sinRed.desde)}.`
+                : sinRed.conSenal
+                  ? `No se pudo actualizar la lista; se reintenta sola. Se muestra la del ${fechaHoraCorta(sinRed.desde)}.`
+                  : `📴 Sin señal: lista guardada el ${fechaHoraCorta(sinRed.desde)}.`}
+        </div>
+      )}
       {avisoFoco && (
         <div className="err" onClick={() => setAvisoFoco('')} role="alert">
           {avisoFoco} <span style={{ opacity: 0.7 }}>(clic para cerrar)</span>
@@ -1705,6 +2637,9 @@ function IncidenciasView({
               slaMap={slaMap}
               slaValidacion={slaValidacion}
               nChat={chatCounts[i.record_id] || 0}
+              enCola={enColaIds.has(i.record_id)}
+              conError={conErrorIds.has(i.record_id)}
+              ocupada={ocupadas.has(i.record_id)}
             />
             </div>
           ))}
@@ -1758,7 +2693,7 @@ function IncidenciasView({
           inc={repairing}
           email={email}
           onClose={() => setRepairing(null)}
-          onSave={(p) => guardarReparacion(repairing, p)}
+          onSave={(p, op) => guardarReparacion(repairing, p, op)}
         />
       )}
       {chatOf && (
@@ -1837,6 +2772,7 @@ function IncidenciasView({
               ? 'Motivo (se regresa al reportante como no válida)'
               : 'Motivo del rechazo (regresa al área para volver a reparar)'
           }
+          boton={motivoOf.kind === 'descartar' ? 'Descartar' : 'Rechazar'}
           onClose={() => setMotivoOf(null)}
           onSubmit={(t) =>
             motivoOf.kind === 'descartar'

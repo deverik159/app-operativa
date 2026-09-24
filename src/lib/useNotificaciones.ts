@@ -15,10 +15,35 @@
 // devuelve una lista vacía, que es indistinguible de "no hay nada nuevo".
 // Guardar el error y mostrarlo es la diferencia entre un bug diagnosticable
 // y una campana que simplemente nunca suena.
+//
+// SIN SEÑAL (modo sin señal, 24-sep-2026): con navigator.onLine === false
+// no se sondea (cada intento eran ~7 s de reintentos de postgrest-js y un
+// console.error por minuto); se reanuda al volver 'online'. Un error de red
+// se muestra como "Sin conexión" y no como el "TypeError: Load failed"
+// crudo. Y sin sesión real no se consulta: al volver la red hay hasta ~60 s
+// en que auth-js aún no renueva el token, la consulta sale como anon y la
+// RLS responde [] — la campana se vaciaba y, al regresar los avisos, App
+// los tomaba por NUEVOS y recargaba las listas.
 // ============================================================
 import { useState, useEffect, useCallback } from 'react';
 import { sb } from './supabase';
+import { enLineaAhora, pareceSinRed } from './enLinea';
 import type { Notificacion } from '../types/db';
+
+/** Lo que ve la campana cuando la consulta falló por falta de red. */
+const SIN_CONEXION = 'Sin conexión: los avisos se actualizan solos al volver la señal.';
+
+/**
+ * ¿Hay sesión de verdad? Sin ella la petición saldría con la llave anon y
+ * la RLS contestaría una lista vacía que NO es cierta (ver arriba).
+ */
+async function haySesionReal(): Promise<boolean> {
+  try {
+    return !!(await sb.auth.getSession()).data.session;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Cada cuánto se re-consultan las notificaciones, CON LA APP A LA VISTA.
@@ -87,13 +112,19 @@ export function useNotificaciones(): UseNotificaciones {
   const [error, setError] = useState('');
 
   const cargarNotifs = useCallback(async () => {
-    const { data, error: err } = await sb
+    // Sin sesión real se conserva lo que ya se ve (ver cabecera).
+    if (!(await haySesionReal())) return;
+    const { data, error: err, status } = await sb
       .from('notificaciones')
       .select(COLUMNAS)
       .eq('leida', false)
       .order('creado_en', { ascending: false })
       .limit(LIMITE);
     if (err) {
+      if (pareceSinRed(err, status)) {
+        setError(SIN_CONEXION);
+        return;
+      }
       setError('notificaciones: ' + err.message);
       console.error('[notificaciones] fallo al consultar:', err);
       return;
@@ -104,15 +135,17 @@ export function useNotificaciones(): UseNotificaciones {
   }, []);
 
   const cargarChats = useCallback(async () => {
+    if (!(await haySesionReal())) return;
     // Solo se necesitan los record_id: se cuentan en el cliente.
-    const { data, error: err } = await sb
+    const { data, error: err, status } = await sb
       .from('notificaciones')
       .select('record_id')
       .eq('evento', 'chat')
       .eq('leida', false)
       .limit(LIMITE_CHATS);
     if (err) {
-      console.error('[notificaciones] fallo al contar chats:', err);
+      // Sin red se conservan los globitos que ya había; no es un fallo.
+      if (!pareceSinRed(err, status)) console.error('[notificaciones] fallo al contar chats:', err);
       return;
     }
     const m: Record<string, number> = {};
@@ -138,25 +171,35 @@ export function useNotificaciones(): UseNotificaciones {
       if (t) clearInterval(t);
       t = null;
     };
-    const alCambiarVisibilidad = () =>
-      document.visibilityState === 'visible' ? arrancar() : detener();
+    // Se sondea solo a la vista Y con señal; al volver cualquiera de las
+    // dos se consulta de inmediato (modo sin señal, 24-sep-2026).
+    const revisar = () =>
+      document.visibilityState === 'visible' && enLineaAhora() ? arrancar() : detener();
 
-    if (document.visibilityState === 'visible') arrancar();
-    document.addEventListener('visibilitychange', alCambiarVisibilidad);
+    revisar();
+    document.addEventListener('visibilitychange', revisar);
+    window.addEventListener('online', revisar);
+    window.addEventListener('offline', revisar);
     return () => {
       detener();
-      document.removeEventListener('visibilitychange', alCambiarVisibilidad);
+      document.removeEventListener('visibilitychange', revisar);
+      window.removeEventListener('online', revisar);
+      window.removeEventListener('offline', revisar);
     };
   }, [recargar]);
 
   const marcarLeida = useCallback(async (id: number) => {
-    const { error: err } = await sb
+    const { error: err, status } = await sb
       .from('notificaciones')
       .update({ leida: true })
       .eq('id', id);
     if (err) {
       // Si no se puede marcar leída, la campana mentiría al apagarse.
-      setError('No se pudo marcar como leída: ' + err.message);
+      setError(
+        pareceSinRed(err, status)
+          ? 'Sin conexión: no se pudo marcar como leída.'
+          : 'No se pudo marcar como leída: ' + err.message
+      );
       return;
     }
     // La campana es una bandeja de pendientes: al atender una entrada deja
@@ -167,12 +210,16 @@ export function useNotificaciones(): UseNotificaciones {
   const marcarTodas = useCallback(async () => {
     const ids = notifs.filter((n) => !n.leida).map((n) => n.id);
     if (!ids.length) return;
-    const { error: err } = await sb
+    const { error: err, status } = await sb
       .from('notificaciones')
       .update({ leida: true })
       .in('id', ids);
     if (err) {
-      setError('No se pudieron marcar como leídas: ' + err.message);
+      setError(
+        pareceSinRed(err, status)
+          ? 'Sin conexión: no se pudieron marcar como leídas.'
+          : 'No se pudieron marcar como leídas: ' + err.message
+      );
       return;
     }
     setNotifs([]);

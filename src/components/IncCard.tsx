@@ -35,6 +35,26 @@ type IncCardProps = {
   /** Minutos configurados para validar captura y reparación. */
   slaValidacion: { reporte: number; reparacion: number };
   nChat: number;
+  /**
+   * La tarjeta tiene una acción (validar, reparar…) guardada en el
+   * teléfono que se manda sola al volver la señal (modo sin señal,
+   * 24-sep-2026). Enseña el chip "⏳ En cola" y apaga lo que va directo al
+   * servidor (editar, corrección, reasignación): el servidor todavía no
+   * tiene el estatus que se ve. Las acciones de la cola siguen: la que se
+   * encoló ya no aparece (la tarjeta enseña su resultado) y la siguiente
+   * —p. ej. reparar tras prevalidar, sin señal— sale en orden detrás de
+   * ella (lib/acciones.ts).
+   */
+  enCola?: boolean;
+  /**
+   * La acción guardada en el teléfono se quedó con un error que no es de
+   * red: NO se enviará sola (revisión sin señal, 24-sep-2026). La tarjeta
+   * enseña el estatus real (la vista no la superpone) y el chip lo dice, en
+   * vez de un "⏳ En cola" que prometía un envío que nunca llegaba.
+   */
+  conError?: boolean;
+  /** Una acción de esta tarjeta se está mandando ahora: evita el doble toque. */
+  ocupada?: boolean;
 };
 
 function IncCard({
@@ -55,7 +75,15 @@ function IncCard({
   slaMap,
   slaValidacion,
   nChat,
+  enCola = false,
+  conError = false,
+  ocupada = false,
 }: IncCardProps) {
+  // Evidencia y chat siguen abiertos siempre. Mientras una acción se manda,
+  // nada más que cambie la incidencia; con algo en la cola, nada de lo que
+  // va directo al servidor.
+  const bloqueada = ocupada;
+  const bloqueadaRed = enCola || ocupada;
   const activa = !['cerrada', 'no_reparado'].includes(i.estatus);
   const prevalidacionPend =
     i.requiere_prevalidacion && !i.prevalidada && i.estatus === 'en_proceso';
@@ -157,6 +185,39 @@ function IncCard({
                 style={{ background: sla.color + '22', color: sla.color }}
               >
                 ⏱ {etiquetaSla}: {sla.label}
+              </span>
+            </div>
+          )}
+          {(ocupada || enCola) && (
+            <div style={{ marginTop: 6 }}>
+              <span
+                className="pill multilinea"
+                style={{ background: '#f59e0b22', color: '#f59e0b' }}
+                title={
+                  ocupada
+                    ? 'Mandando…'
+                    : 'Guardada en el teléfono: se envía sola al volver la señal'
+                }
+              >
+                {ocupada ? (
+                  <>
+                    <span className="spinner" />
+                    Guardando…
+                  </>
+                ) : (
+                  '⏳ En cola'
+                )}
+              </span>
+            </div>
+          )}
+          {conError && !ocupada && (
+            <div style={{ marginTop: 6 }}>
+              <span
+                className="pill multilinea"
+                style={{ background: '#ef444422', color: '#ef4444' }}
+                title="No se enviará sola: vuelve a hacerla (se ofrece descartar la anterior) o descártala en el aviso de pendientes"
+              >
+                ⚠ No se pudo enviar: vuelve a hacerla o descártala en el aviso
               </span>
             </div>
           )}
@@ -358,7 +419,11 @@ function IncCard({
           )}
         </button>
         {puedeEditar && (
-          <button className="btn ghost sm" onClick={() => onEdit(i)}>
+          <button
+            className="btn ghost sm"
+            onClick={() => onEdit(i)}
+            disabled={bloqueadaRed}
+          >
             ✏️ Editar
           </button>
         )}
@@ -368,6 +433,7 @@ function IncCard({
             <button
               className="btn ghost sm"
               onClick={() => onReassign(i, 'solicitar')}
+              disabled={bloqueadaRed}
             >
               🔀 Reasignar
             </button>
@@ -376,12 +442,17 @@ function IncCard({
           <button
             className="btn ghost sm"
             onClick={() => onReassign(i, 'aprobar')}
+            disabled={bloqueadaRed}
           >
             🔀 Revisar reasignación
           </button>
         )}
         {puedeCorregir && (
-          <button className="btn ghost sm" onClick={() => onCorregir(i)}>
+          <button
+            className="btn ghost sm"
+            onClick={() => onCorregir(i)}
+            disabled={bloqueadaRed}
+          >
             🧭 Corrección
           </button>
         )}
@@ -396,6 +467,7 @@ function IncCard({
           <button
             className="btn ok sm"
             onClick={() => onEstatus(i.record_id, 'en_proceso')}
+            disabled={bloqueada}
           >
             ✓ Validar incidencia
           </button>
@@ -417,17 +489,29 @@ function IncCard({
       )}
       {puedeReparar && i.estatus === 'en_proceso' && prevalidacionPend && (
         <div className="inc-actions">
-          <button className="btn ok sm" onClick={() => onPrevalidar(i)}>
+          <button
+            className="btn ok sm"
+            onClick={() => onPrevalidar(i)}
+            disabled={bloqueada}
+          >
             ✓ Prevalidar
           </button>
-          <button className="btn hi sm" onClick={() => onDescartar(i)}>
+          <button
+            className="btn hi sm"
+            onClick={() => onDescartar(i)}
+            disabled={bloqueada}
+          >
             ✕ Descartar
           </button>
         </div>
       )}
       {puedeReparar && i.estatus === 'en_proceso' && !prevalidacionPend && (
         <div className="inc-actions">
-          <button className="btn warn sm" onClick={() => onRepair(i)}>
+          <button
+            className="btn warn sm"
+            onClick={() => onRepair(i)}
+            disabled={bloqueada}
+          >
             🔧 Registrar reparación
           </button>
         </div>
@@ -436,6 +520,7 @@ function IncCard({
         <div className="inc-actions">
           <button
             className="btn ok sm"
+            disabled={bloqueada}
             onClick={() => {
               // Aprobar CIERRA la incidencia y ya no hay vuelta atrás desde
               // la app: merece el mismo seguro que salir con captura a
@@ -453,7 +538,11 @@ function IncCard({
           >
             ✓ Aprobar reparación
           </button>
-          <button className="btn hi sm" onClick={() => onRechazarRep(i)}>
+          <button
+            className="btn hi sm"
+            onClick={() => onRechazarRep(i)}
+            disabled={bloqueada}
+          >
             ✕ Rechazar (regresar al área)
           </button>
         </div>

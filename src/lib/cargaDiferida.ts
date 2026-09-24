@@ -23,8 +23,9 @@
 //      sessionStorage con la hora: si ya se recargó hace < 60 s, el error
 //      sigue al ErrorBoundary (así no hay bucle de recargas).
 //   3. Antes de recargar confirma que hay red y que el servidor contesta:
-//      sin red, recargar dejaría la pantalla "sin conexión" del navegador
-//      en vez de la app (el service worker no guarda nada en caché).
+//      sin red, recargar no traería nada nuevo: en el mejor caso el service
+//      worker sirve el armazón guardado del MISMO build (modo sin señal,
+//      24-sep-2026) y el chunk seguiría faltando.
 //
 // CUÁNDO RECARGAR ES SEGURO (revisión primer mes, 24-sep-2026): la descarga
 // de un chunk es asíncrona y SIGUE VIVA aunque el usuario se cambie de

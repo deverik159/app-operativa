@@ -36,6 +36,9 @@
 //   · Con RLS un insert puede pasar y no devolver filas: se CUENTA.
 //   · incidencias.record_id es la PK: reinsertar el mismo id da 23505, que
 //     es el último candado contra duplicados si todo lo demás falla.
+//   · Nada sale sin sesión real (modo sin señal, 24-sep-2026): al volver la
+//     red hay hasta ~60 s en que auth-js no da sesión y todo sale como anon.
+//     Ver exigirSesion.
 // ============================================================
 import { sb } from './supabase';
 import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE, subirMiniatura } from './storage';
@@ -51,11 +54,12 @@ import {
   idbGetAll,
   idbPut,
   idbTx,
-  leerArchivo,
+  leerArchivoGuardado,
   rangoPrefijo,
   registroDeArchivo,
   registroEnBytes,
   topeEscrituraArchivo,
+  type AlmacenArchivos,
   type RegistroArchivo,
 } from './idb';
 import type {
@@ -133,6 +137,11 @@ export type EstadoEnvio = {
   ligando: string[];
   /** Rutas abandonadas por un error definitivo (ya se avisó). */
   fallidos: string[];
+  /**
+   * Lecturas del archivo en el teléfono que fallaron seguidas, por clave
+   * (revisión sin señal, 24-sep-2026; ver leerDelTelefono).
+   */
+  lecturasFallidas?: Record<string, number>;
 };
 
 export type Envio = {
@@ -271,7 +280,10 @@ try {
  */
 let soltarRetencion: (() => void) | null = null;
 function sincronizarRetencion(): void {
-  const enRiesgo = hayEnviosEnRiesgo();
+  // Solo lo de ESTA cola: las acciones (lib/acciones.ts) toman su propia
+  // retención; si esta contara las suyas, se quedaría tomada hasta el
+  // siguiente cambio de envíos (modo sin señal, 24-sep-2026).
+  const enRiesgo = enviosPropiosEnRiesgo();
   if (enRiesgo && !soltarRetencion) soltarRetencion = retenerRecargaAutomatica();
   else if (!enRiesgo && soltarRetencion) {
     soltarRetencion();
@@ -371,11 +383,15 @@ function archivosPendientes(e: Envio): ArchivoEnvio[] {
   return e.grupos.flatMap((g) => g.archivos).filter((a) => !fin.has(a.path));
 }
 
-function dormir(ms: number): Promise<void> {
+// Los auxiliares de red de aquí para abajo se exportan para la cola de
+// acciones (lib/acciones.ts; modo sin señal, 24-sep-2026): misma
+// clasificación de errores y mismos topes en las dos colas.
+
+export function dormir(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-function sinSenal(): boolean {
+export function sinSenal(): boolean {
   return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
@@ -384,7 +400,7 @@ function sinSenal(): boolean {
  * se arma a mano. Un abort de postgrest-js regresa status 0 → cuenta como
  * falla de red, y como todo es idempotente, abortar es seguro.
  */
-function tope(ms: number): AbortSignal {
+export function tope(ms: number): AbortSignal {
   const AS = AbortSignal as unknown as { timeout?: (ms: number) => AbortSignal };
   if (typeof AS.timeout === 'function') return AS.timeout(ms);
   const c = new AbortController();
@@ -398,7 +414,7 @@ function tope(ms: number): AbortSignal {
  * Tolerante a microsegundos y a columnas sin zona (se toman como UTC, que
  * es lo que se mandó).
  */
-function instante(s: string | null | undefined): number {
+export function instante(s: string | null | undefined): number {
   if (!s) return NaN;
   let t = String(s).trim().replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1');
   if (!/[zZ]$|[+-]\d{2}(:?\d{2})?$/.test(t)) t += 'Z';
@@ -410,11 +426,134 @@ function instante(s: string | null | undefined): number {
 // ------------------------------------------------------------
 
 /** Falla de transporte: se reintenta con espera. */
-class SinRed extends Error {
+export class SinRed extends Error {
   constructor(mensaje: string) {
     super(mensaje);
     this.name = 'SinRed';
   }
+}
+
+/**
+ * No hay sesión real todavía (modo sin señal, 24-sep-2026). Al volver la
+ * red, auth-js tarda hasta ~60 s en renovar un token vencido (enfriamiento
+ * tras la última renovación fallida) y mientras tanto las peticiones salen
+ * como anon: un insert da 401 (ya era transitorio), pero una subida a
+ * Storage da 400/403 y se marcaba como fallo DEFINITIVO — la foto se
+ * abandonaba. Es una falla de red más: se espera y se reintenta.
+ */
+export class SinSesion extends SinRed {
+  constructor(mensaje = 'Sin sesión todavía: se reintenta al renovarse.') {
+    super(mensaje);
+    this.name = 'SinSesion';
+  }
+}
+
+/**
+ * La sesión abierta es de OTRA cuenta (revisión sin señal, 24-sep-2026).
+ * Teléfono compartido: A sale con algo enviándose y B entra antes de que
+ * termine. Sin esta guardia, lo que seguía en la vuelta de A salía con la
+ * sesión de B; si la RLS no dejaba a B, la acción de A se quitaba de la cola
+ * como "sin permiso" y se perdía. Es SinSesion (y por lo tanto SinRed): se
+ * queda en la cola, la vuelta se corta y sale cuando A vuelva a entrar.
+ */
+export class OtraCuenta extends SinSesion {
+  constructor() {
+    super('La sesión abierta es de otra cuenta; se envía al volver a entrar con la tuya.');
+    this.name = 'OtraCuenta';
+  }
+}
+
+/**
+ * No se pudo LEER un archivo guardado en el teléfono: IndexedDB falló, no es
+ * que falte (revisión sin señal, 24-sep-2026; ver leerDelTelefono). Se trata
+ * como falla de red: sigue en la cola y se reintenta en la siguiente vuelta.
+ */
+export class SinLectura extends SinRed {
+  constructor(mensaje: string) {
+    super(mensaje);
+    this.name = 'SinLectura';
+  }
+}
+
+/**
+ * La subida no terminó dentro de su tope (revisión sin señal, 24-sep-2026).
+ * storage-js no se puede abortar: la subida sigue sola en segundo plano, así
+ * que NO se reintenta en la misma vuelta (conReintento, y reintentar en
+ * lib/acciones.ts): solo sumaba esperas de ~35 min por video con señal débil
+ * y retenía todo lo que venía detrás. La siguiente vuelta se engancha a la
+ * misma subida (ver subir), no lanza otra.
+ */
+export class SubidaLenta extends SinRed {
+  constructor() {
+    super('La subida no terminó a tiempo');
+    this.name = 'SubidaLenta';
+  }
+}
+
+/**
+ * Texto de "Último intento" para lo que se quedó en cola por una falla de
+ * red (las dos colas). `se` = 'solo' (reporte) o 'sola' (acción). Primero la
+ * falta de red y después la sesión (revisión sin señal, 24-sep-2026): tras
+ * más de una hora sin señal el token vence, exigirSesion no puede renovarlo
+ * y lanza SinSesion; el aviso decía "Esperando a que se renueve tu sesión"
+ * y la gente creía que era un problema de su cuenta y no de la señal.
+ */
+export function textoEnCola(err: unknown, se: 'solo' | 'sola'): string {
+  if (err instanceof OtraCuenta)
+    return `Hay otra cuenta abierta en este teléfono: se envía ${se} cuando vuelvas a entrar con la tuya.`;
+  if (err instanceof SinLectura)
+    return `No se pudo leer una foto o video guardado en el teléfono; se reintenta ${se}.`;
+  if (sinSenal()) return 'Sin señal: el teléfono está sin conexión.';
+  if (err instanceof SinSesion) return `Esperando a que se renueve tu sesión; se envía ${se}.`;
+  if (err instanceof SubidaLenta)
+    return `La señal va muy lenta: la subida sigue en segundo plano y se retoma ${se}.`;
+  return 'Sin señal: el servidor no respondió.';
+}
+
+/**
+ * Tope de la guardia de sesión en la cola; en el Guardar que el usuario
+ * espera, menos: con red lenta y token vencido la renovación suele tardar
+ * 1–2 s, y sin red no vale la pena esperar más para mandarlo a la cola.
+ */
+const ESPERA_SESION_MS = 8000;
+export const ESPERA_SESION_INTERACTIVA_MS = 5000;
+
+/**
+ * GUARDIA DE SESIÓN: resuelve si hay sesión real (un access token vigente
+ * para mandar con la petición); si no, lanza SinSesion. Primero
+ * getSession(); si no da sesión, un refreshSession(). Todo con UN tope
+ * total: con el token vencido y sin red, auth-js reintenta la renovación
+ * ~25 s, y quien espera un Guardar no debe esperar eso — mejor a la cola.
+ *
+ * `correo` = el dueño de lo que se va a mandar (revisión sin señal,
+ * 24-sep-2026): si la sesión es de OTRA cuenta, lanza OtraCuenta. Las colas
+ * la llaman antes de cada paso largo (cada archivo, el UPDATE), porque la
+ * sesión puede cambiar a media vuelta. Si la sesión no trae correo no se
+ * compara (no hay con qué).
+ */
+export async function exigirSesion(topeMs = ESPERA_SESION_MS, correo?: string): Promise<void> {
+  const limite = Date.now() + topeMs;
+  const conTope = <T>(p: Promise<T>): Promise<T | null> =>
+    Promise.race([p, dormir(Math.max(0, limite - Date.now())).then(() => null)]);
+  const dueno = (correo || '').trim().toLowerCase();
+  const sirve = (s: { user?: { email?: string | null } | null } | null | undefined): boolean => {
+    if (!s) return false;
+    const de = (s.user?.email || '').trim().toLowerCase();
+    if (dueno && de && de !== dueno) throw new OtraCuenta();
+    return true;
+  };
+  try {
+    const r = await conTope(sb.auth.getSession());
+    if (sirve(r?.data?.session)) return;
+    if (Date.now() < limite) {
+      const r2 = await conTope(sb.auth.refreshSession());
+      if (sirve(r2?.data?.session)) return;
+    }
+  } catch (err) {
+    if (err instanceof OtraCuenta) throw err;
+    /* auth-js no debería lanzar; si lo hace, es "sin sesión" */
+  }
+  throw new SinSesion();
 }
 
 /** Mensajes de fetch sin red en Chrome, Safari, Firefox y WebViews. */
@@ -440,20 +579,20 @@ const CODIGOS_PG_TRANSITORIOS = new Set(['57014', '40001', '40P01', '53300', '53
  * manda el status (el texto de un error definitivo podría contener
  * "timeout" y no por eso reintentarse para siempre).
  */
-function esFallaRedPg(error: { message?: string; code?: string } | null, status: number): boolean {
+export function esFallaRedPg(error: { message?: string; code?: string } | null, status: number): boolean {
   if (!error) return false;
   if (!status || STATUS_TRANSITORIOS.has(status)) return true;
   return !!error.code && CODIGOS_PG_TRANSITORIOS.has(error.code);
 }
 
 /** ¿Una excepción lanzada es falla de red? (fetch lanza TypeError). */
-function esExcepcionDeRed(err: unknown): boolean {
+export function esExcepcionDeRed(err: unknown): boolean {
   if (err instanceof SinRed || err instanceof TypeError) return true;
   const e = err as { name?: string; message?: string } | null;
   return /abort|timeout/i.test(e?.name || '') || RE_RED.test(e?.message || '');
 }
 
-function mensajeDe(err: unknown): string {
+export function mensajeDe(err: unknown): string {
   if (err instanceof Error) return err.message || err.name;
   const e = err as { message?: unknown } | null;
   return e && typeof e.message === 'string' ? e.message : String(err ?? 'error desconocido');
@@ -467,7 +606,7 @@ function mensajeDe(err: unknown): string {
  *     statusCode '409', error 'Duplicate' y mensaje "The resource already
  *     exists"; versiones nuevas mandan code 'ResourceAlreadyExists'.
  */
-function clasificarStorage(err: unknown): 'existe' | 'red' | 'definitivo' {
+export function clasificarStorage(err: unknown): 'existe' | 'red' | 'definitivo' {
   const e = (err || {}) as {
     name?: string;
     status?: number;
@@ -499,12 +638,15 @@ function clasificarStorage(err: unknown): 'existe' | 'red' | 'definitivo' {
  * Un error definitivo sale al primer intento. Si el navegador ya sabe que
  * no hay red, no se espera en vano.
  */
-async function conReintento<T>(fn: () => Promise<T>): Promise<T> {
+export async function conReintento<T>(fn: () => Promise<T>): Promise<T> {
   for (let i = 0; ; i++) {
     try {
       return await fn();
     } catch (err) {
-      if (!esExcepcionDeRed(err)) throw err;
+      // Sin sesión no se insiste en segundos: auth-js no renueva antes de
+      // su enfriamiento (~60 s) y cada intento saldría otra vez como anon.
+      // Una subida lenta tampoco: sigue en segundo plano (ver SubidaLenta).
+      if (err instanceof SinSesion || err instanceof SubidaLenta || !esExcepcionDeRed(err)) throw err;
       const sr = err instanceof SinRed ? err : new SinRed(mensajeDe(err));
       if (i >= ESPERAS_MS.length || sinSenal()) throw sr;
       await dormir(ESPERAS_MS[i]);
@@ -688,18 +830,52 @@ export async function listarPendientes(email: string): Promise<ResumenPendiente[
  * quiera avisar antes.
  */
 export function hayEnviosEnRiesgo(): boolean {
+  return enviosPropiosEnRiesgo() || riesgosExtraActivos().length > 0;
+}
+
+/** Solo los envíos de ESTA cola (para su propia retención de recarga). */
+function enviosPropiosEnRiesgo(): boolean {
   return soloMemoria.size > 0 || conArchivosFuera.size > 0 || enCurso.size > 0;
 }
 
 /**
+ * Otras colas que también se pierden al recargar (modo sin señal,
+ * 24-sep-2026): lib/acciones.ts registra aquí las suyas al cargar. Va por
+ * registro y no por import para no crear una importación circular (acciones
+ * importa este módulo). `que` = cómo se nombra en el aviso.
+ */
+const riesgosExtra: { hay: () => boolean; que: string }[] = [];
+export function registrarRiesgoExtra(hay: () => boolean, que: string): () => void {
+  const r = { hay, que };
+  riesgosExtra.push(r);
+  return () => {
+    const i = riesgosExtra.indexOf(r);
+    if (i >= 0) riesgosExtra.splice(i, 1);
+  };
+}
+function riesgosExtraActivos(): string[] {
+  return riesgosExtra
+    .filter((r) => {
+      try {
+        return r.hay();
+      } catch {
+        return false;
+      }
+    })
+    .map((r) => r.que);
+}
+
+/**
  * Para los botones que recargan la app a pedido del usuario ("Actualizar
- * ahora", "Recargar la app"): si hay envíos en riesgo, pregunta antes.
- * true = se puede recargar (integración primer mes, 24-sep-2026).
+ * ahora", "Recargar la app"): si hay envíos (o acciones) en riesgo,
+ * pregunta antes. true = se puede recargar (integración primer mes,
+ * 24-sep-2026).
  */
 export function confirmarRecargaConEnvios(): boolean {
-  if (!hayEnviosEnRiesgo()) return true;
+  const partes = [...(enviosPropiosEnRiesgo() ? ['un reporte'] : []), ...riesgosExtraActivos()];
+  if (!partes.length) return true;
   return confirm(
-    'Hay un reporte enviándose o que no cupo en el teléfono. Si recargas ahora, ' +
+    `Hay ${partes.join(' y ')} enviándose o que no cupo en el teléfono. Si recargas ahora, ` +
       'se puede perder.\n\n¿Recargar de todos modos?'
   );
 }
@@ -813,8 +989,14 @@ export async function descartarEnvio(id: string): Promise<'ok' | 'ocupado'> {
  * pestaña lo tiene, NO se espera: se contesta `ocupado` y se intenta en la
  * siguiente vuelta. Sin Web Locks (Safari < 15.4) se corre sin candado: el
  * Map `enCurso` cubre la pestaña y la idempotencia cubre el resto.
+ * `prefijo` separa los candados de cada cola ('accion-' en lib/acciones.ts).
  */
-async function conCandado<T>(id: string, fn: () => Promise<T>, ocupado: T): Promise<T> {
+export async function conCandado<T>(
+  id: string,
+  fn: () => Promise<T>,
+  ocupado: T,
+  prefijo = 'envio-'
+): Promise<T> {
   const locks =
     typeof navigator !== 'undefined'
       ? (navigator as unknown as { locks?: LockManager }).locks
@@ -822,7 +1004,7 @@ async function conCandado<T>(id: string, fn: () => Promise<T>, ocupado: T): Prom
   if (!locks || typeof locks.request !== 'function') return fn();
   let corrio = false;
   try {
-    return await locks.request('envio-' + id, { ifAvailable: true }, async (lock) => {
+    return await locks.request(prefijo + id, { ifAvailable: true }, async (lock) => {
       if (!lock) return ocupado;
       corrio = true;
       return fn();
@@ -866,9 +1048,18 @@ export function procesarEnvio(e: Envio, op: { interactivo: boolean }): Promise<R
 }
 
 /**
+ * La vuelta en curso de cada correo. Una por CORREO y no una por pestaña
+ * (revisión sin señal, 24-sep-2026): si A salió con su vuelta a medias y B
+ * entra, B no recibe la promesa de A (ni sus avisos) ni espera a que
+ * termine; la de A se corta sola en su siguiente paso (exigirSesion con su
+ * correo → OtraCuenta) y lo que falte queda en la cola de A.
+ */
+const vueltas = new Map<string, Promise<ResumenCiclo>>();
+
+/**
  * Procesa la cola de este correo, del más viejo al más nuevo. Una vuelta a
- * la vez por pestaña. Si uno se queda sin red, los demás no se intentan en
- * esta vuelta: tardarían lo mismo en fallar.
+ * la vez por correo (ver `vueltas`). Si uno se queda sin red, los demás no
+ * se intentan en esta vuelta: tardarían lo mismo en fallar.
  *
  * Ya no sale de inmediato cuando navigator.onLine dice false (revisión
  * primer mes, 24-sep-2026): donde eso es falso, el evento 'online' nunca
@@ -876,10 +1067,11 @@ export function procesarEnvio(e: Envio, op: { interactivo: boolean }): Promise<R
  * prometía que se enviaría solo. Sin red de verdad, el primer envío falla
  * al instante y corta la vuelta: es un intento barato por disparador.
  */
-let vuelta: Promise<ResumenCiclo> | null = null;
 export function procesarPendientes(email: string): Promise<ResumenCiclo> {
-  if (vuelta) return vuelta;
-  vuelta = (async () => {
+  const em = (email || '').trim().toLowerCase();
+  const enCursoDe = vueltas.get(em);
+  if (enCursoDe) return enCursoDe;
+  const vuelta: Promise<ResumenCiclo> = (async () => {
     const res: ResumenCiclo = { terminados: 0, siguen: 0, conFilasNuevas: 0, mensajes: [] };
     const lista = await listarEnvios(email);
     if (!lista.length) return res;
@@ -908,8 +1100,9 @@ export function procesarPendientes(email: string): Promise<ResumenCiclo> {
     }
     return res;
   })().finally(() => {
-    vuelta = null;
+    if (vueltas.get(em) === vuelta) vueltas.delete(em);
   });
+  vueltas.set(em, vuelta);
   return vuelta;
 }
 
@@ -1193,29 +1386,116 @@ async function intentoInsertar(
   };
 }
 
-/** El File de un archivo del envío: el original en memoria o el del teléfono. */
-async function archivoDe(a: ArchivoEnvio): Promise<File | null> {
-  return archivosMem.get(a.clave) ?? (await leerArchivo(a.clave));
+/** Lecturas fallidas seguidas de un mismo archivo antes de abandonarlo. */
+const MAX_LECTURAS_FALLIDAS = 3;
+
+/**
+ * El File de un archivo guardado en el teléfono, para las dos colas
+ * (revisión sin señal, 24-sep-2026). null = de verdad no está (no cupo, se
+ * borró): quien llama lo abandona. Si IndexedDB FALLA (Safari pierde la
+ * conexión al volver de otra app, o se agota el tope) lanza SinLectura y la
+ * acción o el envío siguen en cola: antes esa falla pasajera se tomaba como
+ * "ya no estaba", la foto se abandonaba para siempre y al terminar se
+ * borraba el Blob que sí existía. Tras MAX_LECTURAS_FALLIDAS fallas
+ * SEGUIDAS (anotadas en el estado) se abandona, para que un Blob ilegible
+ * no atore la cola para siempre.
+ */
+export async function leerDelTelefono(
+  clave: string,
+  duenio: { fueraDelTelefono?: string[]; estado: { lecturasFallidas?: Record<string, number> } },
+  guardar: () => Promise<void>,
+  almacen: AlmacenArchivos = 'archivos'
+): Promise<File | null> {
+  // No cupo al guardarse: no hay nada que leer.
+  if (duenio.fueraDelTelefono?.includes(clave)) return null;
+  const est = duenio.estado;
+  try {
+    const f = await leerArchivoGuardado(clave, almacen);
+    if (est.lecturasFallidas?.[clave]) delete est.lecturasFallidas[clave];
+    return f;
+  } catch (err) {
+    const n = (est.lecturasFallidas?.[clave] || 0) + 1;
+    if (n >= MAX_LECTURAS_FALLIDAS) {
+      reportarError('colas.lecturaLocal', err, { clave, intentos: n });
+      return null;
+    }
+    est.lecturasFallidas = { ...(est.lecturasFallidas || {}), [clave]: n };
+    await guardar();
+    throw new SinLectura('No se pudo leer un archivo guardado en el teléfono: ' + mensajeDe(err));
+  }
 }
 
-/** Sube un archivo. 'ok' incluye "ya existía" (un intento anterior sí llegó). */
-async function subir(a: ArchivoEnvio, f: File): Promise<'ok' | { definitivo: unknown }> {
+/** El File de un archivo del envío: el original en memoria o el del teléfono. */
+async function archivoDe(e: Envio, a: ArchivoEnvio): Promise<File | null> {
+  return archivosMem.get(a.clave) ?? (await leerDelTelefono(a.clave, e, () => persistir(e)));
+}
+
+type RespuestaSubida = { error: unknown };
+
+/**
+ * Subidas en vuelo, por ruta (revisión sin señal, 24-sep-2026). storage-js
+ * no se puede abortar: cuando ganaba el tope, la subida seguía sola y el
+ * reintento lanzaba OTRA del mismo archivo en paralelo (hasta 3 por vuelta
+ * con un video y señal débil). Ahora el reintento se engancha a la misma.
+ * `desde` = cuándo se lanzó: una que lleva más del doble de su tope sin
+ * contestar se da por colgada y se lanza otra (ver subir).
+ */
+const subidasEnVuelo = new Map<string, { p: Promise<RespuestaSubida>; desde: number }>();
+/**
+ * Rutas que ya quedaron arriba en esta pestaña aunque nadie esperara la
+ * respuesta (la subida siguió tras el tope): no se vuelve a mandar el
+ * archivo entero solo para oír "ya existe".
+ */
+const yaArriba = new Set<string>();
+
+/**
+ * Sube un archivo. 'ok' incluye "ya existía" (un intento anterior sí llegó).
+ * Solo usa la ruta: la cola de acciones también lo usa (lib/acciones.ts).
+ * `correo` = dueño del envío o la acción (ver exigirSesion).
+ */
+export async function subir(
+  a: { path: string },
+  f: File,
+  correo?: string
+): Promise<'ok' | { definitivo: unknown }> {
+  if (yaArriba.has(a.path)) return 'ok';
   // storage-js no acepta AbortSignal: el tope es una carrera. Si gana el
-  // reloj, la subida sigue sola en segundo plano; si termina, el siguiente
-  // intento recibe "ya existe" y cuenta como subido.
+  // reloj, la subida sigue sola en segundo plano; si termina, cuenta como
+  // subida (yaArriba) o el siguiente intento recibe "ya existe".
   const espera = ESPERA_SUBIDA_BASE_MS + Math.ceil(f.size / BYTES_POR_MS_MIN);
-  const r = await Promise.race([
-    sb.storage
+  let enVuelo = subidasEnVuelo.get(a.path)?.p;
+  // Colgada (verificación de la revisión sin señal, 24-sep-2026): en iOS un
+  // fetch puede no resolver NI fallar tras un cambio de red o al volver de
+  // segundo plano. Engancharse para siempre a esa promesa dejaba la ruta sin
+  // subir hasta recargar la app (y atoraba la cola detrás). Pasado el doble
+  // de su tope se lanza otra; una subida lenta de verdad casi nunca llega ahí.
+  const colgada = (subidasEnVuelo.get(a.path)?.desde ?? Infinity) < Date.now() - 2 * espera;
+  if (!enVuelo || colgada) {
+    const p: Promise<RespuestaSubida> = sb.storage
       .from(BUCKET_EVIDENCIAS)
       .upload(a.path, f, { upsert: false, cacheControl: CACHE_INMUTABLE })
-      .catch((err: unknown) => ({ data: null, error: err })),
-    dormir(espera).then(() => null),
-  ]);
-  if (r === null) throw new SinRed('La subida no terminó a tiempo');
+      .then(
+        (r) => ({ error: r.error }),
+        (err: unknown) => ({ error: err })
+      );
+    subidasEnVuelo.set(a.path, { p, desde: Date.now() });
+    void p.then((r) => {
+      if (subidasEnVuelo.get(a.path)?.p === p) subidasEnVuelo.delete(a.path);
+      if (!r.error || clasificarStorage(r.error) === 'existe') yaArriba.add(a.path);
+    });
+    enVuelo = p;
+  }
+  const r = await Promise.race([enVuelo, dormir(espera).then(() => null)]);
+  if (r === null) throw new SubidaLenta();
   if (!r.error) return 'ok';
   const c = clasificarStorage(r.error);
   if (c === 'existe') return 'ok';
   if (c === 'red') throw new SinRed(mensajeDe(r.error));
+  // Un 400/403 de Storage con la sesión perdida a medio envío no es
+  // definitivo: salió como anon (modo sin señal, 24-sep-2026). Si ya no hay
+  // sesión (o es de otra cuenta), lanza SinSesion y se reintenta; si la hay,
+  // sí es definitivo.
+  await exigirSesion(ESPERA_SESION_INTERACTIVA_MS, correo);
   return { definitivo: r.error };
 }
 
@@ -1281,27 +1561,37 @@ async function ligar(
  * SUS archivos y los liga SOLO a sus caras. Un error definitivo en un
  * archivo se avisa y se sigue con el resto (las incidencias ya existen).
  * Lanza SinRed si la red se cae: lo hecho queda persistido.
+ * Antes de cada subida y de cada registro se vuelve a revisar que la sesión
+ * siga siendo del dueño del envío (revisión sin señal, 24-sep-2026): una
+ * subida larga da tiempo a que otra cuenta entre en el mismo teléfono.
  */
-async function pasoArchivos(e: Envio, avisar: (m: string) => void, verificar: boolean): Promise<void> {
+async function pasoArchivos(
+  e: Envio,
+  avisar: (m: string) => void,
+  verificar: boolean,
+  topeSesion: number | undefined
+): Promise<void> {
   for (const g of e.grupos) {
     for (const a of g.archivos) {
       if (e.estado.ligados.includes(a.path) || e.estado.fallidos.includes(a.path)) continue;
 
       if (!e.estado.subidos.includes(a.path)) {
-        const f = await archivoDe(a);
+        const f = await archivoDe(e, a);
         if (!f) {
           // Solo pasa al retomar tras cerrar la app: el archivo no cupo en
-          // el teléfono o el navegador borró los datos del sitio.
+          // el teléfono, el navegador borró los datos del sitio o no se pudo
+          // leer tres veces seguidas (leerDelTelefono).
           reportarError('envios.archivoPerdido', new Error('archivo no encontrado'), { path: a.path, bytes: a.bytes }, a.path);
           avisar(
             `La incidencia se creó, pero el archivo «${a.nombre}» ya no estaba en el teléfono ` +
-              '(no cupo o se borró). Súbelo desde la tarjeta con 📎 Evidencia.'
+              '(no cupo, se borró o no se pudo leer). Súbelo desde la tarjeta con 📎 Evidencia.'
           );
           e.estado.fallidos.push(a.path);
           await persistir(e);
           continue;
         }
-        const res = await conReintento(() => subir(a, f));
+        await exigirSesion(topeSesion, e.email);
+        const res = await conReintento(() => subir(a, f, e.email));
         if (res !== 'ok') {
           const up = res.definitivo as { message?: string };
           // Las incidencias ya existen: se avisa pero no se aborta el resto.
@@ -1319,6 +1609,7 @@ async function pasoArchivos(e: Envio, avisar: (m: string) => void, verificar: bo
         await persistir(e);
       }
 
+      await exigirSesion(topeSesion, e.email);
       const lg = await conReintento(() => ligar(e, g, a, verificar));
       if (lg !== 'ok') {
         reportarError('crearReporte.ligar', new Error(lg.definitivo), { path: a.path }, a.path);
@@ -1389,19 +1680,12 @@ async function ejecutar(e0: Envio, op: { interactivo: boolean }): Promise<Result
   const verificar = !op.interactivo || e.intentos > 0;
   e.intentos++;
 
-  const pendiente = async (mensaje: string, deRed = true): Promise<ResultadoEnvio> => {
+  const pendiente = async (mensaje: string, deRed = true, err?: unknown): Promise<ResultadoEnvio> => {
     // Texto propio para "Último intento" del aviso (revisión primer mes,
     // 24-sep-2026): el mensaje crudo de fetch ("TypeError: Failed to
     // fetch", "signal timed out") sale en inglés y no le dice nada a quien
     // está en campo. El crudo sigue en el resultado, para quien depure.
-    await anotar(
-      e,
-      !deRed
-        ? 'Falló por un error de la app; se reintenta solo.'
-        : sinSenal()
-          ? 'Sin señal: el teléfono está sin conexión.'
-          : 'Sin señal: el servidor no respondió.'
-    );
+    await anotar(e, !deRed ? 'Falló por un error de la app; se reintenta solo.' : textoEnCola(err, 'solo'));
     cerrarBorradorSiYaEntro(e);
     const fase = faltantes(e).length ? 'insertar' : 'archivos';
     return {
@@ -1415,6 +1699,14 @@ async function ejecutar(e0: Envio, op: { interactivo: boolean }): Promise<Result
   };
 
   try {
+    // ── 0. SESIÓN REAL ── (modo sin señal, 24-sep-2026) Sin ella todo sale
+    // como anon: una subida a Storage daría 400/403 y la foto se abandonaba
+    // como fallo definitivo. Sin sesión es SinRed: sigue en cola. Y la
+    // sesión tiene que ser del dueño del envío (revisión sin señal,
+    // 24-sep-2026): con otra cuenta abierta, espera a su dueño.
+    const topeSesion = op.interactivo ? ESPERA_SESION_INTERACTIVA_MS : undefined;
+    await exigirSesion(topeSesion, e.email);
+
     // ── 1. INSERTAR ──
     if (faltantes(e).length) {
       const r = await conReintento(() => intentoInsertar(e, op, avisar, avisos, porId));
@@ -1448,7 +1740,7 @@ async function ejecutar(e0: Envio, op: { interactivo: boolean }): Promise<Result
 
     // ── 2 y 3. SUBIR Y LIGAR ──
     cerrarBorradorSiYaEntro(e);
-    await pasoArchivos(e, avisar, verificar);
+    await pasoArchivos(e, avisar, verificar, topeSesion);
 
     const creadas = op.interactivo ? await construirCreadas(e, porId, true) : [];
     // Completo: se cierra también su borrador, sea esta la pestaña del
@@ -1458,7 +1750,7 @@ async function ejecutar(e0: Envio, op: { interactivo: boolean }): Promise<Result
     await terminarEnvio(e);
     return { tipo: 'completo', creadas, avisos, filasNuevas: nuevas() };
   } catch (err) {
-    if (err instanceof SinRed) return await pendiente(err.message);
+    if (err instanceof SinRed) return await pendiente(err.message, true, err);
     // Error inesperado (de código, no de la base). Si nada llegó a la base
     // y el usuario está esperando, se aborta como un error normal; si algo
     // pudo llegar, se deja en cola: reconciliar lo resuelve sin duplicar.

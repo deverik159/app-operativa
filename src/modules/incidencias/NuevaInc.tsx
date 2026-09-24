@@ -13,9 +13,31 @@
 // formulario se guarda en el teléfono con sus fotos (lib/borrador.ts). Si
 // iOS recarga la app al volver de la cámara, o se cierra sin querer, al
 // abrir otro reporte se ofrece recuperarlo.
+//
+// SIN SEÑAL (modo sin señal, 24-sep-2026): todo lo que el alta consulta
+// (inventario, catálogo, árbol Digital, catorcenas, nombres y pauta QTM)
+// sale de la red con tope corto y, si no hay señal o falla, de la copia que
+// lib/datosLocales.ts guarda en el teléfono. El buscador enseña lo local al
+// instante y suma lo de la red si llega. Guardar ya iba a la cola.
 // ============================================================
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { sb } from '../../lib/supabase';
+import {
+  arbolDigitalLocal,
+  buscarSitiosLocal,
+  carasDeSitioLocal,
+  catalogoLocal,
+  catorcenasLocal,
+  fechaCopia,
+  haySenal,
+  motivoSinRed,
+  nombresPantallaLocal,
+  pautasLocal,
+  redOLocal,
+  sitioLocal,
+  sitiosCercaLocal,
+  type SitioLocal,
+} from '../../lib/datosLocales';
 import {
   cargarArchivosBorrador,
   cerrarBorrador,
@@ -176,6 +198,28 @@ function cuandoBorrador(ms: number): string {
 /** Radio de búsqueda geográfica en grados (~6 km). */
 const DELTA_GRADOS = 0.06;
 
+/** Lo que se dice cuando no hay de dónde sacar el inventario (modo sin señal, 24-sep-2026). */
+const SIN_COPIA_INVENTARIO =
+  'Este teléfono todavía no tiene copia del inventario. Abre la app una vez con señal.';
+
+/**
+ * Lo mismo, pero diciendo por qué no llegó la red (revisión sin señal,
+ * 24-sep-2026): con 3G lenta no es "sin señal", y lo que sirve es reintentar.
+ */
+function sinCopiaInventario(): string {
+  return motivoSinRed() === 'Sin señal'
+    ? 'Sin señal, y este teléfono todavía no tiene copia del inventario. Abre la app una vez con señal.'
+    : 'La red tardó demasiado, y este teléfono todavía no tiene copia del inventario.';
+}
+
+/** "24/09 14:05" para el aviso de la copia del teléfono. */
+function fechaCorta(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 type Props = {
   onClose: () => void;
   /** El padre inserta las filas de cada grupo y sube sus archivos. */
@@ -238,6 +282,37 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   const [loadingSites, setLoadingSites] = useState(false);
   const [nearOpts, setNearOpts] = useState<SitioCercano[]>([]);
   const [geoBusy, setGeoBusy] = useState(false);
+  // ── Sin señal (modo sin señal, 24-sep-2026) ──
+  /**
+   * Sitio cuyas caras se están cargando. Mientras tanto el buscador no
+   * vuelve a abrir la lista con la clave recién elegida (con resultados
+   * locales al instante, la lista reaparecía encima durante la carga).
+   */
+  const [sitioEnCarga, setSitioEnCarga] = useState<string | null>(null);
+  /** La búsqueda de clave terminó sin nada: '' = no aplica. */
+  const [sinResultados, setSinResultados] = useState<'' | 'vacio' | 'sinCopia'>('');
+  /** Qué lecturas salieron de la copia del teléfono (para el aviso 📴). */
+  const [deCopia, setDeCopia] = useState<Record<string, boolean>>({});
+  const marcarOrigen = (que: string, origen: 'red' | 'local') =>
+    setDeCopia((p) =>
+      !!p[que] === (origen === 'local') ? p : { ...p, [que]: origen === 'local' }
+    );
+  const usandoCopia = Object.values(deCopia).some(Boolean);
+  /** Fecha de la copia del inventario: undefined = aún no se lee, null = no hay. */
+  const [fechaInv, setFechaInv] = useState<string | null | undefined>(undefined);
+  /** Suben para volver a pedir el catálogo / el árbol cuando regresa la señal. */
+  const [reintentoCat, setReintentoCat] = useState(0);
+  const [reintentoArbol, setReintentoArbol] = useState(0);
+  /**
+   * El catálogo / el árbol se están pidiendo. Sin copia la red se espera
+   * hasta ~20 s: el sondeo de 15 s no debe volver a pedirlos encima, porque
+   * cada vuelta descartaba la anterior y nunca llegaba ninguna (revisión sin
+   * señal, 24-sep-2026).
+   */
+  const [catEnVuelo, setCatEnVuelo] = useState(false);
+  const [arbolEnVuelo, setArbolEnVuelo] = useState(false);
+  /** Sube con "Reintentar" del buscador de clave. */
+  const [reintentoSitios, setReintentoSitios] = useState(0);
   const [lineas, setLineas] = useState<Linea[]>([]);
   // id de la partida que se está editando. null = se está capturando una nueva.
   // La partida NO se saca de la lista mientras se edita: si el usuario cierra
@@ -293,21 +368,61 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     Record<string, string>
   >({});
 
+  /**
+   * Invalida la elección de sitio que siga en vuelo (y la del preset): su
+   * respuesta tardía ya no debe poner el sitio. Mismo consecutivo de
+   * siempre; además suelta el "cargando" (modo sin señal, 24-sep-2026).
+   */
+  const soltarSitioEnVuelo = () => {
+    pickSeqRef.current++;
+    setSitioEnCarga(null);
+  };
+
   /** Carga las caras del sitio y precarga lo que se deriva de ellas. */
   const pickSite = async (o: Sitio) => {
     const seq = ++pickSeqRef.current;
     setSiteQuery(o.site_id);
     setSiteOpts([]);
-    const { data } = await sb
-      .from('inventario')
-      .select(
-        'vendor_face_id,cara,tipo_medio,tipo_mueble,direccion,site_legacy_id,estado,municipio,categoria'
-      )
-      .eq('site_id', o.site_id);
+    setSitioEnCarga(o.site_id);
+    // Red con tope y, sin señal o si falla, la copia del teléfono (modo sin
+    // señal, 24-sep-2026). Antes, sin red, esto tardaba ≥7 s y dejaba el
+    // sitio con "0 medios" y Guardar deshabilitado: un callejón sin salida.
+    let filas: InventarioItem[] = [];
+    let origen: 'red' | 'local' = 'local';
+    try {
+      const r = await redOLocal<InventarioItem[]>(
+        (senal) =>
+          sb
+            .from('inventario')
+            // Las 13 columnas de InventarioItem, las mismas que da la copia:
+            // así la fila es igual venga de donde venga.
+            .select(
+              'vendor_face_id,site_id,site_legacy_id,cara,categoria,unidad_negocio,tipo_medio,tipo_mueble,latitud,longitud,direccion,municipio,estado'
+            )
+            .eq('site_id', o.site_id)
+            .retry(false)
+            .abortSignal(senal),
+        () => carasDeSitioLocal(o.site_id)
+      );
+      filas = r.datos;
+      origen = r.origen;
+    } catch {
+      /* redOLocal no lanza; por si acaso, se sigue sin caras */
+    }
     if (seq !== pickSeqRef.current) return; // ya se eligió otro (o se recuperó un borrador)
-    const filas = (data as InventarioItem[]) || [];
+    setSitioEnCarga(null);
+    // Las listas del buscador ya no están a la vista: el aviso 📴 sigue a
+    // lo que se ve ahora (las caras).
+    setDeCopia((p) => ({ ...p, sitios: false, cerca: false, caras: origen === 'local' }));
     const first = filas[0] || ({} as InventarioItem);
-    setSite({ ...o, estado: first.estado || null, municipio: first.municipio || null });
+    setSite({
+      ...o,
+      // Si la precarga no trajo dirección (sin red ni copia del sitio), la
+      // de sus caras sirve: en un sitio es la misma.
+      direccion: o.direccion || first.direccion || null,
+      estado: first.estado || null,
+      municipio: first.municipio || null,
+    });
     setCaras(filas);
     // Si el sitio tiene una sola cara, se preselecciona: no hay nada que elegir.
     setSelCaras(filas.length === 1 ? [filas[0].vendor_face_id] : []);
@@ -319,17 +434,34 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     // nombres, el mapa queda vacío y todo se ve como antes.
     setNombresPantalla({});
     if (filas.length) {
-      const { data: noms } = await sb
-        .from('nombres_pantallas')
-        .select('vendor_face_id,nombre')
-        .in('vendor_face_id', filas.map((c) => c.vendor_face_id));
+      const ids = filas.map((c) => c.vendor_face_id);
+      type Nombre = { vendor_face_id: string; nombre: string };
+      let noms: Nombre[] = [];
+      try {
+        const r = await redOLocal<Nombre[]>(
+          (senal) =>
+            sb
+              .from('nombres_pantallas')
+              .select('vendor_face_id,nombre')
+              .in('vendor_face_id', ids)
+              .retry(false)
+              .abortSignal(senal),
+          async () =>
+            Object.entries(await nombresPantallaLocal(ids)).map(([vendor_face_id, nombre]) => ({
+              vendor_face_id,
+              nombre,
+            }))
+        );
+        noms = r.datos;
+        marcarOrigen('nombres', r.origen);
+      } catch {
+        /* sin nombres: todo se ve como antes */
+      }
       if (seq !== pickSeqRef.current) return;
       const m: Record<string, string> = {};
-      ((noms as { vendor_face_id: string; nombre: string }[]) || []).forEach(
-        (n) => {
-          m[n.vendor_face_id] = n.nombre;
-        }
-      );
+      noms.forEach((n) => {
+        m[n.vendor_face_id] = n.nombre;
+      });
       setNombresPantalla(m);
     }
   };
@@ -346,24 +478,53 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         const lon = pos.coords.longitude;
         const d = DELTA_GRADOS;
         // Se acota con un cuadro en la query (barato para Postgres) y luego
-        // se ordena por distancia real en el cliente.
-        const { data, error } = await sb
-          .from('inventario')
-          .select('site_id,direccion,latitud,longitud')
-          .eq('unidad_negocio', un)
-          .gte('latitud', lat - d)
-          .lte('latitud', lat + d)
-          .gte('longitud', lon - d)
-          .lte('longitud', lon + d)
-          .limit(600);
-        setGeoBusy(false);
-        if (error) {
-          alert('Error consultando inventario: ' + error.message);
-          return;
+        // se ordena por distancia real en el cliente. Sin señal o si la red
+        // falla, el mismo cuadro sobre la copia del teléfono (modo sin señal,
+        // 24-sep-2026); antes salía "Error consultando inventario: Load
+        // failed" tras ≥7 s.
+        type Cerca = {
+          site_id: string | null;
+          direccion: string | null;
+          latitud: number | string | null;
+          longitud: number | string | null;
+        };
+        let filas: Cerca[] = [];
+        let origen: 'red' | 'local' = 'local';
+        // Con copia del inventario, "nada cerca" en ella es creíble: tope
+        // corto. Sin copia, redOLocal espera más a la red (revisión sin
+        // señal, 24-sep-2026).
+        const hayCopiaInv = !!(await fechaCopia('inventario').catch(() => null));
+        try {
+          const r = await redOLocal<Cerca[]>(
+            (senal) =>
+              sb
+                .from('inventario')
+                .select('site_id,direccion,latitud,longitud')
+                .eq('unidad_negocio', un)
+                .gte('latitud', lat - d)
+                .lte('latitud', lat + d)
+                .gte('longitud', lon - d)
+                .lte('longitud', lon + d)
+                .limit(600)
+                .retry(false)
+                .abortSignal(senal),
+            () => sitiosCercaLocal(un, lat, lon, d),
+            hayCopiaInv ? { topeSinCopiaMs: 0 } : undefined
+          );
+          filas = r.datos;
+          origen = r.origen;
+        } catch {
+          /* redOLocal no lanza; por si acaso, sin sitios */
         }
+        const sinCopia =
+          origen === 'local' &&
+          filas.length === 0 &&
+          !(await fechaCopia('inventario').catch(() => null));
+        setGeoBusy(false);
+        marcarOrigen('cerca', origen);
         const seen = new Set<string>();
         const opts: SitioCercano[] = [];
-        ((data as InventarioItem[]) || []).forEach((r) => {
+        filas.forEach((r) => {
           if (r.site_id && !seen.has(r.site_id) && r.latitud && r.longitud) {
             seen.add(r.site_id);
             opts.push({
@@ -374,12 +535,17 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           }
         });
         opts.sort((a, b) => a.dist - b.dist);
+        soltarSitioEnVuelo();
         setSite(null);
         setSiteQuery('');
         setSiteOpts([]);
         setNearOpts(opts.slice(0, 15));
         if (opts.length === 0)
-          alert('No hay sitios de esta unidad en ~6 km de tu ubicación.');
+          alert(
+            sinCopia
+              ? sinCopiaInventario()
+              : 'No hay sitios de esta unidad en ~6 km de tu ubicación.'
+          );
       },
       (err) => {
         setGeoBusy(false);
@@ -392,12 +558,17 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             '\n\nMientras tanto puedes buscar el sitio por su clave.'
         );
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      // maximumAge 60 s (modo sin señal, 24-sep-2026): una posición de hace
+      // un minuto sirve para un radio de 6 km, y sin datos móviles la
+      // primera posición nueva suele pasar de los 10 s del tope.
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
   };
 
   // Cambiar de unidad invalida el sitio: las claves no se cruzan entre unidades.
+  // También la elección en vuelo: su respuesta sería de la unidad anterior.
   useEffect(() => {
+    soltarSitioEnVuelo();
     setSite(null);
     setSiteQuery('');
     setSiteOpts([]);
@@ -407,49 +578,104 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   }, [un]);
 
   // Buscador de clave de sitio, con debounce de 250 ms.
+  //
+  // Modo sin señal (24-sep-2026): primero la copia del teléfono, que se
+  // enseña al instante; si hay señal, también la red (tope corto, sin los
+  // reintentos de postgrest-js) y se unen sin repetidos. "Buscando…" ya no
+  // se queda pegado: antes, al elegir sitio o borrar la clave, la limpieza
+  // cancelaba la búsqueda antes de apagarlo.
+  //
+  // Lo que ya está a la vista NO se mueve (revisión sin señal, 24-sep-2026):
+  // antes lo de la red iba primero y reordenaba la lista justo cuando el
+  // usuario iba a tocar, y el toque caía en otro sitio. Ahora lo local se
+  // queda en su lugar y lo nuevo de la red se agrega al final.
   useEffect(() => {
-    if (site) return; // ya hay sitio elegido
-    if (siteQuery.trim().length < 1) {
+    setSinResultados('');
+    const q = siteQuery.trim();
+    if (site || sitioEnCarga) {
+      // ya hay sitio elegido (o cargándose)
+      setLoadingSites(false);
+      return;
+    }
+    if (q.length < 1) {
       setSiteOpts([]);
+      setLoadingSites(false);
       return;
     }
     let active = true;
     setLoadingSites(true);
     const t = setTimeout(async () => {
-      // Espacios como comodín, igual que en EditModal: "eva 03" encuentra
-      // MX_EM_EV_EVA_03_0009 sin conocer los guiones bajos del formato.
-      const patron = '%' + siteQuery.trim().replace(/\s+/g, '%') + '%';
-      const { data } = await sb
-        .from('inventario')
-        .select('site_id,direccion')
-        .eq('unidad_negocio', un)
-        .ilike('site_id', patron)
-        .limit(80);
-      if (!active) return; // el usuario ya escribió otra cosa
-      const seen = new Set<string>();
-      const opts: Sitio[] = [];
-      ((data as InventarioItem[]) || []).forEach((r) => {
-        if (r.site_id && !seen.has(r.site_id)) {
-          seen.add(r.site_id);
-          opts.push({ site_id: r.site_id, direccion: r.direccion });
-        }
-      });
-      setSiteOpts(opts.slice(0, 12));
-      setLoadingSites(false);
+      try {
+        const locales = await buscarSitiosLocal(un, q, 12).catch(() => [] as SitioLocal[]);
+        if (!active) return; // el usuario ya escribió otra cosa
+        // Aunque venga vacío: la lista de la búsqueda ANTERIOR no debe
+        // quedarse tocable mientras contesta la red, y así se ve "Buscando…"
+        // (revisión sin señal, 24-sep-2026).
+        setSiteOpts(locales);
+        // Con copia del inventario, que la clave no esté en ella es creíble:
+        // tope corto. Sin copia, redOLocal espera más a la red.
+        const hayCopiaInv = !!(await fechaCopia('inventario').catch(() => null));
+        if (!active) return;
+        // Espacios como comodín, igual que en EditModal: "eva 03" encuentra
+        // MX_EM_EV_EVA_03_0009 sin conocer los guiones bajos del formato.
+        const patron = '%' + q.replace(/\s+/g, '%') + '%';
+        const r = await redOLocal<SitioLocal[]>(
+          (senal) =>
+            sb
+              .from('inventario')
+              .select('site_id,direccion')
+              .eq('unidad_negocio', un)
+              .ilike('site_id', patron)
+              .limit(80)
+              .retry(false)
+              .abortSignal(senal),
+          async () => locales,
+          hayCopiaInv ? { topeSinCopiaMs: 0 } : undefined
+        );
+        if (!active) return;
+        const seen = new Set<string>();
+        const opts: Sitio[] = [];
+        const agregar = (x: { site_id: string | null; direccion: string | null }) => {
+          if (x.site_id && !seen.has(x.site_id)) {
+            seen.add(x.site_id);
+            opts.push({ site_id: x.site_id, direccion: x.direccion });
+          }
+        };
+        // Primero lo que ya se ve, en el mismo orden; lo de la red, al final.
+        locales.forEach(agregar);
+        if (r.origen === 'red') (r.datos || []).forEach(agregar);
+        const sinCopia =
+          r.origen === 'local' &&
+          opts.length === 0 &&
+          !(await fechaCopia('inventario').catch(() => null));
+        if (!active) return;
+        setSiteOpts(opts.slice(0, 12));
+        marcarOrigen('sitios', r.origen);
+        if (opts.length === 0) setSinResultados(sinCopia ? 'sinCopia' : 'vacio');
+      } finally {
+        if (active) setLoadingSites(false);
+      }
     }, 250);
     return () => {
       active = false;
       clearTimeout(t);
     };
-  }, [siteQuery, un, site]);
+  }, [siteQuery, un, site, sitioEnCarga, reintentoSitios]);
+
+  // Cambiar de unidad reinicia la incidencia elegida y el lado. Va aparte de
+  // la consulta del catálogo (modo sin señal, 24-sep-2026): volver a pedirlo
+  // al regresar la señal no debe borrar lo que ya se eligió.
+  useEffect(() => {
+    setCatSel(null);
+    setCatBusca('');
+    setLado('');
+  }, [un]);
 
   // Catálogo de incidencias por unidad (ilike: la unidad puede venir con
   // mayúsculas distintas entre tablas).
   useEffect(() => {
     let active = true;
-    setCatSel(null);
-    setCatBusca('');
-    setLado('');
+    setCatEnVuelo(true);
     (async () => {
       // ANTES: aquí se colapsaba por `detalle` con un Set y se conservaba LA
       // PRIMERA fila que devolviera Postgres. Como el catálogo repite la
@@ -460,33 +686,78 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       // Ahora se guarda el catálogo COMPLETO y el colapso se hace abajo, ya
       // sabiendo qué caras se marcaron. `select('*')` porque `tipo_medio`
       // puede o no existir en la tabla y pedirla por nombre daría 400.
-      const { data } = await sb
-        .from('catalogo_incidencias')
-        .select('*')
-        .ilike('unidad_negocio', un)
-        .limit(1000);
+      //
+      // Sin señal o si la red falla, el de la copia del teléfono para ESTA
+      // unidad (modo sin señal, 24-sep-2026): antes un cambio de unidad sin
+      // red dejaba el catálogo en "0 de 0".
+      const r = await redOLocal<CatalogoIncidencia[]>(
+        (senal) =>
+          sb
+            .from('catalogo_incidencias')
+            .select('*')
+            .ilike('unidad_negocio', un)
+            .limit(1000)
+            .retry(false)
+            .abortSignal(senal),
+        () => catalogoLocal(un)
+      ).catch(() => ({ datos: [] as CatalogoIncidencia[], origen: 'local' as const }));
       if (!active) return;
-      setCatCrudo((data as CatalogoIncidencia[]) || []);
-    })();
-    (async () => {
-      // El árbol de Digital es el catálogo de las caras DIGITALES: lo que se
-      // capture de aquí es exactamente lo que el técnico clasifica al reparar.
-      // No tiene unidad: es uno solo para todos los medios digitales.
-      const { data } = await sb
-        .from('arbol_digital')
-        .select('incidencia')
-        .limit(2000);
-      if (!active) return;
-      setArbolNombres(
-        (((data as { incidencia: string | null }[]) || [])
-          .map((x) => x.incidencia)
-          .filter(Boolean) as string[])
-      );
+      setCatEnVuelo(false);
+      setCatCrudo(r.datos);
+      marcarOrigen('catalogo', r.origen);
     })();
     return () => {
       active = false;
     };
-  }, [un]);
+  }, [un, reintentoCat]);
+
+  // El árbol de Digital es el catálogo de las caras DIGITALES: lo que se
+  // capture de aquí es exactamente lo que el técnico clasifica al reparar.
+  // No tiene unidad: es uno solo para todos los medios digitales, así que se
+  // pide una sola vez al abrir y no en cada cambio de unidad (modo sin
+  // señal, 24-sep-2026; antes se volvía a bajar y, sin red, se perdía).
+  useEffect(() => {
+    let active = true;
+    setArbolEnVuelo(true);
+    (async () => {
+      const r = await redOLocal<{ incidencia: string | null }[]>(
+        (senal) =>
+          sb.from('arbol_digital').select('incidencia').limit(2000).retry(false).abortSignal(senal),
+        async () => (await arbolDigitalLocal()).map((a) => ({ incidencia: a.incidencia }))
+      ).catch(() => ({ datos: [] as { incidencia: string | null }[], origen: 'local' as const }));
+      if (!active) return;
+      setArbolEnVuelo(false);
+      setArbolNombres(r.datos.map((x) => x.incidencia).filter(Boolean) as string[]);
+      marcarOrigen('arbol', r.origen);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [reintentoArbol]);
+
+  // Si el alta abrió sin señal y sin copia, el catálogo o el árbol quedan
+  // vacíos: se vuelven a pedir al regresar la señal y, mientras sigan así,
+  // cada 15 s con señal (al volver la red, auth-js tarda hasta ~60 s en dar
+  // sesión y el primer intento puede caer a la copia). Solo si lo vacío salió
+  // de la copia: un vacío real de la red no se sondea (modo sin señal,
+  // 24-sep-2026). Ni mientras siga en camino el pedido anterior (revisión
+  // sin señal, 24-sep-2026).
+  const faltaCat = catCrudo.length === 0 && !!deCopia.catalogo && !catEnVuelo;
+  const faltaArbol = arbolNombres.length === 0 && !!deCopia.arbol && !arbolEnVuelo;
+  useEffect(() => {
+    if (!faltaCat && !faltaArbol) return;
+    const otraVez = () => {
+      if (!haySenal()) return;
+      if (faltaCat) setReintentoCat((n) => n + 1);
+      if (faltaArbol) setReintentoArbol((n) => n + 1);
+    };
+    window.addEventListener('online', otraVez);
+    const t = window.setInterval(otraVez, 15000);
+    return () => {
+      window.removeEventListener('online', otraVez);
+      window.clearInterval(t);
+    };
+  }, [faltaCat, faltaArbol]);
 
   // Ventana de catorcenas para la campaña pautada: la ANTERIOR, la actual y
   // la SIGUIENTE. En el cambio de campaña la foto de campo puede ser de la
@@ -495,6 +766,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   useEffect(() => {
     if (un !== 'Ecovallas') {
       setVentanaCats([]);
+      marcarOrigen('catorcenas', 'red'); // no aplica: no cuenta para el aviso 📴
       return;
     }
     let active = true;
@@ -504,14 +776,27 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       const desde = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
         .toISOString()
         .slice(0, 10);
-      const { data } = await sb
-        .from('catorcenas')
-        .select('numero,fecha_inicio,fecha_fin,cat_texto')
-        .gte('fecha_fin', desde)
-        .order('numero')
-        .limit(3);
+      // Sin señal, la misma ventana sobre el calendario del teléfono (modo
+      // sin señal, 24-sep-2026).
+      const r = await redOLocal<CatVentana[]>(
+        (senal) =>
+          sb
+            .from('catorcenas')
+            .select('numero,fecha_inicio,fecha_fin,cat_texto')
+            .gte('fecha_fin', desde)
+            .order('numero')
+            .limit(3)
+            .retry(false)
+            .abortSignal(senal),
+        async () =>
+          (await catorcenasLocal())
+            .filter((c) => c.fecha_fin >= desde)
+            .sort((a, b) => a.numero - b.numero)
+            .slice(0, 3)
+      ).catch(() => ({ datos: [] as CatVentana[], origen: 'local' as const }));
       if (!active) return;
-      setVentanaCats((data as CatVentana[]) || []);
+      setVentanaCats(r.datos);
+      marcarOrigen('catorcenas', r.origen);
     })();
     return () => {
       active = false;
@@ -525,22 +810,33 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   useEffect(() => {
     if (un !== 'Ecovallas' || caras.length === 0 || ventanaCats.length === 0) {
       setPautasCaras([]);
+      marcarOrigen('pautas', 'red'); // no aplica: no cuenta para el aviso 📴
       return;
     }
     let active = true;
     (async () => {
       const inicio = ventanaCats[0].fecha_inicio;
       const fin = ventanaCats[ventanaCats.length - 1].fecha_fin;
-      const { data } = await sb
-        .from('qtm_pautas')
-        .select('vendor_face_id,campaign,fecha_inicio,fecha_fin')
-        .in('vendor_face_id', caras.map((c) => c.vendor_face_id))
-        // Traslape de rangos: empieza antes de que acabe la ventana y
-        // termina después de que empiece.
-        .lte('fecha_inicio', fin)
-        .gte('fecha_fin', inicio);
+      const ids = caras.map((c) => c.vendor_face_id);
+      // Sin señal o si la red falla, la pauta de la copia del teléfono (modo
+      // sin señal, 24-sep-2026); sin pauta se cae al texto libre, como antes.
+      const r = await redOLocal<PautaQtm[]>(
+        (senal) =>
+          sb
+            .from('qtm_pautas')
+            .select('vendor_face_id,campaign,fecha_inicio,fecha_fin')
+            .in('vendor_face_id', ids)
+            // Traslape de rangos: empieza antes de que acabe la ventana y
+            // termina después de que empiece.
+            .lte('fecha_inicio', fin)
+            .gte('fecha_fin', inicio)
+            .retry(false)
+            .abortSignal(senal),
+        () => pautasLocal(ids, inicio, fin)
+      ).catch(() => ({ datos: [] as PautaQtm[], origen: 'local' as const }));
       if (!active) return;
-      setPautasCaras((data as PautaQtm[]) || []);
+      setPautasCaras(r.datos || []);
+      marcarOrigen('pautas', r.origen);
     })();
     return () => {
       active = false;
@@ -648,18 +944,18 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       // guardias y ponía el sitio del preset debajo de las partidas
       // recuperadas de otro sitio.
       const seq = pickSeqRef.current;
-      const { data } = await sb
-        .from('inventario')
-        .select('site_id,direccion')
-        .eq('site_id', preset.siteId)
-        .limit(1);
+      const siteId = preset.siteId as string;
+      // Ya se enseña "cargando" desde aquí; quien invalide la precarga lo
+      // suelta (soltarSitioEnVuelo) o lo reemplaza (pickSite).
+      setSitioEnCarga(siteId);
+      // La dirección sale primero de la copia del teléfono, al instante
+      // (modo sin señal, 24-sep-2026). Ya no se consulta aparte a la red:
+      // era la dirección de UNA cara del sitio (`.limit(1)`), la misma que
+      // pickSite toma de las caras si aquí no hay; con señal fantasma eran
+      // otros 4 s de espera antes de pedir las caras.
+      const fila = await sitioLocal(siteId).catch(() => null);
       if (seq !== pickSeqRef.current) return;
-      const fila = ((data as InventarioItem[]) || [])[0];
-      await pickSite(
-        fila
-          ? { site_id: fila.site_id as string, direccion: fila.direccion }
-          : { site_id: preset.siteId as string, direccion: '' }
-      );
+      await pickSite({ site_id: siteId, direccion: fila?.direccion || '' });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -701,6 +997,23 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       activo = false;
     };
   }, []);
+
+  // Fecha de la copia del inventario para el aviso 📴: se lee cuando algo
+  // sale de la copia del teléfono, y otra vez en cada lectura nueva (la
+  // sincronización pudo bajarla mientras el alta seguía abierta) (modo sin
+  // señal, 24-sep-2026).
+  useEffect(() => {
+    if (!usandoCopia) return;
+    let vivo = true;
+    fechaCopia('inventario')
+      .catch(() => null)
+      .then((f) => {
+        if (vivo) setFechaInv(f);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [usandoCopia, deCopia]);
 
   const limpiarSitio = () => {
     setSite(null);
@@ -790,7 +1103,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     const deClaves = (ks: string[] | undefined) =>
       (ks || []).map((k) => archivos.get(k)).filter((f): f is File => !!f);
     // Un pickSite en vuelo (el del preset) pisaría el sitio recuperado.
-    pickSeqRef.current++;
+    soltarSitioEnVuelo();
     setSiteOpts([]);
     setNearOpts([]);
     setSiteQuery(d.site?.site_id || '');
@@ -1358,6 +1671,21 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           Elige el sitio una vez y agrega todas las fallas: cada una a las caras
           que apliquen.
         </p>
+        {/* Aviso discreto de que algo salió de la copia del teléfono (modo
+            sin señal, 24-sep-2026): quien captura sabe con qué fecha trabaja. */}
+        {usandoCopia && (
+          <div
+            style={{ fontSize: 12, color: 'var(--muted)', margin: '-4px 0 10px' }}
+            role="status"
+          >
+            📴{' '}
+            {fechaInv === null
+              ? SIN_COPIA_INVENTARIO
+              : fechaInv
+                ? `Usando la copia del teléfono (inventario del ${fechaCorta(fechaInv)})`
+                : 'Usando la copia del teléfono'}
+          </div>
+        )}
 
         <div className="field">
           <label>Unidad de negocio</label>
@@ -1378,6 +1706,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             <input
               value={siteQuery}
               onChange={(e) => {
+                // Escribir otra clave invalida la elección que siga cargando.
+                soltarSitioEnVuelo();
                 setSite(null);
                 setNearOpts([]);
                 setSiteQuery(e.target.value);
@@ -1407,9 +1737,42 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               {geoBusy ? '📍 Ubicando…' : '📍 Sitios cerca de mí'}
             </button>
           )}
-          {loadingSites && (
+          {/* Con resultados de la copia ya a la vista no se dice "Buscando…"
+              aunque la red siga en camino (tope de unos segundos). */}
+          {loadingSites && !site && !sitioEnCarga && siteOpts.length === 0 && (
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
               Buscando…
+            </div>
+          )}
+          {!loadingSites && !site && !sitioEnCarga && !!sinResultados && !!siteQuery.trim() && (
+            <div
+              style={{
+                fontSize: 12,
+                color: sinResultados === 'sinCopia' ? 'var(--warn)' : 'var(--muted)',
+                marginTop: 4,
+              }}
+            >
+              {sinResultados === 'sinCopia' ? (
+                // Por qué no llegó la red, y cómo volver a pedirla (revisión
+                // sin señal, 24-sep-2026).
+                <>
+                  {sinCopiaInventario()}{' '}
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    onClick={() => setReintentoSitios((n) => n + 1)}
+                  >
+                    Reintentar
+                  </button>
+                </>
+              ) : (
+                'Sin resultados'
+              )}
+            </div>
+          )}
+          {sitioEnCarga && !site && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+              <span className="spinner" /> Cargando los medios del sitio…
             </div>
           )}
           {siteOpts.length > 0 && !site && (
@@ -1501,6 +1864,24 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             <br />
             Municipio: {site.municipio || '—'} · Plaza: {site.estado || '—'} ·{' '}
             {caras.length} medio{caras.length === 1 ? '' : 's'} en este sitio
+            {/* Sin red y sin el sitio en la copia (modo sin señal,
+                24-sep-2026): se dice por qué no hay medios y se deja
+                reintentar, en vez del callejón de "0 medios". */}
+            {caras.length === 0 && deCopia.caras && (
+              <div style={{ marginTop: 6, color: 'var(--warn)' }}>
+                No se pudieron cargar los medios:{' '}
+                {motivoSinRed() === 'Sin señal' ? 'no hay señal' : 'la red tardó demasiado'} y
+                este teléfono no tiene este sitio en su copia.{' '}
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={() => pickSite(site)}
+                  disabled={!!sitioEnCarga}
+                >
+                  {sitioEnCarga ? 'Cargando…' : 'Reintentar'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1687,6 +2068,24 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               {catBusca && catVisibles.length === 0 && (
                 <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
                   Nada coincide con “{catBusca}”.
+                </div>
+              )}
+              {catCrudo.length === 0 && deCopia.catalogo && (
+                <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
+                  {/* Sin señal o red lenta, y con Reintentar: el sondeo de
+                      15 s sigue, pero no hay por qué esperarlo (revisión sin
+                      señal, 24-sep-2026). */}
+                  {haySenal()
+                    ? `La red tardó demasiado, y este teléfono no tiene copia del catálogo de ${un}.`
+                    : `📴 Sin señal, y este teléfono no tiene copia del catálogo de ${un}. Abre la app una vez con señal.`}{' '}
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    onClick={() => setReintentoCat((n) => n + 1)}
+                    disabled={catEnVuelo}
+                  >
+                    {catEnVuelo ? 'Cargando…' : 'Reintentar'}
+                  </button>
                 </div>
               )}
               {cat.sinCatalogo.length > 0 && (

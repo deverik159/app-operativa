@@ -18,9 +18,14 @@
 // LO QUE NO SE TOCA: `assigned_area`. Si alguien ya había redirigido la
 // reparación a otra área, esa decisión se respeta (decisión de Erik,
 // ago-2026). Corregir la clasificación no deshace quién la está reparando.
+//
+// SIN SEÑAL (modo sin señal, 24-sep-2026): el catálogo sale de la red con
+// tope corto o de la copia del teléfono (lib/datosLocales.ts). GUARDAR sí
+// necesita señal: la corrección no se encola, y sin red se dice claro.
 // ============================================================
 import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
+import { catalogoLocal, haySenal, motivoSinRed, redOLocal } from '../../lib/datosLocales';
 import {
   catalogoParaMuebles,
   llaveCatalogo,
@@ -35,6 +40,24 @@ type Props = {
   onClose: () => void;
   onDone: (recordId: string, patch: Partial<Incidencia>) => void;
 };
+
+const SIN_SENAL = 'Necesitas señal para esto.';
+
+/**
+ * ¿Hay sesión real para escribir? (modo sin señal, 24-sep-2026). En la
+ * ventana en que auth-js aún no renueva el token, el UPDATE saldría como
+ * anónimo y la RLS lo dejaría en 0 filas sin error. Tope de 3 s: sin red y
+ * con el token vencido, getSession espera la renovación.
+ */
+function haySesionReal(): Promise<boolean> {
+  return Promise.race([
+    sb.auth.getSession().then(
+      ({ data }) => !!data.session,
+      () => false
+    ),
+    new Promise<boolean>((res) => setTimeout(() => res(false), 3000)),
+  ]);
+}
 
 /** Fila de solo lectura: lo que el catálogo decide y aquí no se discute. */
 function Derivado({ label, valor }: { label: string; valor: string }) {
@@ -65,6 +88,10 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
   });
   const [loading, setLoading] = useState(true);
   const [errCat, setErrCat] = useState('');
+  /** El catálogo salió de la copia del teléfono (modo sin señal, 24-sep-2026). */
+  const [deCopia, setDeCopia] = useState(false);
+  /** Sube con "Reintentar" cuando no llegó el catálogo (revisión sin señal, 24-sep-2026). */
+  const [reintento, setReintento] = useState(0);
   const [llave, setLlave] = useState('');
   const [busca, setBusca] = useState('');
   const [observaciones, setObservaciones] = useState(inc.observaciones || '');
@@ -74,31 +101,50 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
   // unidad viene escrita distinto entre tablas ('Biobox' vs 'BIOBOX').
   useEffect(() => {
     let vivo = true;
+    setLoading(true);
+    setErrCat('');
     (async () => {
       // `select('*')` y no la lista de columnas: si el catálogo tiene
       // `tipo_medio`, viene; y si no la tiene, no truena. Pedirla por nombre
       // daría 400 y el modal se quedaría vacío sin decir por qué.
-      const { data, error } = await sb
-        .from('catalogo_incidencias')
-        .select('*')
-        .ilike('unidad_negocio', inc.unidad_negocio || '%')
-        .limit(1000);
+      //
+      // Sin señal o si la red falla, el de la copia del teléfono (modo sin
+      // señal, 24-sep-2026). OJO con la copia: el filtro de la red es
+      // IGUALDAD sin mayúsculas (`ilike` sin comodín); el '%' solo entra si
+      // la incidencia no trae unidad. Con prefijo, 'Biobox' se traería
+      // también el catálogo de 'Biobox Perú'.
+      const unidad = inc.unidad_negocio || '';
+      const r = await redOLocal<CatalogoIncidencia[]>(
+        (senal) =>
+          sb
+            .from('catalogo_incidencias')
+            .select('*')
+            .ilike('unidad_negocio', inc.unidad_negocio || '%')
+            .limit(1000)
+            .retry(false)
+            .abortSignal(senal),
+        () => catalogoLocal(unidad, { prefijo: !unidad })
+      ).catch(() => ({ datos: [] as CatalogoIncidencia[], origen: 'local' as const }));
       if (!vivo) return;
-      if (error) setErrCat('No se pudo cargar el catálogo: ' + error.message);
+      setDeCopia(r.origen === 'local');
+      // Sin señal no es lo mismo que una red que tardó (revisión sin señal,
+      // 24-sep-2026): con 3G lenta lo que sirve es Reintentar.
+      if (r.origen === 'local' && r.datos.length === 0)
+        setErrCat(
+          motivoSinRed() === 'Sin señal'
+            ? 'Sin señal, y este teléfono no tiene copia del catálogo. Abre la app una vez con señal.'
+            : 'La red tardó demasiado, y este teléfono no tiene copia del catálogo.'
+        );
       // Se RESTRINGE al mueble de esta cara. Ahí cada incidencia existe una
       // sola vez y el área ya viene decidida: es lo que evita que "Adicional
       // dañado" en una cara impresa salga dirigida a Digital.
-      setCat(
-        catalogoParaMuebles((data as CatalogoIncidencia[]) || [], [
-          inc.tipo_mueble,
-        ])
-      );
+      setCat(catalogoParaMuebles(r.datos, [inc.tipo_mueble]));
       setLoading(false);
     })();
     return () => {
       vivo = false;
     };
-  }, [inc.unidad_negocio, inc.tipo_mueble]);
+  }, [inc.unidad_negocio, inc.tipo_mueble, reintento]);
 
   // Preselección: si el nombre actual existe en el catálogo, se marca solo.
   // Si no existe (incidencia vieja, o texto capturado a mano), se deja en
@@ -147,7 +193,17 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
       alert('Elige del catálogo qué incidencia es.');
       return;
     }
+    // La corrección no se encola (modo sin señal, 24-sep-2026).
+    if (!haySenal()) {
+      alert(SIN_SENAL);
+      return;
+    }
     setBusy(true);
+    if (!(await haySesionReal())) {
+      setBusy(false);
+      alert(SIN_SENAL);
+      return;
+    }
     // Solo estos cinco. `assigned_area` queda fuera a propósito.
     const patch: Partial<Incidencia> = {
       nombre_incidencia: sel.detalle,
@@ -157,13 +213,28 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
       area_responsable: areaNueva || null,
       observaciones: observaciones.trim() || null,
     };
-    const { error } = await sb
+    // Se CUENTA lo afectado (modo sin señal, 24-sep-2026): la RLS que no deja
+    // pasar la fila responde 0 filas SIN error, y antes eso se daba por
+    // guardado y la tarjeta enseñaba una corrección que la base no tenía.
+    // `count` y no `.select()`: devolver la fila exigiría que el validador
+    // pueda LEERLA ya con el área nueva, y esa política no está a la vista.
+    // Solo un 0 explícito cuenta como "no se guardó".
+    const { error, status, count } = await sb
       .from('incidencias')
-      .update(patch)
+      .update(patch, { count: 'exact' })
       .eq('record_id', inc.record_id);
     setBusy(false);
     if (error) {
-      alert('No se pudo corregir: ' + error.message);
+      // status 0 = sin respuesta; 401/5xx = sesión o servidor de paso.
+      const deRed = !haySenal() || !status || status === 401 || status >= 500;
+      alert(deRed ? SIN_SENAL : 'No se pudo corregir: ' + error.message);
+      return;
+    }
+    if (count === 0) {
+      alert(
+        'No se guardó la corrección: tu rol o tu área no permiten cambiar esta ' +
+          'incidencia. Refresca con ↻ y revisa cómo quedó.'
+      );
       return;
     }
     onDone(inc.record_id, patch);
@@ -182,7 +253,27 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
           {inc.folio} · {inc.clave_sitio}
         </p>
 
-        {errCat && <div className="err">{errCat}</div>}
+        {errCat && (
+          <div className="err">
+            {errCat}{' '}
+            <button
+              type="button"
+              className="btn ghost sm"
+              onClick={() => setReintento((n) => n + 1)}
+              disabled={loading}
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
+        {deCopia && !errCat && (
+          <div
+            style={{ fontSize: 12, color: 'var(--muted)', margin: '-4px 0 10px' }}
+            role="status"
+          >
+            📴 Catálogo de la copia del teléfono. Para guardar necesitas señal.
+          </div>
+        )}
 
         <div className="banner" style={{ marginBottom: 14 }}>
           Aquí se corrige <b>qué incidencia es</b>. El nivel y el área

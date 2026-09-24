@@ -25,18 +25,25 @@ import {
   Suspense,
   type ComponentType,
 } from 'react';
-import type { Session } from '@supabase/supabase-js';
+import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES } from './lib/constants';
 import { initials } from './lib/helpers';
 import { useNotificaciones } from './lib/useNotificaciones';
-import { vigilarNuevaVersion } from './lib/versionApp';
+import { vigilarNuevaVersion, traerVersionNueva } from './lib/versionApp';
 import CampanaNotifs from './components/CampanaNotifs';
 import BotonPush from './components/BotonPush';
 import MenuUsuario from './components/MenuUsuario';
 import ErrorBoundary from './components/ErrorBoundary';
 import EnviosPendientes from './components/EnviosPendientes';
-import { confirmarRecargaConEnvios } from './lib/envios';
+import {
+  confirmarRecargaConEnvios,
+  hayEnviosEnRiesgo,
+  listarPendientes,
+} from './lib/envios';
+import { accionesPendientes } from './lib/acciones';
+import { borrarListaLocal, iniciarSincronizacion } from './lib/datosLocales';
+import { useEnLinea, enLineaAhora, pareceSinRed } from './lib/enLinea';
 import { lazyConReintento, fijarModuloEnPantalla } from './lib/cargaDiferida';
 // Incidencias se queda ESTÁTICO: es el núcleo (Mis pendientes y el alta
 // NuevaInc que abre el botón Nueva). Un alta nunca debe esperar —ni
@@ -177,6 +184,213 @@ function tabDeRuta(pathname: string): string | null {
   return TAB_DE_RUTA[limpia] ?? null;
 }
 
+// ---- Sesión y roles sin señal (modo sin señal, 24-sep-2026) --------------
+//
+// Antes, abrir la app sin red con el token vencido (casi todo arranque en
+// frío tras ~1 h sin usarla) dejaba ~25 s en "Cargando…" y luego el Login:
+// auth-js reintenta la renovación ~25 s y getSession devuelve null con un
+// error REINTENTABLE, pero la sesión sigue guardada y se recupera sola al
+// volver la red. Ahora App entra de inmediato con la sesión guardada
+// ("sin verificar") y auth-js la confirma o la renueva cuando pueda. Si la
+// sesión muere de verdad (refresh token revocado), auth-js borra la clave
+// y emite SIGNED_OUT: ahí sí se va al Login.
+
+/**
+ * Clave de la sesión en localStorage. La misma que arma supabase-js
+ * (SupabaseClient: `sb-<primer tramo del host>-auth-token`); si el cliente
+ * expone la suya en tiempo de ejecución, manda esa. NO fijar
+ * auth.storageKey en supabase.ts con otro valor: sacaría a todos de su
+ * sesión.
+ */
+function claveSesion(): string {
+  const propia = (sb.auth as unknown as { storageKey?: unknown }).storageKey;
+  if (typeof propia === 'string' && propia) return propia;
+  try {
+    const host = new URL(String(import.meta.env.VITE_SUPABASE_URL || '').trim()).hostname;
+    return `sb-${host.split('.')[0]}-auth-token`;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * La sesión guardada por auth-js, leída de forma síncrona. Solo si tiene la
+ * forma que auth-js acepta (access/refresh token y expires_at) y trae el
+ * correo: Main solo usa user.email y user_metadata.name. No se revisa
+ * expires_at: sin red se espera que esté vencida.
+ */
+function leerSesionGuardada(): Session | null {
+  try {
+    const clave = claveSesion();
+    if (!clave) return null;
+    const crudo = window.localStorage.getItem(clave);
+    if (!crudo) return null;
+    const s = JSON.parse(crudo) as Partial<Session> | null;
+    if (
+      !s ||
+      typeof s !== 'object' ||
+      typeof s.access_token !== 'string' ||
+      typeof s.refresh_token !== 'string' ||
+      !s.refresh_token ||
+      !('expires_at' in s) ||
+      !s.user ||
+      typeof s.user.email !== 'string' ||
+      !s.user.email
+    )
+      return null;
+    return s as Session;
+  } catch {
+    return null;
+  }
+}
+
+function borrarSesionGuardada(): void {
+  try {
+    const clave = claveSesion();
+    if (!clave) return;
+    window.localStorage.removeItem(clave);
+    // Copia del usuario que auth-js guarda aparte en algunas configuraciones
+    // (su _removeSession también la quita; revisión sin señal, 24-sep-2026).
+    window.localStorage.removeItem(`${clave}-user`);
+  } catch {
+    /* sin localStorage no hay nada guardado que borrar */
+  }
+}
+
+/**
+ * ¿Se está regresando de Google o del correo de restablecimiento? Ahí la
+ * URL trae la sesión NUEVA (o un error) y la guardada puede ser de otra
+ * cuenta: se espera a auth-js como antes, sin arranque optimista.
+ */
+function esRegresoDeAuth(): boolean {
+  const { hash, search } = window.location;
+  return (
+    /(^#|&)(access_token|refresh_token|error|error_description)=/.test(hash) ||
+    /[?&](code|error_description)=/.test(search)
+  );
+}
+
+/**
+ * true tras un "Salir" que auth-js no pudo completar (sin red). Si en ese
+ * rato termina una renovación que ya iba en camino, auth-js vuelve a guardar
+ * la sesión y emite TOKEN_REFRESHED: se ignora y se cierra otra vez. Se
+ * apaga al intentar entrar desde el Login.
+ */
+let salidaForzada = false;
+
+/** Tope para "Salir": si auth-js no contesta en este tiempo, sale a mano. */
+const TOPE_SALIR_MS = 4000;
+/** Tope de getSession antes de dar la sesión por "no confirmada todavía". */
+const TOPE_SESION_MS = 5000;
+/** Tope de la consulta de roles con copia en el teléfono (sin reintentos). */
+const TOPE_ROLES_CON_COPIA_MS = 8000;
+/** Tope de la consulta de roles sin copia (con los reintentos de siempre). */
+const TOPE_ROLES_SIN_COPIA_MS = 20000;
+/**
+ * Hasta cuándo una ruta que la copia de roles no tenía se abre al llegar los
+ * de la red (ver rutaPendiente en Main). Después, aunque no haya cambiado
+ * de pestaña, el usuario ya está usando la suya: no se le mueve.
+ */
+const RUTA_PENDIENTE_MS = 30000;
+
+/** AbortSignal con tope; AbortSignal.timeout no existe en Safari < 16. */
+function tope(ms: number): AbortSignal {
+  const AS = AbortSignal as unknown as { timeout?: (ms: number) => AbortSignal };
+  if (typeof AS.timeout === 'function') return AS.timeout(ms);
+  const c = new AbortController();
+  window.setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
+/** Resuelve `valor` si la promesa no termina a tiempo (nunca rechaza). */
+function conTope<T>(p: PromiseLike<T>, ms: number, valor: T): Promise<T> {
+  return new Promise<T>((res) => {
+    const t = window.setTimeout(() => res(valor), ms);
+    Promise.resolve(p).then(
+      (v) => {
+        window.clearTimeout(t);
+        res(v);
+      },
+      () => {
+        window.clearTimeout(t);
+        res(valor);
+      }
+    );
+  });
+}
+
+/**
+ * Roles guardados en el teléfono, por correo: {filas, guardado}. Son 1–5
+ * filas (<1 KB). Con ellos Main arranca sin los ~7 s de "Cargando tu
+ * perfil…" y, sin red, con su menú completo (antes quedaba solo
+ * Indicadores: no se podía capturar, validar ni reparar).
+ */
+const claveRoles = (email: string) => `gpovallas_roles:${email}`;
+
+function leerRolesGuardados(email: string): UsuarioRol[] | null {
+  try {
+    const crudo = window.localStorage.getItem(claveRoles(email));
+    if (!crudo) return null;
+    const g = JSON.parse(crudo) as { filas?: unknown } | null;
+    const filas = g?.filas;
+    if (!Array.isArray(filas) || filas.length === 0) return null;
+    if (!filas.every((f) => f && typeof f === 'object' && typeof (f as UsuarioRol).rol === 'string'))
+      return null;
+    return filas as UsuarioRol[];
+  } catch {
+    return null;
+  }
+}
+
+function guardarRoles(email: string, filas: UsuarioRol[]): void {
+  try {
+    window.localStorage.setItem(
+      claveRoles(email),
+      JSON.stringify({ filas, guardado: new Date().toISOString() })
+    );
+  } catch {
+    /* sin espacio o modo privado: se sigue con los de memoria */
+  }
+}
+
+function borrarRolesGuardados(email: string): void {
+  try {
+    window.localStorage.removeItem(claveRoles(email));
+  } catch {
+    /* nada guardado */
+  }
+}
+
+/** Mismas filas (orden incluido: la consulta no ordena, pero es estable). */
+function mismosRoles(a: UsuarioRol[] | null, b: UsuarioRol[]): boolean {
+  if (!a || a.length !== b.length) return false;
+  return a.every(
+    (r, i) =>
+      r.rol === b[i].rol &&
+      (r.unidad_negocio ?? null) === (b[i].unidad_negocio ?? null) &&
+      (r.departamento ?? null) === (b[i].departamento ?? null)
+  );
+}
+
+/**
+ * Pide UNA vez que el navegador no borre lo guardado (cola de envíos,
+ * copias de datos, armazón) cuando le falte espacio. Safari 17+ y Chrome;
+ * donde no existe o lo niega, no pasa nada.
+ */
+let persistenciaPedida = false;
+function pedirAlmacenamientoPersistente(): void {
+  if (persistenciaPedida) return;
+  persistenciaPedida = true;
+  try {
+    void navigator.storage?.persist?.().catch(() => {});
+  } catch {
+    /* sin StorageManager */
+  }
+}
+
+/** Texto para quien intenta entrar sin red. */
+const NECESITAS_SENAL = 'Necesitas señal para iniciar sesión.';
+
 /** Ícono de la app: una valla / espectacular. */
 function LogoValla() {
   return (
@@ -230,12 +444,16 @@ function Login() {
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  // Sin red no hay forma de entrar: se dice claro en vez del "Load failed"
+  // crudo de Safari (modo sin señal, 24-sep-2026).
+  const enLinea = useEnLinea();
 
   const entrar = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr('');
     setMsg('');
     setBusy(true);
+    salidaForzada = false;
     // .trim(): un espacio pegado al correo produce "Invalid login
     // credentials" sin ninguna pista para el usuario.
     const { error } = await sb.auth.signInWithPassword({
@@ -243,12 +461,19 @@ function Login() {
       password: pass,
     });
     setBusy(false);
-    if (error) setErr(error.message);
+    if (error) setErr(pareceSinRed(error) ? NECESITAS_SENAL : error.message);
   };
 
   const entrarConGoogle = async () => {
     setErr('');
     setMsg('');
+    // Sin red, la redirección a Google acabaría en la página de error del
+    // navegador, fuera de la app.
+    if (!enLinea) {
+      setErr(NECESITAS_SENAL);
+      return;
+    }
+    salidaForzada = false;
     // OAuth redirige fuera de la app y vuelve; onAuthStateChange recoge la
     // sesión al regresar. redirectTo debe estar dado de alta en
     // Supabase → Authentication → URL Configuration.
@@ -256,7 +481,7 @@ function Login() {
       provider: 'google',
       options: { redirectTo: window.location.origin },
     });
-    if (error) setErr(error.message);
+    if (error) setErr(pareceSinRed(error) ? NECESITAS_SENAL : error.message);
   };
 
   const recuperar = async () => {
@@ -268,7 +493,8 @@ function Login() {
     const { error } = await sb.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: window.location.href,
     });
-    if (error) setErr(error.message);
+    if (error)
+      setErr(pareceSinRed(error) ? 'Necesitas señal para pedir el correo de recuperación.' : error.message);
     else setMsg('Te enviamos un correo para restablecer la contraseña.');
   };
 
@@ -285,6 +511,11 @@ function Login() {
           <br />
           Inicia sesión con tu correo corporativo
         </div>
+        {!enLinea && !err && (
+          <div className="banner" role="status">
+            📴 Sin señal. {NECESITAS_SENAL}
+          </div>
+        )}
         {err && <div className="err">{err}</div>}
         {msg && <div className="ok-msg">{msg}</div>}
         <div className="field">
@@ -473,12 +704,30 @@ type NavItem = {
 };
 
 // --- App principal (con sesión activa) ---
-function Main({ session }: { session: Session }) {
+function Main({
+  session,
+  verificada,
+  onSalidaForzada,
+}: {
+  session: Session;
+  /**
+   * false = la sesión es la guardada en el teléfono y auth-js todavía no la
+   * confirma (arranque sin red con el token vencido). Main funciona igual;
+   * solo no confía en respuestas que dependan de la sesión (ver roles).
+   */
+  verificada: boolean;
+  /** "Salir" no pudo cerrar la sesión con auth-js (sin red): App va al Login. */
+  onSalidaForzada: () => void;
+}) {
   const email = (session.user.email || '').toLowerCase();
-  const [roles, setRoles] = useState<UsuarioRol[] | null>(null);
+  // Roles: la copia del teléfono si la hay (listo al instante) y se
+  // refrescan en segundo plano (modo sin señal, 24-sep-2026).
+  const [copiaRoles] = useState(() => leerRolesGuardados(email));
+  const [roles, setRoles] = useState<UsuarioRol[] | null>(copiaRoles);
   const [errRoles, setErrRoles] = useState('');
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(copiaRoles !== null);
   const [tab, setTab] = useState('dashboard');
+  const enLinea = useEnLinea();
   /**
    * La pestaña que pide la URL al arrancar (/pauta → 'pauta'). Todavía no
    * se sabe si el usuario la TIENE en su menú: eso se decide cuando cargan
@@ -490,12 +739,28 @@ function Main({ session }: { session: Session }) {
   );
   const [rutaResuelta, setRutaResuelta] = useState(false);
   /**
+   * Ruta pedida que el menú de la COPIA de roles no tenía (revisión sin
+   * señal, 24-sep-2026). Con copia, la ruta se resuelve al instante con
+   * esos roles; si a este teléfono todavía no le llegaba un rol recién
+   * dado (le mandan /pauta al volverlo monitorista), el enlace caía en su
+   * pestaña de siempre y ya no se volvía a resolver. Se guarda aquí y, con
+   * la primera respuesta buena de usuario_roles (rolesDeRed), se abre si
+   * ahora sí está en su menú y el usuario no se movió. `desde` = la pestaña
+   * en que lo dejó la resolución; `hasta` = después ya no se le mueve.
+   */
+  const rutaPendiente = useRef<{ tab: string; desde: string; hasta: number } | null>(null);
+  const [rolesDeRed, setRolesDeRed] = useState(false);
+  /**
    * Cómo escribe la siguiente sincronía pestaña → URL. La PRIMERA tras
    * arrancar reemplaza (no apila una entrada extra de "/" o de la URL del
    * aviso push); las demás apilan, para que Atrás regrese de pestaña.
    */
   const modoHistorial = useRef<'reemplazar' | 'apilar'>('reemplazar');
   const [actualizacionDisponible, setActualizacionDisponible] = useState(false);
+  /** En qué va "Actualizar ahora" (revisión sin señal, 24-sep-2026; ver traerVersionNueva). */
+  const [actualizando, setActualizando] = useState<
+    '' | 'revisando' | 'descargando' | 'abriendo' | 'sinSenal'
+  >('');
   const [focoRecordId, setFocoRecordId] = useState('');
   /**
    * Identidad estable para el callback del foco.
@@ -647,8 +912,12 @@ function Main({ session }: { session: Session }) {
     // también reemplaza: el historial queda con UNA entrada, no con la URL
     // del aviso detrás (auditoría primer mes, 24-sep-2026).
     window.history.replaceState(null, '', window.location.pathname);
-    // El destino del aviso manda sobre la ruta con que se abrió la app.
-    if (record || ir === 'pauta' || ir === 'bitacora') setRutaPedida(null);
+    // El destino del aviso manda sobre la ruta con que se abrió la app
+    // (también sobre la que quedó pendiente de los roles de la red).
+    if (record || ir === 'pauta' || ir === 'bitacora') {
+      setRutaPedida(null);
+      rutaPendiente.current = null;
+    }
     if (record) enfocarDesdePush(record);
     // `?ir=pauta`: push de pauta con la app cerrada (toma regresada, por
     // comprobar, ruta asignada) — aterriza directo en su pestaña.
@@ -659,20 +928,134 @@ function Main({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      const { data, error } = await sb
+  /**
+   * Roles con copia en el teléfono (modo sin señal, 24-sep-2026).
+   *
+   * Reglas al refrescar:
+   *   · con filas → se guardan y se usan;
+   *   · [] SIN error y CON sesión real → se borra la copia y SinAcceso,
+   *     como siempre;
+   *   · sin sesión real → NO se consulta: al volver la red hay hasta ~60 s
+   *     en que auth-js aún no renueva el token, la consulta saldría como
+   *     anon y la RLS respondería [] SIN ser verdad (mandaría a SinAcceso a
+   *     un usuario con permisos);
+   *   · error de red (o 401/5xx) → se queda la copia;
+   *   · otro error → errRoles, como antes (si hay copia, el menú sigue).
+   * Se refresca al montar, cuando auth-js confirma o renueva la sesión
+   * (cambia el access_token: TOKEN_REFRESHED) y, si el último intento no
+   * salió, al volver la red o la app a primer plano.
+   */
+  const rolesRef = useRef<UsuarioRol[] | null>(roles);
+  rolesRef.current = roles;
+  const errRolesRef = useRef('');
+  errRolesRef.current = errRoles;
+  /** access_token con que salió bien la última consulta (evita repetirla). */
+  const tokenRolesOk = useRef<string | null>(null);
+  const rolesEnCurso = useRef(false);
+  /** Llegó otro disparo mientras corría una consulta: se repite al terminar. */
+  const rolesOtraVez = useRef(false);
+
+  const refrescarRoles = useCallback(async (): Promise<void> => {
+    if (rolesEnCurso.current) {
+      rolesOtraVez.current = true;
+      return;
+    }
+    rolesEnCurso.current = true;
+    rolesOtraVez.current = false;
+    try {
+      const hayCopia = !!rolesRef.current && rolesRef.current.length > 0;
+      // Sesión REAL: la que auth-js confirma (vigente o ya renovada). Con
+      // tope: sin red y con el token vencido getSession tarda ~25 s.
+      const r = await conTope(sb.auth.getSession(), TOPE_SESION_MS, null);
+      const real = r?.data.session ?? null;
+      if (!real || (real.user.email || '').toLowerCase() !== email) {
+        if (!hayCopia) {
+          // Sin copia y sin sesión confirmada: no hay de dónde sacar el
+          // menú. Se avisa y se reintenta solo (online / TOKEN_REFRESHED).
+          setErrRoles(
+            'Sin señal: no se pudieron cargar tus permisos. Se cargan solos al volver la red.'
+          );
+          setRoles((prev) => prev ?? []);
+          setReady(true);
+        }
+        return;
+      }
+      if (tokenRolesOk.current === real.access_token) return;
+
+      // Con copia no hace falta insistir: sin reintentos y con tope corto.
+      // Sin copia, los reintentos de siempre, pero con un tope para que una
+      // señal colgada no deje "Cargando tu perfil…" para siempre.
+      // (No se pide `medio`: agregarlo cambia quién ve Fijación/Pauta; lo
+      // decide Erik — ver enEcovallasImpreso.)
+      const q = sb
         .from('usuario_roles')
         .select('rol,unidad_negocio,departamento')
         .ilike('usuario_email', email);
-      // Distinguir "falló la consulta" de "no tiene roles": si no, un error
-      // de red o RLS se ve como "no tienes rol asignado" y manda al usuario
-      // a pedir un alta que no necesita.
-      if (error) setErrRoles('usuario_roles: ' + error.message);
-      setRoles((data as UsuarioRol[]) || []);
+      const { data, error, status } =
+        hayCopia || !enLineaAhora()
+          ? await q.retry(false).abortSignal(tope(TOPE_ROLES_CON_COPIA_MS))
+          : await q.abortSignal(tope(TOPE_ROLES_SIN_COPIA_MS));
+
+      if (error) {
+        const transitorio = pareceSinRed(error, status) || status === 401 || status >= 500;
+        if (hayCopia && transitorio) return; // se queda la copia
+        // Distinguir "falló la consulta" de "no tiene roles": si no, un error
+        // de red o RLS se ve como "no tienes rol asignado" y manda al usuario
+        // a pedir un alta que no necesita.
+        setErrRoles(
+          transitorio
+            ? 'Sin señal: no se pudieron cargar tus permisos. Se cargan solos al volver la red.'
+            : 'usuario_roles: ' + error.message
+        );
+        setRoles((prev) => (prev && prev.length ? prev : []));
+        setReady(true);
+        return;
+      }
+
+      const filas = (data as UsuarioRol[]) || [];
+      tokenRolesOk.current = real.access_token;
+      if (filas.length) guardarRoles(email, filas);
+      else borrarRolesGuardados(email);
+      // Si se estaba con el menú de emergencia (falló sin copia), la ruta de
+      // arranque se vuelve a resolver con el menú de verdad: la URL no se
+      // tocó mientras tanto. Con copia NO: movería al usuario de pestaña.
+      if (!rolesRef.current || rolesRef.current.length === 0) setRutaResuelta(false);
+      setErrRoles('');
+      setRoles((prev) => (mismosRoles(prev, filas) ? prev : filas));
       setReady(true);
-    })();
+      // En el MISMO render que los roles nuevos: ahí se decide la ruta que
+      // la copia no tenía (ver rutaPendiente).
+      setRolesDeRed(true);
+    } finally {
+      rolesEnCurso.current = false;
+      if (rolesOtraVez.current) {
+        rolesOtraVez.current = false;
+        window.setTimeout(() => void refrescarRolesRef.current(), 0);
+      }
+    }
   }, [email]);
+  const refrescarRolesRef = useRef(refrescarRoles);
+  refrescarRolesRef.current = refrescarRoles;
+
+  // Al montar y cada vez que auth-js confirma o renueva la sesión.
+  useEffect(() => {
+    void refrescarRoles();
+  }, [refrescarRoles, session.access_token, verificada]);
+
+  // Si el último intento no salió: al volver la red o la app al frente.
+  useEffect(() => {
+    const reintentar = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (tokenRolesOk.current && !errRolesRef.current) return;
+      void refrescarRoles();
+    };
+    window.addEventListener('online', reintentar);
+    document.addEventListener('visibilitychange', reintentar);
+    return () => {
+      window.removeEventListener('online', reintentar);
+      document.removeEventListener('visibilitychange', reintentar);
+    };
+  }, [refrescarRoles]);
 
   const misRoles = [...new Set((roles || []).map((r) => r.rol))] as string[];
   const misDep = [
@@ -724,16 +1107,49 @@ function Main({ session }: { session: Session }) {
    * Unidades del usuario, para acotar módulos y filtros. Una fila sin
    * unidad (= todas), el manager o el viewer abren la lista completa.
    */
-  const misUnidades =
+  const tieneTodasLasUnidades =
     misRoles.includes('manager') ||
     misRoles.includes('viewer') ||
-    (roles || []).some((r) => !r.unidad_negocio)
-      ? UNIDADES
-      : UNIDADES.filter((u) =>
-          (roles || []).some(
-            (r) => (r.unidad_negocio || '').toLowerCase() === u.toLowerCase()
-          )
-        );
+    (roles || []).some((r) => !r.unidad_negocio);
+  const misUnidades = tieneTodasLasUnidades
+    ? UNIDADES
+    : UNIDADES.filter((u) =>
+        (roles || []).some(
+          (r) => (r.unidad_negocio || '').toLowerCase() === u.toLowerCase()
+        )
+      );
+
+  /**
+   * Copias de datos en el teléfono (inventario, catálogos, árbol Digital…)
+   * para buscar sitios, validar y reparar sin señal (modo sin señal,
+   * 24-sep-2026; src/lib/datosLocales.ts). Arranca en cuanto hay roles —de
+   * la copia o de la red— y se detiene al salir o cambiar de usuario o de
+   * unidades. null = todas las unidades. Ella misma decide cuándo bajar
+   * (con red y sesión real, solo lo que esté viejo).
+   */
+  const conAcceso = ready && !!roles && roles.length > 0;
+  const unidadesSync = tieneTodasLasUnidades ? '*' : misUnidades.join('|');
+  useEffect(() => {
+    if (!conAcceso) return;
+    pedirAlmacenamientoPersistente();
+    let detener: (() => void) | null = null;
+    try {
+      detener = iniciarSincronizacion({
+        email,
+        unidades: unidadesSync === '*' ? null : unidadesSync ? unidadesSync.split('|') : [],
+      });
+    } catch (e) {
+      // Una copia que no arranca no debe tumbar la app: se trabaja con red.
+      console.error('[datosLocales] no arrancó la sincronización:', e);
+    }
+    return () => {
+      try {
+        detener?.();
+      } catch {
+        /* nada que detener */
+      }
+    };
+  }, [conAcceso, email, unidadesSync]);
 
   /**
    * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas
@@ -775,10 +1191,79 @@ function Main({ session }: { session: Session }) {
    *
    * La pantalla de "sin acceso" NO usa esto a propósito: ahí cerrar sesión
    * es la salida esperada y preguntarlo solo estorbaría.
+   *
+   * SIN SEÑAL (modo sin señal, 24-sep-2026):
+   *   · Si hay envíos o acciones en cola, el aviso dice que se quedan en el
+   *     teléfono y se mandan al volver a entrar con ESTA cuenta (la cola es
+   *     por correo; con otra cuenta no salen).
+   *   · Con el token vencido y sin red, auth-js no cierra nada: signOut
+   *     devuelve el error de la renovación fallida (o tarda ~25 s) y el
+   *     usuario creía haber salido. Ahora, si falla o no contesta a tiempo,
+   *     se borra la sesión del teléfono a mano y se va al Login. Con la
+   *     sesión sin confirmar, directo a mano, sin signOut (ver abajo).
+   *   · Se borran la copia de roles y la lista guardada de esta cuenta
+   *     (teléfonos compartidos). La cola NO: se manda al volver a entrar.
    */
-  const salir = () => {
-    if (!confirm('¿Deseas salir de la app?')) return;
-    sb.auth.signOut();
+  const salir = async () => {
+    // Lo pendiente de ESTA cuenta, con tope: una IndexedDB colgada no debe
+    // trabar el botón.
+    const contar = async () => {
+      const [envios, acciones] = await Promise.all([
+        listarPendientes(email).then((l) => l.length).catch(() => 0),
+        accionesPendientes(email).then((l) => l.length).catch(() => 0),
+      ]);
+      return envios + acciones;
+    };
+    const pendientes = await conTope(contar(), 2000, -1);
+    const enRiesgo = (() => {
+      try {
+        return hayEnviosEnRiesgo();
+      } catch {
+        return false;
+      }
+    })();
+    let texto = '¿Deseas salir de la app?';
+    if (pendientes !== 0 || enRiesgo) {
+      const cuantos =
+        pendientes > 0
+          ? `Tienes ${pendientes === 1 ? '1 envío pendiente' : `${pendientes} envíos pendientes`} en este teléfono.`
+          : 'Puede que tengas envíos pendientes en este teléfono.';
+      texto =
+        `${cuantos} Se quedan guardados y se mandan solos cuando vuelvas a entrar con esta cuenta (${email}).` +
+        (enRiesgo
+          ? '\n\nOjo: uno se está enviando ahora o no cupo en el teléfono; si cierras la app se puede perder.'
+          : '') +
+        '\n\n¿Salir de todos modos?';
+    }
+    if (!confirm(texto)) return;
+    borrarRolesGuardados(email);
+    void borrarListaLocal(email);
+    // Sin sesión confirmada NO se llama signOut() (revisión sin señal,
+    // 24-sep-2026): la inicialización de auth-js puede seguir reintentando
+    // renovar el token sin red (~25-60 s) y signOut la espera. Colgado tras
+    // el tope, corría al terminar la inicialización, leía la sesión que
+    // hubiera ENTONCES —la de quien acabara de entrar en este teléfono— y
+    // la revocaba en el servidor con scope global. Aquí se sale solo en el
+    // teléfono: la renovación vieja la descarta auth-js al ver la clave
+    // borrada, y la que se cuele la cierra salidaForzada. Con la sesión
+    // confirmada la inicialización ya terminó y signOut lee la de ESTA
+    // cuenta al empezar; si el servidor tarda más del tope, lo colgado a lo
+    // más cierra en este teléfono una sesión abierta en ese rato (no revoca
+    // otra cuenta).
+    const resultado = verificada
+      ? await conTope(
+          sb.auth.signOut().then(({ error }) => (error ? 'error' : 'ok')),
+          TOPE_SALIR_MS,
+          'tope' as const
+        )
+      : ('local' as const);
+    if (resultado !== 'ok') {
+      borrarSesionGuardada();
+      onSalidaForzada();
+    }
+    // Otra vez ya fuera de Main: al desmontarse, IncidenciasView escribe la
+    // copia que tuviera pendiente y la volvería a dejar.
+    setTimeout(() => void borrarListaLocal(email), 2000);
   };
 
   const esTabIncidencias = tab === 'bandeja' || tab === 'todas';
@@ -918,16 +1403,66 @@ function Main({ session }: { session: Session }) {
    */
   if (ready && !rutaResuelta) {
     setRutaResuelta(true);
-    if (rutaPedida && tabsConRuta.includes(rutaPedida)) setTab(rutaPedida);
-    else setTab((t) => (t === 'dashboard' ? tabDeSiempre : t));
+    if (rutaPedida && tabsConRuta.includes(rutaPedida)) {
+      setTab(rutaPedida);
+      rutaPendiente.current = null;
+    } else {
+      setTab((t) => (t === 'dashboard' ? tabDeSiempre : t));
+      // Resuelta con roles que la red aún no confirma (la copia): la pedida
+      // se vuelve a probar cuando lleguen (revisión sin señal, 24-sep-2026).
+      rutaPendiente.current =
+        rutaPedida && tokenRolesOk.current === null
+          ? {
+              tab: rutaPedida,
+              desde: tab === 'dashboard' ? tabDeSiempre : tab,
+              hasta: Date.now() + RUTA_PENDIENTE_MS,
+            }
+          : null;
+    }
   }
 
   /**
    * La URL solo se toca con menú de verdad. En "Falta darte acceso" o si
    * falló la consulta de roles se deja como llegó: al recargar (o cuando le
-   * den acceso) el enlace /pauta sigue abriendo Pauta.
+   * den acceso) el enlace /pauta sigue abriendo Pauta. Con los roles de la
+   * copia del teléfono el menú SÍ es de verdad, aunque el refresco haya
+   * fallado (modo sin señal, 24-sep-2026): ahí roles no viene vacío.
    */
-  const rutasActivas = ready && !errRoles && !!roles && roles.length > 0;
+  const rutasActivas = conAcceso;
+
+  /**
+   * Los roles refrescados pueden quitar una pestaña que la copia del
+   * teléfono sí tenía (le cambiaron el rol mientras tanto): si la que está
+   * a la vista ya no es de su menú, a la de siempre. Incidencias no se toca:
+   * "Nueva" lleva al reportante puro a 'todas' aunque no esté en su menú.
+   */
+  useEffect(() => {
+    if (!rutaResuelta || !rutasActivas) return;
+    if (tab === 'bandeja' || tab === 'todas' || !RUTA_DE_TAB[tab]) return;
+    if (!clavesConRuta.split('|').includes(tab)) setTab(tabDeSiempre);
+    // Solo cuando cambia el menú, no en cada cambio de pestaña.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clavesConRuta]);
+
+  /**
+   * Primera respuesta buena de usuario_roles: la ruta que la copia no tenía
+   * se abre si ahora SÍ está en el menú, el usuario sigue en la pestaña en
+   * que lo dejó la resolución y no ha pasado RUTA_PENDIENTE_MS. Se usa o se
+   * descarta una sola vez (revisión sin señal, 24-sep-2026). Va DESPUÉS del
+   * efecto de arriba: si ese manda a la de siempre, este gana. La URL se
+   * REEMPLAZA, como si el enlace hubiera abierto así desde el principio.
+   */
+  useEffect(() => {
+    const p = rutaPendiente.current;
+    if (!rolesDeRed || !p) return;
+    rutaPendiente.current = null;
+    if (Date.now() > p.hasta || tab !== p.desde || tab === p.tab) return;
+    if (!rutasActivas || !clavesConRuta.split('|').includes(p.tab)) return;
+    modoHistorial.current = 'reemplazar';
+    setTab(p.tab);
+    // Solo al llegar los roles de la red.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rolesDeRed]);
 
   // Refs para el manejador de popstate, que vive fuera del ciclo de render.
   // El alta solo cuenta como abierta si se VE: `nuevaAbierta` puede quedarse
@@ -1123,17 +1658,45 @@ function Main({ session }: { session: Session }) {
         </div>
       </div>
 
+      {/* Sin señal (modo sin señal, 24-sep-2026): que se sepa que se trabaja
+          con lo guardado y que lo capturado no se pierde. */}
+      {!enLinea && (
+        <div className="banner" style={{ margin: '10px 16px 0' }} role="status">
+          📴 Sin señal: trabajas con lo guardado en el teléfono. Lo que hagas se
+          envía solo al volver la red.
+        </div>
+      )}
+
       {actualizacionDisponible && (
-        <div className="banner" style={{ margin: '10px 16px 0' }}>
-          Hay una versión nueva de la app.
+        <div className="banner" style={{ margin: '10px 16px 0' }} role="status">
+          {actualizando === 'revisando'
+            ? 'Buscando la versión nueva…'
+            : actualizando === 'descargando'
+              ? 'Descargando la versión nueva… con poca señal puede tardar hasta un minuto.'
+              : actualizando === 'abriendo'
+                ? 'Abriendo la versión nueva…'
+                : actualizando === 'sinSenal'
+                  ? 'Hay una versión nueva, pero necesitas señal para bajarla. Inténtalo cuando tengas señal.'
+                  : 'Hay una versión nueva de la app.'}
           {/* Un reporte que se está enviando o que no cupo en el teléfono
               se perdería con la recarga: se pregunta antes (integración
-              primer mes, 24-sep-2026). */}
+              primer mes, 24-sep-2026). Ya no es un reload a secas: con
+              señal lenta el SW volvía a servir la versión vieja; ver
+              traerVersionNueva (revisión sin señal, 24-sep-2026). */}
           <button
             className="btn sm"
             style={{ marginLeft: 10 }}
-            onClick={() => {
-              if (confirmarRecargaConEnvios()) window.location.reload();
+            disabled={
+              actualizando === 'revisando' ||
+              actualizando === 'descargando' ||
+              actualizando === 'abriendo'
+            }
+            onClick={async () => {
+              if (!confirmarRecargaConEnvios()) return;
+              setActualizando('revisando');
+              const r = await traerVersionNueva(setActualizando, confirmarRecargaConEnvios);
+              if (r === 'sinSenal') setActualizando('sinSenal');
+              else if (r === 'cancelada') setActualizando('');
             }}
           >
             Actualizar ahora
@@ -1264,27 +1827,102 @@ function Main({ session }: { session: Session }) {
 
 // --- Root: decide login / recuperación / app según la sesión ---
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [ready, setReady] = useState(false);
+  /**
+   * Arranque optimista (modo sin señal, 24-sep-2026): con sesión guardada
+   * se pinta Main de inmediato, sin esperar a getSession — que sin red y
+   * con el token vencido tarda ~25 s y luego devuelve null—. Al regresar de
+   * Google o del correo de restablecimiento se espera a auth-js como antes.
+   */
+  const [inicial] = useState<Session | null>(() =>
+    esRegresoDeAuth() ? null : leerSesionGuardada()
+  );
+  const [session, setSession] = useState<Session | null>(inicial);
+  /** false mientras la sesión sea la guardada y auth-js no la confirme. */
+  const [verificada, setVerificada] = useState(false);
+  const [ready, setReady] = useState(inicial !== null);
   const [recovery, setRecovery] = useState(false);
 
   useEffect(() => {
-    sb.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setReady(true);
-    });
+    let vivo = true;
+    sb.auth
+      .getSession()
+      .then(({ data, error }) => {
+        if (!vivo) return;
+        if (data.session) {
+          setSession(data.session);
+          setVerificada(true);
+        } else {
+          // null + error REINTENTABLE (sin red, servidor caído) con la sesión
+          // aún guardada: no murió, solo no se pudo renovar. Se entra (o se
+          // sigue) con la guardada; auth-js la renueva sola al volver la red
+          // y avisa con TOKEN_REFRESHED.
+          const guardada = isAuthRetryableFetchError(error) ? leerSesionGuardada() : null;
+          setSession((prev) => (guardada ? prev ?? guardada : null));
+        }
+        setReady(true);
+      })
+      .catch(() => {
+        if (vivo) setReady(true);
+      });
     const { data: sub } = sb.auth.onAuthStateChange((e, s) => {
-      setSession(s);
       // Al llegar del correo de restablecimiento, Supabase abre sesión y
       // emite PASSWORD_RECOVERY: hay que pedir la contraseña nueva antes
       // de dejar entrar a la app.
       if (e === 'PASSWORD_RECOVERY') setRecovery(true);
+      if (s) {
+        if (salidaForzada && e !== 'PASSWORD_RECOVERY') {
+          // Una renovación que ya iba en camino al tocar "Salir" sin red
+          // volvió a guardar la sesión: se cierra otra vez. Fuera del
+          // callback: auth-js no debe llamarse desde dentro de su aviso.
+          window.setTimeout(() => {
+            void sb.auth.signOut({ scope: 'local' }).catch(() => {});
+          }, 0);
+          return;
+        }
+        setSession(s);
+        setVerificada(true);
+        setReady(true);
+        return;
+      }
+      if (e === 'SIGNED_OUT') {
+        setSession(null);
+        setVerificada(false);
+        setReady(true);
+        return;
+      }
+      // INITIAL_SESSION con null y la sesión todavía guardada = la
+      // renovación falló por red (auth-js no borra nada en ese caso): se
+      // queda la sesión optimista. Una muerte real borra la clave y llega
+      // como SIGNED_OUT.
+      if (e === 'INITIAL_SESSION' && leerSesionGuardada()) return;
+      setSession(null);
+      setVerificada(false);
     });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      vivo = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  /** "Salir" sin red: la sesión ya se borró a mano (ver Main.salir). */
+  const alSalidaForzada = useCallback(() => {
+    salidaForzada = true;
+    setSession(null);
+    setVerificada(false);
+    setReady(true);
   }, []);
 
   if (!ready) return <div className="loading">Cargando…</div>;
   if (recovery) return <UpdatePassword onDone={() => setRecovery(false)} />;
   if (!session) return <Login />;
-  return <Main session={session} />;
+  // key por correo: si auth-js cambia de cuenta sin pasar por el Login
+  // (regreso de Google con otra sesión guardada), Main arranca de cero.
+  return (
+    <Main
+      key={(session.user.email || '').toLowerCase()}
+      session={session}
+      verificada={verificada}
+      onSalidaForzada={alSalidaForzada}
+    />
+  );
 }
