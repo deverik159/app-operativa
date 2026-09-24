@@ -50,16 +50,32 @@ create index if not exists notif_record_pend_idx
 -- Lista de incidencias (orden por fecha) y filtros por estatus.
 create index if not exists inc_fecha_reporte_idx
   on public.incidencias (fecha_reporte desc);
-create index if not exists inc_estatus_idx
-  on public.incidencias (estatus);
+-- Solo si no hay ya uno (la base heredó idx_inc_estatus de la app vieja;
+-- ver limpiar_indices_duplicados.sql).
+do $$
+begin
+  if not exists (select 1 from pg_indexes
+                  where schemaname = 'public' and tablename = 'incidencias'
+                    and indexdef ~* 'using btree \(estatus\)') then
+    create index inc_estatus_idx on public.incidencias (estatus);
+  end if;
+end $$;
 -- Regla de duplicados: en_proceso + cara + incidencia.
 create index if not exists inc_dup_idx
   on public.incidencias (clave_medio, nombre_incidencia)
   where estatus = 'en_proceso';
 
 -- Fotos de las tarjetas y galerías.
-create index if not exists evid_record_idx
-  on public.evidencias (record_id);
+-- Solo si no hay ya uno que empiece por record_id (la base heredó
+-- idx_ev_record; ver limpiar_indices_duplicados.sql).
+do $$
+begin
+  if not exists (select 1 from pg_indexes
+                  where schemaname = 'public' and tablename = 'evidencias'
+                    and indexdef ~* 'using btree \(record_id(,|\))') then
+    create index evid_record_idx on public.evidencias (record_id);
+  end if;
+end $$;
 create index if not exists evid_tarjetas_idx
   on public.evidencias (tipo, etapa, creado_en desc);
 

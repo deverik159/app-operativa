@@ -727,7 +727,8 @@ Biobox.
 | `notificar_toma_por_comprobar.sql` | ✅ aplicado (22-sep) — `registrar_toma` avisa a coordinadores (evento `pauta_revision`) solo en toma NUEVA |
 | `sincronizar_rutas_pauta.sql` | ✅ aplicado (22-sep) — RPC `sincronizar_rutas_desde_pauta`; ojo con la firma json/jsonb de `importar_rutas` (PASO 0) |
 | `medir_almacenamiento.sql` | referencia, solo lectura — Storage por módulo, pauta POR CATORCENA, foto vs video, top-20 y GB/semana |
-| `prelanzamiento_300.sql` | ⏳ pendiente — CORRER ANTES de publicar el bloque del 24-sep: índices, purgas por pg_cron, `errores_cliente`, anon sin permisos (tablas, vistas y RPC definer), `app_config` cerrada, `pauta_monitoreo` sin escritura directa, `dar_baja_usuario` / `reactivar_usuario`. Re-ejecutable; el PASO 6 es una sola consulta de verificación |
+| `prelanzamiento_300.sql` | ✅ aplicado y verificado (24-sep) — índices, purgas por pg_cron, `errores_cliente`, anon sin permisos (tablas, vistas y RPC definer), `app_config` cerrada, `pauta_monitoreo` sin escritura directa, `dar_baja_usuario` / `reactivar_usuario`. Re-ejecutable; el PASO 6 es una sola consulta de verificación. Sin cuentas vivas sin ficha |
+| `limpiar_indices_duplicados.sql` | ⏳ pendiente — quita los índices de prelanzamiento que duplican a los heredados (idx_ev_record, idx_inc_estatus, idx_msg_record); decide por definición, nunca toca únicos ni llaves |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
