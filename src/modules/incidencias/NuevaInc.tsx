@@ -297,9 +297,24 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     setDeCopia((p) =>
       !!p[que] === (origen === 'local') ? p : { ...p, [que]: origen === 'local' }
     );
-  const usandoCopia = Object.values(deCopia).some(Boolean);
+  /**
+   * Las lecturas que salieron de la copia, como TEXTO ('arbol,catalogo').
+   * Los efectos dependen de esto y NUNCA del objeto `deCopia` (app pasmada
+   * sin señal, 24-sep-2026): React puede volver a aplicar los marcarOrigen
+   * pendientes en cada render (rebase de la cola cuando conviven updates
+   * del toque —SyncLane— con los del cuerpo de un efecto —DefaultLane—), y
+   * cada vez el updater arma un objeto NUEVO con el mismo contenido. Un
+   * efecto con `deCopia` en sus dependencias corría en cada render.
+   */
+  const lecturasDeCopia = Object.keys(deCopia)
+    .filter((k) => deCopia[k])
+    .sort()
+    .join(',');
+  const usandoCopia = lecturasDeCopia !== '';
   /** Fecha de la copia del inventario: undefined = aún no se lee, null = no hay. */
   const [fechaInv, setFechaInv] = useState<string | null | undefined>(undefined);
+  const fechaInvRef = useRef(fechaInv);
+  fechaInvRef.current = fechaInv;
   /** Suben para volver a pedir el catálogo / el árbol cuando regresa la señal. */
   const [reintentoCat, setReintentoCat] = useState(0);
   const [reintentoArbol, setReintentoArbol] = useState(0);
@@ -1008,12 +1023,18 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     fechaCopia('inventario')
       .catch(() => null)
       .then((f) => {
-        if (vivo) setFechaInv(f);
+        // Si la fecha no cambió, no se pide otro render (app pasmada sin
+        // señal, 24-sep-2026): con la copia ya en memoria esta promesa se
+        // cumple en microtareas, y un setState con el mismo valor también
+        // agenda un render si el componente tiene updates pendientes.
+        if (vivo && f !== fechaInvRef.current) setFechaInv(f);
       });
     return () => {
       vivo = false;
     };
-  }, [usandoCopia, deCopia]);
+    // `caras`: cada sitio cargado es una lectura nueva (se asigna tal cual,
+    // así que su identidad no cambia al re-aplicar la cola).
+  }, [usandoCopia, lecturasDeCopia, caras]);
 
   const limpiarSitio = () => {
     setSite(null);
