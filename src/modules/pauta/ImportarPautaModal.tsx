@@ -13,8 +13,10 @@
 // Antes de mandar nada se muestra una vista previa con lo que se detectó.
 // Importar reemplaza la catorcena completa: conviene ver qué se va a cargar.
 // ============================================================
-import { useState } from 'react';
-import * as XLSX from 'xlsx';
+import { useState, useRef } from 'react';
+import type { WorkBook } from 'xlsx';
+import { cargarXlsx } from '../../lib/xlsxDiferido';
+import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
 
 /** Fila ya normalizada, lista para la RPC. */
@@ -75,7 +77,9 @@ const txt = (v: unknown): string | null => {
 type Props = { onClose: () => void; onImportado: () => void };
 
 function ImportarPautaModal({ onClose, onImportado }: Props) {
-  const [libro, setLibro] = useState<XLSX.WorkBook | null>(null);
+  const [libro, setLibro] = useState<WorkBook | null>(null);
+  /** La librería de Excel, bajada al abrir el primer archivo (ver xlsxDiferido). */
+  const xlsx = useRef<typeof import('xlsx') | null>(null);
   const [hojas, setHojas] = useState<string[]>([]);
   const [hojaSel, setHojaSel] = useState('');
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
@@ -95,6 +99,8 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
     try {
       const buf = await f.arrayBuffer();
       // cellDates: sin esto las fechas llegan como número serial de Excel.
+      const XLSX = await cargarXlsx();
+      xlsx.current = XLSX;
       const wb = XLSX.read(buf, { cellDates: true });
       setLibro(wb);
       setHojas(wb.SheetNames);
@@ -105,13 +111,23 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
       setHojaSel(sugerida);
       analizar(wb, sugerida);
     } catch (ex) {
-      setErr('No se pudo leer el archivo: ' + (ex as Error).message);
+      // Si lo que no llegó fue la librería (sin señal, o un despliegue nuevo
+      // borró su chunk), el archivo está bien: decirlo, y en español
+      // (revisión primer mes, 24-sep-2026).
+      setErr(
+        esErrorDeChunk(ex)
+          ? 'No se pudo descargar el lector de Excel. Revisa tu señal e inténtalo de nuevo (si sigue fallando, recarga la app).'
+          : 'No se pudo leer el archivo: ' + (ex as Error).message
+      );
     }
     setLeyendo(false);
     e.target.value = '';
   };
 
-  const analizar = (wb: XLSX.WorkBook, hoja: string) => {
+  const analizar = (wb: WorkBook, hoja: string) => {
+    // Siempre hay librería aquí: solo se analiza un libro ya leído con ella.
+    const XLSX = xlsx.current;
+    if (!XLSX) return;
     setErr('');
     setResultado(null);
     const ws = wb.Sheets[hoja];

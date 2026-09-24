@@ -12,8 +12,19 @@
 // como el mismo componente, así que al alternar entre las dos pestañas NO se
 // remonta: se conservan la lista, los filtros y la búsqueda, igual que en el
 // HTML (donde todo vivía en App).
+//
+// Desde la auditoría del primer mes (24-sep-2026): cada pestaña tiene su
+// ruta (/pendientes, /pauta…; ver RUTA_DE_TAB) y todos los módulos salvo
+// Incidencias se descargan al abrirlos (lazyConReintento).
 // ============================================================
-import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  Suspense,
+  type ComponentType,
+} from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES } from './lib/constants';
@@ -24,16 +35,147 @@ import CampanaNotifs from './components/CampanaNotifs';
 import BotonPush from './components/BotonPush';
 import MenuUsuario from './components/MenuUsuario';
 import ErrorBoundary from './components/ErrorBoundary';
+import EnviosPendientes from './components/EnviosPendientes';
+import { confirmarRecargaConEnvios } from './lib/envios';
+import { lazyConReintento, fijarModuloEnPantalla } from './lib/cargaDiferida';
+// Incidencias se queda ESTÁTICO: es el núcleo (Mis pendientes y el alta
+// NuevaInc que abre el botón Nueva). Un alta nunca debe esperar —ni
+// fallar— por la descarga de un chunk.
 import IncidenciasView from './modules/incidencias/IncidenciasView';
-import IndicadoresView from './modules/incidencias/IndicadoresView';
-import FijacionExternaView from './modules/fijacion-externa/FijacionExternaView';
-import RutasView from './modules/rutas/RutasView';
-import PautaView from './modules/pauta/PautaView';
-import BioboxView from './modules/biobox/BioboxView';
-import DisponibilidadView from './modules/inventario/DisponibilidadView';
-import BitacoraVVView from './modules/bitacora-vv/BitacoraVVView';
-import UsuariosView from './modules/usuarios/UsuariosView';
 import type { UsuarioRol } from './types/db';
+
+/**
+ * Los demás módulos se descargan al abrir su pestaña (auditoría primer mes,
+ * 24-sep-2026). El bundle único pesaba ~1.3 MB y cada arranque bajaba xlsx
+ * y leaflet aunque el usuario solo atendiera su bandeja. lazyConReintento
+ * reintenta y, si el chunk ya no existe por un despliegue nuevo, recarga
+ * la app una vez (ver src/lib/cargaDiferida.ts).
+ */
+const IndicadoresView = lazyConReintento(
+  () => import('./modules/incidencias/IndicadoresView'),
+  'IndicadoresView'
+);
+const FijacionExternaView = lazyConReintento(
+  () => import('./modules/fijacion-externa/FijacionExternaView'),
+  'FijacionExternaView'
+);
+const RutasView = lazyConReintento(() => import('./modules/rutas/RutasView'), 'RutasView');
+const PautaView = lazyConReintento(() => import('./modules/pauta/PautaView'), 'PautaView');
+const BioboxView = lazyConReintento(() => import('./modules/biobox/BioboxView'), 'BioboxView');
+const DisponibilidadView = lazyConReintento(
+  () => import('./modules/inventario/DisponibilidadView'),
+  'DisponibilidadView'
+);
+const BitacoraVVView = lazyConReintento(
+  () => import('./modules/bitacora-vv/BitacoraVVView'),
+  'BitacoraVVView'
+);
+const UsuariosView = lazyConReintento(
+  () => import('./modules/usuarios/UsuariosView'),
+  'UsuariosView'
+);
+
+/**
+ * Módulo diferido de cada pestaña. App le avisa a cargaDiferida cuál está
+ * en pantalla: la recarga automática por un chunk fallido solo procede si
+ * es la de ESE módulo (revisión primer mes, 24-sep-2026; ver
+ * fijarModuloEnPantalla). Las pestañas de Incidencias no van: son estáticas.
+ */
+const DIFERIDO_DE_TAB: Record<string, ComponentType<any>> = {
+  dashboard: IndicadoresView,
+  disponibilidad: DisponibilidadView,
+  bitacora_vv: BitacoraVVView,
+  fijacion_externa: FijacionExternaView,
+  rutas: RutasView,
+  pauta: PautaView,
+  biobox: BioboxView,
+  usuarios: UsuariosView,
+};
+
+/** A los cuántos ms el "Cargando…" de un módulo diferido ofrece salidas. */
+const AVISO_CARGA_LENTA_MS = 15 * 1000;
+
+/**
+ * "Cargando…" de los módulos diferidos, con salida si se atora (revisión
+ * primer mes, 24-sep-2026).
+ *
+ * El import() de un chunk no tiene tope: con la señal colgada (conecta pero
+ * no transmite) el navegador tarda minutos en darlo por fallido, y mientras
+ * tanto no hay error que atrape el ErrorBoundary; ↻ no toca un lazy
+ * pendiente y la PWA instalada no tiene jalar-para-recargar. A los ~15 s se
+ * avisa y se ofrece recargar, SIN cortar la descarga: en 2G un chunk lento
+ * pero vivo termina bien, y un tope que recargara solo la reiniciaría desde
+ * cero cada vez. No se ofrece "Reintentar": Chrome une un import() nuevo a
+ * la descarga colgada de la misma URL, así que no destrabaría nada.
+ */
+function CargandoModulo() {
+  const [lento, setLento] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setLento(true), AVISO_CARGA_LENTA_MS);
+    return () => window.clearTimeout(t);
+  }, []);
+  if (!lento) return <div className="loading">Cargando…</div>;
+  return (
+    <div className="loading" role="status" style={{ lineHeight: 1.5 }}>
+      <b>Tarda más de lo normal.</b>
+      <br />
+      Puede ser la señal. Puedes esperar, cambiarte de módulo desde el menú
+      o recargar la app.
+      <div style={{ marginTop: 12 }}>
+        <button
+          type="button"
+          className="btn sm"
+          onClick={() => {
+            if (confirmarRecargaConEnvios()) window.location.reload();
+          }}
+        >
+          Recargar la app
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Marca de la entrada de historial que apila "Nueva" (ver su action). Lleva
+ * un valor propio de ESTE documento: tras una recarga, el history.state de
+ * esa entrada sigue diciendo "alta", pero la de abajo ya es de otro
+ * documento y un history.back() recargaría la app (revisión primer mes,
+ * 24-sep-2026).
+ */
+const MARCA_ALTA = `alta-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/**
+ * Pestaña ↔ ruta (auditoría primer mes, 24-sep-2026).
+ *
+ * Antes la app vivía siempre en "/": el botón Atrás de Android (PWA
+ * instalada) CERRABA la app en vez de regresar a la pestaña anterior, un
+ * enlace no podía abrir Pauta directo, y errores_cliente.ruta decía "/"
+ * para todo. Ahora cada pestaña tiene su ruta con la History API (sin
+ * dependencias). vercel.json ya reescribe todo lo que no sea /assets a
+ * index.html y Vite dev hace lo mismo, así que recargar en /pauta funciona.
+ */
+const RUTA_DE_TAB: Record<string, string> = {
+  bandeja: '/pendientes',
+  todas: '/incidencias',
+  dashboard: '/indicadores',
+  disponibilidad: '/disponibilidad',
+  bitacora_vv: '/bitacora-vv',
+  fijacion_externa: '/fijacion-externa',
+  rutas: '/rutas',
+  pauta: '/pauta',
+  biobox: '/biobox',
+  usuarios: '/usuarios',
+};
+const TAB_DE_RUTA: Record<string, string> = Object.fromEntries(
+  Object.entries(RUTA_DE_TAB).map(([tab, ruta]) => [ruta, tab])
+);
+
+/** Pestaña que corresponde a una ruta ('/pauta/' y '/Pauta' también valen). */
+function tabDeRuta(pathname: string): string | null {
+  const limpia = (pathname.replace(/\/+$/, '') || '/').toLowerCase();
+  return TAB_DE_RUTA[limpia] ?? null;
+}
 
 /** Ícono de la app: una valla / espectacular. */
 function LogoValla() {
@@ -337,6 +479,22 @@ function Main({ session }: { session: Session }) {
   const [errRoles, setErrRoles] = useState('');
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState('dashboard');
+  /**
+   * La pestaña que pide la URL al arrancar (/pauta → 'pauta'). Todavía no
+   * se sabe si el usuario la TIENE en su menú: eso se decide cuando cargan
+   * los roles (ver "Resolución de la ruta de arranque", junto al menú).
+   * Un aviso push (?record=, ?ir=) la anula: su destino manda.
+   */
+  const [rutaPedida, setRutaPedida] = useState<string | null>(() =>
+    tabDeRuta(window.location.pathname)
+  );
+  const [rutaResuelta, setRutaResuelta] = useState(false);
+  /**
+   * Cómo escribe la siguiente sincronía pestaña → URL. La PRIMERA tras
+   * arrancar reemplaza (no apila una entrada extra de "/" o de la URL del
+   * aviso push); las demás apilan, para que Atrás regrese de pestaña.
+   */
+  const modoHistorial = useRef<'reemplazar' | 'apilar'>('reemplazar');
   const [actualizacionDisponible, setActualizacionDisponible] = useState(false);
   const [focoRecordId, setFocoRecordId] = useState('');
   /**
@@ -358,9 +516,26 @@ function Main({ session }: { session: Session }) {
     window.scrollTo(0, 0);
   }, [tab]);
 
+  // Qué módulo diferido está a la vista: una descarga que falle DESPUÉS de
+  // salir de su pestaña ya no recarga la app a media captura en otra
+  // (revisión primer mes, 24-sep-2026; ver src/lib/cargaDiferida.ts).
+  useEffect(() => {
+    fijarModuloEnPantalla(DIFERIDO_DE_TAB[tab] ?? null);
+    return () => fijarModuloEnPantalla(null);
+  }, [tab]);
+
   const [nuevaAbierta, setNuevaAbierta] = useState(false);
   // Contador que dispara la recarga de incidencias desde el botón ↻.
   const [recargarSignal, setRecargarSignal] = useState(0);
+  /**
+   * Solo el ↻ de la barra, para Indicadores (revisión primer mes,
+   * 24-sep-2026). recargarSignal sube además con cada aviso nuevo (sondeo
+   * de cada minuto) y con cada envío que sale de la cola: en Indicadores eso
+   * volvería a bajar el periodo completo, de 1000 en 1000 filas, con cada
+   * aviso, y es la pestaña de inicio de casi todos. Ahí basta el ↻ para
+   * reintentar o refrescar.
+   */
+  const [recargaManual, setRecargaManual] = useState(0);
   // Lo reporta IncidenciasView: alimenta el badge de "Mi bandeja".
   const [bandejaCount, setBandejaCount] = useState(0);
 
@@ -467,7 +642,13 @@ function Main({ session }: { session: Session }) {
     const record = params.get('record');
     const ir = params.get('ir');
     if (!record && !ir) return;
+    // Se limpia la query SIN apilar. La ruta final (/incidencias, /pauta o
+    // /bitacora-vv) la escribe la primera sincronía pestaña → URL, que
+    // también reemplaza: el historial queda con UNA entrada, no con la URL
+    // del aviso detrás (auditoría primer mes, 24-sep-2026).
     window.history.replaceState(null, '', window.location.pathname);
+    // El destino del aviso manda sobre la ruta con que se abrió la app.
+    if (record || ir === 'pauta' || ir === 'bitacora') setRutaPedida(null);
     if (record) enfocarDesdePush(record);
     // `?ir=pauta`: push de pauta con la app cerrada (toma regresada, por
     // comprobar, ruta asignada) — aterriza directo en su pestaña.
@@ -517,13 +698,22 @@ function Main({ session }: { session: Session }) {
     misRoles.length > 0 &&
     misRoles.every((r) => r === 'comercial' || r === 'pautas');
 
-  // Su pestaña de inicio es la suya, no un dashboard que no ve.
-  useEffect(() => {
-    if (ready && esMonitoristaPuro)
-      setTab((t) => (t === 'dashboard' ? 'pauta' : t));
-    if (ready && esBitacoraPuro)
-      setTab((t) => (t === 'dashboard' ? 'bitacora_vv' : t));
-  }, [ready, esMonitoristaPuro, esBitacoraPuro]);
+  /**
+   * Su pestaña de inicio es la suya, no un dashboard que no ve. También es
+   * a donde cae una ruta que el usuario no tiene en su menú.
+   *
+   * Antes era un efecto que, con los roles ya cargados, cambiaba
+   * 'dashboard' por 'pauta'/'bitacora_vv'. Ahora lo aplica la resolución de
+   * la ruta (más abajo, junto al menú) en el MISMO render en que llegan los
+   * roles: una ruta válida pedida por URL (p. ej. /biobox) no se pisa, y el
+   * monitorista ya no monta un instante Indicadores —que además pediría su
+   * chunk— antes de saltar a Pauta (auditoría primer mes, 24-sep-2026).
+   */
+  const tabDeSiempre = esMonitoristaPuro
+    ? 'pauta'
+    : esBitacoraPuro
+      ? 'bitacora_vv'
+      : 'dashboard';
   const nombre =
     (session.user.user_metadata?.name as string) || email.split('@')[0];
 
@@ -602,6 +792,15 @@ function Main({ session }: { session: Session }) {
         // Si no estamos en una pestaña de incidencias hay que ir a una:
         // el modal lo renderiza IncidenciasView (es quien sabe insertar).
         if (!esTabIncidencias) setTab('todas');
+        // Ya en Incidencias no hay cambio de pestaña y no se apilaba nada:
+        // si esa era la ÚNICA entrada del documento (app abierta por un
+        // push, o recargada en /incidencias), Atrás cerraba la app —o
+        // volvía al documento anterior— sin pasar por la protección de
+        // onPop, y el alta en memoria se perdía. Una entrada propia,
+        // apilada con el toque del usuario, deja debajo otra del MISMO
+        // documento (revisión primer mes, 24-sep-2026).
+        else if (!nuevaAbierta)
+          window.history.pushState({ alta: MARCA_ALTA }, '', window.location.pathname);
         setNuevaAbierta(true);
       },
     },
@@ -697,6 +896,144 @@ function Main({ session }: { session: Session }) {
     misRoles.includes('manager') && { k: 'usuarios', ic: '👥', t: 'Usuarios' },
   ].filter(Boolean) as NavItem[];
 
+  // ---- Rutas por URL (auditoría primer mes, 24-sep-2026) ----------------
+
+  /** Pestañas del menú de ESTE usuario que tienen ruta. Solo esas abre una URL. */
+  const tabsConRuta = nav
+    .filter((n) => !n.action && RUTA_DE_TAB[n.k])
+    .map((n) => n.k);
+  // Texto estable para las dependencias: `nav` es un arreglo nuevo en cada render.
+  const clavesConRuta = tabsConRuta.join('|');
+
+  /**
+   * Resolución de la ruta de arranque, en el MISMO render en que llegan los
+   * roles (patrón de React "ajustar estado al renderizar"): React descarta
+   * este render y repinta con la pestaña buena antes de mostrar nada, así
+   * que nunca se monta —ni se descarga— un módulo que no toca.
+   *   · Ruta que el usuario TIENE en su menú → esa pestaña.
+   *   · Si no, la de siempre; pero si un aviso push ya eligió pestaña antes
+   *     de que cargaran los roles (?record= → 'todas'), esa se respeta.
+   * Cerrar sesión y volver a entrar remonta Main: la ruta actual se vuelve
+   * a leer y, si es válida para la cuenta nueva, se respeta.
+   */
+  if (ready && !rutaResuelta) {
+    setRutaResuelta(true);
+    if (rutaPedida && tabsConRuta.includes(rutaPedida)) setTab(rutaPedida);
+    else setTab((t) => (t === 'dashboard' ? tabDeSiempre : t));
+  }
+
+  /**
+   * La URL solo se toca con menú de verdad. En "Falta darte acceso" o si
+   * falló la consulta de roles se deja como llegó: al recargar (o cuando le
+   * den acceso) el enlace /pauta sigue abriendo Pauta.
+   */
+  const rutasActivas = ready && !errRoles && !!roles && roles.length > 0;
+
+  // Refs para el manejador de popstate, que vive fuera del ciclo de render.
+  // El alta solo cuenta como abierta si se VE: `nuevaAbierta` puede quedarse
+  // en true si se salió de Incidencias por la campana con el alta abierta, y
+  // entonces bloquearía el Atrás en un módulo sin alta a la vista.
+  const tabActual = useRef(tab);
+  const altaVisible = useRef(false);
+  useEffect(() => {
+    tabActual.current = tab;
+    altaVisible.current = nuevaAbierta && esTabIncidencias;
+  }, [tab, nuevaAbierta, esTabIncidencias]);
+  /** El siguiente popstate es el history.back() de cerrarNueva: se ignora. */
+  const ignorarPop = useRef(false);
+
+  /**
+   * Cierra el alta con sus propios botones (Cancelar, o al guardar). Si
+   * "Nueva" apiló su entrada y sigue siendo la actual, se consume con
+   * history.back(): si no, el siguiente Atrás caería en la misma pestaña y
+   * parecería no hacer nada. Ese popstate se ignora: la entrada de abajo es
+   * de la misma pestaña, y onPop, con el alta aún "visible" en su ref,
+   * volvería a apilar (revisión primer mes, 24-sep-2026).
+   */
+  const cerrarNueva = () => {
+    setNuevaAbierta(false);
+    if (window.history.state?.alta === MARCA_ALTA) {
+      ignorarPop.current = true;
+      window.history.back();
+    }
+  };
+
+  /**
+   * Pestaña → URL. Todos los setTab (menú, irAPauta, irABitacora,
+   * enfocarDesdePush, la campana, "Nueva") quedan sincronizados aquí sin
+   * tocar su lógica. La query no se conserva: ?record= e ?ir= ya se
+   * consumieron al montar.
+   */
+  useEffect(() => {
+    if (!rutasActivas) return;
+    const ruta = RUTA_DE_TAB[tab];
+    // Pestaña sin ruta (el prototipo local): la URL se queda como está.
+    if (!ruta) return;
+    const { pathname, search, hash } = window.location;
+    const reemplazar = modoHistorial.current === 'reemplazar';
+    modoHistorial.current = 'apilar';
+    if (pathname === ruta) {
+      // Misma pestaña; solo se limpia lo que sobre, sin apilar.
+      if (search || hash) window.history.replaceState(null, '', ruta);
+      return;
+    }
+    if (reemplazar) window.history.replaceState(null, '', ruta);
+    else window.history.pushState(null, '', ruta);
+  }, [tab, rutasActivas]);
+
+  /**
+   * URL → pestaña (Atrás / Adelante). Con esto el botón Atrás de Android
+   * regresa a la pestaña anterior en vez de cerrar la app.
+   */
+  useEffect(() => {
+    if (!rutasActivas) return;
+    // La app ya sube arriba al cambiar de pestaña (efecto de scroll de
+    // arriba); que el navegador no intente además restaurar el scroll de
+    // la entrada sobre un módulo que apenas está en "Cargando…".
+    try {
+      window.history.scrollRestoration = 'manual';
+    } catch {
+      /* navegador sin soporte: se queda el comportamiento por omisión */
+    }
+    const validas = clavesConRuta.split('|');
+    const onPop = () => {
+      if (ignorarPop.current) {
+        ignorarPop.current = false;
+        return;
+      }
+      // Con el alta abierta, Atrás NO la tira: antes cerraba la app y ahora
+      // cambiaría de pestaña, y en ambos casos se perdían fotos y GPS ya
+      // capturados. Se devuelve la entrada y el alta sigue ahí; se sale
+      // con su propio botón de cerrar.
+      if (altaVisible.current) {
+        const ruta = RUTA_DE_TAB[tabActual.current];
+        // Si se regresó a una entrada de la MISMA pestaña, la que se vuelve
+        // a apilar lleva la marca del alta: así cerrarNueva la consume con
+        // history.back() y no queda un Atrás muerto. Si la de abajo es de
+        // otra pestaña va sin marca: ahí un back() dejaría la URL de esa
+        // pestaña con Incidencias en pantalla (revisión primer mes,
+        // 24-sep-2026).
+        const mismaPestana = tabDeRuta(window.location.pathname) === tabActual.current;
+        if (ruta)
+          window.history.pushState(mismaPestana ? { alta: MARCA_ALTA } : null, '', ruta);
+        return;
+      }
+      const pedida = tabDeRuta(window.location.pathname);
+      if (pedida && validas.includes(pedida)) {
+        setTab(pedida);
+        return;
+      }
+      // Una entrada que no es de su menú (otra cuenta en este navegador,
+      // una ruta vieja): va a su pestaña de siempre, REEMPLAZANDO la
+      // entrada para no dejar basura en el historial.
+      const ruta = RUTA_DE_TAB[tabDeSiempre];
+      if (ruta) window.history.replaceState(null, '', ruta);
+      setTab(tabDeSiempre);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [rutasActivas, clavesConRuta, tabDeSiempre]);
+
   if (!ready) return <div className="loading">Cargando tu perfil…</div>;
   // Sin roles Y sin error de consulta = la cuenta existe pero nadie le ha
   // dado permisos. Se atiende antes de pintar el menú: no tiene caso mostrar
@@ -708,6 +1045,7 @@ function Main({ session }: { session: Session }) {
 
   const recargarTodo = () => {
     setRecargarSignal((n) => n + 1);
+    setRecargaManual((n) => n + 1);
     notifs.recargar();
   };
 
@@ -788,15 +1126,28 @@ function Main({ session }: { session: Session }) {
       {actualizacionDisponible && (
         <div className="banner" style={{ margin: '10px 16px 0' }}>
           Hay una versión nueva de la app.
+          {/* Un reporte que se está enviando o que no cupo en el teléfono
+              se perdería con la recarga: se pregunta antes (integración
+              primer mes, 24-sep-2026). */}
           <button
             className="btn sm"
             style={{ marginLeft: 10 }}
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              if (confirmarRecargaConEnvios()) window.location.reload();
+            }}
           >
             Actualizar ahora
           </button>
         </div>
       )}
+
+      {/* Aviso de envíos que no han salido (frente B, auditoría primer mes).
+          Vive en el armazón, no en un módulo: debe verse desde cualquier
+          pestaña. Al salir uno, se recargan las listas como con ↻. */}
+      <EnviosPendientes
+        email={email}
+        onEnviado={() => setRecargarSignal((n) => n + 1)}
+      />
 
       <div className="layout">
         <div className="side">
@@ -843,50 +1194,66 @@ function Main({ session }: { session: Session }) {
                 focoRecordId={focoRecordId}
                 onFocoAplicado={limpiarFoco}
                 nuevaAbierta={nuevaAbierta}
-                onCerrarNueva={() => setNuevaAbierta(false)}
+                onCerrarNueva={cerrarNueva}
                 recargarSignal={recargarSignal}
                 onBandejaCount={setBandejaCount}
               />
             )}
-            {tab === 'dashboard' && <IndicadoresView puedeConfigurarSla={has('manager')} />}
-            {tab === 'disponibilidad' && <DisponibilidadView />}
-            {tab === 'bitacora_vv' && (
-              <BitacoraVVView
-                email={email}
-                puedeCapturar={has('comercial')}
-                puedeProgramar={has('pautas')}
-                recargarSignal={recargarSignal}
-              />
-            )}
-            {tab === 'fijacion_externa' && (
-              <FijacionExternaView
-                email={email}
-                verTodo={has('manager')}
-                onNotifAtendida={notifs.marcarDeRegistro}
-              />
-            )}
-            {tab === 'rutas' && (
-              <RutasView
-                puedeGestionar={has('manager') || has('coordinador')}
-                unidades={misUnidades}
-              />
-            )}
-          {tab === 'pauta' && (
-            <PautaView
-              email={email}
-              misDep={misDep}
-              puedeImportar={has('manager') || has('coordinador')}
-              recargarSignal={recargarSignal}
-            />
-          )}
-          {tab === 'biobox' && (
-            <BioboxView
-              email={email}
-              misDep={misDep}
-              recargarSignal={recargarSignal}
-            />
-          )}
-          {tab === 'usuarios' && <UsuariosView email={email} />}
+            {/* Módulos diferidos: su chunk se descarga al abrir la pestaña.
+                El Suspense va DENTRO del ErrorBoundary para que un chunk
+                que no llegó caiga en su aviso (con "Recargar la app") y la
+                barra y el menú sigan vivos. Incidencias queda fuera: es
+                estático y no debe pasar nunca por "Cargando…". La llave
+                reinicia el aviso de "tarda más de lo normal" por módulo. */}
+            <Suspense fallback={<CargandoModulo key={tab} />}>
+              {/* recargarSignal: sin él, ↻ no reintentaba un periodo cuya
+                  carga falló (revisión primer mes, 24-sep-2026). Va el
+                  contador del ↻ y no el general: ver recargaManual. */}
+              {tab === 'dashboard' && (
+                <IndicadoresView
+                  puedeConfigurarSla={has('manager')}
+                  recargarSignal={recargaManual}
+                />
+              )}
+              {tab === 'disponibilidad' && <DisponibilidadView />}
+              {tab === 'bitacora_vv' && (
+                <BitacoraVVView
+                  email={email}
+                  puedeCapturar={has('comercial')}
+                  puedeProgramar={has('pautas')}
+                  recargarSignal={recargarSignal}
+                />
+              )}
+              {tab === 'fijacion_externa' && (
+                <FijacionExternaView
+                  email={email}
+                  verTodo={has('manager')}
+                  onNotifAtendida={notifs.marcarDeRegistro}
+                />
+              )}
+              {tab === 'rutas' && (
+                <RutasView
+                  puedeGestionar={has('manager') || has('coordinador')}
+                  unidades={misUnidades}
+                />
+              )}
+              {tab === 'pauta' && (
+                <PautaView
+                  email={email}
+                  misDep={misDep}
+                  puedeImportar={has('manager') || has('coordinador')}
+                  recargarSignal={recargarSignal}
+                />
+              )}
+              {tab === 'biobox' && (
+                <BioboxView
+                  email={email}
+                  misDep={misDep}
+                  recargarSignal={recargarSignal}
+                />
+              )}
+              {tab === 'usuarios' && <UsuariosView email={email} />}
+            </Suspense>
           </ErrorBoundary>
         </div>
       </div>

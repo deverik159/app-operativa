@@ -36,11 +36,37 @@ export type FilaDuplicable = {
 export type Duplicada<T> = { fila: T; folio: string | null };
 
 /**
+ * La consulta de la regla no salió. Solo se lanza con `lanzarSiFalla`:
+ * quien llama distingue por `status` una falla de red (reintentar) de una
+ * definitiva.
+ */
+export class ErrorConsultaDuplicados extends Error {
+  status: number;
+  code?: string;
+  constructor(mensaje: string, status: number, code?: string) {
+    super(mensaje);
+    this.name = 'ErrorConsultaDuplicados';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/**
  * Busca cuáles de las filas por crear YA tienen una incidencia igual en
  * 'en_proceso'. Devuelve los choques con su folio; vacío = todo libre.
+ *
+ * `op` es opcional (revisión primer mes, 24-sep-2026: lo pidió la cola de
+ * envíos, cuyo único paso sin tope era este). Sin él, todo igual que
+ * siempre: sin tope y, si la consulta falla, se contesta "sin choques".
+ *   · signal       → tope de espera (AbortSignal) para la consulta.
+ *   · lanzarSiFalla → si la consulta falla se lanza ErrorConsultaDuplicados
+ *                     en vez de contestar "sin choques", y postgrest no
+ *                     reintenta por su cuenta: quien llama maneja la falla
+ *                     y sus reintentos.
  */
 export async function duplicadasEnProceso<T extends FilaDuplicable>(
-  filas: T[]
+  filas: T[],
+  op?: { signal?: AbortSignal; lanzarSiFalla?: boolean }
 ): Promise<Duplicada<T>[]> {
   const caras = [
     ...new Set(filas.map((f) => f.clave_medio).filter(Boolean)),
@@ -50,12 +76,17 @@ export async function duplicadasEnProceso<T extends FilaDuplicable>(
   ] as string[];
   if (!caras.length || !nombres.length) return [];
 
-  const { data } = await sb
+  let consulta = sb
     .from('incidencias')
     .select('folio,nombre_incidencia,clave_medio,unidad_negocio,medio')
     .eq('estatus', 'en_proceso')
     .in('clave_medio', caras)
     .in('nombre_incidencia', nombres);
+  if (op?.signal) consulta = consulta.abortSignal(op.signal);
+  if (op?.lanzarSiFalla) consulta = consulta.retry(false);
+  const { data, error, status } = await consulta;
+  if (error && op?.lanzarSiFalla)
+    throw new ErrorConsultaDuplicados(error.message, status, error.code);
   type Abierta = FilaDuplicable & { folio: string | null };
   const abiertas = (data as Abierta[] | null) || [];
 

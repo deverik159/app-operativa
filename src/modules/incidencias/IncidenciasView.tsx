@@ -7,6 +7,10 @@
 // Modos:
 //   'bandeja' — lo que le toca hacer al rol ahora mismo
 //   'todas'   — todo lo que la RLS le deja ver, con filtros
+//
+// Carga (auditoría primer mes, 24-sep-2026): lo ABIERTO llega completo
+// (paginado); del historial terminal, las 1000 más recientes, y más atrás
+// solo si se filtra por fecha. Ver `cargar`.
 // ============================================================
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { sb } from '../../lib/supabase';
@@ -47,8 +51,232 @@ import type {
   UsuarioRol,
 } from '../../types/db';
 
-/** Tope de filas por consulta: el límite duro de Supabase es 1000. */
-const LIMITE_INCIDENCIAS = 1000;
+/** Filas por página: el tope duro de PostgREST es 1000 por consulta. */
+const PAGINA = 1000;
+
+/**
+ * Tope de seguridad de páginas de ABIERTAS (20,000 filas). No se espera
+ * llegar nunca; existe para que un error de datos no ponga a un celular a
+ * bajar la base entera. Si se alcanza, la pantalla lo AVISA: un tope
+ * silencioso es justo el bug que esta carga vino a quitar.
+ */
+const TOPE_PAGINAS_ABIERTAS = 20;
+
+/**
+ * Tope de páginas del historial cuando el usuario lo pide desde una fecha
+ * vieja (10,000 terminales). También se avisa si se alcanza.
+ */
+const TOPE_PAGINAS_HISTORIAL = 10;
+
+/**
+ * Estatus TERMINALES: ya nadie tiene que hacer nada con ellas. Todo lo demás
+ * es "abierto" (rechazada incluida: le toca corregir al reportante).
+ */
+const TERMINALES = ['cerrada', 'no_reparado'];
+/** Lo mismo, en la sintaxis de lista que espera `.not('estatus','in',…)`. */
+const TERMINALES_LISTA = '(cerrada,no_reparado)';
+
+/**
+ * Fotos de tarjeta: cuántos record_id van en cada llamada a la RPC y
+ * cuántas llamadas viajan a la vez. 400 ids caben de sobra en el cuerpo del
+ * POST, y 3 en paralelo no saturan la conexión de un celular.
+ */
+const LOTE_FOTOS = 400;
+const FOTOS_EN_PARALELO = 3;
+
+/**
+ * Tarjetas que se pintan de un jalón. Pintar 2,000 IncCard en un teléfono
+ * congela la pantalla varios segundos; se pintan de 150 en 150 con un botón
+ * "Mostrar más" (auditoría primer mes, 24-sep-2026). La tabla no se corta.
+ */
+const PASO_PINTADO = 150;
+
+/**
+ * ¿La RPC fotos_tarjetas no existe todavía? (primer_mes.sql sin correr).
+ * Se recuerda por sesión para no pagar un viaje fallido en cada recarga; al
+ * recargar la app se vuelve a intentar.
+ */
+let faltaRpcFotos = false;
+
+type ResultadoPaginado = {
+  filas: Incidencia[];
+  error: string | null;
+  /** Se llegó al tope de páginas con la última llena: puede haber más. */
+  topado: boolean;
+};
+
+/**
+ * Trae una consulta paginada de 1000 en 1000 hasta que una página venga
+ * incompleta (o se llegue al tope). `pagina` ARMA la consulta cada vez: un
+ * builder de postgrest-js vuelve a disparar la petición en cada await, así
+ * que es más claro construir uno por página.
+ *
+ * `vigente` corta el ciclo si otra carga más nueva ya lo superó: no tiene
+ * caso seguir bajando páginas que se van a tirar.
+ *
+ * OJO (paginado por OFFSET): si una incidencia cambia de estatus justo
+ * mientras se bajan las páginas, las filas se recorren y una puede saltarse
+ * o repetirse. Las repetidas se quitan al unir; una saltada reaparece en la
+ * siguiente recarga. Con < 1000 abiertas (lo normal) es una sola página y
+ * el caso no existe.
+ */
+async function traerPaginado(
+  pagina: (
+    desde: number,
+    hasta: number
+  ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+  topePaginas: number,
+  vigente: () => boolean
+): Promise<ResultadoPaginado> {
+  let filas: Incidencia[] = [];
+  for (let n = 0; n < topePaginas; n++) {
+    const desde = n * PAGINA;
+    const { data, error } = await pagina(desde, desde + PAGINA - 1);
+    if (error) return { filas, error: error.message, topado: false };
+    const lote = (data as Incidencia[] | null) || [];
+    filas = filas.concat(lote);
+    if (lote.length < PAGINA || !vigente())
+      return { filas, error: null, topado: false };
+  }
+  return { filas, error: null, topado: true };
+}
+
+/**
+ * Orden de la lista: fecha de reporte descendente, las que no tienen fecha
+ * al final y record_id de desempate (estable entre recargas: sin él, dos
+ * con la misma fecha podían intercambiarse y la tarjeta "brincaba").
+ */
+function porFechaDesc(a: Incidencia, b: Incidencia): number {
+  const fa = a.fecha_reporte ? Date.parse(a.fecha_reporte) : NaN;
+  const fb = b.fecha_reporte ? Date.parse(b.fecha_reporte) : NaN;
+  const sinA = Number.isNaN(fa);
+  const sinB = Number.isNaN(fb);
+  if (sinA !== sinB) return sinA ? 1 : -1;
+  if (!sinA && fa !== fb) return fb - fa;
+  return a.record_id < b.record_id ? -1 : a.record_id > b.record_id ? 1 : 0;
+}
+
+/**
+ * dd/mm/aaaa del DÍA UTC de una marca ISO. Se toma el día igual que el
+ * filtro de fechas de la vista (primeros 10 caracteres), para que la fecha
+ * que dice el aviso sea la misma que hay que poner en "Desde".
+ */
+function diaCorto(iso: string): string {
+  const [a, m, d] = iso.slice(0, 10).split('-');
+  return `${d}/${m}/${a}`;
+}
+
+/**
+ * Inicio (00:00 UTC, en ms) de un 'YYYY-MM-DD' del input date, o null si
+ * todavía no es una fecha completa y creíble. En escritorio el input emite
+ * el año a medio teclear (0002, 0020, 0202…): esos no cuentan.
+ */
+function inicioDiaUtc(dia: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia) || Number(dia.slice(0, 4)) < 2000)
+    return null;
+  const ms = Date.parse(dia + 'T00:00:00Z');
+  return Number.isNaN(ms) ? null : ms;
+}
+
+type MapasFotos = {
+  reporte: Record<string, string>;
+  reparacion: Record<string, string>;
+};
+
+/**
+ * Fotos de tarjeta de una lista de record_id, con la RPC fotos_tarjetas
+ * (primer_mes.sql). Devuelve null si falló (mala señal): quien llama
+ * conserva las fotos que ya tenía.
+ *
+ * POR QUÉ LA RPC (auditoría primer mes, 24-sep-2026): antes salían de una
+ * sola consulta global a `evidencias` con .limit(3000). Con volumen, las
+ * 3000 fotos más recientes se las comían las incidencias nuevas y las
+ * tarjetas viejas se quedaban sin foto, sin aviso. La RPC recibe los ids y
+ * devuelve UN jsonb (escalar: no le aplica el tope de 1000 filas), así que
+ * cada tarjeta cargada recibe la suya. Es SECURITY INVOKER: la RLS de
+ * evidencias sigue aplicando al usuario.
+ *
+ * Semántica, la misma de antes (ajuste de Erik, ago-2026):
+ *   reporte    → la foto MÁS VIEJA de la etapa 'reporte'
+ *   reparacion → la foto MÁS RECIENTE de la etapa 'reparacion'
+ *
+ * Si la RPC no existe (PGRST202: aún no se corre primer_mes.sql) cae a la
+ * consulta anterior, para no romper en el intervalo entre desplegar el
+ * frontend y correr el SQL. `conRespaldo=false` omite ese respaldo (sirve
+ * para pedir la foto de UNA tarjeta sin bajar 3000 filas).
+ */
+async function traerFotosTarjetas(
+  ids: string[],
+  conRespaldo = true
+): Promise<MapasFotos | null> {
+  const mapas: MapasFotos = { reporte: {}, reparacion: {} };
+  if (!ids.length) return mapas;
+
+  if (!faltaRpcFotos) {
+    const lotes: string[][] = [];
+    for (let k = 0; k < ids.length; k += LOTE_FOTOS)
+      lotes.push(ids.slice(k, k + LOTE_FOTOS));
+    let siguiente = 0;
+    let fallo: { code?: string; message?: string } | null = null;
+    // Un grupo chico de "trabajadores" que se van repartiendo los lotes:
+    // nunca hay más de FOTOS_EN_PARALELO llamadas en vuelo.
+    const trabajador = async () => {
+      while (!fallo && siguiente < lotes.length) {
+        const lote = lotes[siguiente++];
+        const { data, error } = await sb.rpc('fotos_tarjetas', { p_ids: lote });
+        if (error) {
+          fallo = error;
+          return;
+        }
+        const obj = (data || {}) as Record<
+          string,
+          { reporte?: string | null; reparacion?: string | null }
+        >;
+        Object.entries(obj).forEach(([rid, f]) => {
+          if (f?.reporte) mapas.reporte[rid] = f.reporte;
+          if (f?.reparacion) mapas.reparacion[rid] = f.reparacion;
+        });
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(FOTOS_EN_PARALELO, lotes.length) }, trabajador)
+    );
+    const err = fallo as { code?: string; message?: string } | null;
+    if (!err) return mapas;
+    const noExiste =
+      err.code === 'PGRST202' ||
+      /could not find the function/i.test(err.message || '');
+    if (!noExiste) return null;
+    faltaRpcFotos = true;
+    console.warn(
+      '[incidencias] Falta la función fotos_tarjetas: corre primer_mes.sql en ' +
+        'Supabase. Mientras, las fotos de tarjeta salen de las 3000 evidencias ' +
+        'más recientes (las tarjetas viejas pueden quedar sin foto).'
+    );
+  }
+  if (!conRespaldo) return null;
+
+  // Respaldo: la consulta de antes. Viene en orden descendente y cada etapa
+  // elige distinto:
+  //   - reporte: el mapa se SOBREESCRIBE al iterar → queda la más VIEJA;
+  //   - reparación: solo la PRIMERA escritura por record_id → la más RECIENTE.
+  const { data: evs, error: errEv } = await sb
+    .from('evidencias')
+    .select('record_id,url,etapa')
+    .eq('tipo', 'foto')
+    .in('etapa', ['reporte', 'reparacion'])
+    .order('creado_en', { ascending: false })
+    .limit(3000);
+  if (errEv) return null;
+  (
+    (evs as { record_id: string | null; url: string; etapa: string }[]) || []
+  ).forEach((e) => {
+    if (!e.record_id) return;
+    if (e.etapa === 'reporte') mapas.reporte[e.record_id] = e.url;
+    else if (!mapas.reparacion[e.record_id]) mapas.reparacion[e.record_id] = e.url;
+  });
+  return mapas;
+}
 
 /**
  * ¿Dos marcas de tiempo son el mismo instante? Se compara el valor y no el
@@ -311,6 +539,80 @@ function IncidenciasView({
   const tocadasEnCarga = useRef<Set<string> | null>(null);
   const marcarTocada = (rid: string) => tocadasEnCarga.current?.add(rid);
 
+  /**
+   * Hasta dónde llega el HISTORIAL (terminales) cargado.
+   *   frontera — instante ISO desde el cual las terminales están COMPLETAS;
+   *              las anteriores pueden faltar. null = historial completo.
+   *   n        — cuántas terminales se cargaron
+   *   tope     — se pidió por fecha y aun así se llegó al tope de páginas:
+   *              ir más atrás no traería nada nuevo
+   */
+  const [historial, setHistorial] = useState<{
+    frontera: string | null;
+    n: number;
+    tope: boolean;
+  }>({ frontera: null, n: 0, tope: false });
+  /** Se llegó al tope de páginas de ABIERTAS (20,000): se avisa en pantalla. */
+  const [topeAbiertas, setTopeAbiertas] = useState(false);
+  /**
+   * Día ('YYYY-MM-DD') desde el que la SIGUIENTE carga pide el historial
+   * completo. null = solo las 1000 terminales más recientes. Lo mantiene el
+   * efecto de "Desde" (abajo) al día con lo que la vista necesita. Es ref y
+   * no estado para que `cargar` siga siendo estable (sin dependencias).
+   *
+   * Sí se encoge (revisión primer mes, 24-sep-2026): antes, una vez pedido,
+   * se quedaba toda la sesión, y cada recarga —un aviso nuevo, ↻, un envío
+   * que sale— volvía a bajar hasta 10 páginas con '*' más sus fotos aunque
+   * ya se hubiera quitado "Desde" o se estuviera en una bandeja que no
+   * enseña cerradas. Encoger no recarga: lo ya cargado sobra, no falta.
+   */
+  const desdeHistorial = useRef<string | null>(null);
+  /**
+   * Frontera de la última carga LIGERA (una página): de ahí para atrás
+   * "Desde" necesita pedir historial. null = esa carga trajo el historial
+   * completo. Solo la actualizan las cargas ligeras; mientras la vista siga
+   * ampliada se queda la última, que puede ser más vieja que la real. Si
+   * entonces se pone un "Desde" entre las dos, no se amplía, y la siguiente
+   * recarga (ligera) lo corrige: las cerradas de ese tramo parpadean y se
+   * vuelven a pedir. Cuesta una recarga ligera de más, no datos.
+   */
+  const fronteraLigera = useRef<string | null>(null);
+  /**
+   * Día con el que salió la carga más reciente (null = ligera, o falló).
+   * Sirve para no repetir una ampliación que ya va en camino.
+   */
+  const desdePedido = useRef<string | null>(null);
+  /**
+   * ¿Lo que se ve incluye terminales? En 'todas', sí. En la bandeja, solo la
+   * del reportante (todo lo suyo, en cualquier estatus) y la de manager,
+   * coordinador y viewer (= todo lo cargado). La del validador y la del
+   * técnico no enseñan ninguna cerrada (ver `bandeja`): ahí ampliar el
+   * historial era bajar miles de filas que nadie ve, y el aviso de historial
+   * recortado no aplica (revisión primer mes, 24-sep-2026).
+   */
+  const bandejaVeTerminales = misRoles.some((r) =>
+    ['reportante', 'manager', 'coordinador', 'viewer'].includes(r)
+  );
+  const vistaVeTerminales = modo === 'todas' || bandejaVeTerminales;
+
+  /**
+   * DOS consultas en paralelo, no una (auditoría primer mes, 24-sep-2026).
+   *
+   * Antes era UNA: las 1000 más recientes de todo. La bandeja, el globito del
+   * menú y la vista se calculan sobre lo cargado, así que en cuanto hubiera
+   * más de 1000 incidencias, lo abierto viejo —un en_proceso de hace meses—
+   * desaparecía de "Mis pendientes" SIN aviso.
+   *
+   *   a) ABIERTAS: todas, paginadas de 1000 en 1000. Es lo accionable y no
+   *      se puede recortar.
+   *   b) HISTORIAL (cerradas y no reparadas): las 1000 más recientes. Si
+   *      vino llena, está recortado y la pantalla lo dice (donde se ven
+   *      terminales). Si el usuario filtra "Desde" una fecha más vieja, se
+   *      traen todas desde ahí.
+   *
+   * Si cualquiera de las dos falla, cuenta como error de carga y se conserva
+   * lo anterior: una lista a medias se leería como completa.
+   */
   const cargar = useCallback(async () => {
     const miCarga = ++cargaSeq.current;
     const tocadas = new Set<string>();
@@ -318,11 +620,45 @@ function IncidenciasView({
     if (yaCargo.current) setRecargando(true);
     else setLoading(true);
     setErr('');
-    const { data, error } = await sb
-      .from('incidencias')
-      .select('*')
-      .order('fecha_reporte', { ascending: false })
-      .limit(LIMITE_INCIDENCIAS);
+    const vigente = () => miCarga === cargaSeq.current;
+    const desdeHist = desdeHistorial.current;
+    desdePedido.current = desdeHist;
+    const [abiertas, terminales] = await Promise.all([
+      traerPaginado(
+        (desde, hasta) =>
+          sb
+            .from('incidencias')
+            .select('*')
+            .not('estatus', 'in', TERMINALES_LISTA)
+            .order('fecha_reporte', { ascending: false })
+            .order('record_id', { ascending: true })
+            .range(desde, hasta),
+        TOPE_PAGINAS_ABIERTAS,
+        vigente
+      ),
+      traerPaginado(
+        (desde, hasta) => {
+          let consulta = sb
+            .from('incidencias')
+            .select('*')
+            .in('estatus', TERMINALES);
+          // Las que no traen fecha se incluyen: sin esto, pedir historial
+          // por fecha las sacaba de la lista para siempre.
+          if (desdeHist)
+            consulta = consulta.or(
+              `fecha_reporte.gte."${desdeHist}T00:00:00Z",fecha_reporte.is.null`
+            );
+          return consulta
+            .order('fecha_reporte', { ascending: false })
+            .order('record_id', { ascending: true })
+            .range(desde, hasta);
+        },
+        // Sin fecha pedida: UNA página (las 1000 más recientes). "Topado"
+        // con una sola página = vino llena = el historial está recortado.
+        desdeHist ? TOPE_PAGINAS_HISTORIAL : 1,
+        vigente
+      ),
+    ]);
     // Una carga más nueva ya está en camino: esta respuesta es vieja.
     if (miCarga !== cargaSeq.current) return;
     tocadasEnCarga.current = null;
@@ -334,11 +670,59 @@ function IncidenciasView({
     // Con error (mala señal) se CONSERVA la lista anterior —y sus fotos—:
     // vaciarla hacía desaparecer el trabajo de la pantalla justo cuando no
     // hay red para volver a traerlo.
+    const error = abiertas.error || terminales.error;
     if (error) {
-      setErr('incidencias: ' + error.message);
+      setErr('incidencias: ' + error);
+      // De esa fecha no llegó nada: ya no "va en camino". Sin esto, tras un
+      // fallo, poner la misma fecha o una más reciente no volvía a pedirla
+      // (el efecto de "Desde" la daba por pedida) y solo ↻ la traía
+      // (revisión primer mes, 24-sep-2026).
+      desdePedido.current = null;
       return;
     }
-    const delServidor = (data as Incidencia[]) || [];
+    // Unión sin duplicados: una que cambió de estatus entre las dos
+    // consultas puede venir en ambas. Gana la TERMINAL (revisión primer mes,
+    // 24-sep-2026): cerrada y no_reparado no se revierten desde la app, así
+    // que si una consulta la vio abierta y la otra terminal, la terminal es
+    // forzosamente la más nueva. Antes ganaba la abierta y la tarjeta seguía
+    // ofreciendo "Aprobar reparación" sobre una ya cerrada. OJO: si algún
+    // día otra vía (app vieja, SQL) reabre incidencias, este supuesto deja
+    // de valer, y `incidencias` no trae una columna de última modificación
+    // con la cual desempatar. El orden final lo da porFechaDesc.
+    const vistos = new Set<string>();
+    const delServidor: Incidencia[] = [];
+    for (const i of [...terminales.filas, ...abiertas.filas]) {
+      if (vistos.has(i.record_id)) continue;
+      vistos.add(i.record_id);
+      delServidor.push(i);
+    }
+    delServidor.sort(porFechaDesc);
+    setTopeAbiertas(abiertas.topado);
+    // La más vieja CON fecha: es la frontera del historial cargado.
+    let masVieja: string | null = null;
+    let masViejaMs = Infinity;
+    for (const i of terminales.filas) {
+      const ms = i.fecha_reporte ? Date.parse(i.fecha_reporte) : NaN;
+      if (!Number.isNaN(ms) && ms < masViejaMs) {
+        masViejaMs = ms;
+        masVieja = i.fecha_reporte;
+      }
+    }
+    // Umbral de "Desde" para pedir historial (ver fronteraLigera): solo lo
+    // mueve una carga ligera, que es la que dice dónde se corta por omisión.
+    if (!desdeHist) fronteraLigera.current = terminales.topado ? masVieja : null;
+    // Sin fecha pedida: si la página vino llena, lo completo empieza en la
+    // más vieja cargada. Pedido por fecha: completo desde ese día (lo de
+    // antes no se pidió), salvo que se haya topado.
+    setHistorial({
+      frontera: terminales.topado
+        ? masVieja
+        : desdeHist
+          ? desdeHist + 'T00:00:00Z'
+          : null,
+      n: terminales.filas.length,
+      tope: !!desdeHist && terminales.topado,
+    });
     setItems((prev) => {
       if (!tocadas.size) return delServidor;
       const locales = new Map(prev.map((i) => [i.record_id, i]));
@@ -359,22 +743,17 @@ function IncidenciasView({
     // soltar el loading: la lista se usa igual sin fotos, y así no se le
     // cobra la espera.
     //
-    // Una sola consulta para toda la lista, no una por tarjeta. Viene en
-    // orden descendente y cada etapa elige distinto:
-    //   - reporte: el mapa se SOBREESCRIBE al iterar → queda la más VIEJA,
-    //     la primera que se subió al reportar;
-    //   - reparación: solo la PRIMERA escritura por record_id → queda la
-    //     más RECIENTE, que es el estado final del trabajo.
+    // Por record_id de lo cargado, con la RPC fotos_tarjetas (ver
+    // traerFotosTarjetas): cada tarjeta recibe la suya aunque sea vieja.
+    // Van también las tocadas en vuelo (p. ej. recién creadas que el
+    // servidor aún no devolvía), que se conservan en la lista.
     // La evidencia de reasignación no vive en `evidencias`: viaja como URL
     // en `reasignaciones.evidencia`, y solo importa la solicitud abierta.
-    const [{ data: evs, error: errEv }, { data: reasEv, error: errReas }] = await Promise.all([
-      sb
-        .from('evidencias')
-        .select('record_id,url,etapa')
-        .eq('tipo', 'foto')
-        .in('etapa', ['reporte', 'reparacion'])
-        .order('creado_en', { ascending: false })
-        .limit(3000),
+    const ids = [
+      ...new Set([...delServidor.map((i) => i.record_id), ...tocadas]),
+    ];
+    const [mapas, { data: reasEv, error: errReas }] = await Promise.all([
+      traerFotosTarjetas(ids),
       sb
         .from('reasignaciones')
         .select('record_id,evidencia')
@@ -384,17 +763,9 @@ function IncidenciasView({
     ]);
     // Si fallaron (mala señal), las tarjetas conservan las fotos que ya
     // tenían: mapas vacíos las dejaban a todas sin foto.
-    if (errEv || errReas || miCarga !== cargaSeq.current) return;
-    const mReporte: Record<string, string> = {};
-    const mReparacion: Record<string, string> = {};
-    (
-      (evs as { record_id: string | null; url: string; etapa: string }[]) ||
-      []
-    ).forEach((e) => {
-      if (!e.record_id) return;
-      if (e.etapa === 'reporte') mReporte[e.record_id] = e.url;
-      else if (!mReparacion[e.record_id]) mReparacion[e.record_id] = e.url;
-    });
+    if (!mapas || errReas || miCarga !== cargaSeq.current) return;
+    const mReporte = mapas.reporte;
+    const mReparacion = mapas.reparacion;
     const mReasign: Record<string, string> = {};
     ((reasEv as { record_id: string; evidencia: string }[]) || []).forEach(
       (r) => {
@@ -435,9 +806,57 @@ function IncidenciasView({
     })();
   }, [cargar]);
 
+  /**
+   * "Desde" más viejo que el historial cargado → se trae del servidor.
+   *
+   * Sin esto, con el historial recortado a las 1000 terminales más
+   * recientes, filtrar por un mes viejo enseñaba solo lo abierto de ese mes
+   * y las cerradas "no existían". Se fija desdeHistorial y se recarga: desde
+   * ahí la consulta de terminales es "todas desde esa fecha" (paginada).
+   *
+   * Solo donde se ven terminales (vistaVeTerminales): 'todas' y las bandejas
+   * del reportante y de manager/coordinador/viewer. En "Mis pendientes" del
+   * validador o del técnico, un "Desde" viejo ya no baja el historial; si
+   * con ese mismo "Desde" pasa a 'todas', ahí se amplía (revisión primer
+   * mes, 24-sep-2026).
+   *
+   * Y a la inversa: si ya no hace falta (se quitó "Desde", se puso uno
+   * dentro de la carga ligera o se volvió a una bandeja sin cerradas),
+   * desdeHistorial vuelve a null SIN recargar. Lo cargado se queda en
+   * pantalla y la siguiente recarga ya sale de una página.
+   *
+   * La recarga solo se dispara con una fecha completa y válida, y con una
+   * pausa: en escritorio el input date emite el año a medio teclear
+   * (0002, 0020, 0202…) y cada uno habría sido una recarga.
+   */
+  useEffect(() => {
+    const ms = inicioDiaUtc(fDesde);
+    const ligera = fronteraLigera.current;
+    // ¿Pide cerradas más viejas que las que trae la carga ligera? Si la
+    // ligera vino completa (ligera = null), nunca.
+    const pide =
+      vistaVeTerminales && ms != null && ligera != null && ms < Date.parse(ligera)
+        ? fDesde
+        : null;
+    desdeHistorial.current = pide;
+    if (pide == null || ms == null) return;
+    // Ya se pidió por fecha y aun así topó: ir más atrás no traería nada
+    // nuevo (el aviso lo dice).
+    if (historial.tope) return;
+    // Lo cargado ya cubre ese día completo: basta con que las siguientes
+    // recargas lo sigan pidiendo (desdeHistorial ya quedó arriba).
+    if (historial.frontera && ms >= Date.parse(historial.frontera)) return;
+    // Ya va en camino una carga desde esa fecha o antes.
+    if (desdePedido.current && desdePedido.current <= fDesde) return;
+    const t = setTimeout(() => cargar(), 700);
+    return () => clearTimeout(t);
+  }, [fDesde, vistaVeTerminales, historial, cargar]);
+
   // Al llegar desde una notificación: se limpian los filtros y se busca por
-  // folio. Si no está entre las últimas 1000 filas cargadas, se consulta por
-  // record_id antes de concluir que no es visible para este usuario.
+  // folio. Lo ABIERTO ya viene completo en la carga; lo que puede faltar es
+  // una terminal vieja (fuera de las 1000 más recientes del historial). Si
+  // no está en lo cargado, se consulta por record_id antes de concluir que
+  // no es visible para este usuario.
   //
   // Al terminar se avisa al padre para que limpie focoRecordId. Si no, cada
   // vez que cambiara `items` (o se remontara la vista) se volvería a forzar
@@ -472,6 +891,18 @@ function IncidenciasView({
               ? prev
               : [data as Incidencia, ...prev]
           );
+          // Su foto de tarjeta: no venía en la carga de fotos porque la fila
+          // no estaba cargada. Sin respaldo: si falta la RPC, se queda sin
+          // foto en vez de bajar 3000 evidencias por una tarjeta.
+          const rid = focoRecordId;
+          traerFotosTarjetas([rid], false).then((m) => {
+            if (!m) return;
+            setFotos((prev) => ({
+              ...prev,
+              reporte: { ...prev.reporte, ...m.reporte },
+              reparacion: { ...prev.reparacion, ...m.reparacion },
+            }));
+          });
           return;
         }
 
@@ -487,11 +918,14 @@ function IncidenciasView({
       };
     }
 
-    // Se limpia TODO lo que podría esconderla, incluidas las fechas.
+    // Se limpia TODO lo que podría esconderla, incluidas las fechas y el
+    // filtro "Reporta" (faltaba: con otra área elegida, la tarjeta quedaba
+    // filtrada y el resaltado no encontraba nada — auditoría primer mes).
     setAvisoFoco('');
     setQ(it.folio || '');
     setFUN('Todas');
     setFArea('Todas');
+    setFReporta('Todas');
     setFEstado('Todos');
     setFDesde('');
     setFHasta('');
@@ -687,6 +1121,43 @@ function IncidenciasView({
     fDesde,
     fHasta,
   ]);
+
+  /**
+   * Pintado progresivo de tarjetas (ver PASO_PINTADO).
+   *
+   * El corte se guarda JUNTO con la "clave" de filtros para la que se pidió:
+   * si cambia un filtro, la búsqueda, la sección o la vista, la clave ya no
+   * coincide y se vuelve a PASO_PINTADO sin un efecto de por medio (un
+   * efecto dejaría un pintado intermedio con el corte viejo). Una recarga NO
+   * cambia la clave: quien ya abrió 450 no se los ve colapsar por un aviso.
+   */
+  const clavePintado = [
+    modo,
+    vista,
+    q,
+    fUN,
+    fArea,
+    fReporta,
+    fEstado,
+    fDesde,
+    fHasta,
+  ].join('|');
+  const [pintado, setPintado] = useState({ clave: '', n: PASO_PINTADO });
+  const nBasePintado =
+    pintado.clave === clavePintado ? pintado.n : PASO_PINTADO;
+  // La tarjeta enfocada desde una notificación SIEMPRE queda pintada, aunque
+  // esté más abajo del corte: se calcula en el mismo render en que se pone
+  // `resaltado`, así que ya existe en el DOM cuando corre el scrollIntoView.
+  const idxResaltado = resaltado
+    ? visibles.findIndex((i) => i.record_id === resaltado)
+    : -1;
+  const nPintadas = Math.max(nBasePintado, idxResaltado + 1);
+  // …y se queda pintada al apagarse el resalte a los 4 s (si no, el corte
+  // volvería a su tamaño y la tarjeta desaparecería bajo el dedo).
+  useEffect(() => {
+    if (idxResaltado + 1 > nBasePintado)
+      setPintado({ clave: clavePintado, n: idxResaltado + 1 });
+  }, [idxResaltado, nBasePintado, clavePintado]);
 
   /**
    * Opciones del filtro "Reporta": las áreas reportantes que de verdad
@@ -1015,6 +1486,53 @@ function IncidenciasView({
               : 'Todo lo que tu rol puede ver (filtrado por seguridad).'}
       </p>
 
+      {/* Historial recortado: se dice donde se ven terminales ('todas' y
+          las bandejas que enseñan cerradas, ver vistaVeTerminales). Solo si
+          afecta a lo que se ve: con "Desde" dentro de lo ya completo, no hay
+          nada que avisar. (Auditoría primer mes, 24-sep-2026.)
+          En la bandeja va SIN conteo (revisión primer mes, 24-sep-2026):
+          historial.n cuenta todas las terminales cargadas, no las de la
+          bandeja, y a un reportante le daría un número falso. El reportante
+          puro no tiene la pestaña 'todas': sin este aviso, sus cerradas
+          viejas desaparecían de "Mi bandeja" sin decir nada. */}
+      {vistaVeTerminales &&
+        historial.frontera &&
+        (inicioDiaUtc(fDesde) ?? -Infinity) < Date.parse(historial.frontera) && (
+          <p className="phint" style={{ marginTop: -12 }}>
+            {modo === 'todas' ? (
+              <>
+                🗂 Historial: se muestran las {historial.n.toLocaleString('es-MX')}{' '}
+                cerradas o no reparadas más recientes (desde el{' '}
+                {diaCorto(historial.frontera)}).{' '}
+                {historial.tope
+                  ? 'Es el tope de carga de esta pantalla.'
+                  : 'Para ver anteriores, filtra por fecha en «Desde».'}
+              </>
+            ) : (
+              <>
+                🗂 Las cerradas o no reparadas anteriores al{' '}
+                {diaCorto(historial.frontera)} no están cargadas.{' '}
+                {historial.tope
+                  ? 'Es el tope de carga de esta pantalla.'
+                  : 'Para verlas, filtra por fecha en «Desde».'}
+              </>
+            )}
+          </p>
+        )}
+
+      {/* Nunca un tope silencioso sobre lo ABIERTO: es lo accionable. */}
+      {topeAbiertas && (
+        <div
+          className="banner"
+          style={{ borderColor: 'var(--warn)', color: 'var(--warn)' }}
+        >
+          ⚠️ Hay más de{' '}
+          {(TOPE_PAGINAS_ABIERTAS * PAGINA).toLocaleString('es-MX')} incidencias
+          abiertas: se cargaron las más recientes y las más viejas no aparecen
+          aquí. Avisa a sistemas.
+        </div>
+      )}
+
       {modo === 'bandeja' &&
         (alertasValidacion.vencidas > 0 || alertasValidacion.porVencer > 0) && (
           <div
@@ -1145,8 +1663,9 @@ function IncidenciasView({
           puedeExportar={puedeVerTabla}
         />
       ) : (
+        <>
         <div className="inc-list">
-          {visibles.map((i) => (
+          {visibles.slice(0, nPintadas).map((i) => (
             // El id y el envoltorio son lo que permite hacer scroll hasta la
             // tarjeta y resaltarla al llegar desde una notificación.
             <div
@@ -1190,6 +1709,35 @@ function IncidenciasView({
             </div>
           ))}
         </div>
+        {/* Nunca cortar en silencio: se dice cuántas hay y cuántas se ven. */}
+        {visibles.length > nPintadas && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 10,
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              margin: '16px 0',
+              color: 'var(--muted)',
+              fontSize: 13,
+            }}
+          >
+            <span>
+              Mostrando {nPintadas.toLocaleString('es-MX')} de{' '}
+              {visibles.length.toLocaleString('es-MX')}
+            </span>
+            <button
+              className="btn ghost sm"
+              onClick={() =>
+                setPintado({ clave: clavePintado, n: nPintadas + PASO_PINTADO })
+              }
+            >
+              Mostrar {Math.min(PASO_PINTADO, visibles.length - nPintadas)} más
+            </button>
+          </div>
+        )}
+        </>
       )}
 
       {/* --- Modales --- */}

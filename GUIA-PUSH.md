@@ -53,18 +53,22 @@ openssl rand -base64 32
 
 ## 3. Edge Function
 
-Requiere el CLI de Supabase (`npm i -g supabase`, luego `supabase login` y
-`supabase link --project-ref qztxpcfbbbmvgmtjnlxg`).
+Requiere el CLI de Supabase (`npm i -g supabase`, luego `supabase login`).
+**Sin `supabase link`:** cada comando lleva escrito el proyecto de
+producción. Un checkout enlazado a producción manda ahí cualquier comando
+sin destino, incluidos los que sugiere el propio CLI cuando algo falla
+(revisión primer mes, 24-sep-2026; ver GUIA-STAGING-Y-CARGA.md §2.1). Si ya
+lo habías enlazado, corre `supabase unlink`.
 
 ```bash
-# Secretos (el PUSH_SECRET debe ser EL MISMO del paso 2)
-supabase secrets set VAPID_PUBLIC_KEY=BEl62iUYgUiv...
-supabase secrets set VAPID_PRIVATE_KEY=8ZL_ux1Kk9...
-supabase secrets set VAPID_SUBJECT=mailto:mejia.erik@gpovallas.com
-supabase secrets set PUSH_SECRET=<el del paso 2>
+# Secretos de PRODUCCIÓN (el PUSH_SECRET debe ser EL MISMO del paso 2)
+supabase secrets set --project-ref qztxpcfbbbmvgmtjnlxg VAPID_PUBLIC_KEY=BEl62iUYgUiv...
+supabase secrets set --project-ref qztxpcfbbbmvgmtjnlxg VAPID_PRIVATE_KEY=8ZL_ux1Kk9...
+supabase secrets set --project-ref qztxpcfbbbmvgmtjnlxg VAPID_SUBJECT=mailto:mejia.erik@gpovallas.com
+supabase secrets set --project-ref qztxpcfbbbmvgmtjnlxg PUSH_SECRET=<el del paso 2>
 
 # Despliegue
-supabase functions deploy enviar-push --no-verify-jwt
+supabase functions deploy enviar-push --no-verify-jwt --project-ref qztxpcfbbbmvgmtjnlxg
 ```
 
 `--no-verify-jwt` es necesario: el trigger llama sin token de usuario. La

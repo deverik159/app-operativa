@@ -5,7 +5,8 @@
 // ============================================================
 import { useState, useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
-import * as XLSX from 'xlsx';
+import { cargarXlsx } from '../../lib/xlsxDiferido';
+import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
 import { escHtml } from '../../lib/helpers';
 import { candadoTactil } from '../../lib/mapaTactil';
@@ -197,6 +198,7 @@ function RutasView({
     setErr('');
     try {
       const buf = await file.arrayBuffer();
+      const XLSX = await cargarXlsx();
       const wb = XLSX.read(buf, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
@@ -250,7 +252,14 @@ function RutasView({
       setImportando(false);
       cargar();
     } catch (ex: any) {
-      setErr('No se pudo leer el archivo: ' + (ex.message || ex));
+      // Si lo que no llegó fue la librería (sin señal, o un despliegue nuevo
+      // borró su chunk), el archivo está bien: decirlo, y en español
+      // (revisión primer mes, 24-sep-2026).
+      setErr(
+        esErrorDeChunk(ex)
+          ? 'No se pudo descargar el lector de Excel. Revisa tu señal e inténtalo de nuevo (si sigue fallando, recarga la app).'
+          : 'No se pudo leer el archivo: ' + (ex.message || ex)
+      );
       setImportando(false);
     }
   };

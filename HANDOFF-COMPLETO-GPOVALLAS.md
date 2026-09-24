@@ -368,6 +368,13 @@ El `record_id` se genera **antes** del insert (`crypto.randomUUID().slice(0,8)`)
 para saber qué filas son de qué grupo sin depender del orden que devuelva
 Postgres.
 
+**Cola de envíos (24-sep, auditoría primer mes):** el `record_id`, la fecha, el
+estatus y las rutas de Storage se fijan UNA vez al tocar Guardar
+(`lib/crearReporte.ts` arma el envío) y el envío se guarda en IndexedDB antes
+de mandar nada (`lib/envios.ts`). Reintentar no duplica: cada paso consulta
+primero qué ya quedó. Sin red, `crearReporte` devuelve `[]` (el modal se
+cierra y el aviso global `EnviosPendientes` lo manda solo al volver la señal).
+
 Las partidas ya agregadas se pueden **editar** (✏️). La partida no se saca de
 la lista mientras se edita, y al guardar se reemplaza en su posición. Si se
 intenta guardar el reporte con una edición abierta, avisa.
@@ -729,6 +736,7 @@ Biobox.
 | `medir_almacenamiento.sql` | referencia, solo lectura — Storage por módulo, pauta POR CATORCENA, foto vs video, top-20 y GB/semana |
 | `prelanzamiento_300.sql` | ✅ aplicado y verificado (24-sep) — índices, purgas por pg_cron, `errores_cliente`, anon sin permisos (tablas, vistas y RPC definer), `app_config` cerrada, `pauta_monitoreo` sin escritura directa, `dar_baja_usuario` / `reactivar_usuario`. Re-ejecutable; el PASO 6 es una sola consulta de verificación. Sin cuentas vivas sin ficha |
 | `limpiar_indices_duplicados.sql` | ✅ aplicado (24-sep) — quitó 3 duplicados exactos (inc_estatus_idx, evid_record_idx, msg_record_idx); quedan los heredados equivalentes. prelanzamiento_300.sql ya no los recrea |
+| `primer_mes.sql` | ⏳ por correr — RPC `fotos_tarjetas(p_ids)` (SECURITY INVOKER, un jsonb por lote) para las fotos de tarjeta. Sin ella la app cae a la consulta vieja de 3000 evidencias. Verificación en una sola consulta: anon sin EXECUTE |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
@@ -1211,6 +1219,68 @@ publicar este frontend (la baja de usuarios llama funciones que crea).
 - **Quedó para el primer mes** (auditoría): bandeja y KPIs en servidor (hoy
   truncan a 1000 en silencio), captura idempotente con reintento y borrador
   local, migraciones + staging + prueba de carga, `React.lazy` por módulo
-  (bundle 1.3 MB), rutas por URL. Pendientes chicos: backfill de miniaturas
-  para las fotos viejas (o Image Transformations ya en Pro), `enviar-push`
-  con `.ilike` sin escapar (redeploy con Verify JWT apagado) y tope de video.
+  (bundle 1.3 MB), rutas por URL — **hecho el mismo día, ver §12.11**.
+  Pendientes chicos: backfill de miniaturas para las fotos viejas (o Image
+  Transformations ya en Pro), `enviar-push` con `.ilike` sin escapar
+  (redeploy con Verify JWT apagado) y tope de video.
+
+### 12.11. Bloque "primer mes" (24-sep-2026)
+
+Cuatro frentes en paralelo, una revisión adversarial (24 hallazgos
+confirmados, 6 refutados) y una segunda vuelta que verificó cada corrección.
+Lo único de base es `primer_mes.sql` (fotos de tarjeta); la app funciona sin
+él, con la consulta anterior.
+
+- **Datos completos** (IncidenciasView, IndicadoresView): lo ABIERTO
+  (todo menos `cerrada`/`no_reparado`) se trae completo, paginado de 1000 en
+  1000 — la bandeja y el globito ya no pierden trabajo viejo. De lo terminal
+  se traen las 1000 más recientes; si hay más, un aviso lo dice y el filtro
+  «Desde» trae lo anterior del servidor (solo en vistas que muestran
+  cerradas: Incidencias, bandeja del reportante, manager/coordinador/viewer;
+  la ampliación se suelta sola al quitar «Desde»). Al unir, gana la versión
+  terminal. Las tarjetas se pintan de 150 en 150 («Mostrar 150 más»); la
+  enfocada desde un aviso siempre se pinta. Fotos por `fotos_tarjetas` en
+  lotes de 400. **Indicadores**: selector de periodo (30 / 90 por omisión /
+  365 días / todo), paginado, columnas proyectadas (`COLUMNAS_KPI`: si
+  KpiView empieza a leer otra columna, agregarla ahí y en k6), nota con las
+  abiertas de antes del periodo, recarga sin perder filtros y botón
+  Reintentar. Indicadores solo recarga con ↻ (`recargaManual`), no con cada
+  aviso: es la pestaña de inicio de casi todos.
+- **Captura a prueba de mala señal** (`crearReporte`, `lib/envios.ts`,
+  `lib/idb.ts`, `lib/borrador.ts`, `EnviosPendientes`): ver §4.1 «Cola de
+  envíos». Contrato de `crearReporte`: filas = creado, `[]` = quedó en la
+  cola del teléfono (el modal se cierra), `null` = corregir (el modal sigue).
+  Choque de `record_id` ajeno (8 hex) → se regenera antes de insertar. La
+  regla de duplicidad corre antes del primer insert; en diferido quita la
+  partida duplicada y lo avisa. **Borrador** de NuevaInc en IndexedDB (1 s de
+  pausa, y al ocultarse la app): «Tienes un reporte sin terminar — Recuperar
+  / Descartar», 48 h. Vive hasta que SU envío termina o se descarta, y nunca
+  se ofrece si su envío ya entró (duplicaría). El ciclo completo está en el
+  encabezado de `borrador.ts`. Telemetría nueva en `errores_cliente`:
+  `envios.*`, `crearReporte.ligar`.
+- **Armazón** (App, `lib/cargaDiferida.ts`, ErrorBoundary): 8 módulos se
+  bajan al abrirlos (index de 1,304 KB → 557 KB; xlsx 429 KB solo al
+  importar/exportar, `lib/xlsxDiferido.ts`; leaflet 150 KB solo en mapas).
+  IncidenciasView sigue estático. Si un chunk falla tras un despliegue, se
+  reintenta y recarga UNA vez, solo si ese módulo está en pantalla y no hay
+  envíos en riesgo; a los 15 s de «Cargando…» sale «Tarda más de lo normal».
+  **Rutas por URL**: `/pendientes`, `/incidencias`, `/indicadores`, `/pauta`,
+  `/bitacora-vv`, `/fijacion-externa`, `/rutas`, `/biobox`,
+  `/disponibilidad`, `/usuarios`; Atrás en Android regresa de pestaña (con el
+  alta abierta, no la tira). `?record=` / `?ir=` del SW siguen igual.
+- **Staging y carga** (sin correr nada): `GUIA-STAGING-Y-CARGA.md` (candados
+  `Confirmar-Staging` / `Confirmar-Produccion` en cada bloque; el dump se
+  limpia de secretos antes de versionarse), `tests/carga/k6-300.js` (300
+  usuarios con el patrón real; aborta contra producción),
+  `scripts/usuarios-carga.mjs` (crear/borrar usuarios de prueba en staging),
+  `supabase/migrations/README.md`. `tests/carga/.usuarios.json` está en
+  `.gitignore`.
+- **Falta de Erik**: correr `primer_mes.sql`; decidir con dirección el
+  proyecto de staging; subir el límite de logins por IP de Auth (~100–150 /
+  5 min) antes del arranque; probar en un iPhone real: capturar sin señal,
+  cerrar la app, volver a abrir y ver que el aviso lo mande.
+- **Queda abierto** (declarado): Atrás con otros modales (Reparar, Chat…)
+  cambia de pestaña; tocar un push con la app abierta recarga la página
+  (`sw.js` navigate) y un envío que no cupo en IndexedDB se perdería; un
+  envío solo en memoria cuya respuesta se perdió puede volver a ofrecer su
+  borrador; paginación por offset puede saltar una fila con >1000 abiertas.

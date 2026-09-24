@@ -24,7 +24,8 @@
 // de medio en inventario.
 // ============================================================
 import { useState } from 'react';
-import * as XLSX from 'xlsx';
+import { cargarXlsx } from '../../lib/xlsxDiferido';
+import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
 import { UNIDADES } from '../../lib/constants';
 
@@ -91,6 +92,7 @@ function ImportarRutasExcelModal({ onClose, onImportado }: Props) {
     setLeyendo(true);
 
     try {
+      const XLSX = await cargarXlsx();
       const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
 
       // La hoja buena es la que tenga columnas de clave y de responsable. Se
@@ -236,7 +238,14 @@ function ImportarRutasExcelModal({ onClose, onImportado }: Props) {
         setAvisos((p) => [`Se leyó la hoja "${hojaUsada}".`, ...p]);
       }
     } catch (e) {
-      setErr('No se pudo leer el archivo: ' + (e as Error).message);
+      // Si lo que no llegó fue la librería (sin señal, o un despliegue nuevo
+      // borró su chunk), el archivo está bien: decirlo, y en español
+      // (revisión primer mes, 24-sep-2026).
+      setErr(
+        esErrorDeChunk(e)
+          ? 'No se pudo descargar el lector de Excel. Revisa tu señal e inténtalo de nuevo (si sigue fallando, recarga la app).'
+          : 'No se pudo leer el archivo: ' + (e as Error).message
+      );
     }
     setLeyendo(false);
   };

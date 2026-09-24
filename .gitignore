@@ -19,3 +19,7 @@ dist
 /outputs/
 /build_biobox_pipeline_doc.py
 supabase/.temp/
+# Cuentas de la prueba de carga CON sus contraseñas: las escribe
+# scripts/usuarios-carga.mjs y las lee k6. Nunca al repo (auditoría primer
+# mes, 24-sep-2026).
+tests/carga/.usuarios.json

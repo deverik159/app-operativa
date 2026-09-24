@@ -4,6 +4,15 @@ import ReactDOM from 'react-dom/client';
 // el JS (local) cargaba pero el CSS (cdnjs) no, y el mapa salía con los
 // mosaicos apilados en columna y los controles rotos.
 // Antes de index.css para que sus ajustes de Leaflet le ganen en cascada.
+//
+// Se queda AQUÍ aunque Rutas y Fijación ya se carguen diferidos (auditoría
+// primer mes, 24-sep-2026): el CSS de un chunk diferido se inserta DESPUÉS
+// de index.css, y entonces leaflet.css ganaría los empates —mismo
+// selector, misma especificidad—: `.leaflet-container{background:#ddd}`
+// pisaría el fondo oscuro (el mapa destellaría gris claro al cargar
+// mosaicos) y la atribución perdería su padding compacto. Además, un CSS
+// diferido que no llega es otro "Unable to preload CSS" posible en campo.
+// Son ~15 KB sin comprimir (~4 KB por la red): no vale el riesgo.
 import 'leaflet/dist/leaflet.css';
 import './index.css';
 import App from './App';

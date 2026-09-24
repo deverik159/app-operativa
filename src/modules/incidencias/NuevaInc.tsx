@@ -8,9 +8,26 @@
 // La evidencia va POR PARTIDA, no por reporte: cada falla lleva sus propias
 // fotos y se ligan solo a las caras de esa falla. Así, en un sitio con varias
 // incidencias, se sabe qué foto corresponde a qué cara.
+//
+// BORRADOR (auditoría primer mes, 24-sep-2026): mientras se captura, el
+// formulario se guarda en el teléfono con sus fotos (lib/borrador.ts). Si
+// iOS recarga la app al volver de la cámara, o se cierra sin querer, al
+// abrir otro reporte se ofrece recuperarlo.
 // ============================================================
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { sb } from '../../lib/supabase';
+import {
+  cargarArchivosBorrador,
+  cerrarBorrador,
+  claveDeArchivo,
+  guardarBorrador,
+  leerBorrador,
+  nuevaSesionBorrador,
+  quitarBorrador,
+  type Borrador,
+} from '../../lib/borrador';
+import { emailActivo, hayEnvioDeBorrador } from '../../lib/envios';
+import { idbDisponible, idbGet } from '../../lib/idb';
 import {
   UNIDADES,
   NIVEL_COLOR,
@@ -98,7 +115,63 @@ export type GrupoReporte = {
   files: File[];
   /** Caras en formato legible, para nombrar el archivo y la referencia. */
   carasLabel: string;
+  /**
+   * Borrador del formulario del que salió el reporte (auditoría primer
+   * mes, 24-sep-2026). La cola lo anota en el envío, reusa sus archivos y
+   * lo cierra cuando el envío queda completo o se descarta; mientras tanto
+   * no se ofrece —recuperarlo duplicaría el reporte—. Ciclo de vida
+   * completo en lib/borrador.ts (revisión primer mes, 24-sep-2026).
+   */
+  borrador?: { email: string; sesion: string };
 };
+
+/** Una partida tal como va al borrador: sus fotos por clave, no como File. */
+type LineaBorrador = Omit<Linea, 'files'> & { archivos: string[] };
+
+/**
+ * Lo necesario para rehacer el formulario desde el borrador. Lleva las
+ * caras y los nombres de pantalla del sitio, no solo su clave: el caso a
+ * proteger es justo el de sin señal, y sin ellos la recuperación
+ * dependería de volver a consultar el inventario.
+ */
+type DatosBorrador = {
+  un: string;
+  site: Sitio | null;
+  caras: InventarioItem[];
+  nombresPantalla: Record<string, string>;
+  contactoCorreo: string;
+  contactoTelefono: string;
+  viaReporte: string;
+  lado: string;
+  nombreBiobox: string;
+  lineas: LineaBorrador[];
+  /** La partida que estaba en el editor (sin agregar todavía, o editándose). */
+  editor: {
+    catSel: CatalogoIncidencia | null;
+    selCaras: string[];
+    campania: string;
+    campPorCara: Record<string, string>;
+    campLibrePorCara: Record<string, boolean>;
+    obs: string;
+    archivos: string[];
+    editandoId: number | null;
+  };
+};
+
+/** Tope para leer la sesión: sin red y con token vencido, auth-js reintenta largo. */
+const ESPERA_SESION_MS = 3000;
+
+/** "de hoy a las 14:05" / "de ayer a las 09:12" / "del 22 sep. a las 18:40". */
+function cuandoBorrador(ms: number): string {
+  const d = new Date(ms);
+  const hora = d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+  const hoy = new Date();
+  if (d.toDateString() === hoy.toDateString()) return `de hoy a las ${hora}`;
+  const ayer = new Date(hoy);
+  ayer.setDate(hoy.getDate() - 1);
+  if (d.toDateString() === ayer.toDateString()) return `de ayer a las ${hora}`;
+  return `del ${d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })} a las ${hora}`;
+}
 
 /** Radio de búsqueda geográfica en grados (~6 km). */
 const DELTA_GRADOS = 0.06;
@@ -171,6 +244,44 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   // el modal a media edición, no pierde lo que ya había capturado.
   const [editandoId, setEditandoId] = useState<number | null>(null);
 
+  // ── Borrador en el teléfono (auditoría primer mes, 24-sep-2026) ──
+  /** Correo con el que se guarda el borrador ('' = no se guarda nada). */
+  const [emailBorrador, setEmailBorrador] = useState('');
+  /** ¿El teléfono deja guardar? Sin IndexedDB no se promete nada. */
+  const [idbOk, setIdbOk] = useState(false);
+  /** Ya se revisó si había borrador que ofrecer: antes no se autoguarda. */
+  const [revisado, setRevisado] = useState(false);
+  /**
+   * Borrador de OTRA apertura esperando Recuperar / Descartar. Mientras
+   * espera no se autoguarda: el borrador es uno por usuario y se pisaría.
+   */
+  const [oferta, setOferta] = useState<Borrador<DatosBorrador> | null>(null);
+  const [cargandoOferta, setCargandoOferta] = useState(false);
+  /** Restauración pendiente: se aplica cuando la unidad ya se asentó. */
+  const [restaurando, setRestaurando] = useState<{
+    datos: DatosBorrador;
+    archivos: Map<string, File>;
+  } | null>(null);
+  /** Aviso tras recuperar (fotos que no se habían podido guardar). */
+  const [avisoRecuperado, setAvisoRecuperado] = useState('');
+  /** Archivos de ESTE formulario que no cupieron en el teléfono. */
+  const [noGuardados, setNoGuardados] = useState(0);
+  /** Esta apertura del formulario (al recuperar, se adopta la del borrador). */
+  const sesionRef = useRef(nuevaSesionBorrador());
+  /** ¿Esta sesión ya escribió un borrador? (para borrarlo si se vacía). */
+  const escribioRef = useRef(false);
+  /** Hay cambios esperando el debounce. */
+  const pendienteRef = useRef(false);
+  const montadoRef = useRef(true);
+  /** Escribe el borrador YA con el estado del último render. */
+  const guardarAhoraRef = useRef<() => void>(() => {});
+  /**
+   * Consecutivo de pickSite: cada elección invalida las anteriores que
+   * sigan en vuelo, y recuperar un borrador invalida la del preset. Sin
+   * esto, la respuesta tardía de un sitio viejo pisaba el vigente.
+   */
+  const pickSeqRef = useRef(0);
+
   const esBiobox = un.toLowerCase().startsWith('biobox');
 
   /**
@@ -184,6 +295,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
 
   /** Carga las caras del sitio y precarga lo que se deriva de ellas. */
   const pickSite = async (o: Sitio) => {
+    const seq = ++pickSeqRef.current;
     setSiteQuery(o.site_id);
     setSiteOpts([]);
     const { data } = await sb
@@ -192,6 +304,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         'vendor_face_id,cara,tipo_medio,tipo_mueble,direccion,site_legacy_id,estado,municipio,categoria'
       )
       .eq('site_id', o.site_id);
+    if (seq !== pickSeqRef.current) return; // ya se eligió otro (o se recuperó un borrador)
     const filas = (data as InventarioItem[]) || [];
     const first = filas[0] || ({} as InventarioItem);
     setSite({ ...o, estado: first.estado || null, municipio: first.municipio || null });
@@ -210,6 +323,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         .from('nombres_pantallas')
         .select('vendor_face_id,nombre')
         .in('vendor_face_id', filas.map((c) => c.vendor_face_id));
+      if (seq !== pickSeqRef.current) return;
       const m: Record<string, string> = {};
       ((noms as { vendor_face_id: string; nombre: string }[]) || []).forEach(
         (n) => {
@@ -527,11 +641,19 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   useEffect(() => {
     if (!preset?.siteId) return;
     (async () => {
+      // El consecutivo se toma ANTES de esta primera consulta (revisión
+      // primer mes, 24-sep-2026): si mientras responde se recupera un
+      // borrador o se elige otro sitio a mano, la precarga ya no aplica. Sin
+      // esto, el pickSite tardío sacaba un consecutivo nuevo, pasaba sus
+      // guardias y ponía el sitio del preset debajo de las partidas
+      // recuperadas de otro sitio.
+      const seq = pickSeqRef.current;
       const { data } = await sb
         .from('inventario')
         .select('site_id,direccion')
         .eq('site_id', preset.siteId)
         .limit(1);
+      if (seq !== pickSeqRef.current) return;
       const fila = ((data as InventarioItem[]) || [])[0];
       await pickSite(
         fila
@@ -540,6 +662,44 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       );
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ¿Hay un reporte sin terminar de otra apertura? Se OFRECE, nunca se
+  // aplica solo: si el alta vino con preset (Pauta/bitácora) y el borrador
+  // es de otro sitio, aplicarlo sin preguntar cambiaría el sitio que el
+  // usuario acaba de elegir. El correo sale de la sesión; si auth-js no la
+  // da a tiempo (sin red y con el token vencido reintenta largo), del que
+  // registró el armazón. Sin correo no hay borrador.
+  useEffect(() => {
+    let activo = true;
+    (async () => {
+      const deSesion = sb.auth
+        .getSession()
+        .then(({ data }) => (data.session?.user?.email || '').trim().toLowerCase())
+        .catch(() => '');
+      const tarde = new Promise<string>((res) => setTimeout(() => res(''), ESPERA_SESION_MS));
+      const em = (await Promise.race([deSesion, tarde])) || emailActivo();
+      const ok = em ? await idbDisponible() : false;
+      let b: Borrador<DatosBorrador> | null = null;
+      if (ok) {
+        b = await leerBorrador<DatosBorrador>(em);
+        if (b && b.sesion === sesionRef.current) b = null;
+        // Si ese borrador ya va en la cola de envíos (la app se cerró a
+        // medio Guardar), ofrecerlo duplicaría el reporte: no se ofrece.
+        // Tampoco se borra (revisión primer mes, 24-sep-2026): el envío usa
+        // sus archivos, y puede ser la única copia de alguno. Lo cierra la
+        // cola cuando el envío termina o se descarta (lib/borrador.ts).
+        if (b && (await hayEnvioDeBorrador(b.sesion))) b = null;
+      }
+      if (!activo) return;
+      setEmailBorrador(em);
+      setIdbOk(ok);
+      setOferta(b);
+      setRevisado(true);
+    })();
+    return () => {
+      activo = false;
+    };
   }, []);
 
   const limpiarSitio = () => {
@@ -625,6 +785,105 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     if (editandoId === id) limpiarEditor();
   };
 
+  /** Deja el formulario como estaba en el borrador (ver el efecto de restauración). */
+  const aplicarBorrador = (d: DatosBorrador, archivos: Map<string, File>) => {
+    const deClaves = (ks: string[] | undefined) =>
+      (ks || []).map((k) => archivos.get(k)).filter((f): f is File => !!f);
+    // Un pickSite en vuelo (el del preset) pisaría el sitio recuperado.
+    pickSeqRef.current++;
+    setSiteOpts([]);
+    setNearOpts([]);
+    setSiteQuery(d.site?.site_id || '');
+    setSite(d.site);
+    setCaras(d.caras || []);
+    setNombresPantalla(d.nombresPantalla || {});
+    setNombreBiobox(d.nombreBiobox || '');
+    setContactoCorreo(d.contactoCorreo || '');
+    setContactoTelefono(d.contactoTelefono || '');
+    setViaReporte(d.viaReporte || '');
+    setLado(d.lado || '');
+    const ls: Linea[] = (d.lineas || []).map(({ archivos: ks, ...l }) => ({
+      ...l,
+      files: deClaves(ks),
+    }));
+    setLineas(ls);
+    const ed = d.editor;
+    setCatSel(ed?.catSel || null);
+    setCatBusca('');
+    setSelCaras(ed?.selCaras || []);
+    setCampania(ed?.campania || '');
+    setCampPorCara(ed?.campPorCara || {});
+    setCampLibrePorCara(ed?.campLibrePorCara || {});
+    setObs(ed?.obs || '');
+    setFilesLinea(deClaves(ed?.archivos));
+    setEditandoId(
+      ed?.editandoId != null && ls.some((l) => l.id === ed.editandoId) ? ed.editandoId : null
+    );
+  };
+
+  /** "Recuperar": carga las fotos del teléfono y arranca la restauración. */
+  const recuperarBorrador = async () => {
+    const ofrecido = oferta;
+    if (!ofrecido || !emailBorrador) return;
+    if (
+      hayCaptura &&
+      !confirm(
+        'Lo que llevas capturado en este formulario se reemplazará por el reporte sin terminar. ¿Continuar?'
+      )
+    )
+      return;
+    setCargandoOferta(true);
+    // Se vuelve a leer al tocar (revisión primer mes, 24-sep-2026): entre que
+    // se ofreció y ahora, la cola pudo terminar un envío de ese borrador y
+    // cerrarlo, u otra pestaña recuperarlo y mandarlo. Recuperar lo ya
+    // enviado duplica el reporte. Si sigue, se usa lo más nuevo. Si la
+    // lectura falla, se recupera lo ofrecido, como antes: darlo por borrado
+    // dejaría que el autoguardado de este formulario borrara sus fotos.
+    let b: Borrador<DatosBorrador> | null = ofrecido;
+    try {
+      b = (await idbGet<Borrador<DatosBorrador>>('borradores', emailBorrador)) ?? null;
+    } catch {
+      /* se sigue con lo ofrecido */
+    }
+    const sigue = !!b && b.sesion === ofrecido.sesion && !(await hayEnvioDeBorrador(b.sesion));
+    if (!montadoRef.current) return;
+    if (!b || !sigue) {
+      setCargandoOferta(false);
+      setOferta(null);
+      alert('Ese reporte sin terminar ya no está en el teléfono: se envió o se descartó.');
+      return;
+    }
+    const archivos = await cargarArchivosBorrador(b);
+    if (!montadoRef.current) return;
+    setCargandoOferta(false);
+    if (escribioRef.current && sesionRef.current !== b.sesion)
+      quitarBorrador(emailBorrador, sesionRef.current);
+    // Se ADOPTA la sesión del borrador: seguir capturando lo actualiza a él
+    // y sus fotos no se vuelven a copiar.
+    sesionRef.current = b.sesion;
+    escribioRef.current = true;
+    const perdidos = (b.noGuardados || 0) + Math.max(0, (b.archivos?.length || 0) - archivos.size);
+    setAvisoRecuperado(
+      perdidos > 0
+        ? `Se recuperó el reporte, pero ${perdidos} archivo${perdidos === 1 ? '' : 's'} no ` +
+            'se habían podido guardar en el teléfono: vuelve a adjuntarlos en su incidencia.'
+        : ''
+    );
+    setOferta(null);
+    setUn(b.datos.un);
+    setRestaurando({ datos: b.datos, archivos });
+  };
+
+  /** "Descartar" el borrador ofrecido: se borra con sus fotos. */
+  const descartarOferta = () => {
+    const b = oferta;
+    if (!b || !emailBorrador) return;
+    if (!confirm('¿Descartar el reporte sin terminar? Se borra de este teléfono con sus fotos.'))
+      return;
+    cerrarBorrador(emailBorrador, b.sesion);
+    setOferta(null);
+  };
+
   /**
    * El catálogo ya colapsado para ESTAS caras.
    *
@@ -706,6 +965,20 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     }
   }, [ladoFijo]);
 
+  // Recuperación del borrador, POR FASES. Los efectos de arriba reinician
+  // el formulario al cambiar la unidad (sitio, caras, catálogo, lado): si
+  // se restaurara todo de golpe junto con la unidad, lo pisarían. Por eso
+  // "Recuperar" primero cambia la unidad y este efecto —declarado DESPUÉS
+  // de todos esos, así corre después de ellos en el mismo ciclo— aplica el
+  // resto cuando la unidad ya es la del borrador. El sitio no se vuelve a
+  // consultar (las caras vienen en el borrador): recuperar funciona sin red.
+  useEffect(() => {
+    if (!restaurando || restaurando.datos.un !== un) return;
+    aplicarBorrador(restaurando.datos, restaurando.archivos);
+    setRestaurando(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restaurando, un]);
+
   const totalRows = lineas.reduce((s, l) => s + l.caras.length, 0);
   const unaCara = caras.length === 1;
   // Con una sola cara no se usan partidas: la incidencia elegida es el reporte.
@@ -756,6 +1029,25 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           'Guarda los cambios o cancela la edición antes de guardar el reporte.'
       );
       return;
+    } else if (lineas.some((l) => l.files.length === 0)) {
+      // Solo pasa tras recuperar un borrador cuyas fotos no cupieron en el
+      // teléfono: cada partida exige su evidencia al agregarse, y aquí no
+      // debe colarse una sin ella.
+      alert(
+        'Hay incidencias en el reporte que se quedaron sin foto al recuperarlo.\n\n' +
+          'Edítalas con ✏️ y vuelve a adjuntar su evidencia.'
+      );
+      return;
+    }
+
+    // Cinturón (revisión primer mes, 24-sep-2026): toda partida tiene que
+    // ser de caras del sitio elegido. Si una respuesta tardía llegara a
+    // cambiar el sitio debajo de partidas ya capturadas, cada fila saldría
+    // con el sitio de uno y la cara de otro, y nada más lo detendría.
+    const carasDelSitio = new Set(caras.map((c) => c.vendor_face_id));
+    if (partidas.some((l) => l.caras.some((vf) => !carasDelSitio.has(vf)))) {
+      alert('Las incidencias no corresponden al sitio elegido; revisa el sitio.');
+      return;
     }
 
     // El lado va con el REPORTE completo, no con cada partida: se captura una
@@ -779,10 +1071,16 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     }
 
     setBusy(true);
+    // De qué borrador sale: la cola lo anota y lo cierra al terminar el
+    // envío (ver GrupoReporte.borrador).
+    const origen = emailBorrador
+      ? { email: emailBorrador, sesion: sesionRef.current }
+      : undefined;
     // Un grupo por partida. Dentro de cada grupo, producto partida × cara →
     // una fila de incidencias por cara, todas compartiendo las mismas fotos.
     const grupos: GrupoReporte[] = partidas.map((l) => ({
       files: l.files,
+      borrador: origen,
       carasLabel: l.caras.map(caraLabel).join(', '),
       filas: l.caras.map((vf) => {
         const c =
@@ -832,17 +1130,161 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     lineas.length > 0 || filesLinea.length > 0 || !!catSel || !!obs.trim();
 
   /**
+   * Escribe el borrador con el estado de ESTE render. Vive en una ref para
+   * que el debounce, el cierre y el desmontaje usen siempre lo más nuevo.
+   * Un formulario vacío no se guarda; si esta apertura ya había guardado
+   * algo y se vació (se quitaron todas las partidas), se borra.
+   */
+  guardarAhoraRef.current = () => {
+    pendienteRef.current = false;
+    const email = emailBorrador;
+    if (!email || !idbOk) return;
+    const sesion = sesionRef.current;
+    if (!hayCaptura) {
+      if (escribioRef.current) {
+        escribioRef.current = false;
+        quitarBorrador(email, sesion);
+      }
+      return;
+    }
+    const clave = (f: File) => claveDeArchivo(sesion, f);
+    const datos: DatosBorrador = {
+      un,
+      site,
+      caras,
+      nombresPantalla,
+      contactoCorreo,
+      contactoTelefono,
+      viaReporte,
+      lado,
+      nombreBiobox,
+      lineas: lineas.map(({ files, ...l }) => ({ ...l, archivos: files.map(clave) })),
+      editor: {
+        catSel,
+        selCaras,
+        campania,
+        campPorCara,
+        campLibrePorCara,
+        obs,
+        archivos: filesLinea.map(clave),
+        editandoId,
+      },
+    };
+    // La partida del editor cuenta si tiene algo y no es una ya agregada.
+    const enEditor = editandoId == null && (!!catSel || filesLinea.length > 0);
+    escribioRef.current = true;
+    guardarBorrador({
+      email,
+      sesion,
+      datos,
+      archivos: [...lineas.flatMap((l) => l.files), ...filesLinea],
+      resumen: {
+        sitio: site?.site_id || null,
+        partidas: lineas.length + (enEditor ? 1 : 0),
+      },
+    }).then((r) => {
+      if (montadoRef.current && r.guardado) setNoGuardados(r.noGuardados);
+    });
+  };
+
+  // Autoguardado con debounce de ~1 s. En pausa mientras: no se sabe aún
+  // si hay borrador que ofrecer, hay uno esperando respuesta (se pisaría),
+  // se está restaurando, o se está guardando el reporte.
+  useEffect(() => {
+    if (!emailBorrador || !idbOk || !revisado || oferta || restaurando || busy) return;
+    pendienteRef.current = true;
+    const t = window.setTimeout(() => guardarAhoraRef.current(), 1000);
+    return () => window.clearTimeout(t);
+  }, [
+    emailBorrador,
+    idbOk,
+    revisado,
+    oferta,
+    restaurando,
+    busy,
+    un,
+    site,
+    caras,
+    nombresPantalla,
+    contactoCorreo,
+    contactoTelefono,
+    viaReporte,
+    lado,
+    nombreBiobox,
+    lineas,
+    catSel,
+    selCaras,
+    campania,
+    campPorCara,
+    campLibrePorCara,
+    obs,
+    filesLinea,
+    editandoId,
+  ]);
+
+  // Al desmontar, lo que quedaba en el debounce se escribe ya (si el
+  // reporte se acaba de entregar a la cola, la sesión está sellada o
+  // cerrada y no escribe nada).
+  useEffect(() => {
+    montadoRef.current = true;
+    return () => {
+      montadoRef.current = false;
+      if (pendienteRef.current) guardarAhoraRef.current();
+    };
+  }, []);
+
+  // Igual cuando la página se va sin desmontar el formulario (revisión
+  // primer mes, 24-sep-2026): iOS congela o mata la PWA en segundo plano, y
+  // un Atrás que sale de la app no pasa por el cierre del modal. Sin esto,
+  // lo capturado en el último segundo —o la foto recién adjuntada— se
+  // perdía.
+  useEffect(() => {
+    const vaciar = () => {
+      if (pendienteRef.current) guardarAhoraRef.current();
+    };
+    const alOcultar = () => {
+      if (document.visibilityState === 'hidden') vaciar();
+    };
+    window.addEventListener('pagehide', vaciar);
+    document.addEventListener('visibilitychange', alOcultar);
+    return () => {
+      window.removeEventListener('pagehide', vaciar);
+      document.removeEventListener('visibilitychange', alOcultar);
+    };
+  }, []);
+
+  /**
    * Cierre con seguro. En celular el overlay deja franjas de unos 8px a los
    * lados del modal: un roce ahí tiraba un reporte con N partidas y fotos
    * tomadas en campo, sin preguntar. Y mientras guarda, no se cierra.
+   *
+   * Con borrador (auditoría primer mes, 24-sep-2026) cerrar con partidas o
+   * fotos NO lo borra —ese es justo el caso a proteger— y el mensaje lo
+   * dice. Cerrar un formulario vacío sí borra el de esta apertura.
    */
   const cerrarSeguro = () => {
     if (busy) return;
-    if (
-      hayCaptura &&
-      !confirm('Tienes un reporte a medio capturar. ¿Descartarlo?')
-    )
-      return;
+    // ¿Lo capturado queda a salvo? Solo con correo, teléfono que deje
+    // guardar y sin otro borrador esperando respuesta.
+    const aSalvo = !!emailBorrador && idbOk && revisado && !oferta;
+    if (hayCaptura) {
+      if (
+        !confirm(
+          aSalvo
+            ? 'Tienes un reporte a medio capturar. ¿Cerrarlo?\n\n' +
+                'Queda guardado en este teléfono: al abrir un reporte nuevo podrás ' +
+                'recuperarlo o descartarlo.'
+            : 'Tienes un reporte a medio capturar. ¿Descartarlo?'
+        )
+      )
+        return;
+      // Lo que estaba en el debounce se escribe ya.
+      if (aSalvo) guardarAhoraRef.current();
+    } else if (emailBorrador && escribioRef.current) {
+      escribioRef.current = false;
+      pendienteRef.current = false;
+      quitarBorrador(emailBorrador, sesionRef.current);
+    }
     onClose();
   };
 
@@ -854,6 +1296,63 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       }}
     >
       <div className="modal">
+        {/* Borrador de otra apertura (auditoría primer mes, 24-sep-2026).
+            Arriba de todo: es lo primero que hay que decidir. */}
+        {oferta && (
+          <div className="banner" style={{ marginBottom: 12 }} role="status">
+            📝 Tienes un reporte sin terminar {cuandoBorrador(oferta.guardado_en)} (
+            {oferta.resumen?.sitio || 'sin sitio'}, {oferta.resumen?.partidas || 0} partida
+            {(oferta.resumen?.partidas || 0) === 1 ? '' : 's'})
+            {oferta.noGuardados > 0 && (
+              <>
+                {' '}
+                · {oferta.noGuardados}{' '}
+                {oferta.noGuardados === 1
+                  ? 'archivo no se pudo guardar'
+                  : 'archivos no se pudieron guardar'}{' '}
+                en el teléfono
+              </>
+            )}
+            {!misUnidades.includes(oferta.datos.un) && (
+              <div style={{ marginTop: 6 }}>
+                Es de {oferta.datos.un}: recupéralo desde el módulo de Incidencias.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn sm"
+                onClick={recuperarBorrador}
+                disabled={cargandoOferta || !misUnidades.includes(oferta.datos.un)}
+              >
+                {cargandoOferta && <span className="spinner" />} Recuperar
+              </button>
+              <button
+                type="button"
+                className="btn ghost sm"
+                onClick={descartarOferta}
+                disabled={cargandoOferta}
+              >
+                Descartar
+              </button>
+            </div>
+            {hayCaptura && (
+              <div style={{ marginTop: 6, color: 'var(--warn)' }}>
+                Mientras no elijas, lo que captures ahora no se guarda en el teléfono.
+              </div>
+            )}
+          </div>
+        )}
+        {avisoRecuperado && (
+          <div
+            className="banner"
+            style={{ marginBottom: 12, color: 'var(--warn)' }}
+            onClick={() => setAvisoRecuperado('')}
+            role="alert"
+          >
+            {avisoRecuperado} <span style={{ opacity: 0.7 }}>(toca para cerrar)</span>
+          </div>
+        )}
         <h2 style={{ margin: '0 0 3px' }}>Reporte de incidencias del sitio</h2>
         <p className="phint">
           Elige el sitio una vez y agrega todas las fallas: cada una a las caras
@@ -1529,6 +2028,14 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           </div>
         )}
 
+        {noGuardados > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--warn)', marginBottom: 8 }}>
+            ⚠️ {noGuardados}{' '}
+            {noGuardados === 1 ? 'archivo no cupo' : 'archivos no cupieron'} en el
+            teléfono: si la app se cierra antes de guardar, habría que volver a
+            adjuntar{noGuardados === 1 ? 'lo' : 'los'}.
+          </div>
+        )}
         <div className="modal-actions">
           {/* Mismo seguro que el fondo: Cancelar junto a Guardar en un
               teléfono se toca por error, y tira las fotos de campo. */}

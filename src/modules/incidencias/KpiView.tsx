@@ -193,11 +193,18 @@ function KpiView({
   items,
   slaMap,
   nombres,
+  encabezado,
 }: {
   items: Incidencia[];
   slaMap: SlaMap;
   /** correo → nombre, para no enseñar correos en los rankings. */
   nombres: MapaNombres;
+  /**
+   * Lo que va entre el título y los filtros: el selector de periodo y su
+   * resumen, que pone IndicadoresView (auditoría primer mes, 24-sep-2026).
+   * KpiView sigue sin saber de dónde salen los datos.
+   */
+  encabezado?: React.ReactNode;
 }) {
   const [detalle, setDetalle] = useState<Detalle | null>(null);
   const [fUN, setFUN] = useState('Todas');
@@ -479,6 +486,7 @@ function KpiView({
       <p className="phint">
         Panel en vivo desde tus incidencias. Filtra y explora la operación.
       </p>
+      {encabezado}
 
       <div className="toolbar">
         <select aria-label="Unidad de negocio" value={fUN} onChange={(e) => setFUN(e.target.value)}>
@@ -487,11 +495,21 @@ function KpiView({
             <option key={u}>{u}</option>
           ))}
         </select>
+        {/* Las opciones de área, reporta, catorcena y semana salen de los
+            datos. Al cambiar de periodo (IndicadoresView recarga SIN
+            desmontar esto, para no perder los filtros) el valor elegido
+            puede ya no existir en los datos nuevos: sin su opción, el select
+            enseñaba "todas" mientras seguía filtrando por él y el panel salía
+            en ceros sin explicación. Por eso se conserva la opción elegida
+            (auditoría primer mes, 24-sep-2026). */}
         <select aria-label="Área responsable" value={fArea} onChange={(e) => setFArea(e.target.value)}>
           <option value="Todas">Área: todas</option>
           {areas.map((a) => (
             <option key={a}>{a}</option>
           ))}
+          {fArea !== 'Todas' && !areas.includes(fArea) && (
+            <option value={fArea}>{fArea}</option>
+          )}
         </select>
         <select
           aria-label="Área que reporta"
@@ -502,6 +520,9 @@ function KpiView({
           {areasReportantes.map((a) => (
             <option key={a}>{a}</option>
           ))}
+          {fReporta !== 'Todas' && !areasReportantes.includes(fReporta) && (
+            <option value={fReporta}>{fReporta}</option>
+          )}
         </select>
         <select aria-label="Estatus" value={fEst} onChange={(e) => setFEst(e.target.value)}>
           <option value="Todos">Estatus: todos</option>
@@ -526,6 +547,9 @@ function KpiView({
               Cat-{c}
             </option>
           ))}
+          {fCat !== 'Todas' && !cats.some((c) => String(c) === fCat) && (
+            <option value={fCat}>Cat-{fCat}</option>
+          )}
         </select>
         {/* Semana de lunes a domingo. La etiqueta trae el rango de fechas
             porque "Sem 27" a secas no le dice nada a nadie en una junta. */}
@@ -536,6 +560,9 @@ function KpiView({
               {etiquetaSemana(n)}
             </option>
           ))}
+          {fSem !== 'Todas' && !semanas.some((n) => String(n) === fSem) && (
+            <option value={fSem}>{etiquetaSemana(Number(fSem))}</option>
+          )}
         </select>
       </div>
 

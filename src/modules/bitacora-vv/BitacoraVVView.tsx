@@ -15,7 +15,7 @@
 //     ellos y hay bonus legítimos encimados (Erik, 22-sep-2026).
 // ============================================================
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import * as XLSX from 'xlsx';
+import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { sb } from '../../lib/supabase';
 import { prepararArchivos } from '../../lib/comprimirImagen';
 import {
@@ -745,7 +745,15 @@ function BitacoraVVView({
   // Export a Excel con el FORMATO BITACORA: se sigue entregando el mismo
   // archivo de siempre (cliente, Mediamonitor), pero generado, no tecleado.
   // ------------------------------------------------------------
-  const exportarExcel = (c: Campana) => {
+  const exportarExcel = async (c: Campana) => {
+    // La librería se baja hasta aquí (ver xlsxDiferido): sin red, se avisa.
+    let XLSX: typeof import('xlsx');
+    try {
+      XLSX = await cargarXlsx();
+    } catch {
+      alert('No se pudo preparar el Excel. Revisa tu conexión e inténtalo de nuevo.');
+      return;
+    }
     const filas = (pautasDe.get(c.id) || [])
       .slice()
       .sort(
