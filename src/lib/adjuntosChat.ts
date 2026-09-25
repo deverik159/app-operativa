@@ -25,6 +25,9 @@ export type AdjuntoSubido = {
   path: string;
   nombre: string;
   bytes: number;
+  /** Medidas en px, ya con la rotación aplicada. null = no se pudieron leer. */
+  ancho: number | null;
+  alto: number | null;
 };
 
 const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
@@ -62,6 +65,64 @@ function duracionVideo(file: File): Promise<number | null> {
       resolve(null);
     };
     v.src = url;
+  });
+}
+
+/**
+ * Ancho y alto del archivo, para que la burbuja reserve su proporción antes
+ * de que cargue (sin eso el hilo brinca al llegar cada imagen). Igual que la
+ * duración: si el navegador no puede leerlo, null y se sube de todos modos.
+ */
+async function medirDimensiones(
+  file: File
+): Promise<{ ancho: number; alto: number } | null> {
+  const ok = (w: number, h: number) =>
+    w > 0 && h > 0 ? { ancho: Math.round(w), alto: Math.round(h) } : null;
+
+  if (file.type.startsWith('video')) {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      const fin = (r: { ancho: number; alto: number } | null) => {
+        clearTimeout(t);
+        URL.revokeObjectURL(url);
+        resolve(r);
+      };
+      const t = setTimeout(() => fin(null), 8000);
+      v.onloadedmetadata = () => fin(ok(v.videoWidth, v.videoHeight));
+      v.onerror = () => fin(null);
+      v.src = url;
+    });
+  }
+
+  // La foto ya viene de comprimirImagen: JPEG redibujado, con la rotación
+  // del EXIF aplicada, así que sus medidas son las que se ven.
+  try {
+    if (typeof createImageBitmap === 'function') {
+      // Mismo criterio que comprimirImagen: el Safari viejo lanza con
+      // 'from-image' y se mide con <img>, que coincide con lo que se ve.
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      const r = ok(bmp.width, bmp.height);
+      bmp.close();
+      return r;
+    }
+  } catch {
+    // Formato que el navegador no decodifica (p. ej. HEIC en Chrome): se
+    // intenta con <img> y, si tampoco, se sube sin medidas.
+  }
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    const fin = (r: { ancho: number; alto: number } | null) => {
+      clearTimeout(t);
+      URL.revokeObjectURL(url);
+      resolve(r);
+    };
+    const t = setTimeout(() => fin(null), 8000);
+    img.onload = () => fin(ok(img.naturalWidth, img.naturalHeight));
+    img.onerror = () => fin(null);
+    img.src = url;
   });
 }
 
@@ -109,9 +170,13 @@ export async function subirAdjunto(
     .toString(36)
     .slice(2, 7)}.${ext}`;
 
-  const { error } = await sb.storage
-    .from(BUCKET_EVIDENCIAS)
-    .upload(path, file, { upsert: false, cacheControl: CACHE_INMUTABLE });
+  // Se mide mientras sube: es local y no alarga la espera.
+  const [{ error }, medidas] = await Promise.all([
+    sb.storage
+      .from(BUCKET_EVIDENCIAS)
+      .upload(path, file, { upsert: false, cacheControl: CACHE_INMUTABLE }),
+    medirDimensiones(file),
+  ]);
   if (error) throw new Error('No se pudo subir el archivo: ' + error.message);
 
   const { data } = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path);
@@ -122,5 +187,7 @@ export async function subirAdjunto(
     path,
     nombre: file.name,
     bytes: file.size,
+    ancho: medidas?.ancho ?? null,
+    alto: medidas?.alto ?? null,
   };
 }

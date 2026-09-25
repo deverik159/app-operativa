@@ -22,7 +22,9 @@ solo lectura tampoco son migraciones: siguen como archivo suelto.
 Es una foto del esquema de producción (tablas, vistas, funciones, políticas,
 triggers y permisos; sin datos). No se ejecuta en producción: solo se
 **registra** como aplicada, para que el historial arranque desde lo que ya
-existe. Se saca UNA vez, antes de la primera migración nueva, con la guía:
+existe. Su versión es **`20260924000000`** aunque el dump se saque después:
+tiene que ordenar antes que cualquier otra migración de esta carpeta (ver la
+guía §3). Se saca UNA vez, antes de la primera migración nueva, con la guía:
 §2.3 (sacar el dump), §2.5 (limpiarlo) y §3 «Registrar la línea base»
 (copiarlo aquí y registrarlo en staging y en producción, cada paso con su
 candado). Staging también se registra como aplicada porque ya recibió ese

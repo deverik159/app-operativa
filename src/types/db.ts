@@ -239,6 +239,13 @@ export interface Mensaje {
    */
   editado_en?: string | null;
   texto_original?: string | null;
+  /**
+   * Id del mensaje al que responde (null = mensaje suelto). Solo puede ser
+   * del mismo hilo y no se reescribe al editar — ver
+   * supabase/migrations/…_chat_respuestas_lecturas.sql. La cita se arma
+   * con el original.
+   */
+  responde_a?: number | null;
 }
 
 /**
@@ -262,6 +269,27 @@ export interface ChatAdjunto {
   creado_en: string;
   /** Con fecha = el archivo ya no existe en Storage. */
   purgado_en: string | null;
+  /**
+   * Medidas en px (null en los adjuntos anteriores al 25-sep-2026): la
+   * burbuja reserva esa proporción antes de que el archivo cargue.
+   */
+  ancho?: number | null;
+  alto?: number | null;
+}
+
+/**
+ * tabla `chat_lecturas` — quién vio el chat de una incidencia, hasta qué
+ * mensaje y cuándo por última vez. Una fila por persona y chat; se escribe
+ * SOLO con la RPC marcar_chat_leido (toma el correo de la sesión).
+ */
+export interface ChatLectura {
+  record_id: string;
+  usuario_email: string;
+  usuario_nombre: string | null;
+  /** El mensaje más reciente que tuvo a la vista. */
+  ultimo_id: number;
+  /** La última vez que abrió o siguió el chat. */
+  visto_en: string;
 }
 
 /** tabla `notificaciones` — alimenta la campana y el globito de chat. */

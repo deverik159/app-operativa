@@ -220,6 +220,10 @@
     justify-content:center;padding:0;font-size:16px;line-height:1;
     border-radius:9px;flex-shrink:0}
   .btn-icono:active,.btn-icono:hover{background:var(--panel2)}
+  /* Sobre la burbuja propia del chat (naranja en los dos temas): --panel2
+     oscuro dejaba el ↩︎ (#151515) invisible mientras el toque "se pega" al
+     hover en iOS/Android. */
+  .btn-icono.sobre-acento:active,.btn-icono.sobre-acento:hover{background:rgba(0,0,0,.12)}
   .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;background:var(--tag-fondo);color:var(--muted)}
   @keyframes pulseDot{0%,100%{transform:scale(1)}50%{transform:scale(1.22)}}
   .badge-pulse{display:inline-block;animation:pulseDot 1.4s ease-in-out infinite}
@@ -316,8 +320,12 @@
      Safari COLAPSADA; con la barra visible el modal se pasaba y el campo de
      escribir quedaba bajo el pliegue. `dvh` sigue al viewport real; la
      primera línea es el fallback para navegadores sin dvh. */
-  .modal-chat{max-height:80vh}
-  @supports (height: 1dvh){.modal-chat{max-height:80dvh}}
+  /* overflow-y: red de seguridad. Normalmente todo cabe (la caja de
+     mensajes cede); si se juntan error + archivo + "Respondiendo a…" en un
+     teléfono chico, el exceso scrollea DENTRO de la tarjeta en vez de
+     pintarse fuera de ella. */
+  .modal.modal-chat{max-height:80vh;overflow-y:auto}
+  @supports (height: 1dvh){.modal.modal-chat{max-height:80dvh}}
   /* Pastilla que lleva una FRASE (SLA, veredictos, roles), no una etiqueta:
      .pill prohíbe partirse (nowrap + overflow-wrap:normal) porque se diseñó
      para textos cortos. Con frases de 30+ caracteres eso desborda la tarjeta
@@ -435,6 +443,18 @@
       padding-top:calc(14px + env(safe-area-inset-top,0px));
       padding-bottom:max(24px, calc(10px + env(safe-area-inset-bottom,0px)))}
     .modal{padding:16px 14px;max-width:none;max-height:none}
+    /* El chat SÍ lleva tope: sin él, `max-height:none` de arriba le ganaba
+       a .modal-chat por orden, la caja de mensajes crecía con el hilo y
+       nunca tenía scroll propio — el chat abría hasta ARRIBA, en el primer
+       mensaje, porque lo que se desplazaba era el overlay (25-sep-2026).
+       El alto es el de la pantalla menos el padding del overlay de esta
+       misma media query (14px + notch arriba, el gesto de inicio abajo). */
+    .modal.modal-chat{max-height:calc(100vh - 14px - env(safe-area-inset-top,0px)
+      - max(24px, calc(10px + env(safe-area-inset-bottom,0px))))}
+    @supports (height: 1dvh){
+      .modal.modal-chat{max-height:calc(100dvh - 14px - env(safe-area-inset-top,0px)
+        - max(24px, calc(10px + env(safe-area-inset-bottom,0px))))}
+    }
     .modal-actions{flex-wrap:wrap}
     .modal-actions .btn{flex:1 1 auto}
 
@@ -455,6 +475,19 @@
     /* El estatus se va abajo en lugar de pelear por el ancho con el folio. */
     .inc-top{flex-direction:column;gap:6px}
     .inc-top>div:last-child{text-align:left !important}
+  }
+
+  /* Chat en pantallas BAJAS (celular en horizontal, en cualquier ancho): lo
+     fijo del modal —título, buscador, campo, aviso, Cerrar— ya suma ~370px,
+     y con el tope la caja de mensajes no cabía. Aquí el modal crece y
+     scrollea el overlay (ChatModal lo baja al campo de escribir al abrir),
+     pero la CAJA conserva su propio tope: seguir lo nuevo, el ⬇, "ver
+     anteriores" y el salto a una cita desplazan la caja, no el overlay.
+     Va después de las reglas del chat para ganarles por orden. */
+  @media(max-height:519px){
+    .modal.modal-chat{max-height:none}
+    .modal-chat .chat-caja{max-height:calc(100vh - 40px)}
+    @supports (height: 1dvh){.modal-chat .chat-caja{max-height:calc(100dvh - 40px)}}
   }
 
   /* Pantallas muy angostas (iPhone SE y similares). */

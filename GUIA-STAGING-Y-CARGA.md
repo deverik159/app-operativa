@@ -377,7 +377,12 @@ Al terminar, borra los `.csv` de `supabase/.temp`.
   los referencia) ni se vuelven a correr.
 
 **Registrar la línea base** (una vez, antes de la primera migración nueva).
-Pon la fecha del día en que sacaste el dump (cambia los `20260924000000`).
+Deja la versión `20260924000000` aunque saques el dump otro día: la línea
+base tiene que quedar ANTES que toda migración de la carpeta, y la primera
+nueva ya existe (`20260925065305_chat_respuestas_lecturas.sql`). Con una
+fecha posterior, `db push` se niega («Found local migration files to be
+inserted before the last migration») y un reinicio desde cero correría las
+migraciones antes que el esquema.
 Primero se copia a `supabase/migrations/`, y solo si ya está limpio: esa
 carpeta sí se sube a GitHub, y una contraseña o llave que entre ahí ya no
 sale del historial.

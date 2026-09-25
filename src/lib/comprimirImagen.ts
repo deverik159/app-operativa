@@ -43,8 +43,15 @@ export async function comprimirImagen(file: File): Promise<File> {
     if (typeof createImageBitmap === 'function') {
       // Puede fallar con formatos que el navegador no decodifica (p. ej.
       // HEIC elegido desde el explorador de archivos): cae al <img>.
+      //
+      // imageOrientation explícito (25-sep-2026): Safari hasta 16.3 (iPhone
+      // 6s/7/SE que se quedaron en iOS 15) medía la foto con la rotación del
+      // EXIF pero la PINTABA sin ella, y las verticales se subían de lado.
+      // Ese Safari no conoce 'from-image' y lanza TypeError: cae al <img>,
+      // que sí aplica el EXIF. En los navegadores nuevos es el valor por
+      // omisión y no cambia nada.
       try {
-        fuente = await createImageBitmap(file);
+        fuente = await createImageBitmap(file, { imageOrientation: 'from-image' });
       } catch {
         fuente = null;
       }
