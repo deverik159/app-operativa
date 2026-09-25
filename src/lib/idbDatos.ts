@@ -39,13 +39,17 @@ const REARME_COLGADA_MS = 30000;
  *   tablas → por tabla: todas sus filas en UN registro. Reemplazar la copia
  *            es un solo put: o queda la nueva completa o sigue la anterior.
  *   listas → la última lista de incidencias por correo (en minúsculas).
+ *   chats  → la copia de cada chat de incidencia que se abrió, por
+ *            "correo|record_id" (lib/chatLocal.ts; 25-sep-2026). Un build
+ *            más viejo sin este almacén abre la versión nueva sin problema.
  */
-export type AlmacenDatos = 'meta' | 'tablas' | 'listas';
+export type AlmacenDatos = 'meta' | 'tablas' | 'listas' | 'chats';
 
 const LLAVES: Record<AlmacenDatos, string> = {
   meta: 'tabla',
   tablas: 'tabla',
   listas: 'email',
+  chats: 'clave',
 };
 
 const ALMACENES = Object.keys(LLAVES) as AlmacenDatos[];

@@ -375,7 +375,8 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     if (error) throw new Error(`${f.name}: ${error.message}`);
     // Estas fotos también las pinta la tarjeta de la incidencia que se
     // levante (etapa 'reporte'): sin miniatura bajaba el original de 1600 px.
-    if (tipo === 'foto') await subirMiniatura(path, f);
+    // Foto o video (de un video, un cuadro suyo para la tarjeta).
+    await subirMiniatura(path, f);
     return {
       tipo,
       path,

@@ -1626,10 +1626,14 @@ async function pasoArchivos(
           await persistir(e);
           continue;
         }
-        // La miniatura es la que pintan las tarjetas (de mejor esfuerzo).
-        if (a.tipo === 'foto') await subirMiniatura(a.path, f);
+        // Se anota ANTES de la miniatura: con un video el cuadro tarda hasta
+        // 8 s, y si en ese rato se cierra la app, al retomar la cola no debe
+        // volver a subir el video entero por 4G.
         e.estado.subidos.push(a.path);
         await persistir(e);
+        // La miniatura es la que pintan las tarjetas (de mejor esfuerzo). De
+        // un video, un cuadro suyo: sin él, la tarjeta salía vacía.
+        await subirMiniatura(a.path, f);
       }
 
       await exigirSesion(topeSesion, e.email);

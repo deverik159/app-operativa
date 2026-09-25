@@ -498,11 +498,25 @@ async function traerFotosTarjetas(
         }
         const obj = (data || {}) as Record<
           string,
-          { reporte?: string | null; reparacion?: string | null }
+          {
+            reporte?: string | null;
+            reparacion?: string | null;
+            reporte_video?: string | null;
+            reparacion_video?: string | null;
+          }
         >;
+        // Sin foto en la etapa, su video (25-sep-2026): IncCard lo reconoce
+        // por la extensión y pinta su cuadro con ▶. La base solo manda
+        // *_video cuando la etapa no tiene foto (migración
+        // fotos_tarjetas_video). El video de la reparación solo si tampoco
+        // hay foto del reporte: una tarjeta reparada con foto de reporte y
+        // prueba en video seguía mostrando la foto, y los videos de antes
+        // no tienen cuadro (serían un recuadro negro).
         Object.entries(obj).forEach(([rid, f]) => {
-          if (f?.reporte) mapas.reporte[rid] = f.reporte;
-          if (f?.reparacion) mapas.reparacion[rid] = f.reparacion;
+          const rep = f?.reporte || f?.reporte_video;
+          const repa = f?.reparacion || (f?.reporte ? undefined : f?.reparacion_video);
+          if (rep) mapas.reporte[rid] = rep;
+          if (repa) mapas.reparacion[rid] = repa;
         });
       }
     };

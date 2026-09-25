@@ -20,6 +20,9 @@ import {
   MAX_VIDEO_SEG,
 } from '../../lib/adjuntosChat';
 import { comprimirImagen } from '../../lib/comprimirImagen';
+import { enLineaAhora, pareceSinRed, useEnLinea } from '../../lib/enLinea';
+import { haySesionReal, motivoSinRed, redOLocal } from '../../lib/datosLocales';
+import { guardarChatLocal, leerChatLocal, type ChatLocal } from '../../lib/chatLocal';
 import type {
   Incidencia,
   Mensaje,
@@ -28,6 +31,7 @@ import type {
 } from '../../types/db';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { vigilarRender } from '../../lib/vigia';
+import PreviaVideo from '../../components/PreviaVideo';
 
 type Props = {
   inc: Incidencia;
@@ -46,6 +50,10 @@ const LARGO = 30;
 const VENTANA = 20;
 /** A menos de esta distancia del fondo (px) se considera "al final". */
 const PEGADO_PX = 80;
+
+/** El aviso de envío sin red: dice qué pasó y qué hacer, sin jerga. */
+const SIN_SENAL_ENVIO =
+  '📴 Sin señal: el mensaje no se envió. Quedó escrito abajo — mándalo cuando regrese la señal.';
 
 type TrasVentana =
   | { tipo: 'ancla'; alto: number; top: number }
@@ -230,6 +238,49 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   const [subiendo, setSubiendo] = useState(false);
   const [errAdj, setErrAdj] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── Sin señal ───────────────────────────────────────────────────────
+  // El historial sale de la copia del teléfono (lib/chatLocal.ts) cuando la
+  // red no contesta. copiaDe: null = datos de la red; ISO = se muestra la
+  // copia guardada a esa hora; '' = sin red y este chat nunca se abrió aquí.
+  const enLinea = useEnLinea();
+  const [copiaDe, setCopiaDe] = useState<string | null>(null);
+  const copiaDeRef = useRef<string | null>(null);
+  copiaDeRef.current = copiaDe;
+  /** Se habló con el servidor en esta apertura: ya hay algo que guardar. */
+  const sincronizadoRef = useRef(false);
+  /** Fotos del hilo que no cargaron (sin señal y fuera de la caché). */
+  const [fallidas, setFallidas] = useState<Set<number>>(() => new Set());
+  // Espejos para guardar la copia al cerrar o al pasar a segundo plano
+  // (lo que corre en un cleanup ve el estado del primer render).
+  const msgsRef = useRef(msgs);
+  msgsRef.current = msgs;
+  const adjuntosRef = useRef(adjuntos);
+  adjuntosRef.current = adjuntos;
+  const lecturasRef = useRef(lecturas);
+  lecturasRef.current = lecturas;
+  const conLecturasRef = useRef(conLecturas);
+  conLecturasRef.current = conLecturas;
+  /** Guarda en el teléfono lo que hay en pantalla, si vino del servidor. */
+  /**
+   * De dónde salió lo que hay en pantalla de adjuntos y lecturas: null =
+   * todavía de ningún lado confiable (la consulta falló). Así, guardar la
+   * copia no la deja sin fotos ni ✓✓ porque una consulta falló justo al
+   * abrir: en null se conserva lo que ya tenía (chatLocal.ts).
+   */
+  const adjFuenteRef = useRef<'red' | 'copia' | null>(null);
+  const lecFuenteRef = useRef<'red' | 'copia' | null>(null);
+  const guardarCopia = () => {
+    if (!sincronizadoRef.current) return;
+    void guardarChatLocal(email, inc.record_id, {
+      mensajes: msgsRef.current,
+      adjuntos: adjFuenteRef.current
+        ? Object.values(adjuntosRef.current).flat()
+        : null,
+      lecturas: lecFuenteRef.current ? lecturasRef.current : null,
+      conLecturas: lecFuenteRef.current ? conLecturasRef.current : null,
+    });
+  };
 
   // ── Scroll ──────────────────────────────────────────────────────────
   // `pegadoRef` = la vista está al final y debe seguir lo que llegue. Vive
@@ -434,32 +485,113 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
       .eq('record_id', inc.record_id)
       .then(({ data, error }) => {
         if (error || !montadoRef.current) return;
+        lecFuenteRef.current = 'red';
         setLecturas((data as ChatLectura[]) || []);
         setConLecturas(true);
       });
   };
-  const recargarNuevos = () => {
-    // Durante la carga inicial ya se está trayendo todo. Con el hilo vacío
-    // sincroRef es 0 y trae desde el principio: el primer mensaje también
-    // se puede perder.
+  /**
+   * Fusión del hilo que llegó completo con lo que hay en pantalla: el
+   * servidor gana (trae las ediciones que la copia no conocía), salvo una
+   * edición MÁS RECIENTE que haya llegado mientras la consulta viajaba
+   * (Realtime o la propia); y se conservan los que solo estén aquí (un
+   * envío propio aún sin eco). En orden de id.
+   */
+  const fusionarHilo = (prev: Mensaje[], lista: Mensaje[]): Mensaje[] => {
+    const previos = new Map(prev.map((m) => [m.id, m]));
+    const srv = new Set(lista.map((m) => m.id));
+    const t = (x?: string | null) => (x ? Date.parse(x) : NaN);
+    const fusion = lista.map((s) => {
+      const p = previos.get(s.id);
+      if (!p?.editado_en) return s;
+      if (!s.editado_en || t(p.editado_en) > t(s.editado_en)) return { ...s, ...p };
+      return s;
+    });
+    return [...fusion, ...prev.filter((m) => !srv.has(m.id))].sort((a, b) => a.id - b.id);
+  };
+
+  const recargandoRef = useRef(false);
+  /** Llegó otro aviso (online, SUBSCRIBED, INSERT…) mientras había una en vuelo. */
+  const pendienteRef = useRef(false);
+  const recargarNuevos = async () => {
+    // Durante la carga inicial ya se está trayendo todo.
     if (cargandoRef.current) return;
-    sb.from('mensajes')
-      .select('*')
-      .eq('record_id', inc.record_id)
-      .gt('id', sincroRef.current)
-      .order('id')
-      .then(({ data, error }) => {
-        if (error || !montadoRef.current || !data?.length) return;
-        const lista = data as Mensaje[];
+    // Una a la vez, pero sin tirar las que lleguen en medio: online,
+    // SUBSCRIBED y volver a la app llegan casi juntos, y si la primera
+    // falla (sesión aún sin renovar, señal fantasma) alguien tiene que
+    // repetirla. Se corre una más al terminar.
+    if (recargandoRef.current) {
+      pendienteRef.current = true;
+      return;
+    }
+    const enCopia = copiaDeRef.current !== null;
+    const sinCopia = copiaDeRef.current === '';
+    recargandoRef.current = true;
+    // Tope propio: sin él, una petición colgada (señal fantasma) bloqueaba
+    // todas las puestas al día siguientes.
+    const ctrl = new AbortController();
+    const reloj = window.setTimeout(() => ctrl.abort(), 12_000);
+    try {
+      // Salir de la copia exige sesión REAL: al volver la red auth-js puede
+      // tardar en renovar el token, y como anónimo la RLS contesta [] sin
+      // error — eso no es "no hay nada" (regla de datosLocales).
+      if (enCopia && !(await haySesionReal(email))) return;
+      let q = sb.from('mensajes').select('*').eq('record_id', inc.record_id);
+      // Desde la copia se trae el hilo COMPLETO: la copia guarda solo los
+      // últimos 150 y no sabe de ediciones hechas después de guardarse. Ya
+      // al día, solo lo posterior al último que llegó del servidor (con el
+      // hilo vacío, sincroRef es 0 y trae desde el principio).
+      if (!enCopia) q = q.gt('id', sincroRef.current);
+      const { data, error } = await q.order('id').retry(false).abortSignal(ctrl.signal);
+      if (error || !montadoRef.current) return;
+      const lista = (data as Mensaje[]) || [];
+      sincronizadoRef.current = true;
+      // La red contestó: las fotos que no cargaron se vuelven a intentar, y
+      // los adjuntos, si al abrir no se pudieron leer (salían de la copia).
+      setFallidas(new Set());
+      if (adjFuenteRef.current !== 'red') void cargarAdjuntos();
+      if (enCopia) {
+        const previo = sincroRef.current;
+        // Lo que ya estaba en la copia (o es más viejo que ella) no es
+        // "nuevo": no cuenta en el ⬇ ni jala la vista.
+        const conocidos = conocidosRef.current;
+        if (conocidos) lista.forEach((m) => m.id <= previo && conocidos.add(m.id));
+        const fusion = fusionarHilo(msgsRef.current, lista);
+        setMsgs((prev) => fusionarHilo(prev, lista));
+        // Abierto sin señal y sin copia: el hilo llega entero ahora y abre
+        // compacto, como si se hubiera abierto con red. Se decide por cómo
+        // se abrió, no por lo que hay en pantalla (un mensaje que llegó en
+        // medio ya no la deja vacía).
+        if (sinCopia && fusion.length > LARGO)
+          setDesdeId(fusion[fusion.length - VENTANA].id);
         avanzarSincro(lista);
-        lista.forEach(add);
+        copiaDeRef.current = null;
+        setCopiaDe(null);
         cargarAdjuntos();
-        // Igual que al llegar por Realtime: si se están viendo, sus avisos
-        // de la campana ya no están pendientes.
-        if (lista.some((m) => !esMio(m))) marcarNotifsChat();
-        // Lo recuperado se marca visto solo si se quedó a la vista (al final).
+        recargarLecturas();
+        if (lista.some((m) => m.id > previo && !esMio(m))) marcarNotifsChat();
         marcarLeido();
-      });
+        return;
+      }
+      if (!lista.length) return;
+      avanzarSincro(lista);
+      lista.forEach(add);
+      cargarAdjuntos();
+      // Igual que al llegar por Realtime: si se están viendo, sus avisos
+      // de la campana ya no están pendientes.
+      if (lista.some((m) => !esMio(m))) marcarNotifsChat();
+      // Lo recuperado se marca visto solo si se quedó a la vista (al final).
+      marcarLeido();
+    } catch {
+      /* red caída o tope: la siguiente señal (online, volver, SUBSCRIBED) repite */
+    } finally {
+      window.clearTimeout(reloj);
+      recargandoRef.current = false;
+      if (pendienteRef.current && montadoRef.current) {
+        pendienteRef.current = false;
+        void recargarNuevos();
+      }
+    }
   };
 
   useEffect(() => {
@@ -468,12 +600,23 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   }, [loading, msgs.length]);
   useEffect(() => {
     const alVolver = () => {
-      if (document.visibilityState !== 'visible') return;
+      // Al irse a segundo plano iOS puede matar la PWA: la copia, ya.
+      if (document.visibilityState !== 'visible') {
+        guardarCopia();
+        return;
+      }
+      setFallidas(new Set());
       recargarNuevos();
       recargarLecturas();
       marcarLeido();
     };
-    const alReconectar = () => marcarLeido();
+    const alReconectar = () => {
+      // Las fotos que no cargaron sin señal se vuelven a intentar.
+      setFallidas(new Set());
+      recargarNuevos();
+      recargarLecturas();
+      marcarLeido();
+    };
     document.addEventListener('visibilitychange', alVolver);
     window.addEventListener('online', alReconectar);
     const cadaMinuto = window.setInterval(() => marcarLeido(), 60_000);
@@ -481,6 +624,8 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
       document.removeEventListener('visibilitychange', alVolver);
       window.removeEventListener('online', alReconectar);
       window.clearInterval(cadaMinuto);
+      // Al cerrar el chat: lo último que se vio queda para leerlo sin señal.
+      guardarCopia();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -608,17 +753,37 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
     box.scrollTo({ top, behavior: lejos ? 'auto' : 'smooth' });
   }, [pulsoSalto]);
 
-  const cargarAdjuntos = async () => {
-    const { data } = await sb
-      .from('chat_adjuntos')
-      .select('*')
-      .eq('record_id', inc.record_id)
-      .order('creado_en');
+  /** Adjuntos agrupados por mensaje, como los pinta el hilo. */
+  const agruparAdjuntos = (lista: ChatAdjunto[]) => {
     const m: Record<number, ChatAdjunto[]> = {};
-    ((data as ChatAdjunto[]) || []).forEach((a) => {
+    lista.forEach((a) => {
       (m[a.mensaje_id] ||= []).push(a);
     });
-    setAdjuntos(m);
+    return m;
+  };
+
+  /**
+   * Relee los adjuntos del hilo. Si falla (sin señal) NO toca lo que hay:
+   * antes dejaba el hilo sin fotos, también las de la copia del teléfono.
+   * Devuelve la lista, o null si no se pudo.
+   */
+  const cargarAdjuntos = async (): Promise<ChatAdjunto[] | null> => {
+    try {
+      const { data, error } = await sb
+        .from('chat_adjuntos')
+        .select('*')
+        .eq('record_id', inc.record_id)
+        .order('creado_en');
+      if (error || !data) return null;
+      const lista = data as ChatAdjunto[];
+      if (montadoRef.current) {
+        adjFuenteRef.current = 'red';
+        setAdjuntos(agruparAdjuntos(lista));
+      }
+      return lista;
+    } catch {
+      return null;
+    }
   };
 
   // Realtime y el INSERT propio pueden entregar el mismo mensaje: se
@@ -649,25 +814,89 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
     // creados después del cleanup, vivos para siempre.
     let vivo = true;
     (async () => {
-      const { data } = await sb
-        .from('mensajes')
-        .select('*')
-        .eq('record_id', inc.record_id)
-        .order('creado_en');
-      const lista = (data as Mensaje[]) || [];
+      // De la red con tope y, si no contesta (sin señal, red que no
+      // responde, sesión que aún no se renueva), de la copia del teléfono.
+      // redOLocal (lib/datosLocales.ts) decide: sin señal va directo a la
+      // copia; con copia espera ~4 s a la red; sin copia, hasta ~20 s.
+      const caja: { copia: ChatLocal | null } = { copia: null };
+      const r = await redOLocal<Mensaje[]>(
+        (senal) =>
+          sb
+            .from('mensajes')
+            .select('*')
+            .eq('record_id', inc.record_id)
+            .order('creado_en')
+            .retry(false)
+            .abortSignal(senal),
+        async () => {
+          caja.copia = await leerChatLocal(email, inc.record_id);
+          return caja.copia?.mensajes ?? [];
+        }
+      );
+      if (!vivo) return;
+      const lista = r.datos || [];
+      // Lo de la copia también vino del servidor (antes): cuenta para la
+      // marca de sincronía, y al volver la red se pide solo lo posterior.
       avanzarSincro(lista);
       setMsgs(lista);
       if (lista.length > LARGO) setDesdeId(lista[lista.length - VENTANA].id);
-      const [, lec] = await Promise.all([
-        cargarAdjuntos(),
-        sb.from('chat_lecturas').select('*').eq('record_id', inc.record_id),
-      ]);
-      // Sin la tabla (migración pendiente) no hay ✓✓: mejor nada que un ✓
-      // que diga "nadie lo ha visto" sin saberlo.
-      if (!vivo) return;
-      if (!lec.error) {
-        setLecturas((lec.data as ChatLectura[]) || []);
-        setConLecturas(true);
+      if (r.origen === 'local') {
+        const c = caja.copia;
+        if (c) {
+          adjFuenteRef.current = 'copia';
+          lecFuenteRef.current = 'copia';
+          setAdjuntos(agruparAdjuntos(c.adjuntos));
+          setLecturas(c.lecturas);
+          setConLecturas(c.conLecturas);
+          setCopiaDe(c.guardado);
+        } else setCopiaDe('');
+      } else {
+        sincronizadoRef.current = true;
+        // Adjuntos y lecturas en segundo plano: los mensajes ya se pueden
+        // leer, y esperarlos sin tope dejaba "Cargando…" hasta un minuto si
+        // la señal se iba justo ahí. Llegan después, como los adjuntos que
+        // llegan por Realtime (pegarAbajo mantiene la vista al final).
+        void (async () => {
+          const [adj, lec] = await Promise.all([
+            cargarAdjuntos(),
+            sb.from('chat_lecturas').select('*').eq('record_id', inc.record_id),
+          ]);
+          if (!vivo) return;
+          // Sin la tabla (migración pendiente) no hay ✓✓: mejor nada que
+          // un ✓ que diga "nadie lo ha visto" sin saberlo. Pero si lo que
+          // falló fue la RED, eso no dice nada de la tabla: se queda lo de
+          // la copia.
+          const lecPorRed = !!lec.error && pareceSinRed(lec.error, lec.status);
+          if (!lec.error) {
+            lecFuenteRef.current = 'red';
+            setLecturas((lec.data as ChatLectura[]) || []);
+            setConLecturas(true);
+          } else if (!lecPorRed) {
+            lecFuenteRef.current = 'red';
+          }
+          if (!adj || lecPorRed) {
+            const c = await leerChatLocal(email, inc.record_id);
+            if (c && vivo) {
+              if (!adj && !adjFuenteRef.current) {
+                adjFuenteRef.current = 'copia';
+                setAdjuntos(agruparAdjuntos(c.adjuntos));
+              }
+              if (lecPorRed && !lecFuenteRef.current) {
+                lecFuenteRef.current = 'copia';
+                setLecturas(c.lecturas);
+                setConLecturas(c.conLecturas);
+              }
+            }
+          }
+          // La copia para cuando no haya señal: justo lo que se acaba de
+          // ver. Lo que no se pudo leer va en null y conserva lo guardado.
+          void guardarChatLocal(email, inc.record_id, {
+            mensajes: lista,
+            adjuntos: adj,
+            lecturas: lec.error ? null : ((lec.data as ChatLectura[]) || []),
+            conLecturas: lec.error ? (lecPorRed ? null : false) : true,
+          });
+        })();
       }
       setLoading(false);
 
@@ -710,8 +939,13 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
           },
           (p) => {
             const m = p.new as Mensaje;
-            avanzarSincro([m]);
             add(m);
+            // Aún viendo la copia, sin haberse puesto al día: avanzar la
+            // marca con este mensaje saltaría los que llegaron mientras no
+            // había señal (nunca se traerían y quedarían como vistos). Se
+            // pide la puesta al día, que trae el hueco y avanza la marca.
+            if (copiaDeRef.current !== null) recargarNuevos();
+            else avanzarSincro([m]);
             // Realtime solo trae el mensaje. Sus adjuntos se insertan justo
             // después, en otra tabla, así que se vuelven a leer con un
             // respiro para no llegar antes que el INSERT del otro lado.
@@ -855,7 +1089,9 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
       if (sigue)
         setErrEd(
           error
-            ? 'No se pudo editar: ' + error.message
+            ? pareceSinRed(error)
+              ? 'Sin señal: la corrección no se guardó. Vuelve a intentarlo con señal.'
+              : 'No se pudo editar: ' + error.message
             : 'Ya no se puede editar: la ventana es de 15 minutos.'
         );
       return;
@@ -880,6 +1116,12 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
 
     // Se puede mandar solo un archivo, sin texto.
     if (!t && !pendiente) return;
+    // El teléfono sabe que no tiene red: ni se intenta. El texto y el
+    // archivo se quedan tal cual, listos para mandarlos con señal.
+    if (!enLineaAhora()) {
+      setErrAdj(SIN_SENAL_ENVIO);
+      return;
+    }
 
     const archivo = pendiente;
     const resp = respondiendo;
@@ -941,12 +1183,23 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
           ({ error: eAdj } = await sb.from('chat_adjuntos').insert(fila));
         // El mensaje ya existe: no se aborta, pero se avisa. Callarlo dejaría
         // al usuario creyendo que mandó una foto que nadie va a ver.
-        if (eAdj) setErrAdj('El mensaje se envió, pero el archivo no quedó ligado: ' + eAdj.message);
+        if (eAdj)
+          setErrAdj(
+            pareceSinRed(eAdj)
+              ? 'El mensaje se envió, pero se fue la señal antes de ligar el archivo: vuelve a adjuntarlo con señal.'
+              : 'El mensaje se envió, pero el archivo no quedó ligado: ' + eAdj.message
+          );
         else await cargarAdjuntos();
       }
     } catch (ex) {
-      const m = ex instanceof Error ? ex.message : String(ex);
-      setErrAdj('No se pudo enviar: ' + m);
+      // "TypeError: Failed to fetch" no le dice nada a nadie en campo.
+      const sinRed = pareceSinRed(ex);
+      const m = sinRed
+        ? 'sin señal'
+        : ex instanceof Error
+          ? ex.message
+          : String(ex);
+      setErrAdj(sinRed ? SIN_SENAL_ENVIO : 'No se pudo enviar: ' + m);
       // Un envío de solo texto no bloquea el campo, y ↩︎ sigue activo aun
       // subiendo un video: si mientras viajaba se escribió otra cosa o se
       // eligió responder a OTRO mensaje, no se restaura — texto y archivo
@@ -959,7 +1212,8 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
         const que = [t && `«${t}»`, !otroDestino ? '' : archivo?.name]
           .filter(Boolean)
           .join(' y ');
-        if (que) setErrAdj(`No se pudo enviar ${que}: ${m}`);
+        if (que)
+          setErrAdj(`${sinRed ? '📴 ' : ''}No se pudo enviar ${que}: ${m.replace(/\.$/, '')}.`);
         if (archivo && !otroDestino) setPendiente(archivo);
       } else {
         setTexto(t);
@@ -976,9 +1230,10 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   const cita = (m: Mensaje, mio: boolean) => {
     if (m.responde_a == null) return null;
     const o = porId.get(m.responde_a);
-    const foto =
-      o &&
-      (adjuntos[o.id] || []).find((a) => a.tipo !== 'video' && !a.purgado_en);
+    // La miniatura de la cita: la foto, o el recuadro con ▶ si era video
+    // (antes un video no dejaba nada y la cita parecía de un texto).
+    const medio =
+      o && (adjuntos[o.id] || []).find((a) => !a.purgado_en);
     return (
       <button
         type="button"
@@ -1030,19 +1285,27 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
             {o ? o.texto.replace(/\s+/g, ' ').trim() : 'Mensaje no disponible'}
           </span>
         </span>
-        {foto && (
-          <img
-            src={foto.url}
-            alt=""
-            style={{
-              width: 36,
-              height: 36,
-              objectFit: 'cover',
-              borderRadius: 5,
-              flexShrink: 0,
-            }}
-          />
-        )}
+        {medio &&
+          (medio.tipo === 'video' ? (
+            <PreviaVideo
+              url={medio.url}
+              alt="Video"
+              compacta
+              style={{ width: 36, height: 36, borderRadius: 5, flexShrink: 0 }}
+            />
+          ) : (
+            <img
+              src={medio.url}
+              alt=""
+              style={{
+                width: 36,
+                height: 36,
+                objectFit: 'cover',
+                borderRadius: 5,
+                flexShrink: 0,
+              }}
+            />
+          ))}
       </button>
     );
   };
@@ -1125,6 +1388,23 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
           </p>
         )}
 
+        {/* Sin red: se lee la copia del teléfono (y se dice de cuándo es),
+            o se avisa que para enviar hace falta señal. */}
+        {copiaDe ? (
+          <div className="banner" style={{ marginBottom: 8, flexShrink: 0 }}>
+            📴 {enLinea ? motivoSinRed() : 'Sin señal'}: ves la copia guardada
+            en este teléfono ({cuando(copiaDe)}). Lo nuevo llega cuando
+            vuelva la red.
+          </div>
+        ) : (
+          !enLinea &&
+          copiaDe === null && (
+            <div className="banner" style={{ marginBottom: 8, flexShrink: 0 }}>
+              📴 Sin señal: puedes leer el chat; para enviar hace falta señal.
+            </div>
+          )
+        )}
+
         {/* Buscador del hilo: en incidencias largas el dato que importa
             (un folio, una medida, quién dijo qué) queda arriba del pliegue. */}
         {msgs.length > 0 && (
@@ -1186,7 +1466,11 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                   padding: 20,
                 }}
               >
-                Sin mensajes. Escribe el primero.
+                {copiaDe === ''
+                  ? // Sin red y sin copia: "Sin mensajes" mentía si el hilo
+                    // tenía conversación.
+                    `📴 ${enLinea ? motivoSinRed() : 'Sin señal'}: este chat todavía no se ha abierto en este teléfono. Se verá cuando la red conteste.`
+                  : 'Sin mensajes. Escribe el primero.'}
               </div>
             ) : msgsVisibles.length === 0 ? (
               <div
@@ -1403,7 +1687,11 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                           ) : a.tipo === 'video' ? (
                             <video
                               key={a.id}
-                              src={a.url}
+                              // #t=0.1: sin reproducir, Safari dejaba el
+                              // recuadro negro, como si no hubiera nada. Así
+                              // pinta ese cuadro (baja solo lo necesario, no
+                              // el video completo).
+                              src={a.url + '#t=0.1'}
                               controls
                               playsInline
                               preload="metadata"
@@ -1414,6 +1702,36 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                                 background: '#000',
                               }}
                             />
+                          ) : fallidas.has(a.id) ? (
+                            // Sin señal y fuera de la caché del navegador: se
+                            // dice en vez de un ícono roto. Se reintenta sola
+                            // al volver la red o la app, y el enlace se queda:
+                            // tocarla la abre (con "señal fantasma" el evento
+                            // online nunca llega).
+                            <a
+                              key={a.id}
+                              href={a.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{
+                                ...cajaMedio(a),
+                                background: 'var(--panel2)',
+                                border: '1px dashed var(--line)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                textAlign: 'center',
+                                padding: 10,
+                                fontSize: 12,
+                                color: 'var(--muted)',
+                                textDecoration: 'none',
+                                boxSizing: 'border-box',
+                              }}
+                            >
+                              {enLinea
+                                ? '📷 No se pudo cargar la foto: tócala para abrirla'
+                                : '📷 La foto se verá cuando vuelva la señal'}
+                            </a>
                           ) : (
                             <a
                               key={a.id}
@@ -1426,6 +1744,9 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                                 alt={a.nombre || 'foto'}
                                 loading="lazy"
                                 onLoad={pegarAbajo}
+                                onError={() =>
+                                  setFallidas((prev) => new Set(prev).add(a.id))
+                                }
                                 style={{
                                   ...cajaMedio(a),
                                   background: 'var(--panel2)',

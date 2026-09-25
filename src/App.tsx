@@ -44,6 +44,7 @@ import {
 } from './lib/envios';
 import { accionesPendientes } from './lib/acciones';
 import { borrarListaLocal, iniciarSincronizacion } from './lib/datosLocales';
+import { borrarChatsLocal } from './lib/chatLocal';
 import { useEnLinea, enLineaAhora, pareceSinRed } from './lib/enLinea';
 import { lazyConReintento, fijarModuloEnPantalla } from './lib/cargaDiferida';
 // Incidencias se queda ESTÁTICO: es el núcleo (Mis pendientes y el alta
@@ -1323,6 +1324,8 @@ function Main({
     if (!confirm(texto)) return;
     borrarRolesGuardados(email);
     void borrarListaLocal(email);
+    // Las copias de los chats también son de esta cuenta (teléfono compartido).
+    void borrarChatsLocal(email);
     // Sin sesión confirmada NO se llama signOut() (revisión sin señal,
     // 24-sep-2026): la inicialización de auth-js puede seguir reintentando
     // renovar el token sin red (~25-60 s) y signOut la espera. Colgado tras
@@ -1348,7 +1351,10 @@ function Main({
     }
     // Otra vez ya fuera de Main: al desmontarse, IncidenciasView escribe la
     // copia que tuviera pendiente y la volvería a dejar.
-    setTimeout(() => void borrarListaLocal(email), 2000);
+    setTimeout(() => {
+      void borrarListaLocal(email);
+      void borrarChatsLocal(email);
+    }, 2000);
   };
 
   const esTabIncidencias = tab === 'bandeja' || tab === 'todas';

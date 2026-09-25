@@ -61,6 +61,7 @@ import {
 import { MAX_VIDEO_BYTES } from '../../lib/comprimirImagen';
 import { vigilarRender } from '../../lib/vigia';
 import SubirArchivos from '../../components/SubirArchivos';
+import PreviaVideo from '../../components/PreviaVideo';
 import type { ArbolDigital, Evidencia, Incidencia } from '../../types/db';
 
 /**
@@ -168,8 +169,20 @@ function Miniatura({
         />
       </a>
     ) : (
-      <a href={e.url} target="_blank" rel="noreferrer" className="tag">
-        🎥 video
+      // Su cuadro con ▶ (o el recuadro 🎬 si es un video viejo), del mismo
+      // tamaño que las fotos: el texto "🎥 video" parecía otra cosa.
+      <a href={e.url} target="_blank" rel="noreferrer" title={e.referencia || ''}>
+        <PreviaVideo
+          url={e.url}
+          alt={e.referencia || `Video de ${e.etapa}`}
+          compacta
+          style={{
+            width: size,
+            height: size,
+            borderRadius: 7,
+            border: '1px solid var(--line)',
+          }}
+        />
       </a>
     );
   if (!onBorrar) return visual;

@@ -263,7 +263,8 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       return;
     }
     // La tarjeta pinta esta foto mientras la solicitud está pendiente.
-    if (file.type.startsWith('image/')) await subirMiniatura(path, file);
+    // Foto o video (de un video, un cuadro suyo para la tarjeta).
+    await subirMiniatura(path, file);
     const evidenciaUrl = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path)
       .data.publicUrl;
 

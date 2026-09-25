@@ -9,7 +9,8 @@ import {
   NIVEL_COLOR,
 } from '../lib/constants';
 import { slaInfo, slaInfoValidador, caraIncidencia, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
-import { alFallarMiniatura, urlMiniatura } from '../lib/storage';
+import { alFallarMiniatura, esUrlVideo, urlMiniatura } from '../lib/storage';
+import PreviaVideo from './PreviaVideo';
 import { colorTono, fondoTono, tonoDe, type Tono } from '../lib/tonos';
 import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
 
@@ -250,7 +251,20 @@ function IncCard({
           ancho completo de la tarjeta, en escritorio se acota, y el
           object-fit:cover evita que una foto vertical de celular estire la
           tarjeta tres pantallas. Clic = galería completa. */}
-      {foto && (
+      {/* Reportada solo con video: su cuadro con ▶ (o "🎬 Video" si es un
+          video viejo sin cuadro). Antes no salía nada y parecía que no se
+          había adjuntado nada. Proporción fija: sin cuadro, la caja no
+          tendría alto. */}
+      {foto && esUrlVideo(foto) ? (
+        <PreviaVideo
+          key={foto}
+          url={foto}
+          className="inc-foto"
+          style={{ aspectRatio: '16 / 9' }}
+          alt={'Video de la incidencia ' + (i.folio || '')}
+          onClick={() => onEvidence(i)}
+        />
+      ) : foto && (
         <img
           // key: si la tarjeta cambia de foto (p. ej. al pasar a reparado),
           // se crea un <img> nuevo y no hereda el estado del anterior.

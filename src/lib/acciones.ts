@@ -1147,10 +1147,14 @@ async function pasoReparacion(a: Accion, c: Ctx): Promise<ResultadoConCorto> {
         await persistir(a);
         continue;
       }
-      // La miniatura es la que pintan las tarjetas (de mejor esfuerzo).
-      if (x.tipo === 'foto') await subirMiniatura(x.path, f);
+      // Se anota ANTES de la miniatura: con un video el cuadro tarda hasta
+      // 8 s, y si en ese rato se cierra la app, al retomar la cola no debe
+      // volver a subir el video entero por 4G.
       a.estado.subidos.push(x.path);
       await persistir(a);
+      // La miniatura es la que pintan las tarjetas (de mejor esfuerzo). De
+      // un video, un cuadro suyo: sin él, la tarjeta salía vacía.
+      await subirMiniatura(x.path, f);
     }
 
     await exigirSesion(c.topeSesion, a.email);

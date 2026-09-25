@@ -25,6 +25,7 @@ import {
   CACHE_INMUTABLE,
   rutaMiniatura,
   subirMiniatura,
+  urlMiniatura,
 } from '../../lib/storage';
 import { reportarError } from '../../lib/reportarError';
 import { vigilarRender } from '../../lib/vigia';
@@ -273,7 +274,8 @@ function EvidenciaModal({
         alert('Error al subir ' + f.name + ': ' + upErr.message);
         continue;
       }
-      if (tipo === 'foto') await subirMiniatura(path, f);
+      // Foto o video (de un video, un cuadro suyo para la tarjeta).
+      await subirMiniatura(path, f);
       const { data: pub } = sb.storage
         .from(BUCKET_EVIDENCIAS)
         .getPublicUrl(path);
@@ -485,9 +487,16 @@ function EvidenciaModal({
                   {videos.map((v) => (
                     <div key={v.id}>
                       <video
-                        src={v.url}
+                        // #t=0.1 + poster: sin reproducir, Safari dejaba el
+                        // recuadro negro. El poster es el cuadro que se
+                        // guardó al subirlo (los videos viejos no lo tienen
+                        // y caen al cuadro de 0.1 s).
+                        src={v.url + '#t=0.1'}
+                        poster={urlMiniatura(v.url)}
+                        preload="metadata"
+                        playsInline
                         controls
-                        style={{ width: '100%', borderRadius: 9, maxHeight: 220 }}
+                        style={{ width: '100%', borderRadius: 9, maxHeight: 220, background: '#000' }}
                       />
                       <PieEvidencia
                         ev={v}
