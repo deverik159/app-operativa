@@ -269,6 +269,22 @@ function dormir(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
 
+/**
+ * Cede una MACROTAREA. Toda lectura pública de la copia pasa por aquí antes
+ * de regresar, en aciertos, fallos y null (app pasmada sin señal,
+ * 24-sep-2026): con la copia en memoria —o con IndexedDB dada por colgada,
+ * que falla al instante— la promesa se cumplía en microtareas DENTRO del
+ * toque del usuario; React 18 ve window.event = click y le da prioridad de
+ * toque (SyncLane) a lo que la pantalla haga con el dato, y mezclada con los
+ * updates normales de un efecto eso armó un ciclo de renders que nunca
+ * soltaba el hilo (NuevaInc, "+ Nueva"). Tras un setTimeout ya no hay toque
+ * en curso. Cuesta ~0,1 ms por lectura (4 ms si ya van 5 timers
+ * encadenados; medido en Chromium), menos que leer de IndexedDB en frío.
+ */
+function cederTurno(): Promise<void> {
+  return new Promise((res) => setTimeout(res, 0));
+}
+
 function isoDia(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
@@ -493,7 +509,8 @@ function indiceInventario(filas: InventarioItem[]): IndiceInventario {
 }
 
 // ------------------------------------------------------------
-// Lecturas (nunca lanzan)
+// Lecturas (nunca lanzan; todas ceden el turno antes de regresar, ver
+// cederTurno: el `finally` cubre aciertos, fallos y null)
 // ------------------------------------------------------------
 
 /**
@@ -505,6 +522,8 @@ export async function fechaCopia(tabla: TablaLocal): Promise<string | null> {
     return (await leerMeta(tabla))?.guardado ?? null;
   } catch {
     return null;
+  } finally {
+    await cederTurno();
   }
 }
 
@@ -528,6 +547,8 @@ export async function buscarSitiosLocal(unidad: string, texto: string, max = 12)
     return salida;
   } catch {
     return [];
+  } finally {
+    await cederTurno();
   }
 }
 
@@ -562,6 +583,8 @@ export async function sitiosCercaLocal(
     return salida;
   } catch {
     return [];
+  } finally {
+    await cederTurno();
   }
 }
 
@@ -577,6 +600,8 @@ export async function sitioLocal(siteId: string): Promise<SitioLocal | null> {
     return r && r.site_id ? { site_id: r.site_id, direccion: r.direccion ?? null } : null;
   } catch {
     return null;
+  } finally {
+    await cederTurno();
   }
 }
 
@@ -587,6 +612,8 @@ export async function carasDeSitioLocal(siteId: string): Promise<InventarioItem[
     return carasDeIndice(indiceInventario(await filasDe('inventario')), siteId).map((r) => ({ ...r }));
   } catch {
     return [];
+  } finally {
+    await cederTurno();
   }
 }
 
@@ -611,6 +638,8 @@ export async function catalogoLocal(unidad: string, op?: { prefijo?: boolean }):
       .map((c) => ({ ...c }));
   } catch {
     return [];
+  } finally {
+    await cederTurno();
   }
 }
 
@@ -620,6 +649,8 @@ export async function arbolDigitalLocal(): Promise<ArbolDigitalLocal[]> {
     return (await filasDe('arbol_digital')).map((a) => ({ ...a }));
   } catch {
     return [];
+  } finally {
+    await cederTurno();
   }
 }
 
@@ -634,7 +665,7 @@ function compararTexto(a: string | null, b: string | null): number {
 /**
  * Las ramas del árbol de UNA incidencia, como la consulta de RepararModal:
  * `.eq('incidencia', nombre)` ordenadas por incidencia_srd, causa_raiz y
- * solucion.
+ * solucion. El turno lo cede arbolDigitalLocal (una sola vez).
  */
 export async function arbolDeIncidenciaLocal(incidencia: string): Promise<ArbolDigitalLocal[]> {
   try {
@@ -668,6 +699,8 @@ export async function nombresPantallaLocal(ids: string[]): Promise<Record<string
     return salida;
   } catch {
     return {};
+  } finally {
+    await cederTurno();
   }
 }
 
@@ -679,13 +712,15 @@ export async function catorcenasLocal(): Promise<CatorcenaLocal[]> {
       .sort((a, b) => a.numero - b.numero || compararTexto(a.fecha_inicio, b.fecha_inicio));
   } catch {
     return [];
+  } finally {
+    await cederTurno();
   }
 }
 
 /**
  * La ventana de NuevaInc sin red: las `n` catorcenas cuyo fin cae desde hace
  * 14 días (la anterior, la actual y la siguiente), con el corte en UTC igual
- * que la consulta en línea.
+ * que la consulta en línea. El turno lo cede catorcenasLocal.
  */
 export async function ventanaCatorcenasLocal(n = 3): Promise<CatorcenaLocal[]> {
   const desde = claveFecha(isoDia(Date.now() - 14 * DIA));
@@ -714,6 +749,8 @@ export async function pautasLocal(ids: string[], inicio: string, fin: string): P
       .map((p) => ({ ...p }));
   } catch {
     return [];
+  } finally {
+    await cederTurno();
   }
 }
 
@@ -769,13 +806,18 @@ export async function guardarListaLocal(
   }
 }
 
-/** La última lista guardada de ese usuario, o null. No lanza. */
+/**
+ * La última lista guardada de ese usuario, o null. No lanza. Cede el turno
+ * antes de regresar, también de memoria o sin lista (ver cederTurno):
+ * "+ Nueva" desde otro módulo monta IncidenciasView y, si la copia salía en
+ * microtareas, el alta se montaba dentro del mismo toque.
+ */
 export async function leerListaLocal(email: string): Promise<ListaLocal | null> {
-  const k = llaveEmail(email);
-  if (!k) return null;
-  const m = memListas.get(k);
-  if (m) return m;
   try {
+    const k = llaveEmail(email);
+    if (!k) return null;
+    const m = memListas.get(k);
+    if (m) return m;
     const r = await datosGet<ListaLocal & { email?: string }>('listas', k);
     if (!r || !Array.isArray(r.items)) return null;
     // Tolerante a registros de una versión anterior con campos de menos.
@@ -797,6 +839,8 @@ export async function leerListaLocal(email: string): Promise<ListaLocal | null> 
     return memListas.get(k) || lista;
   } catch {
     return null;
+  } finally {
+    await cederTurno();
   }
 }
 
@@ -896,13 +940,24 @@ function alPerderSenal(): { p: Promise<typeof TOPE>; quitar: () => void } {
  * postgrest-js reintenta ~7 s por su cuenta). La sesión se pregunta al
  * mismo tiempo que sale la consulta: fetchWithAuth hace lo mismo antes de
  * mandarla, así que las dos ven la misma.
+ * Lo que sale de la copia se entrega tras ceder el turno (ver cederTurno;
+ * app pasmada sin señal, 24-sep-2026): `local` puede ser `async () => null`
+ * o una copia ya en memoria, y sin señal todo se cumplía dentro del toque.
  */
 export async function redOLocal<T>(
   red: (senal: AbortSignal) => PromiseLike<RespuestaRed<T>>,
   local: () => Promise<T>,
   op?: { topeMs?: number; topeSinCopiaMs?: number }
 ): Promise<{ datos: T; origen: 'red' | 'local' }> {
-  if (!haySenal()) return { datos: await local(), origen: 'local' };
+  /** La copia, cediendo el turno antes de entregarla (también si `local` lanza). */
+  const deLaCopia = async (): Promise<{ datos: T; origen: 'local' }> => {
+    try {
+      return { datos: await local(), origen: 'local' };
+    } finally {
+      await cederTurno();
+    }
+  };
+  if (!haySenal()) return deLaCopia();
   const ms = op?.topeMs ?? TOPE_RED_MS;
   const limite = Date.now() + Math.max(ms, op?.topeSinCopiaMs ?? TOPE_RED_SIN_COPIA_MS);
   const control = new AbortController();
@@ -957,7 +1012,7 @@ export async function redOLocal<T>(
     }
   }
   if (r === TOPE) control.abort();
-  if (r === null || r === TOPE || noSirve(r)) return { datos: await local(), origen: 'local' };
+  if (r === null || r === TOPE || noSirve(r)) return deLaCopia();
   const deRed = r.data as T;
   const conSesion = await conTope(sesion, 500);
   if (conSesion === true) return { datos: deRed, origen: 'red' };
@@ -969,6 +1024,7 @@ export async function redOLocal<T>(
   }
   if (Array.isArray(deLocal) && deLocal.length === 0 && Array.isArray(deRed) && deRed.length > 0)
     return { datos: deRed, origen: 'red' };
+  await cederTurno();
   return { datos: deLocal, origen: 'local' };
 }
 
@@ -1260,8 +1316,17 @@ let claveUltimaVuelta = '';
 let ultimaCortada = false;
 
 /**
+ * Tope para que el navegador conteste el candado (app pasmada sin señal,
+ * 24-sep-2026). Con ifAvailable contesta al instante; si WebKit no llamara
+ * nunca de vuelta, `enVuelta` quedaba tomada para siempre y la sincronía no
+ * volvía a correr. Solo cubre la ESPERA del candado, nunca la vuelta misma.
+ */
+const TOPE_CANDADO_MS = 10000;
+
+/**
  * Una sola vuelta entre pestañas (Web Locks); sin Web Locks, sin candado.
- * false = otra pestaña la tiene (no se espera).
+ * false = otra pestaña la tiene (no se espera), o el candado no contestó a
+ * tiempo: cuenta como ocupado y, si llega tarde, se suelta sin correr `fn`.
  */
 async function conCandado(fn: () => Promise<void>): Promise<boolean> {
   const locks =
@@ -1274,18 +1339,33 @@ async function conCandado(fn: () => Promise<void>): Promise<boolean> {
   }
   let corrio = false;
   let libre = true;
+  let vencido = false;
+  let reloj: ReturnType<typeof setTimeout> | undefined;
+  const tope = new Promise<void>((res) => {
+    reloj = setTimeout(() => {
+      vencido = true;
+      libre = false;
+      res();
+    }, TOPE_CANDADO_MS);
+  });
   try {
-    await locks.request('gpo-datos-sinc', { ifAvailable: true }, async (lock) => {
-      if (!lock) {
-        libre = false;
-        return;
-      }
-      corrio = true;
-      await fn();
-    });
+    await Promise.race([
+      locks.request('gpo-datos-sinc', { ifAvailable: true }, async (lock) => {
+        clearTimeout(reloj);
+        if (!lock || vencido) {
+          libre = false;
+          return;
+        }
+        corrio = true;
+        await fn();
+      }),
+      tope,
+    ]);
   } catch (err) {
     if (corrio) throw err;
     await fn();
+  } finally {
+    clearTimeout(reloj);
   }
   return libre;
 }

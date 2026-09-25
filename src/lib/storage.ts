@@ -55,11 +55,24 @@ export function urlMiniatura(url: string | null | undefined): string {
  * src actual y no con una marca en el elemento: una marca sobrevivía cuando
  * React reutilizaba el mismo <img> para otra foto, y la siguiente foto sin
  * miniatura se quedaba rota.
+ * La comparación va contra el atributo tal cual y contra la URL resuelta
+ * (app pasmada sin señal, 24-sep-2026): `img.src` regresa la URL ya
+ * normalizada ('foto 1.jpg' → 'foto%201.jpg', acentos, espacios al final),
+ * así que con una URL heredada así nunca coincidía, cada error volvía a
+ * asignar el original y, sin señal (falla al instante), el onError giraba
+ * sin fin en cada tarjeta.
  */
 export function alFallarMiniatura(original: string) {
   return (e: { currentTarget: HTMLImageElement }) => {
     const img = e.currentTarget;
-    if (!original || img.src === original) return;
+    if (!original || img.getAttribute('src') === original) return;
+    let resuelta = original;
+    try {
+      resuelta = new URL(original, document.baseURI).href;
+    } catch {
+      /* URL que no se deja resolver: se compara tal cual */
+    }
+    if (img.src === resuelta || img.src === original) return;
     img.src = original;
   };
 }

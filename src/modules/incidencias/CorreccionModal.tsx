@@ -33,6 +33,7 @@ import {
 } from '../../lib/catalogo';
 import type { OpcionesCatalogo } from '../../lib/catalogo';
 import { tieneAreaRedirigida } from '../../lib/helpers';
+import { vigilarRender } from '../../lib/vigia';
 import type { CatalogoIncidencia, Incidencia } from '../../types/db';
 
 type Props = {
@@ -81,6 +82,9 @@ function Derivado({ label, valor }: { label: string; valor: string }) {
 }
 
 function CorreccionModal({ inc, onClose, onDone }: Props) {
+  // Ciclo de renders que no suelta el hilo → error del módulo (app pasmada
+  // sin señal, 24-sep-2026; ver lib/vigia.ts).
+  vigilarRender('CorreccionModal');
   const [cat, setCat] = useState<OpcionesCatalogo>({
     opciones: [],
     restringido: false,

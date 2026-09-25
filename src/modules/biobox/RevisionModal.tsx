@@ -46,6 +46,7 @@ import type {
   TipoEvidencia,
   EstatusInc,
 } from '../../types/db';
+import { vigilarRender } from '../../lib/vigia';
 
 /** Subcarpeta en el bucket, para no mezclar con incidencias ni pauta. */
 const CARPETA = 'revisiones';
@@ -89,6 +90,7 @@ type Props = {
 };
 
 function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
+  vigilarRender('RevisionModal');
   const [cargando, setCargando] = useState(true);
   const [err, setErr] = useState('');
   const [aviso, setAviso] = useState('');

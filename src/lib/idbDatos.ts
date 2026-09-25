@@ -28,6 +28,8 @@ const ESPERA_APERTURA_MS = 4000;
 const ESPERA_TX_MS = 15000;
 /** Reaperturas por almacenes faltantes o por carrera de versión. */
 const MAX_REAPERTURAS = 4;
+/** Tras una apertura colgada, cada cuánto se vuelve a intentar (ver abrir). */
+const REARME_COLGADA_MS = 30000;
 
 /**
  * Los almacenes:
@@ -52,6 +54,20 @@ let conexion: Promise<IDBDatabase | null> | null = null;
 
 /** Hay una apertura sin contestar (Safari que nunca responde): ver idb.ts. */
 let aperturaColgada = false;
+/** Cuándo se dio por colgada; 0 = rearmar en la siguiente operación. */
+let colgadaDesde = 0;
+
+// Al volver a primer plano se rearma (app pasmada sin señal, 24-sep-2026):
+// el iOS que colgó la apertura al suspender la PWA suele contestar a la
+// siguiente, y sin esto la copia quedaba "no disponible" toda la sesión.
+try {
+  if (typeof document !== 'undefined')
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') colgadaDesde = 0;
+    });
+} catch {
+  /* sin documento (pruebas): queda el rearme por tiempo */
+}
 
 function faltantes(db: IDBDatabase): AlmacenDatos[] {
   return ALMACENES.filter((a) => !db.objectStoreNames.contains(a));
@@ -123,10 +139,19 @@ function intentarAbrir(n: number, fin: (db: IDBDatabase | null) => void, version
   // onversionchange; si no, el tope de abrir() contesta "no disponible".
 }
 
-/** Abre una sola vez por pestaña. null = no hay IndexedDB, falló o tardó. */
+/**
+ * Abre una sola vez por pestaña. null = no hay IndexedDB, falló o tardó.
+ * Colgada, contesta null al instante, pero solo REARME_COLGADA_MS (o hasta
+ * volver a primer plano): luego una operación vuelve a probar con una
+ * apertura nueva (la vieja, si contesta tarde, se adopta o se cierra).
+ */
 function abrir(): Promise<IDBDatabase | null> {
   if (conexion) return conexion;
-  if (aperturaColgada) return Promise.resolve(null);
+  if (aperturaColgada) {
+    const edad = Date.now() - colgadaDesde;
+    if (edad >= 0 && edad < REARME_COLGADA_MS) return Promise.resolve(null);
+    aperturaColgada = false;
+  }
   const p = new Promise<IDBDatabase | null>((res) => {
     let listo = false;
     const fin = (db: IDBDatabase | null) => {
@@ -152,6 +177,7 @@ function abrir(): Promise<IDBDatabase | null> {
       if (listo) return;
       listo = true;
       aperturaColgada = true;
+      colgadaDesde = Date.now();
       res(null);
     }, ESPERA_APERTURA_MS);
     intentarAbrir(0, fin);
@@ -192,6 +218,11 @@ function aErrorDatos(e: unknown, respaldo: string): ErrorDatos {
  * un put puede abortar al final por cuota, y hasta ahí no hay garantía. Con
  * tope: si no completa a tiempo se aborta (lo que no se confirmó no queda).
  * Una transacción abortada no deja NADA: la copia anterior sigue intacta.
+ * Al vencer el tope se suelta además la conexión (app pasmada sin señal,
+ * 24-sep-2026): tras suspender la PWA, WebKit puede dejar una conexión
+ * muerta en la que nada completa, y cada operación esperaba el tope entero
+ * mientras viviera la pestaña. close() deja terminar lo que ya corre en
+ * ella; la siguiente operación abre una nueva.
  */
 export async function datosTx<T>(
   almacenes: AlmacenDatos[],
@@ -199,8 +230,13 @@ export async function datosTx<T>(
   trabajo: (tx: IDBTransaction) => T,
   topeMs = ESPERA_TX_MS
 ): Promise<T> {
-  const db = await abrir();
+  const deConexion = abrir();
+  const db = await deConexion;
   if (!db) throw new ErrorDatos('IndexedDB no disponible', 'no-disponible');
+  /** Olvida esta conexión, si sigue siendo la de todos (una más nueva no se toca). */
+  const olvidar = () => {
+    if (conexion === deConexion) conexion = null;
+  };
   return new Promise<T>((res, rej) => {
     let listo = false;
     let tx: IDBTransaction | undefined;
@@ -212,6 +248,12 @@ export async function datosTx<T>(
         tx?.abort();
       } catch {
         /* ya terminó */
+      }
+      olvidar();
+      try {
+        db.close();
+      } catch {
+        /* ya cerrada */
       }
       rej(new ErrorDatos('IndexedDB no respondió a tiempo', 'tope'));
     }, topeMs);
@@ -235,7 +277,7 @@ export async function datosTx<T>(
       salida = trabajo(t);
     } catch (e) {
       // La conexión ya estaba cerrada: la siguiente operación reabre.
-      conexion = null;
+      olvidar();
       if (listo) return;
       listo = true;
       clearTimeout(reloj);

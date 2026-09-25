@@ -24,6 +24,7 @@ import {
   subirFotos,
   type FotoLocal,
 } from '../../lib/storage';
+import { vigilarRender } from '../../lib/vigia';
 
 type Espacio = {
   clave: string;
@@ -424,6 +425,7 @@ function BitacoraVVView({
   /** Se incrementa al tocar una notificación de la bitácora: recarga los datos. */
   recargarSignal?: number;
 }) {
+  vigilarRender('BitacoraVVView');
   const [espacios, setEspacios] = useState<Espacio[]>([]);
   const [campanas, setCampanas] = useState<Campana[]>([]);
   const [pautas, setPautas] = useState<Pauta[]>([]);

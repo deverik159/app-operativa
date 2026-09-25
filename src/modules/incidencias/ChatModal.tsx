@@ -15,6 +15,7 @@ import {
 import { comprimirImagen } from '../../lib/comprimirImagen';
 import type { Incidencia, Mensaje, ChatAdjunto } from '../../types/db';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { vigilarRender } from '../../lib/vigia';
 
 type Props = {
   inc: Incidencia;
@@ -24,6 +25,7 @@ type Props = {
 };
 
 function ChatModal({ inc, email, nombre, onClose }: Props) {
+  vigilarRender('ChatModal');
   const [msgs, setMsgs] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
   const [loading, setLoading] = useState(true);

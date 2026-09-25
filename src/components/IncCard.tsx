@@ -2,6 +2,7 @@
 // src/components/IncCard.tsx
 // Tarjeta de una incidencia con sus acciones. Traducido del HTML.
 // ============================================================
+import { memo } from 'react';
 import {
   EST_COLOR,
   EST_LABEL,
@@ -55,6 +56,12 @@ type IncCardProps = {
   conError?: boolean;
   /** Una acción de esta tarjeta se está mandando ahora: evita el doble toque. */
   ocupada?: boolean;
+  /**
+   * Minuto en curso (Date.now() / 60 000). La tarjeta no lo lee: está para
+   * React.memo (ver el export). El reloj de SLA se calcula al pintar con la
+   * hora de ese momento, y sin esto una tarjeta memorizada lo dejaría viejo.
+   */
+  minuto?: number;
 };
 
 function IncCard({
@@ -551,7 +558,15 @@ function IncCard({
   );
 }
 
-export default IncCard;
+/**
+ * memo (app pasmada sin señal, 24-sep-2026): la lista pinta hasta 150 y
+ * antes se repintaban TODAS con cualquier render de la vista (abrir el alta,
+ * un aviso, una tecla en el buscador). IncidenciasView le pasa props con
+ * identidad estable (callbacks con useCallback, `can` con useMemo, la fila
+ * tal cual de la lista); lo que cambie la tarjeta tiene que llegar por
+ * props, incluido `minuto` para el reloj de SLA.
+ */
+export default memo(IncCard);
 
 // ============================================================
 // NOTA — POR QUÉ YA NO HAY "RECHAZAR" EN LA VALIDACIÓN DE CAPTURA

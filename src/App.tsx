@@ -19,6 +19,7 @@
 // ============================================================
 import {
   useState,
+  useMemo,
   useEffect,
   useCallback,
   useRef,
@@ -316,6 +317,62 @@ function conTope<T>(p: PromiseLike<T>, ms: number, valor: T): Promise<T> {
         res(valor);
       }
     );
+  });
+}
+
+/**
+ * Renueva la sesión YA al volver la señal (app pasmada sin señal,
+ * 24-sep-2026). Sin red y con el token vencido, auth-js 2.112.3 guarda la
+ * renovación fallida en `lastRefreshFailure` y durante 60 s
+ * (REFRESH_FAILURE_COOLDOWN_MS) getSession devuelve null SIN intentar la
+ * red: al volver la señal, ↻ y 'online' solo enseñaban la copia ("se
+ * reintenta sola") hasta un minuto. refreshSession con el mismo token
+ * devuelve la misma falla guardada, así que no sirve para saltarla.
+ *
+ * Solo se olvida una falla de TRANSPORTE (AuthRetryableFetchError con status
+ * 0: el fetch ni llegó): la de un token rechazado se respeta, y una caída
+ * 5xx de Auth también — ahí olvidarla multiplicaría la carga de 300
+ * teléfonos contra un servidor que ya está mal (revisión del blindaje,
+ * 24-sep-2026). Y a lo más una vez cada 20 s, aunque el usuario toque ↻ o
+ * mueva la app al frente seguido. Es un campo
+ * INTERNO: tests/authInterno.test.mjs truena si una actualización de
+ * supabase-js lo quita, lo renombra o le cambia la forma. Si pasa, esto no
+ * hace nada y se vuelve a esperar el minuto (no rompe nada).
+ */
+let ultimoOlvido = 0;
+const OLVIDO_CADA_MS = 20_000;
+
+function renovarSesionYa(): void {
+  if (!enLineaAhora()) return;
+  try {
+    const auth = sb.auth as unknown as {
+      lastRefreshFailure?: { result?: { error?: unknown } } | null;
+    };
+    const falla = 'lastRefreshFailure' in auth ? auth.lastRefreshFailure : null;
+    const error = falla?.result?.error as { status?: number } | undefined;
+    if (
+      falla &&
+      isAuthRetryableFetchError(error) &&
+      !error?.status &&
+      Date.now() - ultimoOlvido >= OLVIDO_CADA_MS
+    ) {
+      ultimoOlvido = Date.now();
+      auth.lastRefreshFailure = null;
+    }
+    void sb.auth.getSession().catch(() => {});
+  } catch {
+    /* auth-js distinto: queda el enfriamiento de siempre */
+  }
+}
+
+// Al volver la red o la app al frente con señal. A nivel de módulo y no en
+// un efecto: así se registran ANTES que los de las vistas (IncidenciasView,
+// la cola, los roles), y el getSession que ellos piden con el mismo
+// 'online' ya encuentra la falla olvidada y se une a la renovación nueva.
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', renovarSesionYa);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') renovarSesionYa();
   });
 }
 
@@ -790,6 +847,8 @@ function Main({
   }, [tab]);
 
   const [nuevaAbierta, setNuevaAbierta] = useState(false);
+  /** Toques a "+ Nueva": entra en la llave del ErrorBoundary (ver la acción). */
+  const [toquesNueva, setToquesNueva] = useState(0);
   // Contador que dispara la recarga de incidencias desde el botón ↻.
   const [recargarSignal, setRecargarSignal] = useState(0);
   /**
@@ -1057,10 +1116,29 @@ function Main({
     };
   }, [refrescarRoles]);
 
-  const misRoles = [...new Set((roles || []).map((r) => r.rol))] as string[];
-  const misDep = [
-    ...new Set((roles || []).map((r) => r.departamento).filter(Boolean)),
-  ] as string[];
+  /**
+   * Derivados de los roles con identidad ESTABLE (app pasmada sin señal,
+   * 24-sep-2026). Eran arreglos nuevos en cada render de Main: cada
+   * setNuevaAbierta, aviso o badge rehacía en IncidenciasView la bandeja,
+   * las alertas de SLA y las 150 tarjetas (60-75 ms en escritorio, varias
+   * veces más en iPhone). La llave es TEXTO y no el arreglo `roles`: roles
+   * también se arma con updaters (`prev ?? []`), y un updater re-aplicado
+   * da un arreglo nuevo con el mismo contenido.
+   */
+  const firmaRoles = JSON.stringify(roles ?? null);
+  const misRoles = useMemo(
+    () => [...new Set((roles || []).map((r) => r.rol))] as string[],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [firmaRoles]
+  );
+  const misDep = useMemo(
+    () =>
+      [...new Set((roles || []).map((r) => r.departamento).filter(Boolean))] as string[],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [firmaRoles]
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const rolesDetalle = useMemo(() => roles || [], [firmaRoles]);
   const role = ROLE_PRIORITY.find((r) => misRoles.includes(r)) || 'viewer';
 
   /**
@@ -1111,13 +1189,20 @@ function Main({
     misRoles.includes('manager') ||
     misRoles.includes('viewer') ||
     (roles || []).some((r) => !r.unidad_negocio);
-  const misUnidades = tieneTodasLasUnidades
-    ? UNIDADES
-    : UNIDADES.filter((u) =>
-        (roles || []).some(
-          (r) => (r.unidad_negocio || '').toLowerCase() === u.toLowerCase()
-        )
-      );
+  // Misma llave que misRoles (ver firmaRoles): la lista filtrada era nueva
+  // en cada render.
+  const misUnidades = useMemo(
+    () =>
+      tieneTodasLasUnidades
+        ? UNIDADES
+        : UNIDADES.filter((u) =>
+            (roles || []).some(
+              (r) => (r.unidad_negocio || '').toLowerCase() === u.toLowerCase()
+            )
+          ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [firmaRoles]
+  );
 
   /**
    * Copias de datos en el teléfono (inventario, catálogos, árbol Digital…)
@@ -1287,6 +1372,11 @@ function Main({
         else if (!nuevaAbierta)
           window.history.pushState({ alta: MARCA_ALTA }, '', window.location.pathname);
         setNuevaAbierta(true);
+        // Cada toque cambia la llave del ErrorBoundary: si el vigía cortó el
+        // alta (AppPasmada), `nuevaAbierta` seguía en true y "+ Nueva" ya no
+        // hacía nada mientras estaba el aviso de error (verificación del
+        // blindaje, 24-sep-2026).
+        setToquesNueva((n) => n + 1);
       },
     },
     (has('validador') || has('reparacion') || has('reportante')) && {
@@ -1579,6 +1669,10 @@ function Main({
   const irANav = (n: NavItem) => (n.action ? n.action() : setTab(n.k));
 
   const recargarTodo = () => {
+    // Primero la sesión: las recargas de abajo esperan su getSession y, con
+    // la falla de hace un rato guardada, saldrían sin sesión hasta 60 s
+    // (ver renovarSesionYa).
+    renovarSesionYa();
     setRecargarSignal((n) => n + 1);
     setRecargaManual((n) => n + 1);
     notifs.recargar();
@@ -1737,7 +1831,7 @@ function Main({
               nombre para que alternar entre ellas no resetee nada. */}
           <ErrorBoundary
             modulo={esTabIncidencias ? 'incidencias' : tab}
-            resetKey={`${tab}|${recargarSignal}|${focoRecordId || ''}|${nuevaAbierta}`}
+            resetKey={`${tab}|${recargarSignal}|${focoRecordId || ''}|${nuevaAbierta}|${toquesNueva}`}
           >
           {/* Una sola instancia para ambas pestañas: no se remonta al
             alternar, así que conserva lista, filtros y búsqueda. */}
@@ -1747,7 +1841,7 @@ function Main({
                 nombre={nombre}
                 misRoles={misRoles}
                 misDep={misDep}
-                rolesDetalle={roles || []}
+                rolesDetalle={rolesDetalle}
                 role={role}
                 modo={tab === 'bandeja' ? 'bandeja' : 'todas'}
                 chatCounts={notifs.chatCounts}

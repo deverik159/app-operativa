@@ -44,6 +44,7 @@ import {
   leerListaLocal,
 } from '../../lib/datosLocales';
 import type { ListaLocal } from '../../lib/datosLocales';
+import { vigilarRender } from '../../lib/vigia';
 import {
   accionesPendientes,
   descartarAccion,
@@ -140,6 +141,14 @@ const TOPE_SLA_MS = 15000;
 /** Primera carga lenta: a los 5 s se enseña la copia mientras sigue llegando. */
 const ESPERA_COPIA_MS = 5000;
 /**
+ * Tope para esperar la copia de la lista del teléfono (app pasmada sin
+ * señal, 24-sep-2026). Con IndexedDB colgada (iOS al suspender la PWA) una
+ * lectura tarda hasta 15 s (el tope de la transacción) y la vista se
+ * quedaba en "Cargando datos…" todo ese rato. La lectura sigue: si llega
+ * después y aún no hay lista, se pone (ver usarCopia).
+ */
+const TOPE_COPIA_MS = 3000;
+/**
  * Tope para saber si hay sesión: getSession espera a que se renueve el
  * token, y sin red eso son ~25 s.
  */
@@ -216,6 +225,26 @@ function esTransitoria(status: number, mensaje: string): boolean {
 }
 
 const dormir = (ms: number) => new Promise<void>((res) => setTimeout(res, ms));
+
+/** Lo que da `conTope` si la promesa no llegó a tiempo. */
+const TARDA = Symbol('tarda');
+
+/** `p` con tope: al vencer da TARDA; `p` sigue su curso (no se cancela). */
+function conTope<T>(p: Promise<T>, ms: number): Promise<T | typeof TARDA> {
+  return new Promise((res) => {
+    const t = setTimeout(() => res(TARDA), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        res(v);
+      },
+      () => {
+        clearTimeout(t);
+        res(TARDA);
+      }
+    );
+  });
+}
 
 /**
  * AbortSignal con tope. AbortSignal.timeout no existe en Safari < 16: ahí
@@ -577,6 +606,10 @@ function IncidenciasView({
   recargarSignal,
   onBandejaCount,
 }: Props) {
+  // Un ciclo de renders que no suelta el hilo acaba en el ErrorBoundary del
+  // módulo y no en la app congelada (app pasmada sin señal, 24-sep-2026;
+  // ver lib/vigia.ts). Primera línea, antes de los hooks.
+  vigilarRender('IncidenciasView');
   /**
    * Lo que dijo el servidor (o la copia del teléfono), más lo que el
    * usuario ya aplicó con éxito. Las acciones que siguen en la cola NO van
@@ -683,6 +716,14 @@ function IncidenciasView({
   const listaDe = useRef<string | null>(null);
   /** Hay una carga en camino (los reintentos automáticos no la duplican). */
   const cargandoRef = useRef(false);
+  /**
+   * Llegó un reintento automático (online, al frente, sesión renovada)
+   * mientras corría una carga: no se duplica, pero tampoco se pierde. Si esa
+   * carga no trajo la lista del servidor, se repite al terminar (app pasmada
+   * sin señal, 24-sep-2026): la señal que volvía a media lectura de la copia
+   * esperaba al reloj de 45 s.
+   */
+  const intentoPendiente = useRef(false);
 
   /**
    * Acciones de este usuario que siguen en el teléfono (lib/acciones.ts) y
@@ -831,6 +872,41 @@ function IncidenciasView({
   const [corrigiendo, setCorrigiendo] = useState<Incidencia | null>(null);
   const [motivoOf, setMotivoOf] = useState<MotivoPend | null>(null);
 
+  /**
+   * Número de APERTURA de cada modal que guarda (revisión del blindaje,
+   * 24-sep-2026). Ahora se puede cerrar un modal mientras su guardado sigue
+   * (Cancelar ya no se apaga si la red se atora); si el usuario abre otro
+   * del mismo tipo y el primero termina después, su "cerrar al terminar"
+   * cerraba el NUEVO y se perdía lo capturado ahí (EditModal no tiene
+   * borrador). Cada guardado recuerda la apertura en que empezó y solo
+   * cierra si sigue siendo la misma. Se cuenta en el render (no en un
+   * efecto) para que el onDone de ESTE render ya lleve el número correcto;
+   * en el doble render de StrictMode el segundo ve el mismo valor y no suma.
+   */
+  const aperturas = useRef({ alta: 0, rep: 0, edit: 0 });
+  const vistoAbierto = useRef<{
+    alta: boolean;
+    rep: Incidencia | null;
+    edit: Incidencia | null;
+  }>({ alta: false, rep: null, edit: null });
+  {
+    const altaAbierta = !!(nuevaAbierta || presetNew);
+    const v = vistoAbierto.current;
+    if (altaAbierta !== v.alta) {
+      v.alta = altaAbierta;
+      if (altaAbierta) aperturas.current.alta++;
+    }
+    if (repairing !== v.rep) {
+      v.rep = repairing;
+      if (repairing) aperturas.current.rep++;
+    }
+    if (editOf !== v.edit) {
+      v.edit = editOf;
+      if (editOf) aperturas.current.edit++;
+    }
+  }
+  const aperturaEdit = aperturas.current.edit;
+
   // --- Permisos ---
   // manager puede todo: se trata como comodín en cada verificación.
   const has = useCallback(
@@ -887,14 +963,19 @@ function IncidenciasView({
   // El coordinador ya NO trae llaves de reparar ni reasignar: ve las
   // incidencias (y conserva la tabla con export), pero no interactúa —
   // su trabajo vive en Pauta y Rutas (Erik, 21-sep-2026).
-  const can: CanInc = {
-    crear: has('reportante'),
-    validar: has('validador'),
-    reparar: has('reparacion'),
-    reparaEn,
-    reasignar: has('reparacion'),
-    aprobarReasign: has('validador'),
-  };
+  // useMemo: va a cada tarjeta, y un objeto nuevo en cada render las
+  // repintaba todas aunque nada suyo cambiara (ver React.memo en IncCard).
+  const can: CanInc = useMemo(
+    () => ({
+      crear: has('reportante'),
+      validar: has('validador'),
+      reparar: has('reparacion'),
+      reparaEn,
+      reasignar: has('reparacion'),
+      aprobarReasign: has('validador'),
+    }),
+    [has, reparaEn]
+  );
 
   // --- Carga ---
   /**
@@ -979,6 +1060,31 @@ function IncidenciasView({
   const vistaVeTerminales = modo === 'todas' || bandejaVeTerminales;
 
   /**
+   * La lectura de la copia de la lista, COMPARTIDA mientras va en curso (app
+   * pasmada sin señal, 24-sep-2026). Antes cada ↻ subía cargaSeq, tiraba la
+   * lectura que iba en camino y abría otra espera de hasta 15 s. Ahora quien
+   * llega se une a la misma lectura y al mismo tope, contado desde la
+   * primera: ↻ ya no reinicia nada.
+   *   lectura — la lectura completa, sin tope (nunca rechaza)
+   *   espera  — la misma con TOPE_COPIA_MS: TARDA si no llegó a tiempo
+   */
+  const lecturaCopia = useRef<{
+    lectura: Promise<ListaLocal | null>;
+    espera: Promise<ListaLocal | null | typeof TARDA>;
+  } | null>(null);
+  const leerCopia = useCallback(() => {
+    const enCurso = lecturaCopia.current;
+    if (enCurso) return enCurso;
+    const lectura = leerListaLocal(email).catch(() => null);
+    const nueva = { lectura, espera: conTope(lectura, TOPE_COPIA_MS) };
+    lecturaCopia.current = nueva;
+    void lectura.then(() => {
+      if (lecturaCopia.current === nueva) lecturaCopia.current = null;
+    });
+    return nueva;
+  }, [email]);
+
+  /**
    * La copia del teléfono, cuando la red no alcanza (modo sin señal,
    * 24-sep-2026). Solo SUSTITUYE la lista si todavía no hay ninguna en
    * pantalla: en una recarga fallida se conserva la de pantalla y solo
@@ -993,13 +1099,35 @@ function IncidenciasView({
       if (miCarga !== cargaSeq.current) return;
       const lenta = motivo === 'lenta';
       let puso = false;
-      if (!yaCargo.current) {
-        const copia = await leerListaLocal(email).catch(() => null);
+      // Se busca la copia mientras no haya lista en pantalla (ni del
+      // servidor ni de la copia). Antes lo decidía `yaCargo`: si la primera
+      // lectura no la encontraba, ya no se volvía a buscar hasta remontar la
+      // vista (app pasmada sin señal, 24-sep-2026).
+      if (listaDe.current === null) {
+        const { lectura, espera } = leerCopia();
+        const leida = await espera;
         if (miCarga !== cargaSeq.current) return;
-        if (!yaCargo.current) {
+        // No llegó a tiempo: se deja la pantalla sin copia (en vez de
+        // "Cargando datos…") y, si llega después y sigue sin haber lista,
+        // una carga normal la pone (de memoria, ya sin espera).
+        if (leida === TARDA)
+          void lectura.then((tarde) => {
+            if (tarde && listaDe.current === null && montada.current && !cargandoRef.current)
+              void cargarRef.current();
+          });
+        const copia = leida === TARDA ? null : leida;
+        if (listaDe.current === null) {
           if (lenta && !copia) return;
           if (copia) {
-            setItems(copia.items || []);
+            // Lo que ya esté en pantalla va primero y no se pierde: el alta
+            // se pinta desde "Cargando datos…" y su fila puede llegar antes
+            // que la copia (ver crear).
+            setItems((prev) => {
+              const deCopia = copia.items || [];
+              if (!prev.length) return deCopia;
+              const ids = new Set(prev.map((i) => i.record_id));
+              return [...prev, ...deCopia.filter((i) => !ids.has(i.record_id))];
+            });
             if (copia.fotos) setFotos(copia.fotos);
             // SLA de la copia si el servidor no lo ha dado.
             if (!slaLlego.current) {
@@ -1022,14 +1150,25 @@ function IncidenciasView({
         return;
       }
       setRecargando(lenta);
-      setSinRed({
+      // Mismo aviso que el de pantalla: se conserva el objeto (regla del
+      // 24-sep-2026: un setState tras una lectura local compara antes).
+      const aviso = {
         desde: listaDe.current,
         lenta,
         error: motivo === 'error',
         conSenal: haySenal(),
-      });
+      };
+      setSinRed((prev) =>
+        prev &&
+        prev.desde === aviso.desde &&
+        prev.lenta === aviso.lenta &&
+        prev.error === aviso.error &&
+        prev.conSenal === aviso.conSenal
+          ? prev
+          : aviso
+      );
     },
-    [email]
+    [leerCopia]
   );
 
   /**
@@ -1083,15 +1222,17 @@ function IncidenciasView({
           return;
         }
       }
-      const copia = await leerListaLocal(email).catch(() => null);
-      if (copia && !slaLlego.current) {
+      // La misma lectura (y el mismo tope) que la lista: con IndexedDB
+      // colgada esto tenía tomado slaEnCamino hasta 15 s.
+      const copia = await leerCopia().espera;
+      if (copia && copia !== TARDA && !slaLlego.current) {
         if (copia.slaMap) setSlaMap(copia.slaMap);
         if (copia.slaValidacion) setSlaValidacion(copia.slaValidacion);
       }
     } finally {
       slaEnCamino.current = false;
     }
-  }, [email, pedirCopia]);
+  }, [email, pedirCopia, leerCopia]);
 
   /**
    * Acciones pendientes del teléfono → estado. Si alguna SALIÓ de la cola en
@@ -1174,6 +1315,12 @@ function IncidenciasView({
       return pendientesRef.current;
     }
     const antes = pendientesRef.current;
+    // La misma cola que la de pantalla no pide render (regla del 24-sep-2026:
+    // un setState tras una lectura local compara antes). accionesPendientes
+    // arma objetos nuevos en cada lectura y esto corre con CADA cambio de la
+    // cola: sin comparar, cada vuelta rehacía itemsVista, la bandeja y las
+    // tarjetas con la cola igual. Son pocas filas y todas serializables.
+    if (JSON.stringify(lista) === JSON.stringify(antes)) return antes;
     pendientesRef.current = lista;
     setPendientes(lista);
     const siguen = new Set(lista.map((p) => p.id));
@@ -1256,10 +1403,15 @@ function IncidenciasView({
     const reintentar = async (status: number, mensaje: string, intento: number) => {
       if (intento >= ESPERAS_REINTENTO_MS.length) return false;
       if (!haySenal() || !esTransitoria(status, mensaje)) return false;
-      if (yaCargo.current || (await leerListaLocal(email).catch(() => null))) return false;
+      if (yaCargo.current) return false;
+      // Compartida y con tope (ver leerCopia): TARDA cuenta como "sin copia".
+      const copia = await leerCopia().espera;
+      if (copia && copia !== TARDA) return false;
       await dormir(ESPERAS_REINTENTO_MS[intento]);
       return vigente() && haySenal();
     };
+    /** Trajo la lista del servidor (ver intentoPendiente, en el finally). */
+    let buena = false;
     try {
       if (!haySenal() || !(await haySesionReal())) {
         if (!vigente()) return;
@@ -1339,6 +1491,7 @@ function IncidenciasView({
         }
         return;
       }
+      buena = true;
       yaCargo.current = true;
       setLoading(false);
       setRecargando(false);
@@ -1459,9 +1612,17 @@ function IncidenciasView({
       if (vigente()) {
         cargandoRef.current = false;
         tocadasEnCarga.current = null;
+        if (intentoPendiente.current) {
+          intentoPendiente.current = false;
+          // Fuera de esta vuelta: que primero se asiente lo de esta carga.
+          if (!buena && haySenal())
+            setTimeout(() => {
+              if (montada.current && !cargandoRef.current) void cargarRef.current();
+            }, 0);
+        }
       }
     }
-  }, [email, usarCopia, cargarSla, refrescarPendientes, soltarPegadas, pedirCopia]);
+  }, [email, usarCopia, cargarSla, refrescarPendientes, soltarPegadas, pedirCopia, leerCopia]);
   cargarRef.current = cargar;
 
   useEffect(() => {
@@ -1478,7 +1639,15 @@ function IncidenciasView({
    */
   useEffect(() => {
     const intentar = () => {
-      if (sinRedRef.current && !cargandoRef.current && haySenal()) void cargar();
+      // También si la PRIMERA carga no terminó (app pasmada sin señal,
+      // 24-sep-2026): ahí sinRed sigue en null y 'online' no hacía nada.
+      if (!(sinRedRef.current || !yaCargo.current) || !haySenal()) return;
+      // Con una en camino, se repite al terminar ella (ver intentoPendiente).
+      if (cargandoRef.current) {
+        intentoPendiente.current = true;
+        return;
+      }
+      void cargar();
     };
     const alVisible = () => {
       if (document.visibilityState === 'visible') intentar();
@@ -1579,7 +1748,10 @@ function IncidenciasView({
     if (desdePedido.current && desdePedido.current <= fDesde) return;
     const t = setTimeout(() => cargar(), 700);
     return () => clearTimeout(t);
-  }, [fDesde, vistaVeTerminales, historial, cargar]);
+    // Los campos y no el objeto `historial` (regla del 24-sep-2026: ningún
+    // efecto depende de un objeto de estado): cada carga buena arma uno
+    // nuevo aunque diga lo mismo.
+  }, [fDesde, vistaVeTerminales, historial.frontera, historial.tope, cargar]);
 
   /**
    * La lista TAL COMO LA VE el usuario: la de `items` con las acciones que
@@ -2168,6 +2340,11 @@ function IncidenciasView({
     }: DatosReparacion,
     op?: { alProgreso?: (texto: string) => void }
   ): Promise<FinReparacion | undefined> => {
+    // Solo se cierra el modal de ESTA apertura (ver `aperturas`).
+    const miApertura = aperturas.current.rep;
+    const cerrarSiEsElMismo = () => {
+      if (aperturas.current.rep === miApertura) setRepairing(null);
+    };
     const patch: Partial<Incidencia> = {
       estatus: 'reparado',
       diagnostico: diagnostico || null,
@@ -2215,7 +2392,7 @@ function IncidenciasView({
     switch (r.tipo) {
       case 'hecha':
         patchInc(inc.record_id, { ...patch, ...(r.fila ?? {}) });
-        setRepairing(null);
+        cerrarSiEsElMismo();
         onNotifAtendida(inc.record_id);
         setTimeout(onRecargarNotifs, 400);
         // P. ej. "Supabase no devolvió la clasificación técnica…".
@@ -2223,17 +2400,17 @@ function IncidenciasView({
         return 'terminada';
       case 'enCola':
         // En la cola ya va.
-        setRepairing(null);
+        cerrarSiEsElMismo();
         return 'enCola';
       case 'conflicto':
         // Si otro ya la movió, el modal no tiene sentido.
-        setRepairing(null);
+        cerrarSiEsElMismo();
         return 'terminada';
       default:
         // Sin permiso o error: el modal sigue abierto con fotos y textos
         // para corregir o reintentar… salvo que se haya quedado en la cola.
         if (quedoEnCola(inc.record_id, 'reparacion')) {
-          setRepairing(null);
+          cerrarSiEsElMismo();
           return 'enCola';
         }
         return undefined;
@@ -2342,6 +2519,8 @@ function IncidenciasView({
    * insert fallido): el modal se queda abierto para corregir.
    */
   const crear = async (grupos: GrupoReporte[]) => {
+    // Solo se cierra el alta de ESTA apertura (ver `aperturas`).
+    const miApertura = aperturas.current.alta;
     const creadas = await crearReporte(grupos, { email, misDep });
     if (!creadas) return;
     creadas.forEach((c) => marcarTocada(c.record_id));
@@ -2352,13 +2531,93 @@ function IncidenciasView({
     // A la copia del teléfono también (ya no la escribe un efecto por cada
     // cambio de lista; ver pedirCopia).
     pedirCopia();
-    onCerrarNueva?.();
-    setPresetNew(null);
+    if (aperturas.current.alta === miApertura) {
+      onCerrarNueva?.();
+      setPresetNew(null);
+    }
     setTimeout(onRecargarNotifs, 400);
   };
 
+  // --- Tarjetas con identidad estable (React.memo en IncCard) ---
+  // Con funciones y objetos nuevos en cada render, abrir el alta, teclear en
+  // el buscador o cualquier aviso repintaba las 150 tarjetas (60-90 ms por
+  // commit en escritorio, varias veces más en iPhone; app pasmada sin señal,
+  // 24-sep-2026). Las que leen el estado del render (cambiarEstatus,
+  // prevalidar) pasan por un ref con la versión de ESTE render: la tarjeta
+  // las llama al tocar, nunca al pintar.
+  const deEsteRender = useRef({ cambiarEstatus, prevalidar });
+  deEsteRender.current = { cambiarEstatus, prevalidar };
+  const alEstatus = useCallback(
+    (rid: string, estatus: EstatusInc) =>
+      void deEsteRender.current.cambiarEstatus(rid, estatus),
+    []
+  );
+  const alPrevalidar = useCallback(
+    (inc: Incidencia) => void deEsteRender.current.prevalidar(inc),
+    []
+  );
+  const alChat = useCallback(
+    (inc: Incidencia) => {
+      setChatOf(inc);
+      onChatLeido(inc.record_id);
+    },
+    [onChatLeido]
+  );
+  const alReasignar = useCallback(
+    (inc: Incidencia, mode: ModoReasign) => setReassignOf({ inc, mode }),
+    []
+  );
+  const alRechazarRep = useCallback(
+    (inc: Incidencia) => setMotivoOf({ inc, kind: 'rechazo_rep' }),
+    []
+  );
+  const alDescartar = useCallback(
+    (inc: Incidencia) => setMotivoOf({ inc, kind: 'descartar' }),
+    []
+  );
+  /**
+   * El minuto en curso, para las tarjetas memorizadas: su reloj de SLA
+   * ("por vencer · 12 min") se calcula al pintarlas, con la hora de ese
+   * momento. Antes cualquier render de la vista lo recalculaba; con
+   * React.memo solo se recalcularía al cambiar la incidencia y se quedaría
+   * viejo. Así se recalcula en los renders de la vista, a lo más una vez
+   * por minuto.
+   */
+  const minuto = Math.floor(Date.now() / 60000);
+
+  /**
+   * El alta se pinta TAMBIÉN mientras la vista dice "Cargando datos…" (app
+   * pasmada sin señal, 24-sep-2026). "+ Nueva" desde otro módulo monta la
+   * vista en "Cargando…", y el alta esperaba a la lista: sin señal y con
+   * IndexedDB colgada, hasta 15 s, y cada ↻ volvía a empezar. Su fila no se
+   * pierde si la lista llega después: `crear` la marca como tocada (la
+   * fusión con el servidor la conserva) y usarCopia pone la copia DETRÁS de
+   * lo que ya haya. La key conserva la MISMA instancia al terminar la carga:
+   * el alta cambia de lugar en el árbol y, sin key, React la desmontaría con
+   * lo capturado (fotos, GPS).
+   */
+  const modalNueva = (nuevaAbierta || presetNew) && (
+    <NuevaInc
+      key="alta"
+      preset={presetNew}
+      unidades={misUnidades}
+      esMKT={misDep.some((d) => d.trim().toUpperCase() === 'MKT')}
+      onClose={() => {
+        onCerrarNueva?.();
+        setPresetNew(null);
+      }}
+      onSave={crear}
+    />
+  );
+
   // --- Render ---
-  if (loading) return <div className="loading">Cargando datos…</div>;
+  if (loading)
+    return (
+      <>
+        <div className="loading">Cargando datos…</div>
+        {modalNueva}
+      </>
+    );
 
   return (
     <>
@@ -2619,21 +2878,17 @@ function IncidenciasView({
               can={can}
               email={email}
               foto={fotoDe(i)}
-              onEstatus={cambiarEstatus}
+              onEstatus={alEstatus}
               onRepair={setRepairing}
               onEvidence={setEvidenceOf}
-              onChat={(inc) => {
-                setChatOf(inc);
-                onChatLeido(inc.record_id);
-              }}
-              onReassign={(inc, mode) => setReassignOf({ inc, mode })}
+              onChat={alChat}
+              onReassign={alReasignar}
               onCorregir={setCorrigiendo}
               onEdit={setEditOf}
-              onRechazarRep={(inc) =>
-                setMotivoOf({ inc, kind: 'rechazo_rep' })
-              }
-              onPrevalidar={prevalidar}
-              onDescartar={(inc) => setMotivoOf({ inc, kind: 'descartar' })}
+              onRechazarRep={alRechazarRep}
+              onPrevalidar={alPrevalidar}
+              onDescartar={alDescartar}
+              minuto={minuto}
               slaMap={slaMap}
               slaValidacion={slaValidacion}
               nChat={chatCounts[i.record_id] || 0}
@@ -2676,18 +2931,7 @@ function IncidenciasView({
       )}
 
       {/* --- Modales --- */}
-      {(nuevaAbierta || presetNew) && (
-        <NuevaInc
-          preset={presetNew}
-          unidades={misUnidades}
-          esMKT={misDep.some((d) => d.trim().toUpperCase() === 'MKT')}
-          onClose={() => {
-            onCerrarNueva?.();
-            setPresetNew(null);
-          }}
-          onSave={crear}
-        />
-      )}
+      {modalNueva}
       {repairing && (
         <RepararModal
           inc={repairing}
@@ -2739,7 +2983,8 @@ function IncidenciasView({
           onClose={() => setEditOf(null)}
           onDone={(rid, patch) => {
             patchInc(rid, patch);
-            setEditOf(null);
+            // Solo si sigue abierta la MISMA edición (ver `aperturas`).
+            if (aperturas.current.edit === aperturaEdit) setEditOf(null);
             // Vuelve a `por_validar`: al validador le tiene que llegar.
             setTimeout(onRecargarNotifs, 400);
           }}

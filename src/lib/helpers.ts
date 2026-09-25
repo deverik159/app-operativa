@@ -172,20 +172,32 @@ export function initials(n: string | null): string {
 // ============================================================
 import { VAL_DIAS, VAL_DESDE, VAL_HASTA } from './constants';
 
+/**
+ * UN solo formateador para todo el módulo (app pasmada sin señal,
+ * 24-sep-2026). Antes se armaba uno nuevo en cada llamada: dos por
+ * incidencia en cada cálculo de la bandeja y de cada tarjeta, y en iPhone
+ * (JavaScriptCore) crear un Intl.DateTimeFormat con zona horaria es de lo
+ * más caro. Se crea al primer uso y DENTRO del try: si el teléfono no
+ * conoce la zona, se sigue devolviendo null como antes.
+ */
+let formatoCivilValidador: Intl.DateTimeFormat | null = null;
+
 /** Fecha civil de CDMX representada como UTC para poder sumar jornadas sin
  * depender de la zona horaria configurada en el teléfono del usuario. */
 function minutoCivilValidador(fecha: Date): number | null {
   try {
-    const partes = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Mexico_City',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hourCycle: 'h23',
-    }).formatToParts(fecha);
+    if (!formatoCivilValidador)
+      formatoCivilValidador = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Mexico_City',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      });
+    const partes = formatoCivilValidador.formatToParts(fecha);
     const valor = (tipo: Intl.DateTimeFormatPartTypes) =>
       Number(partes.find((p) => p.type === tipo)?.value ?? NaN);
     const anio = valor('year');

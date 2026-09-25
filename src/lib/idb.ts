@@ -57,6 +57,8 @@ const ESPERA_APERTURA_MS = 3000;
 const ESPERA_TX_MS = 15000;
 /** Reaperturas máximas para crear almacenes faltantes (carreras entre pestañas). */
 const MAX_REAPERTURAS = 3;
+/** Tras una apertura colgada, cada cuánto se vuelve a intentar (ver abrir). */
+const REARME_COLGADA_MS = 30000;
 
 /**
  * Los almacenes. En 'gpo-capturas' (v1, no sube de versión; ver arriba):
@@ -96,8 +98,14 @@ type Base = {
    * "no disponible" AL INSTANTE (revisión primer mes, 24-sep-2026): antes
    * cada operación volvía a esperar el tope completo, y un Guardar con buena
    * red tardaba ~6 s de más (guardar el envío + quitarlo al terminar).
+   * Se rearma a los REARME_COLGADA_MS o al volver a primer plano (app
+   * pasmada sin señal, 24-sep-2026): un iOS que colgó UNA apertura al
+   * suspender la PWA dejaba la cola y el borrador solo en memoria toda la
+   * sesión; así, a lo más una operación cada 30 s vuelve a esperar el tope.
    */
   aperturaColgada: boolean;
+  /** Cuándo se dio por colgada; 0 = rearmar en la siguiente operación. */
+  colgadaDesde: number;
 };
 
 const CAPTURAS: Base = {
@@ -105,13 +113,27 @@ const CAPTURAS: Base = {
   almacenes: ['envios', 'archivos', 'borradores'],
   conexion: null,
   aperturaColgada: false,
+  colgadaDesde: 0,
 };
 const ACCIONES: Base = {
   nombre: BD_ACCIONES,
   almacenes: ['acciones', 'archivos_acciones'],
   conexion: null,
   aperturaColgada: false,
+  colgadaDesde: 0,
 };
+
+// Al volver a primer plano, las dos bases se rearman (ver aperturaColgada).
+try {
+  if (typeof document !== 'undefined')
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      CAPTURAS.colgadaDesde = 0;
+      ACCIONES.colgadaDesde = 0;
+    });
+} catch {
+  /* sin documento (pruebas): queda el rearme por tiempo */
+}
 
 /** La base de unos almacenes. Una transacción no puede cruzar dos bases. */
 function baseDe(almacenes: Almacen[]): Base {
@@ -131,12 +153,16 @@ function almacenesFaltantes(bd: Base, db: IDBDatabase): Almacen[] {
  * IndexedDB, si falla o si no respondió a tiempo. Si falló, se olvida la
  * promesa para reintentar en la siguiente operación (una falla pasajera no
  * condena a la pestaña a trabajar sin cola). Si no respondió a tiempo, no
- * se abre otra mientras esa siga pendiente, y si contesta tarde, esa
- * conexión se adopta.
+ * se abre otra mientras esa siga pendiente (hasta el rearme, ver
+ * aperturaColgada), y si contesta tarde, esa conexión se adopta.
  */
 function abrir(bd: Base): Promise<IDBDatabase | null> {
   if (bd.conexion) return bd.conexion;
-  if (bd.aperturaColgada) return Promise.resolve(null);
+  if (bd.aperturaColgada) {
+    const edad = Date.now() - bd.colgadaDesde;
+    if (edad >= 0 && edad < REARME_COLGADA_MS) return Promise.resolve(null);
+    bd.aperturaColgada = false;
+  }
   const p = new Promise<IDBDatabase | null>((res) => {
     let listo = false;
     let reloj: ReturnType<typeof setTimeout> | undefined;
@@ -229,6 +255,7 @@ function abrir(bd: Base): Promise<IDBDatabase | null> {
       if (typeof indexedDB === 'undefined' || !indexedDB) return fin(null);
       reloj = setTimeout(() => {
         bd.aperturaColgada = true;
+        bd.colgadaDesde = Date.now();
         fin(null);
       }, ESPERA_APERTURA_MS);
       intentar(undefined, 0);
@@ -284,6 +311,11 @@ function aErrorIdb(e: unknown, respaldo: string): ErrorIdb {
  *
  * Con tope de espera: si no completa a tiempo se aborta (así lo que el
  * llamador cree que NO quedó guardado, de verdad no queda) y se rechaza.
+ * Al vencer se suelta además la conexión (app pasmada sin señal,
+ * 24-sep-2026): tras suspender la PWA, WebKit puede dejar una conexión
+ * muerta en la que nada completa, y cada operación esperaba el tope entero
+ * mientras viviera la pestaña. close() deja terminar lo que ya corre en
+ * ella; la siguiente operación abre una nueva (sin cambiar de versión).
  */
 export async function idbTx<T>(
   almacenes: Almacen[],
@@ -292,8 +324,13 @@ export async function idbTx<T>(
   topeMs = ESPERA_TX_MS
 ): Promise<T> {
   const bd = baseDe(almacenes);
-  const db = await abrir(bd);
+  const deConexion = abrir(bd);
+  const db = await deConexion;
   if (!db) throw new ErrorIdb('IndexedDB no disponible', 'no-disponible');
+  /** Olvida esta conexión, si sigue siendo la de todos (una más nueva no se toca). */
+  const olvidar = () => {
+    if (bd.conexion === deConexion) bd.conexion = null;
+  };
   return new Promise<T>((res, rej) => {
     let listo = false;
     let tx: IDBTransaction;
@@ -305,6 +342,12 @@ export async function idbTx<T>(
         tx.abort();
       } catch {
         /* ya terminó */
+      }
+      olvidar();
+      try {
+        db.close();
+      } catch {
+        /* ya cerrada */
       }
       rej(new ErrorIdb('IndexedDB no respondió a tiempo', 'tope'));
     }, topeMs);
@@ -328,7 +371,7 @@ export async function idbTx<T>(
     } catch (e) {
       // db.transaction truena si la conexión ya se cerró: se olvida para
       // que la siguiente operación reabra.
-      bd.conexion = null;
+      olvidar();
       if (listo) return;
       listo = true;
       clearTimeout(reloj);

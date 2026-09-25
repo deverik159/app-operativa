@@ -66,6 +66,7 @@ import {
   filtrarCatalogo,
 } from '../../lib/catalogo';
 import SubirArchivos from '../../components/SubirArchivos';
+import { vigilarRender } from '../../lib/vigia';
 import type {
   CatalogoIncidencia,
   IncidenciaNueva,
@@ -241,6 +242,9 @@ type Props = {
 };
 
 function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
+  // Un ciclo de renders que no suelta el hilo se vuelve error del módulo en
+  // ~1.5 s, en vez de la app pasmada (app pasmada sin señal, 24-sep-2026).
+  vigilarRender('NuevaInc');
   const misUnidades = unidades && unidades.length ? unidades : UNIDADES;
   const [un, setUn] = useState(preset?.un || misUnidades[0]);
   /** Contacto del solicitante (solo MKT). Del REPORTE: baja a todas las filas. */
@@ -427,8 +431,16 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     if (seq !== pickSeqRef.current) return; // ya se eligió otro (o se recuperó un borrador)
     setSitioEnCarga(null);
     // Las listas del buscador ya no están a la vista: el aviso 📴 sigue a
-    // lo que se ve ahora (las caras).
-    setDeCopia((p) => ({ ...p, sitios: false, cerca: false, caras: origen === 'local' }));
+    // lo que se ve ahora (las caras). Si nada cambia se regresa el mismo
+    // objeto (app pasmada sin señal, 24-sep-2026): un updater que siempre
+    // arma uno nuevo le da a `deCopia` otra identidad cada vez que React lo
+    // vuelve a aplicar.
+    const carasDeCopia = origen === 'local';
+    setDeCopia((p) =>
+      !p.sitios && !p.cerca && !!p.caras === carasDeCopia
+        ? p
+        : { ...p, sitios: false, cerca: false, caras: carasDeCopia }
+    );
     const first = filas[0] || ({} as InventarioItem);
     setSite({
       ...o,
@@ -931,6 +943,13 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   // Prellenado: al marcar una cara sin decisión previa, entra su campaña
   // vigente. Nunca pisa lo que el usuario ya eligió (ni un "Sin campaña"
   // explícito, que queda guardado como '').
+  //
+  // Depende del TEXTO de las caras marcadas y no del arreglo (app pasmada
+  // sin señal, 24-sep-2026): toggleCara lo arma con un updater, y React
+  // puede volver a aplicarlo en cada render con un arreglo nuevo del mismo
+  // contenido. Mismo contenido = mismo resultado, así que no hace falta
+  // correr otra vez.
+  const selCarasClave = selCaras.join('\n');
   useEffect(() => {
     if (!usaCampPorCara) return;
     setCampPorCara((prev) => {
@@ -946,7 +965,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       });
       return cambio ? next : prev;
     });
-  }, [usaCampPorCara, selCaras, autoPorCara]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usaCampPorCara, selCarasClave, autoPorCara]);
 
   // Precarga del sitio si el alta vino desde la bitácora.
   useEffect(() => {
@@ -1595,9 +1615,26 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
    * Con borrador (auditoría primer mes, 24-sep-2026) cerrar con partidas o
    * fotos NO lo borra —ese es justo el caso a proteger— y el mensaje lo
    * dice. Cerrar un formulario vacío sí borra el de esta apertura.
+   *
+   * Mientras guarda, el fondo sigue sin cerrar, pero Cancelar SÍ tiene
+   * salida, con confirmación (app pasmada sin señal, 24-sep-2026): si el
+   * guardado se atora (sesión o red colgadas), el modal no puede quedarse
+   * sin forma de cerrarse. El guardado lo lleva el padre y sigue solo; el
+   * borrador no se toca (el guardado lo sella al terminar, y si falla sigue
+   * en el teléfono para recuperarlo).
    */
-  const cerrarSeguro = () => {
-    if (busy) return;
+  const cerrarSeguro = (desdeFondo = false) => {
+    if (busy) {
+      if (desdeFondo) return;
+      if (
+        confirm(
+          'El reporte se está guardando. Si cierras, el guardado sigue por su cuenta y ' +
+            'verás el aviso cuando termine: no lo vuelvas a capturar.\n\n¿Cerrar de todas formas?'
+        )
+      )
+        onClose();
+      return;
+    }
     // ¿Lo capturado queda a salvo? Solo con correo, teléfono que deje
     // guardar y sin otro borrador esperando respuesta.
     const aSalvo = !!emailBorrador && idbOk && revisado && !oferta;
@@ -1626,7 +1663,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     <div
       className="overlay"
       onClick={(e) => {
-        if ((e.target as HTMLElement).className === 'overlay') cerrarSeguro();
+        if ((e.target as HTMLElement).className === 'overlay') cerrarSeguro(true);
       }}
     >
       <div className="modal">
@@ -2459,7 +2496,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         <div className="modal-actions">
           {/* Mismo seguro que el fondo: Cancelar junto a Guardar en un
               teléfono se toca por error, y tira las fotos de campo. */}
-          <button className="btn ghost" onClick={cerrarSeguro}>
+          <button className="btn ghost" onClick={() => cerrarSeguro()}>
             Cancelar
           </button>
           <button

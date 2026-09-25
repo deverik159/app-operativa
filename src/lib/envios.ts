@@ -984,12 +984,17 @@ export async function descartarEnvio(id: string): Promise<'ok' | 'ocupado'> {
 // Concurrencia
 // ------------------------------------------------------------
 
+/** Tope para que el navegador conteste un candado (ver conCandado). */
+const TOPE_CANDADO_MS = 10000;
+
 /**
  * Corre `fn` con el candado del envío entre pestañas (Web Locks). Si otra
  * pestaña lo tiene, NO se espera: se contesta `ocupado` y se intenta en la
  * siguiente vuelta. Sin Web Locks (Safari < 15.4) se corre sin candado: el
  * Map `enCurso` cubre la pestaña y la idempotencia cubre el resto.
  * `prefijo` separa los candados de cada cola ('accion-' en lib/acciones.ts).
+ * Si el navegador no contesta el candado en TOPE_CANDADO_MS, también es
+ * `ocupado`; si contesta después, se suelta sin correr `fn`.
  */
 export async function conCandado<T>(
   id: string,
@@ -1003,17 +1008,35 @@ export async function conCandado<T>(
       : undefined;
   if (!locks || typeof locks.request !== 'function') return fn();
   let corrio = false;
+  // Tope a la ESPERA del candado, nunca a `fn` (app pasmada sin señal,
+  // 24-sep-2026): con ifAvailable contesta al instante, pero si WebKit no
+  // llamara de vuelta, el Guardar y el aviso se quedaban en "enviando…"
+  // para siempre. Con 'ocupado' el envío sigue en la cola y sale después.
+  let vencido = false;
+  let reloj: ReturnType<typeof setTimeout> | undefined;
+  const tope = new Promise<T>((res) => {
+    reloj = setTimeout(() => {
+      vencido = true;
+      res(ocupado);
+    }, TOPE_CANDADO_MS);
+  });
   try {
-    return await locks.request(prefijo + id, { ifAvailable: true }, async (lock) => {
-      if (!lock) return ocupado;
-      corrio = true;
-      return fn();
-    });
+    return await Promise.race([
+      locks.request(prefijo + id, { ifAvailable: true }, async (lock) => {
+        clearTimeout(reloj);
+        if (!lock || vencido) return ocupado;
+        corrio = true;
+        return fn();
+      }),
+      tope,
+    ]);
   } catch (err) {
     // Si truena el candado mismo (contexto sin permiso), se corre sin él;
     // si tronó `fn`, el error es de `fn` y no se repite.
     if (corrio) throw err;
     return fn();
+  } finally {
+    clearTimeout(reloj);
   }
 }
 

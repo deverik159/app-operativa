@@ -58,6 +58,7 @@ import {
   recuperarReparacion,
 } from '../../lib/borradorReparacion';
 import { MAX_VIDEO_BYTES } from '../../lib/comprimirImagen';
+import { vigilarRender } from '../../lib/vigia';
 import SubirArchivos from '../../components/SubirArchivos';
 import type { ArbolDigital, Evidencia, Incidencia } from '../../types/db';
 
@@ -238,6 +239,9 @@ type Props = {
 };
 
 function RepararModal({ inc, email, onClose, onSave }: Props) {
+  // Ciclo de renders que no suelta el hilo → error del módulo (app pasmada
+  // sin señal, 24-sep-2026; ver lib/vigia.ts).
+  vigilarRender('RepararModal');
   const [diag, setDiag] = useState(inc.diagnostico || '');
   const [detalle, setDetalle] = useState(inc.detalle_reparacion || '');
   const [busy, setBusy] = useState(false);
@@ -290,10 +294,13 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
   }, []);
   /**
    * SubirArchivos está comprimiendo una foto recién elegida (revisión sin
-   * señal, 24-sep-2026). Mientras, no se deja Guardar ni cerrar: antes, un
-   * Guardar en ese lapso mandaba la reparación sin esa foto y la foto
-   * llegaba después a un modal ya cerrado, perdida sin aviso (en HEAD la
-   * subida seguía aunque el modal se cerrara). SubirArchivos no expone su
+   * señal, 24-sep-2026). Mientras, no se deja Guardar: antes, un Guardar en
+   * ese lapso mandaba la reparación sin esa foto y la foto llegaba después
+   * a un modal ya cerrado, perdida sin aviso (en HEAD la subida seguía
+   * aunque el modal se cerrara). Cerrar sí se puede, con confirmación y sin
+   * descartar el borrador (ver `cerrar`; app pasmada sin señal,
+   * 24-sep-2026): la foto que llega después se guarda igual en el teléfono
+   * y se recupera al reabrir. SubirArchivos no expone su
    * `procesando`, así que se detecta aquí: empieza con el `change` de su
    * input (ver alEmpezarAElegir) y termina con onFiles; un tope cubre la
    * tanda que se rechaza entera (no llama a onFiles).
@@ -454,18 +461,26 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
 
   // En cada nivel, una única opción se prellena. Con varias, el técnico
   // decide: "Pantallas en negro" no puede adivinar Telmex o Totalplay.
+  //
+  // Dependen del TEXTO de la opción única y no de los arreglos (app pasmada
+  // sin señal, 24-sep-2026): causasDig y compañía se arman de nuevo en cada
+  // render, y con ellos en las dependencias estos efectos corrían en todos.
+  // '' = no hay exactamente una opción (las opciones nunca son '': se
+  // filtran con Boolean).
+  const causaUnica = causasDig.length === 1 ? causasDig[0] : '';
+  const diagnosticoUnico = diagnosticosDig.length === 1 ? diagnosticosDig[0] : '';
+  const solUnica = solsDig.length === 1 ? solsDig[0] : '';
   useEffect(() => {
-    if (srdSel && causasDig.length === 1 && !causaSel) setCausaSel(causasDig[0]);
-  }, [srdSel, causasDig, causaSel]);
+    if (srdSel && causaUnica && !causaSel) setCausaSel(causaUnica);
+  }, [srdSel, causaUnica, causaSel]);
 
   useEffect(() => {
-    if (causaSel && diagnosticosDig.length === 1 && !diagnosticoSel)
-      setDiagnosticoSel(diagnosticosDig[0]);
-  }, [causaSel, diagnosticosDig, diagnosticoSel]);
+    if (causaSel && diagnosticoUnico && !diagnosticoSel) setDiagnosticoSel(diagnosticoUnico);
+  }, [causaSel, diagnosticoUnico, diagnosticoSel]);
 
   useEffect(() => {
-    if (causaSel && solsDig.length === 1 && !solSel) setSolSel(solsDig[0]);
-  }, [causaSel, solsDig, solSel]);
+    if (causaSel && solUnica && !solSel) setSolSel(solUnica);
+  }, [causaSel, solUnica, solSel]);
 
   // --- Borrador en el teléfono (revisión sin señal, 24-sep-2026) ---
   /** Textos con los que abrió el modal (los de la incidencia). */
@@ -729,10 +744,42 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
   /**
    * Cerrar con fotos nuevas sin guardar las tira: se pregunta, igual que
    * al marcar fijado en Fijación Externa.
+   *
+   * Ningún "preparando / buscando fotos" deja el modal sin salida (app
+   * pasmada sin señal, 24-sep-2026): antes Cancelar y el fondo se apagaban
+   * mientras se preparaba una foto, y durante el guardado Cancelar no
+   * tenía salida si el guardado se atoraba. Ahora solo el guardado apaga el
+   * fondo (un roce no cierra), y Cancelar sigue con confirmación.
    */
-  const cerrar = () => {
-    // Con una foto a medio preparar tampoco: llegaría a un modal cerrado.
-    if (busy || procesando) return;
+  const cerrar = (desdeFondo = false) => {
+    if (busy) {
+      if (desdeFondo) return;
+      // El guardado lo lleva el padre y sigue solo; el borrador no se
+      // descarta: si el guardado falla, las fotos siguen en el teléfono.
+      if (
+        confirm(
+          'La reparación se está guardando. Si cierras, el guardado sigue por su cuenta ' +
+            '(o queda en la cola del teléfono): no la vuelvas a capturar.\n\n¿Cerrar de todas formas?'
+        )
+      )
+        onClose();
+      return;
+    }
+    // Con una foto a medio preparar se cierra SIN descartar: la foto llega
+    // después a alElegir, que la guarda en el teléfono aunque el modal ya no
+    // esté, y se ofrece al reabrir esta reparación.
+    if (procesando) {
+      if (
+        confirm(
+          sesion
+            ? 'Se está preparando una foto. Si cierras ahora, las fotos que elegiste se quedan ' +
+                'en el teléfono y se recuperan al reabrir esta reparación.\n\n¿Cerrar?'
+            : 'Se está preparando una foto. Si cierras ahora, las fotos sin guardar se pierden.\n\n¿Cerrar?'
+        )
+      )
+        onClose();
+      return;
+    }
     // Aún no se ven las fotos recuperadas: se cierra sin descartarlas (se
     // vuelven a ofrecer al reabrir) en vez de borrar lo que no se vio.
     if (recuperando) {
@@ -759,7 +806,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
       onClick={(e) => {
         // Con el guardado en curso, un roce en el fondo no debe cerrar; con
         // fotos nuevas elegidas, se pregunta (ver `cerrar`).
-        if ((e.target as HTMLElement).className === 'overlay') cerrar();
+        if ((e.target as HTMLElement).className === 'overlay') cerrar(true);
       }}
     >
       <div className="modal">
@@ -1044,7 +1091,9 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
         )}
 
         <div className="modal-actions">
-          <button className="btn ghost" onClick={cerrar} disabled={busy || procesando}>
+          {/* Nunca apagado (app pasmada sin señal, 24-sep-2026): mientras
+              prepara o guarda, `cerrar` pregunta en vez de ignorar. */}
+          <button className="btn ghost" onClick={() => cerrar()}>
             Cancelar
           </button>
           {/* Mientras se busca lo ya subido, Guardar solo espera si todavía

@@ -10,6 +10,12 @@ y pendientes. Léelo completo antes de continuar._
 
 ## 0. RESUMEN EJECUTIVO (leer primero)
 
+**Ajuste local del 24-sep:** alcance Pantalla/Columna/Pórtico; folios nuevos MF
+(Físico) y MS (Software), cada uno con consecutivo propio; atención por etapas
+con checks, fecha, resultado y evidencia de cada visita. Los avances parciales
+se guardan y solo el reporte completo pasa a validación. Las solicitudes MD
+anteriores conservan sus datos. Sigue exclusivamente local, sin publicar.
+
 **Qué es:** app operativa interna para GPO VALLAS (publicidad exterior).
 Gestiona incidencias, fijación de pautas, rutas de monitoreo y el recorrido de
 campo por catorcena.
@@ -1347,3 +1353,32 @@ correcciones con verificador por grupo. **No hay SQL.**
   con el árbol Digital en copia pero sin filas para esa incidencia, Guardar
   puede esperar hasta 20 s; falta la prueba en un iPhone real con el SW
   activo (el navegador de pruebas no registra service workers).
+
+**Congelamiento sin señal y blindaje (24-sep, commits `adbc8a2` + siguiente).**
+Erik lo cachó en su iPhone: sin señal, "+ Nueva" congelaba la app entera (ni
+menú, ni ↻, ni la vuelta de la señal). Causa, reproducida contra un Supabase
+falso con toques reales: un ciclo infinito de renders en NuevaInc (un efecto
+dependía del OBJETO `deCopia`, que React reconstruía en cada render al
+mezclar prioridades del toque y de un efecto, y la lectura local se cumplía
+en microtareas dentro del mismo toque). Blindaje:
+- **Reglas** para todo código nuevo: ningún efecto depende de un objeto o
+  arreglo de estado armado con un updater (usar una clave de texto); todo
+  setState tras una lectura local compara antes con un ref; las lecturas de
+  `datosLocales` ceden una macrotarea antes de entregar; ningún await sin
+  tope en rutas de interfaz; ningún modal sin salida mientras espera (Cancelar
+  solo pide confirmar si hay un guardado en curso, y el guardado tardío ya no
+  cierra un modal nuevo); las pruebas "sin señal" se hacen con toques reales,
+  nunca `el.click()` (así no se reproduce).
+- **Vigía** (`lib/vigia.ts`): si un componente vigilado se redibuja sin
+  soltar el hilo (>400 renders y >1.5 s, o >60 y >4 s), lanza `AppPasmada`
+  y el ErrorBoundary desmonta el módulo con "Recargar la app" en vez de dejar
+  todo congelado. Solo en componentes DENTRO del ErrorBoundary.
+- **Sesión**: `/auth/v1/token` con tope (15 s; 25 s si el anterior venció),
+  el resto de auth sin tope; ↻/online/volver al frente olvidan una falla de
+  transporte guardada (a lo más cada 20 s) para renovar en segundos y no en un
+  minuto (`tests/authInterno.test.mjs` truena si auth-js cambia ese campo
+  interno). **Erik:** subir en Supabase → Auth el "Refresh token reuse
+  interval" a 60 s: con red muy lenta, un reintento después de un tope podría
+  llegar fuera de los 10 s por omisión y cerrar la sesión.
+- IndexedDB: la apertura colgada se rearma a los 30 s y una transacción
+  vencida suelta su conexión; candados y SW con tope.

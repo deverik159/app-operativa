@@ -29,6 +29,7 @@ import RegistrarTomaModal from './RegistrarTomaModal';
 import NuevaInc from '../incidencias/NuevaInc';
 import type { GrupoReporte } from '../incidencias/NuevaInc';
 import type { PautaRuta } from '../../types/db';
+import { vigilarRender } from '../../lib/vigia';
 
 /**
  * La pauta es de Ecovallas Impreso (decisión de sep-2026): los reportes
@@ -77,6 +78,7 @@ type Props = {
 };
 
 function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
+  vigilarRender('PautaView');
   const [filas, setFilas] = useState<PautaRuta[]>([]);
   const [catorcenas, setCatorcenas] = useState<number[]>([]);
   const [catSel, setCatSel] = useState<number | null>(null);

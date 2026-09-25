@@ -37,6 +37,7 @@ import {
   subirMiniatura,
 } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
+import { vigilarRender } from '../../lib/vigia';
 import type { Incidencia, Reasignacion } from '../../types/db';
 
 export type ModoReasign = 'solicitar' | 'aprobar';
@@ -79,6 +80,9 @@ function esRedStorage(err: unknown): boolean {
 }
 
 function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
+  // Ciclo de renders que no suelta el hilo → error del módulo (app pasmada
+  // sin señal, 24-sep-2026; ver lib/vigia.ts).
+  vigilarRender('ReasignModal');
   const [busy, setBusy] = useState(false);
 
   // --- modo solicitar: la incidencia nueva se elige del catálogo, con el
@@ -519,7 +523,17 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
             </div>
           </>
         ) : loading ? (
-          <div className="loading">Cargando…</div>
+          // Con Cerrar también mientras carga (app pasmada sin señal,
+          // 24-sep-2026): en el teléfono el fondo que cierra es una franja
+          // de unos 8 px, y la consulta puede tardar hasta su tope.
+          <>
+            <div className="loading">Cargando…</div>
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={onClose}>
+                Cerrar
+              </button>
+            </div>
+          </>
         ) : sinRed ? (
           <>
             <div className="empty">
@@ -538,7 +552,14 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
             </div>
           </>
         ) : !req ? (
-          <div className="empty">No hay una solicitud pendiente.</div>
+          <>
+            <div className="empty">No hay una solicitud pendiente.</div>
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={onClose}>
+                Cerrar
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <div

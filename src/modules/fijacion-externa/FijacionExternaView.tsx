@@ -23,6 +23,7 @@ import {
 import type { AccionPendiente, ResultadoAccion } from '../../lib/acciones';
 import { haySenal, haySesionReal } from '../../lib/datosLocales';
 import type { Incidencia } from '../../types/db';
+import { vigilarRender } from '../../lib/vigia';
 
 /**
  * ÁREA de este módulo. Las incidencias que aparecen como órdenes de trabajo
@@ -132,6 +133,7 @@ function FijacionExternaView({
   /** Al reparar desde aquí: apaga en la campana los avisos de esa incidencia. */
   onNotifAtendida?: (recordId: string) => void;
 }) {
+  vigilarRender('FijacionExternaView');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [regs, setRegs] = useState<Registro[]>([]);

@@ -68,6 +68,7 @@ import {
   type SitioLocal,
 } from '../../lib/datosLocales';
 import { caraLabel, ladoFijoDePortico } from '../../lib/helpers';
+import { vigilarRender } from '../../lib/vigia';
 import {
   UNIDADES_BIOBOX,
   LADOS,
@@ -112,6 +113,9 @@ type EditModalProps = {
 };
 
 function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
+  // Ciclo de renders que no suelta el hilo → error del módulo (app pasmada
+  // sin señal, 24-sep-2026; ver lib/vigia.ts).
+  vigilarRender('EditModal');
   const [observaciones, setObservaciones] = useState(inc.observaciones || '');
   const [lado, setLado] = useState(inc.lado || '');
   const pideLado = UNIDADES_CON_LADO.includes(inc.unidad_negocio || '');
@@ -162,13 +166,19 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
   const usandoCopia = Object.values(deCopia).some(Boolean);
   /** Fecha de la copia del inventario: undefined = aún no se lee, null = no hay. */
   const [fechaInv, setFechaInv] = useState<string | null | undefined>(undefined);
+  const fechaInvRef = useRef(fechaInv);
+  fechaInvRef.current = fechaInv;
   useEffect(() => {
     if (!usandoCopia) return;
     let vivo = true;
     fechaCopia('inventario')
       .catch(() => null)
       .then((f) => {
-        if (vivo) setFechaInv(f);
+        // Misma fecha = sin setState (app pasmada sin señal, 24-sep-2026):
+        // con la copia en memoria esto se cumple en microtareas, y un
+        // setState del mismo valor también agenda render si el componente
+        // tiene updates pendientes. Igual que en NuevaInc.
+        if (vivo && f !== fechaInvRef.current) setFechaInv(f);
       });
     return () => {
       vivo = false;
@@ -466,11 +476,26 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
 
   /**
    * En celular quedan franjas de overlay a los lados del modal: un roce ahí
-   * tiraba la corrección a medias sin preguntar. Y mientras guarda, no se
-   * cierra.
+   * tiraba la corrección a medias sin preguntar. Y mientras guarda, el fondo
+   * no cierra.
+   *
+   * Cancelar sí, con confirmación (app pasmada sin señal, 24-sep-2026): el
+   * UPDATE no tiene tope propio y, con la renovación de la sesión colgada,
+   * "Guardando…" podía no acabar nunca y dejar el modal sin salida. El
+   * guardado sigue por su cuenta.
    */
-  const cerrarSeguro = () => {
-    if (busy) return;
+  const cerrarSeguro = (desdeFondo = false) => {
+    if (busy) {
+      if (desdeFondo) return;
+      if (
+        confirm(
+          'Se están guardando los cambios. Si cierras, el guardado sigue por su cuenta: ' +
+            'revisa la tarjeta con ↻ antes de volver a corregir.\n\n¿Cerrar de todas formas?'
+        )
+      )
+        onClose();
+      return;
+    }
     if (hayCambios && !confirm('Tienes cambios sin guardar. ¿Descartarlos?'))
       return;
     onClose();
@@ -480,7 +505,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     <div
       className="overlay"
       onClick={(e) => {
-        if ((e.target as HTMLElement).className === 'overlay') cerrarSeguro();
+        if ((e.target as HTMLElement).className === 'overlay') cerrarSeguro(true);
       }}
     >
       <div className="modal">
@@ -766,7 +791,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
         </div>
 
         <div className="modal-actions">
-          <button className="btn ghost" onClick={cerrarSeguro}>
+          <button className="btn ghost" onClick={() => cerrarSeguro()}>
             Cancelar
           </button>
           <button className="btn" onClick={guardar} disabled={busy}>

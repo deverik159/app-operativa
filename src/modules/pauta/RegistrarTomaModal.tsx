@@ -19,6 +19,7 @@ import { reglaEspecToma } from '../../lib/especToma';
 import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
 import type { PautaRuta, TipoEvidencia } from '../../types/db';
+import { vigilarRender } from '../../lib/vigia';
 
 /** Fila de `pauta_evidencias`. */
 type EvidenciaPauta = {
@@ -60,6 +61,7 @@ function RegistrarTomaModal({
   onComprobar,
   onRegresada,
 }: Props) {
+  vigilarRender('RegistrarTomaModal');
   const [evidencias, setEvidencias] = useState<EvidenciaPauta[]>([]);
   const [cargando, setCargando] = useState(true);
   const [subiendo, setSubiendo] = useState(false);

@@ -118,12 +118,37 @@ async function estaCompleta(nombre) {
 }
 
 /**
+ * Tope de una búsqueda en las cachés (app pasmada sin señal, 24-sep-2026):
+ * caches.keys/match no tienen tope propio, y si el navegador no contesta, el
+ * chunk o la navegación se quedaban esperando para siempre. Al vencer cuenta
+ * como "no está" y se sigue por la red. La del index.html de una navegación
+ * (soloCompletas) lleva más margen: ahí ya falló la red, y sin la copia no
+ * hay app que servir; mejor esperar a una caché lenta en frío que dar error.
+ */
+const TOPE_CACHE_MS = 3000;
+const TOPE_CACHE_NAVEGACION_MS = 8000;
+/** Tope para que la red empiece a contestar un /assets/* que no está guardado. */
+const TOPE_RED_ARCHIVO_MS = 8000;
+
+/**
  * Busca en la caché actual y luego en las demás (más nueva primero). Con
  * `cacheName` y no caches.open: open CREA una caché vacía si no existe.
  * ignoreVary: la petición de un módulo (crossorigin) no lleva las mismas
- * cabeceras que la de la precarga.
+ * cabeceras que la de la precarga. Con tope (ver TOPE_CACHE_MS); un error de
+ * la caché también cuenta como "no está".
  */
 async function buscarGuardado(peticion, soloCompletas) {
+  try {
+    return await conTope(
+      buscarEnCaches(peticion, soloCompletas),
+      soloCompletas ? TOPE_CACHE_NAVEGACION_MS : TOPE_CACHE_MS
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function buscarEnCaches(peticion, soloCompletas) {
   const nombres = await cachesArmazon();
   if (CACHE_ACTUAL && nombres.includes(CACHE_ACTUAL)) {
     nombres.splice(nombres.indexOf(CACHE_ACTUAL), 1);
@@ -287,6 +312,10 @@ async function navegar(event, sinTope) {
  * bien (un chunk de un build más nuevo cargado con red). Un 404 NUNCA se
  * guarda: los chunks de un build viejo dan 404 real (vercel.json no
  * reescribe /assets) y cargaDiferida lo trata como versión nueva.
+ * La red lleva tope hasta que EMPIEZA a contestar (TOPE_RED_ARCHIVO_MS; app
+ * pasmada sin señal, 24-sep-2026): con señal fantasma el módulo se quedaba
+ * en "Cargando…" para siempre. El cuerpo llega después sin tope, así que un
+ * chunk grande con 3G lenta no se corta.
  */
 async function cachePrimero(event) {
   const req = event.request;
@@ -294,10 +323,12 @@ async function cachePrimero(event) {
   if (guardado) return guardado;
   let res;
   try {
-    res = await fetch(req);
+    res = await conTope(fetch(req), TOPE_RED_ARCHIVO_MS);
   } catch {
-    // Que el import() falle rápido y cargaDiferida decida.
-    return Response.error();
+    // Sin red (o no contestó): si la caché solo iba lenta, que sirva ella
+    // (el chunk de entrada sin señal); si no, que el import() falle rápido
+    // y cargaDiferida decida.
+    return (await buscarGuardado(req, false)) || Response.error();
   }
   if (res.ok && res.type === 'basic' && !res.redirected && CACHE_ACTUAL) {
     const copia = res.clone();

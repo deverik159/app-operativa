@@ -27,6 +27,7 @@ import {
   subirMiniatura,
 } from '../../lib/storage';
 import { reportarError } from '../../lib/reportarError';
+import { vigilarRender } from '../../lib/vigia';
 import SubirArchivos from '../../components/SubirArchivos';
 import type {
   Evidencia,
@@ -141,6 +142,9 @@ function EvidenciaModal({
   esValidador = false,
   esSoloViewer = false,
 }: Props) {
+  // Ciclo de renders que no suelta el hilo → error del módulo (app pasmada
+  // sin señal, 24-sep-2026; ver lib/vigia.ts).
+  vigilarRender('EvidenciaModal');
   // Etapa que corresponde al estatus actual. null = fuera de ventana.
   const etapaAuto: EtapaEvidencia | null = ['por_validar', 'rechazada'].includes(
     inc.estatus
