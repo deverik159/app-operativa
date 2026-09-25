@@ -2732,7 +2732,9 @@ function IncidenciasView({
               marginBottom: 12,
               borderColor:
                 alertasValidacion.vencidas > 0 ? 'var(--hi)' : 'var(--warn)',
-              color: alertasValidacion.vencidas > 0 ? '#ffb4b4' : 'var(--warn)',
+              // El rojo de .err, con su pareja en el tema claro (tema
+              // claro/oscuro, 24-sep-2026).
+              color: alertasValidacion.vencidas > 0 ? 'var(--err-txt)' : 'var(--warn)',
             }}
           >
             ⏱ Validaciones: {alertasValidacion.vencidas > 0 && (

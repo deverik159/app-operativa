@@ -18,6 +18,7 @@ import {
   AREAS_USUARIOS,
   getAreasReparacionPorUnidad,
 } from '../../lib/constants';
+import { colorTono, fondoTono } from '../../lib/tonos';
 import type { AppRole, Usuario, UsuarioRol } from '../../types/db';
 
 /** Borrador del alta de usuario. */
@@ -324,8 +325,10 @@ function UsuariosView({ email = '' }: { email?: string }) {
                     key={r.id}
                     className="pill multilinea"
                     style={{
-                      background: '#4f8cff22',
-                      color: '#4f8cff',
+                      // Azul de estatus con su pareja clara (tema
+                      // claro/oscuro, 24-sep-2026).
+                      background: fondoTono('azul'),
+                      color: colorTono('azul'),
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: 4,

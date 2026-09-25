@@ -11,11 +11,74 @@
 // Tocar el avatar despliega esa información. En escritorio el bloque de la
 // derecha se sigue viendo igual; el menú solo agrega el detalle (correo,
 // todos los roles) y la salida.
+//
+// También vive aquí el selector de Apariencia (tema claro/oscuro,
+// 24-sep-2026): es el único lugar que aparece en todas las pantallas y en
+// celular, sin pelear espacio en la barra.
 // ============================================================
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { useClickFuera } from '../lib/useClickFuera';
 import { ROLE_LABEL, ROLE_ICON } from '../lib/constants';
+import { useTema, type PrefTema } from '../lib/tema';
+
+const OPCIONES_TEMA: { v: PrefTema; l: string }[] = [
+  { v: 'auto', l: 'Automático' },
+  { v: 'claro', l: 'Claro' },
+  { v: 'oscuro', l: 'Oscuro' },
+];
+
+/**
+ * Automático · Claro · Oscuro. Aplica al instante (sin recargar) y se
+ * guarda en el teléfono. Es un componente aparte a propósito: solo existe
+ * con el menú abierto, y al cambiar el tema re-renderiza ÉL y nadie más —
+ * el tema vive en el <html> y en el CSS, no en el estado de la app.
+ */
+function SelectorApariencia() {
+  const [pref, fijar] = useTema();
+  const idTitulo = useId();
+  return (
+    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)' }}>
+      <div
+        id={idTitulo}
+        style={{
+          fontSize: 10,
+          color: 'var(--muted)',
+          textTransform: 'uppercase',
+          letterSpacing: '.5px',
+          marginBottom: 6,
+        }}
+      >
+        Apariencia
+      </div>
+      <div role="group" aria-labelledby={idTitulo} style={{ display: 'flex', gap: 6 }}>
+        {OPCIONES_TEMA.map((o) => {
+          const activa = pref === o.v;
+          return (
+            <button
+              key={o.v}
+              type="button"
+              // La marcada va en naranja con texto oscuro (el único uso del
+              // naranja que se lee al sol en claro); las otras, contorno.
+              className={activa ? 'btn sm' : 'btn ghost sm'}
+              aria-pressed={activa}
+              onClick={() => fijar(o.v)}
+              // 44px de alto: objetivo táctil. Ancho según el texto más el
+              // sobrante repartido (flex auto): con tercios iguales,
+              // "Automático" no cabía en el panel angosto de escritorio.
+              style={{ flex: '1 1 auto', minHeight: 44, padding: '8px 6px', fontSize: 12 }}
+            >
+              {o.l}
+            </button>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 7 }}>
+        Automático sigue la configuración del teléfono.
+      </div>
+    </div>
+  );
+}
 
 type Props = {
   nombre: string;
@@ -98,9 +161,12 @@ function MenuUsuario({
                   // El rol principal va resaltado: es el que decide qué
                   // muestra "Mi bandeja" y qué botones aparecen en cada
                   // tarjeta. Con dos roles, saber cuál manda importa.
+                  // Variables del tema (24-sep-2026): en oscuro son los
+                  // mismos #241b17 y naranja de antes; en claro, tinte
+                  // naranja pálido con el naranja oscuro que sí se lee.
                   style={
                     r === role
-                      ? { background: '#241b17', color: 'var(--accent)' }
+                      ? { background: 'var(--activo-fondo)', color: 'var(--accent-txt)' }
                       : undefined
                   }
                 >
@@ -137,6 +203,8 @@ function MenuUsuario({
               </div>
             </div>
           )}
+
+          <SelectorApariencia />
 
           <div style={{ padding: 10 }}>
             <button

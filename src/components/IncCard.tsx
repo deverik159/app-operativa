@@ -10,7 +10,19 @@ import {
 } from '../lib/constants';
 import { slaInfo, slaInfoValidador, caraIncidencia, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
 import { alFallarMiniatura, urlMiniatura } from '../lib/storage';
+import { colorTono, fondoTono, tonoDe, type Tono } from '../lib/tonos';
 import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
+
+/**
+ * Colores de un chip (tema claro/oscuro, 24-sep-2026): el texto y el tinte
+ * salen de las variables por tono de index.css, legibles en los dos temas.
+ * Antes era `color` + `color + '22'`, y en el tema claro el ámbar y el verde
+ * quedaban ilegibles al sol. Los hex de siempre (EST_COLOR, NIVEL_COLOR, el
+ * reloj de SLA) solo deciden el tono; uno fuera de la paleta (un estatus
+ * desconocido) cae en gris, como el '#666'/'#aaa' de antes.
+ */
+const chip = (t: Tono) => ({ background: fondoTono(t), color: colorTono(t) });
+const chipDe = (hex: string | null | undefined) => chip(tonoDe(hex) ?? 'gris');
 
 /** Modo del modal de reasignación: pedirla, o revisarla como coordinador. */
 export type ModoReasign = 'solicitar' | 'aprobar';
@@ -176,21 +188,14 @@ function IncCard({
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <span
-            className="pill"
-            style={{
-              background: (EST_COLOR[i.estatus] || '#666') + '22',
-              color: EST_COLOR[i.estatus] || '#aaa',
-            }}
-          >
+          <span className="pill" style={chipDe(EST_COLOR[i.estatus])}>
             {EST_LABEL[i.estatus] || i.estatus}
           </span>
           {sla && (
             <div style={{ marginTop: 6 }}>
-              <span
-                className="pill multilinea"
-                style={{ background: sla.color + '22', color: sla.color }}
-              >
+              {/* sla.color sigue siendo el hex de helpers.ts (lo comparan
+                  los avisos de IncidenciasView); aquí solo elige el tono. */}
+              <span className="pill multilinea" style={chipDe(sla.color)}>
                 ⏱ {etiquetaSla}: {sla.label}
               </span>
             </div>
@@ -199,7 +204,7 @@ function IncCard({
             <div style={{ marginTop: 6 }}>
               <span
                 className="pill multilinea"
-                style={{ background: '#f59e0b22', color: '#f59e0b' }}
+                style={chip('ambar')}
                 title={
                   ocupada
                     ? 'Mandando…'
@@ -221,7 +226,7 @@ function IncCard({
             <div style={{ marginTop: 6 }}>
               <span
                 className="pill multilinea"
-                style={{ background: '#ef444422', color: '#ef4444' }}
+                style={chip('rojo')}
                 title="No se enviará sola: vuelve a hacerla (se ofrece descartar la anterior) o descártala en el aviso de pendientes"
               >
                 ⚠ No se pudo enviar: vuelve a hacerla o descártala en el aviso
@@ -264,20 +269,14 @@ function IncCard({
       )}
       <div className="chips">
         {i.nivel && (
-          <span
-            className="pill"
-            style={{
-              background: (NIVEL_COLOR[i.nivel] || '#555') + '22',
-              color: NIVEL_COLOR[i.nivel] || '#aaa',
-            }}
-          >
+          <span className="pill" style={chipDe(NIVEL_COLOR[i.nivel])}>
             Nivel {i.nivel}
           </span>
         )}
         {i.lado && (
           <span
             className="tag"
-            style={{ background: '#a78bfa22', color: '#a78bfa' }}
+            style={chip('morado')}
             title="Lado de la cara reportada"
           >
             🧭 Cara {i.lado}
@@ -297,7 +296,7 @@ function IncCard({
         {i.reasignada_de && (
           <span
             className="pill multilinea"
-            style={{ background: '#a78bfa22', color: '#a78bfa' }}
+            style={chip('morado')}
             title={`Reasignada: antes pertenecía a ${i.reasignada_de}`}
           >
             🔁 Antes: {i.reasignada_de}
@@ -306,7 +305,7 @@ function IncCard({
         {redirigida && (
           <span
             className="pill multilinea"
-            style={{ background: '#ff5a3c22', color: '#ff5a3c' }}
+            style={chip('acento')}
             title="Área que realmente repara (el catálogo decía otra)"
           >
             🛠 Repara: {i.assigned_area}
@@ -323,7 +322,7 @@ function IncCard({
         {(i.rechazos_reparacion || 0) > 0 && (
           <span
             className="pill multilinea"
-            style={{ background: '#ef444422', color: '#ef4444' }}
+            style={chip('rojo')}
             title="Veces que el validador rechazó la reparación"
           >
             ↩ {i.rechazos_reparacion} rechazo
@@ -377,15 +376,17 @@ function IncCard({
         </div>
       )}
       {i.estatus === 'en_proceso' && i.motivo_rechazo_reparacion && (
+        // Los colores de la caja .err, con su pareja del tema claro
+        // (tema claro/oscuro, 24-sep-2026).
         <div
           className="obs"
           style={{
-            background: '#3a1a1a',
-            border: '1px solid #5a2a2a',
+            background: 'var(--err-fondo)',
+            border: '1px solid var(--err-borde)',
             borderRadius: 9,
             padding: '9px 11px',
             marginTop: 9,
-            color: '#ffb4b4',
+            color: 'var(--err-txt)',
           }}
         >
           ⚠️ Reparación rechazada por el validador: “
@@ -394,10 +395,7 @@ function IncCard({
       )}
       {i.reasignacion_pendiente && (
         <div style={{ marginTop: 9 }}>
-          <span
-            className="pill"
-            style={{ background: '#a78bfa22', color: '#a78bfa' }}
-          >
+          <span className="pill" style={chip('morado')}>
             🔀 Reasignación pendiente
           </span>
         </div>
@@ -409,6 +407,8 @@ function IncCard({
         <button className="btn ghost sm" onClick={() => onChat(i)}>
           💬 Chat
           {nChat > 0 && (
+            // Globo sólido: verde con texto verde oscuro se lee igual en los
+            // dos temas (≈5:1), por eso sus colores se quedan fijos.
             <span
               className="badge-pulse"
               style={{
@@ -486,10 +486,7 @@ function IncCard({
           {/* multilinea: la frase completa mide ~320px en nowrap y en un
               teléfono ensanchaba TODA la lista de tarjetas (los items del
               grid no encogen por debajo de su min-content). */}
-          <span
-            className="pill multilinea"
-            style={{ background: '#4f8cff22', color: '#4f8cff' }}
-          >
+          <span className="pill multilinea" style={chip('azul')}>
             ⚡ Directa a Digital · prevalidación pendiente
           </span>
         </div>

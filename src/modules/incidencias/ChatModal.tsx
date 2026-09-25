@@ -442,6 +442,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                             width: '100%',
                             maxHeight: 240,
                             borderRadius: 8,
+                            // Franjas del video: negras en los dos temas.
                             background: '#000',
                           }}
                         />
@@ -473,7 +474,10 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                     <div
                       style={{
                         fontSize: 10,
-                        opacity: 0.7,
+                        // .85 y no .7: en la burbuja propia (naranja) la hora
+                        // daba 3.8:1 en los dos temas; así da 4.9 (tema
+                        // claro/oscuro, 24-sep-2026).
+                        opacity: 0.85,
                         marginTop: 3,
                         textAlign: 'right',
                         display: 'flex',

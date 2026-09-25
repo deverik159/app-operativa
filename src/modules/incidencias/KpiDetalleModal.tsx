@@ -25,6 +25,7 @@ import {
   horasEnProceso,
   fmtHoras,
 } from '../../lib/helpers';
+import { colorTono, fondoTono, pintar } from '../../lib/tonos';
 import type { Incidencia } from '../../types/db';
 
 /** Cuántos grupos se listan antes de cortar. */
@@ -232,10 +233,12 @@ function KpiDetalleModal({
                       {orden === 'tiempo' && g.peorHoras != null && (
                         <span
                           className="pill"
+                          // El rojo va con su tono, legible en los dos
+                          // temas (tema claro/oscuro, 24-sep-2026).
                           style={{
                             background:
-                              g.peorHoras > 72 ? '#ef444422' : 'var(--panel2)',
-                            color: g.peorHoras > 72 ? '#ef4444' : 'var(--muted)',
+                              g.peorHoras > 72 ? fondoTono('rojo') : 'var(--panel2)',
+                            color: g.peorHoras > 72 ? colorTono('rojo') : 'var(--muted)',
                           }}
                         >
                           ⏳ {fmtHoras(g.peorHoras)}
@@ -269,13 +272,11 @@ function KpiDetalleModal({
                           }}
                         >
                           <b>{i.folio || i.record_id}</b>
+                          {/* Tono del estatus (tema claro/oscuro,
+                              24-sep-2026); fuera de la paleta, gris. */}
                           <span
                             className="pill"
-                            style={{
-                              background:
-                                (EST_COLOR[i.estatus] || '#666') + '22',
-                              color: EST_COLOR[i.estatus] || '#aaa',
-                            }}
+                            style={{ ...pintar(EST_COLOR[i.estatus] || '#6b7280') }}
                           >
                             {EST_LABEL[i.estatus] || i.estatus}
                           </span>
@@ -315,11 +316,11 @@ function KpiDetalleModal({
                               style={{
                                 background:
                                   (horasEnProceso(i) as number) > 72
-                                    ? '#ef444422'
+                                    ? fondoTono('rojo')
                                     : 'var(--panel2)',
                                 color:
                                   (horasEnProceso(i) as number) > 72
-                                    ? '#ef4444'
+                                    ? colorTono('rojo')
                                     : 'var(--muted)',
                               }}
                               title="Lleva en proceso"

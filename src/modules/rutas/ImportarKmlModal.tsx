@@ -18,6 +18,8 @@ import { useState } from 'react';
 import { sb } from '../../lib/supabase';
 import { UNIDADES } from '../../lib/constants';
 import { leerKml, empatarInventario } from '../../lib/kml';
+import { NARANJA } from '../../lib/helpers';
+import { colorTono } from '../../lib/tonos';
 import type { CapaKml, Empate, Confianza, FilaInventario } from '../../lib/kml';
 
 type Props = {
@@ -38,10 +40,12 @@ type Resultado = {
   sobrantes_borradas: boolean;
 };
 
+// Todos como variables con pareja clara: #f59e0b y #f97316 sobre blanco no
+// llegan a 3:1 (tema claro/oscuro, 24-sep-2026).
 const COLOR: Record<Confianza, string> = {
   alta: 'var(--ok)',
-  media: '#f59e0b',
-  baja: '#f97316',
+  media: colorTono('ambar'),
+  baja: NARANJA,
   ninguna: 'var(--bad)',
 };
 
@@ -363,7 +367,7 @@ function ImportarKmlModal({ unidad: sugerida, onClose, onImportado }: Props) {
                 {sugerida && unidad && unidad !== sugerida && (
                   <>
                     {' '}
-                    <b style={{ color: '#f59e0b' }}>
+                    <b style={{ color: colorTono('ambar') }}>
                       La pantalla está viendo {sugerida}; vas a importar a{' '}
                       {unidad}.
                     </b>

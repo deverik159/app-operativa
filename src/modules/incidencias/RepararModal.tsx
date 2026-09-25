@@ -48,6 +48,7 @@ import {
   haySenal,
   redOLocal,
 } from '../../lib/datosLocales';
+import { colorTono } from '../../lib/tonos';
 import {
   abrirReparacion,
   descartarReparacion,
@@ -840,7 +841,9 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
             {inc.reasignada_de && (
               <>
                 <br />
-                <span style={{ color: '#a78bfa' }}>
+                {/* Morado legible en los dos temas (tema claro/oscuro,
+                    24-sep-2026). */}
+                <span style={{ color: colorTono('morado') }}>
                   🔁 Reasignada: antes pertenecía a {inc.reasignada_de}
                 </span>
               </>
@@ -930,7 +933,9 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                 {evRep.length + archivos.length > 1 ? 's' : ''}
               </span>
             ) : (
-              <span style={{ color: 'var(--accent)' }}>obligatoria</span>
+              // El naranja como TEXTO va con su tono (tema claro/oscuro,
+              // 24-sep-2026): --accent en claro solo sirve de fondo.
+              <span style={{ color: colorTono('acento') }}>obligatoria</span>
             )}
           </label>
 

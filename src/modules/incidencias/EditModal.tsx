@@ -541,15 +541,17 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
         </div>
 
         {inc.estatus === 'rechazada' && inc.motivo_rechazo_reparacion && (
+          // Los colores de la caja .err, con su pareja del tema claro
+          // (tema claro/oscuro, 24-sep-2026).
           <div
             className="obs"
             style={{
-              background: '#3a1a1a',
-              border: '1px solid #5a2a2a',
+              background: 'var(--err-fondo)',
+              border: '1px solid var(--err-borde)',
               borderRadius: 9,
               padding: '9px 11px',
               marginBottom: 12,
-              color: '#ffb4b4',
+              color: 'var(--err-txt)',
             }}
           >
             Motivo del rechazo: “{inc.motivo_rechazo_reparacion}”
@@ -712,15 +714,17 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
         )}
 
         {(cambioSitio || cambioCara) && (
+          // Caja de aviso ámbar con pareja en el tema claro (tema
+          // claro/oscuro, 24-sep-2026).
           <div
             style={{
-              background: '#3a2e12',
-              border: '1px solid #6a5520',
+              background: 'var(--aviso-fondo)',
+              border: '1px solid var(--aviso-borde)',
               borderRadius: 10,
               padding: '10px 12px',
               marginBottom: 12,
               fontSize: 13,
-              color: '#ffdf9e',
+              color: 'var(--aviso-txt)',
             }}
           >
             ⚠️ Al guardar se actualizan también la dirección, el municipio, la

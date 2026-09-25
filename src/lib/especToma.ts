@@ -27,7 +27,9 @@ import { sinAcentos } from './helpers';
 export type ReglaToma = {
   /** Fotos mínimas para poder registrar la toma. */
   fotos: number;
-  /** Color del recuadro de la especificación en el modal. */
+  /** Color del recuadro de la especificación en el modal: un hex de la paleta
+   *  de estatus (el modal lo pinta con pintar() de tonos.ts para que se lea en
+   *  los dos temas; tema claro/oscuro, 24-sep-2026) o una var() ya temada. */
   color: string;
   /** Qué pide, en palabras de la app (la espec cruda se muestra aparte). */
   resumen: string;

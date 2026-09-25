@@ -3,6 +3,7 @@
 // Constantes compartidas: etiquetas, colores, catálogos.
 // Traducidas del HTML original (las const globales de arriba del script).
 // ============================================================
+import { tonoDe, type Tono } from './tonos';
 
 export const EST_LABEL: Record<string, string> = {
   reportado: 'Reportado',
@@ -29,6 +30,15 @@ export const NIVEL_COLOR: Record<string, string> = {
   Medio: '#f59e0b',
   Bajo: '#3b82f6',
 };
+
+// Tema claro/oscuro (24-sep-2026): EST_COLOR y NIVEL_COLOR NO cambian —la
+// lógica y otros módulos comparan esos hex—. Para PINTAR, las pantallas
+// usan el tono (colorTono/fondoTono de tonos.ts), que se lee en los dos
+// temas. Se DERIVA de EST_COLOR: si mañana se agrega un estatus, su tono
+// sale solo y no hay dos tablas que se desfasen.
+export const EST_TONO: Record<string, Tono> = Object.fromEntries(
+  Object.entries(EST_COLOR).map(([estatus, hex]) => [estatus, tonoDe(hex) ?? 'gris'])
+);
 
 export const ROLE_LABEL: Record<string, string> = {
   reportante: 'Reportante',

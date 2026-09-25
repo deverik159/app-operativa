@@ -47,22 +47,43 @@ import type {
   EstatusInc,
 } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
+import { colorTono, fondoTono, type Tono } from '../../lib/tonos';
 
 /** Subcarpeta en el bucket, para no mezclar con incidencias ni pauta. */
 const CARPETA = 'revisiones';
 
-/** Colores del semáforo de prioridad de las causas (hoja PRIORIDADES). */
-const PRIORIDAD_COLOR: Record<string, string> = {
-  Alta: '#ef4444',
-  Media: '#f59e0b',
-  Baja: '#22c55e',
+/** Semáforo de prioridad de las causas (hoja PRIORIDADES), por tono: se
+ *  pinta con su pareja legible en el tema claro (tema claro/oscuro,
+ *  24-sep-2026). */
+const PRIORIDAD_TONO: Record<string, Tono> = {
+  Alta: 'rojo',
+  Media: 'ambar',
+  Baja: 'verde',
 };
 
-const ESTADOS: { v: EstadoMaquina; t: string; c: string }[] = [
-  { v: 'operando', t: 'Operando', c: 'var(--ok)' },
-  { v: 'con_falla', t: 'Con falla', c: '#f59e0b' },
-  { v: 'fuera_de_linea', t: 'Fuera de línea', c: 'var(--bad)' },
+const ESTADOS: { v: EstadoMaquina; t: string; tono: Tono }[] = [
+  { v: 'operando', t: 'Operando', tono: 'verde' },
+  { v: 'con_falla', t: 'Con falla', tono: 'ambar' },
+  { v: 'fuera_de_linea', t: 'Fuera de línea', tono: 'rojo' },
 ];
+
+/**
+ * Botón de opción elegido: relleno en el tono y el texto en el color de
+ * fondo de la página (tema claro/oscuro, 24-sep-2026). Antes el texto era
+ * #0b1220 fijo: bien sobre el verde/rojo claros del tema oscuro, pero en el
+ * claro los tonos son oscuros y el texto casi negro se perdía. --bg es casi
+ * negro en oscuro y casi blanco en claro: contrasta con el tono en los dos.
+ */
+const opcionElegida = (t: Tono) => ({
+  border: '1px solid ' + colorTono(t),
+  background: colorTono(t),
+  color: 'var(--bg)',
+});
+const opcionLibre = {
+  border: '1px solid var(--line)',
+  background: 'transparent',
+  color: 'var(--muted)',
+};
 
 /** Lo que el revisor contestó para un punto, antes de guardar. */
 type Marca = {
@@ -677,7 +698,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
   };
 
   // --- Render ---
-  const btnValor = (id: number, v: ValorRespuesta, texto: string, color: string) => {
+  const btnValor = (id: number, v: ValorRespuesta, texto: string, tono: Tono) => {
     const activo = tocados.has(id) && marcas[id]?.valor === v;
     return (
       <button
@@ -694,9 +715,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
           fontWeight: 700,
           borderRadius: 8,
           cursor: 'pointer',
-          border: '1px solid ' + (activo ? color : 'var(--line)'),
-          background: activo ? color : 'transparent',
-          color: activo ? '#0b1220' : 'var(--muted)',
+          ...(activo ? opcionElegida(tono) : opcionLibre),
         }}
       >
         {texto}
@@ -816,8 +835,8 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                               style={{
                                 marginLeft: 6,
                                 fontSize: 10,
-                                color: '#f59e0b',
-                                borderColor: '#f59e0b',
+                                color: colorTono('ambar'),
+                                borderColor: colorTono('ambar'),
                               }}
                             >
                               crítico
@@ -840,9 +859,9 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                             grande del sistema), bajan a 2+1 en vez de
                             estrujarse hasta cortar el texto en vertical. */}
                         <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                          {btnValor(p.id, 'ok', '✓ Bien', 'var(--ok)')}
-                          {btnValor(p.id, 'anomalia', '⚠ Anomalía', '#ef4444')}
-                          {btnValor(p.id, 'na', '— N/A', '#64748b')}
+                          {btnValor(p.id, 'ok', '✓ Bien', 'verde')}
+                          {btnValor(p.id, 'anomalia', '⚠ Anomalía', 'rojo')}
+                          {btnValor(p.id, 'na', '— N/A', 'gris')}
                         </div>
 
                         {esAnomalia && (
@@ -887,12 +906,12 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                                     <span
                                       className="pill"
                                       style={{
-                                        background:
-                                          (PRIORIDAD_COLOR[m.causa.prioridad] ||
-                                            '#888') + '22',
-                                        color:
-                                          PRIORIDAD_COLOR[m.causa.prioridad] ||
-                                          '#aaa',
+                                        background: fondoTono(
+                                          PRIORIDAD_TONO[m.causa.prioridad] ?? 'gris'
+                                        ),
+                                        color: colorTono(
+                                          PRIORIDAD_TONO[m.causa.prioridad] ?? 'gris'
+                                        ),
                                         fontWeight: 700,
                                       }}
                                     >
@@ -922,10 +941,13 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                               <div
                                 style={{
                                   fontSize: 11,
+                                  // --accent-txt: el naranja como texto, con
+                                  // pareja legible en el tema claro (tema
+                                  // claro/oscuro, 24-sep-2026).
                                   color: p.exige_foto_anomalia
                                     ? m.files.length
                                       ? 'var(--ok)'
-                                      : 'var(--accent)'
+                                      : 'var(--accent-txt)'
                                     : 'var(--muted)',
                                   marginBottom: 5,
                                 }}
@@ -996,7 +1018,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                               <div
                                 style={{
                                   fontSize: 11,
-                                  color: 'var(--accent)',
+                                  color: 'var(--accent-txt)',
                                   marginTop: 4,
                                 }}
                               >
@@ -1031,9 +1053,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                       fontWeight: 700,
                       borderRadius: 8,
                       cursor: 'pointer',
-                      border: '1px solid ' + (estado === e.v ? e.c : 'var(--line)'),
-                      background: estado === e.v ? e.c : 'transparent',
-                      color: estado === e.v ? '#0b1220' : 'var(--muted)',
+                      ...(estado === e.v ? opcionElegida(e.tono) : opcionLibre),
                     }}
                   >
                     {e.t}
@@ -1042,7 +1062,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
               </div>
               {criticoEnFalla && estado === 'operando' && (
                 <div
-                  style={{ fontSize: 11, color: '#f59e0b', marginTop: 6 }}
+                  style={{ fontSize: 11, color: colorTono('ambar'), marginTop: 6 }}
                 >
                   Hay un punto crítico en anomalía y la marcaste como operando.
                   Si de verdad no está funcionando, cámbialo.
@@ -1105,7 +1125,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
               {aLevantar.length > 0 && (
                 <span
                   className="tag"
-                  style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
+                  style={{ color: 'var(--accent-txt)', borderColor: 'var(--accent-txt)' }}
                 >
                   {aLevantar.length} incidencia(s) por levantar
                 </span>

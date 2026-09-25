@@ -208,7 +208,9 @@ function CampanaNotifs({
                   padding: '10px 12px',
                   borderBottom: '1px solid var(--line)',
                   cursor: 'pointer',
-                  background: '#241b17',
+                  // El mismo tinte cálido del módulo activo del menú, con
+                  // pareja en el tema claro (tema claro/oscuro, 24-sep-2026).
+                  background: 'var(--activo-fondo)',
                 }}
               >
                 <div style={{ fontSize: 13, lineHeight: 1.4 }}>{n.mensaje}</div>

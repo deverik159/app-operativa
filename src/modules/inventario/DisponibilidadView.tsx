@@ -19,6 +19,7 @@
 // ============================================================
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { sb } from '../../lib/supabase';
+import { fondoTono } from '../../lib/tonos';
 
 /** Fila de `inventario` con las columnas de estatus. */
 type Cara = {
@@ -141,11 +142,14 @@ function evaluar(
   return { nivel: 'si', texto: 'Disponible', detalle: '' };
 }
 
+// Los fondos eran tintes oscuros escritos a mano: en el tema claro quedaban
+// manchas negras bajo texto oscuro. Ahora son el tinte del tono, con su
+// pareja clara (tema claro/oscuro, 24-sep-2026). `fg` ya seguía al tema.
 const COLOR: Record<Veredicto['nivel'], { bg: string; fg: string }> = {
-  si:      { bg: '#12291c', fg: 'var(--ok)' },
-  parcial: { bg: '#2e2413', fg: 'var(--warn)' },
-  no:      { bg: '#33191a', fg: 'var(--bad)' },
-  ocupada: { bg: '#1b2536', fg: 'var(--accent2)' },
+  si:      { bg: fondoTono('verde'), fg: 'var(--ok)' },
+  parcial: { bg: fondoTono('ambar'), fg: 'var(--warn)' },
+  no:      { bg: fondoTono('rojo'),  fg: 'var(--bad)' },
+  ocupada: { bg: fondoTono('azul'),  fg: 'var(--accent2)' },
 };
 
 function DisponibilidadView() {

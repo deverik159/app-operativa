@@ -18,9 +18,15 @@ import './index.css';
 import App from './App';
 import { registrarSW } from './lib/push';
 import { instalarReporteGlobal } from './lib/reportarError';
+import { iniciarTema } from './lib/tema';
 
 // Antes del render: así también se registra lo que truene al arrancar.
 instalarReporteGlobal();
+
+// Tema claro/oscuro (24-sep-2026): el script de index.html ya puso
+// data-tema antes del primer pintado; esto corrige el theme-color y escucha
+// al teléfono en Automático. No es estado de React: no re-renderiza nada.
+iniciarTema();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

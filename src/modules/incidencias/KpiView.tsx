@@ -23,6 +23,7 @@ import {
 } from '../../lib/helpers';
 import { nombreDe } from '../../lib/nombres';
 import type { MapaNombres } from '../../lib/nombres';
+import { colorTono, pintarTexto } from '../../lib/tonos';
 import KpiDetalleModal from './KpiDetalleModal';
 import type { Incidencia, SlaMap } from '../../types/db';
 
@@ -163,8 +164,12 @@ function Card({
       </div>
       <div className="l">
         {l}
+        {/* .8 y no .55: con .55 daba 2.6:1 en claro y 2.9:1 en oscuro, y al
+            sol el "ver" —la pista de que la tarjeta se toca— desaparecía.
+            Con .8 da 4.6 y 4.8 y sigue un tono abajo de la etiqueta (tema
+            claro/oscuro, 24-sep-2026). */}
         {onAbrir && (
-          <span style={{ opacity: 0.55 }}> · ver</span>
+          <span style={{ opacity: 0.8 }}> · ver</span>
         )}
       </div>
     </>
@@ -572,10 +577,13 @@ function KpiView({
           l="Incidencias"
           onAbrir={() => abrir('Todas las incidencias del filtro', f)}
         />
+        {/* Los números con color van con el tono del estatus, legible en
+            los dos temas (tema claro/oscuro, 24-sep-2026): el ámbar y el
+            verde de EST_COLOR no se leen sobre blanco al sol. */}
         <Card
           n={abiertas}
           l="Abiertas"
-          color={EST_COLOR.en_proceso}
+          color={pintarTexto(EST_COLOR.en_proceso)}
           onAbrir={() =>
             abrir(
               'Abiertas',
@@ -586,7 +594,7 @@ function KpiView({
         <Card
           n={cerradas}
           l="Cerradas"
-          color={EST_COLOR.cerrada}
+          color={pintarTexto(EST_COLOR.cerrada)}
           onAbrir={() =>
             abrir(
               'Cerradas',
@@ -600,7 +608,8 @@ function KpiView({
         <Card
           n={efect + '%'}
           l="Efectividad"
-          color="var(--accent)"
+          // Naranja como TEXTO: --accent en claro solo sirve de fondo.
+          color={colorTono('acento')}
           onAbrir={() =>
             abrir(
               'Efectividad — cerradas contra no reparadas',

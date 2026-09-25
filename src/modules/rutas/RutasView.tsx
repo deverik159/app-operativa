@@ -9,6 +9,7 @@ import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
 import { escHtml } from '../../lib/helpers';
+import { colorTono, fondoTono, type Tono } from '../../lib/tonos';
 import { candadoTactil } from '../../lib/mapaTactil';
 import IrAqui from '../../components/IrAqui';
 import ImportarKmlModal from './ImportarKmlModal';
@@ -588,12 +589,11 @@ function RutasView({
       {modalKml}
 
       {resultadoImport && (
+        // Los colores eran una copia en línea de los de .banner: sin ellos,
+        // la clase pone los del tema activo (tema claro/oscuro, 24-sep-2026).
         <div
           className="banner"
           style={{
-            background: '#1a2436',
-            border: '1px solid #26344d',
-            color: '#bcd0f0',
             fontSize: 13,
             padding: '10px 12px',
             borderRadius: 10,
@@ -1021,7 +1021,7 @@ function RutasView({
                 {sinCoordsDetalle > 0 && (
                   <span
                     className="pill"
-                    style={{ background: '#f59e0b22', color: '#f59e0b' }}
+                    style={{ background: fondoTono('ambar'), color: colorTono('ambar') }}
                     title="Estas ubicaciones no tienen coordenadas en el inventario"
                   >
                     ⚠ {sinCoordsDetalle} sin coordenadas
@@ -1040,11 +1040,13 @@ function RutasView({
                 const est = (u.estatus_archivo || '').toUpperCase();
                 const esRetirada = est === 'RETIRADA';
                 const esInhab = est === 'INHABILITADA';
-                const colorEst = esRetirada
-                  ? '#ef4444'
+                // Tono y no hex: se pinta con su pareja legible en el tema
+                // claro (tema claro/oscuro, 24-sep-2026).
+                const tonoEst: Tono = esRetirada
+                  ? 'rojo'
                   : esInhab
-                    ? '#f59e0b'
-                    : '#22c55e';
+                    ? 'ambar'
+                    : 'verde';
                 return (
                   // flexWrap + base de 160px en el texto: sin ellos, la
                   // pill "Inhabilitada" + el botón Ir (fijos) exprimían la
@@ -1104,8 +1106,8 @@ function RutasView({
                       <span
                         className="pill"
                         style={{
-                          background: colorEst + '22',
-                          color: colorEst,
+                          background: fondoTono(tonoEst),
+                          color: colorTono(tonoEst),
                           flexShrink: 0,
                         }}
                       >

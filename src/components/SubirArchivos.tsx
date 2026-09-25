@@ -119,6 +119,7 @@ function MiniFile({
             height: 30,
             borderRadius: '50%',
             border: 'none',
+            // Va sobre la foto, no sobre la interfaz: igual en los dos temas.
             background: 'rgba(0,0,0,.75)',
             color: '#fff',
             cursor: 'pointer',
@@ -154,6 +155,8 @@ function VisorFile({ file, onClose }: { file: File; onClose: () => void }) {
         position: 'fixed',
         inset: 0,
         zIndex: 1200,
+        // Visor de fotos: fondo negro en los dos temas, como la galería
+        // del teléfono (tema claro/oscuro, 24-sep-2026).
         background: 'rgba(0,0,0,.9)',
         display: 'flex',
         alignItems: 'center',

@@ -6,6 +6,30 @@
          app instalada (status bar translúcida) pinta la barra superior
          DEBAJO del reloj y la batería del iPhone. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Tema claro/oscuro (24-sep-2026). Automático sigue al teléfono; el
+         menú del avatar puede fijar Claro u Oscuro (src/lib/tema.ts).
+         · color-scheme: el navegador sabe desde el primer byte que hay dos
+           esquemas y pinta el lienzo del color correcto antes del CSS.
+         · theme-color (barra del sistema en Android y Safari): el naranja de
+           marca en los dos temas, como siempre.
+         · El script pone data-tema ANTES del primer pintado: sin él, quien
+           eligió Claro con el teléfono en oscuro vería un destello oscuro al
+           abrir. Va antes de cualquier CSS/JS y no carga nada. Es el ÚNICO
+           script en línea: mismo 'gpovallas_tema' que tema.ts; lo que no sea
+           'claro'/'oscuro' es Automático (sin atributo). -->
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#ff5a3c" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('gpovallas_tema');
+          if (t !== 'claro' && t !== 'oscuro') return;
+          var h = document.documentElement;
+          h.setAttribute('data-tema', t);
+          h.style.colorScheme = t === 'claro' ? 'light' : 'dark';
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23ff5a3c'/><g fill='none' stroke='%23141414' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><rect x='7' y='6.5' width='18' height='12' rx='2'/><line x1='11' y1='18.5' x2='11' y2='26'/><line x1='21' y1='18.5' x2='21' y2='26'/><line x1='9' y1='26' x2='23' y2='26'/></g></svg>" />
     <title>Central de Operaciones · GPO VALLAS</title>
     <!-- El CSS de Leaflet ya viaja en el bundle (ver src/main.tsx). -->
@@ -14,9 +38,19 @@
          En iPhone, Web Push SOLO funciona con la app agregada a la pantalla
          de inicio, y eso requiere este manifest con display:standalone. -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" content="#ff5a3c" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- Se queda black-translucent también con el tema claro (24-sep-2026):
+         · Con 'default' el iPhone deja de meter el contenido bajo la barra
+           de estado y el color del reloj depende de la versión de iOS (y de
+           si respeta theme-color con un tema fijo a mano): no se puede
+           garantizar que se lea en los dos temas. Además iOS guarda este
+           valor al instalar: las apps ya instaladas no lo verían igual.
+         · black-translucent pinta el reloj SIEMPRE blanco, y todo el
+           acolchado con env(safe-area-inset-top) de la barra superior, los
+           paneles y los modales sigue igual. En claro, index.css pone una
+           franja oscura (--franja-estado, body::before) justo detrás del
+           reloj: blanco sobre #0f1115 = 18.9:1. -->
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="GPO VALLAS" />
   </head>

@@ -35,7 +35,21 @@ export function slaHoras(txt: string | number | null): number | null {
   return isNaN(n) ? null : n;
 }
 
+/**
+ * `color` es SIEMPRE uno de los hex de siempre (#ef4444 / #f59e0b / #22c55e):
+ * hay lógica que lo compara (IncidenciasView: `reloj.color === '#ef4444'`).
+ * Para PINTARLO se pasa por `pintarTexto`/`pintar` de tonos.ts, que lo
+ * traduce al tono legible del tema activo (tema claro/oscuro, 24-sep-2026).
+ */
 export type SlaInfo = { color: string; label: string };
+
+/**
+ * Naranja de "anomalía / incidencia abierta sin alarma" (#f97316). No es un
+ * tono de tonos.ts: sobre blanco da ~2.8:1 y al sol no se lee, así que se
+ * pinta con --st-naranja, que trae su pareja clara en index.css; el respaldo
+ * es el oscuro de hoy (tema claro/oscuro, 24-sep-2026).
+ */
+export const NARANJA = 'var(--st-naranja, #f97316)';
 
 // Calcula el estado de SLA (en tiempo / por vencer / vencido) dado un inicio y horas.
 export function slaInfo(

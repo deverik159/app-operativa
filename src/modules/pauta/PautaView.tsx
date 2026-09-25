@@ -17,7 +17,9 @@ import { sb } from '../../lib/supabase';
 import IrAqui from '../../components/IrAqui';
 import { tramosGoogleMaps } from '../../lib/navegacion';
 import { crearReporte } from '../../lib/crearReporte';
-import { EST_LABEL, EST_COLOR } from '../../lib/constants';
+import { EST_LABEL, EST_TONO } from '../../lib/constants';
+import { NARANJA } from '../../lib/helpers';
+import { colorTono, fondoTono } from '../../lib/tonos';
 import {
   resumenMaquinas,
   detalleMaquina,
@@ -40,11 +42,18 @@ const UNIDAD_PAUTA = 'Ecovallas';
 /** Tope de filas: el límite duro de Supabase es 1000 por consulta. */
 const PAGINA = 1000;
 
-/** Colores del estado de avance. */
-const COLOR_AVANCE: Record<string, string> = {
-  PENDIENTE: 'var(--muted)',
-  TOMADA: 'var(--warn)',
-  COMPROBADA: 'var(--ok)',
+/**
+ * Colores del estado de avance, con su tinte (tema claro/oscuro,
+ * 24-sep-2026). Antes eran var(--muted)/var(--warn)/var(--ok) y la pastilla
+ * les concatenaba '22': `var(--warn)22` es CSS inválido y la pastilla nunca
+ * tuvo tinte. Ahora texto y tinte salen del mismo tono, legibles en los dos
+ * temas; Pendiente conserva el texto --muted (el gris de estatus es más
+ * oscuro y en el tema oscuro se leería peor).
+ */
+const COLOR_AVANCE: Record<string, { color: string; background: string }> = {
+  PENDIENTE: { color: 'var(--muted)', background: fondoTono('gris') },
+  TOMADA: { color: colorTono('ambar'), background: fondoTono('ambar') },
+  COMPROBADA: { color: colorTono('verde'), background: fondoTono('verde') },
 };
 
 /** Un sitio con todas sus caras de esta catorcena. */
@@ -767,7 +776,10 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                     fontWeight: 700,
                     padding: '8px 12px',
                     minHeight: 36,
-                    background: on ? 'var(--accent)' : '#252b35',
+                    // Apagado = el fondo de .tag, con su pareja clara (tema
+                    // claro/oscuro, 24-sep-2026). Encendido: naranja con
+                    // texto oscuro, igual en los dos temas.
+                    background: on ? 'var(--accent)' : 'var(--tag-fondo)',
                     color: on ? '#151515' : 'var(--muted)',
                     whiteSpace: 'normal',
                     textAlign: 'left',
@@ -845,14 +857,14 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
             {
               l: 'Tomadas',
               n: stats.tom,
-              c: '#4f8cff',
+              c: colorTono('azul'),
               activa: fAvance === 'TOMADA',
               click: () => toggleAvance('TOMADA'),
             },
             {
               l: 'Comprobadas',
               n: stats.comp,
-              c: COLOR_AVANCE.COMPROBADA,
+              c: COLOR_AVANCE.COMPROBADA.color,
               activa: fAvance === 'COMPROBADA',
               click: () => toggleAvance('COMPROBADA'),
             },
@@ -862,7 +874,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
             {
               l: 'Incidencias',
               n: stats.inc,
-              c: '#ef4444',
+              c: colorTono('rojo'),
               activa: fConInc,
               click: () => setFConInc((v) => !v),
             },
@@ -887,7 +899,9 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
               width: '100%',
               color: 'var(--txt)',
               borderColor: t.activa ? 'var(--accent)' : 'var(--line)',
-              background: t.activa ? '#241b17' : 'var(--panel)',
+              // El tinte de "lo activo" (el del menú), con su pareja clara
+              // (tema claro/oscuro, 24-sep-2026).
+              background: t.activa ? 'var(--activo-fondo)' : 'var(--panel)',
             }}
           >
             <div className="n" style={{ color: t.c }}>
@@ -944,7 +958,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                   <span
                     key={a.id}
                     className="pill"
-                    style={{ background: '#4f8cff22', color: '#4f8cff' }}
+                    style={{ background: fondoTono('azul'), color: colorTono('azul') }}
                   >
                     {a.usuario_email.split('@')[0]}
                     <button
@@ -1037,7 +1051,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
               {stats.sinCoord > 0 && (
                 <span
                   className="pill"
-                  style={{ background: '#f59e0b22', color: '#f59e0b' }}
+                  style={{ background: fondoTono('ambar'), color: colorTono('ambar') }}
                   title="Sin coordenadas en inventario: no se puede navegar"
                 >
                   ⚠ {stats.sinCoord} sin ubicación
@@ -1087,8 +1101,8 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                             font: 'inherit',
                             fontSize: 11,
                             minHeight: 32,
-                            color: alarma ? '#ef4444' : '#f97316',
-                            borderColor: alarma ? '#ef4444' : '#f97316',
+                            color: alarma ? colorTono('rojo') : NARANJA,
+                            borderColor: alarma ? colorTono('rojo') : NARANJA,
                             border: '1px solid',
                             background: 'transparent',
                             fontWeight: alarma ? 700 : 400,
@@ -1171,12 +1185,11 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                           <span
                             className="pill"
                             style={{
-                              background:
-                                f.estatus === 'NUEVO'
-                                  ? '#4f8cff22'
-                                  : '#98a1af22',
+                              background: fondoTono(
+                                f.estatus === 'NUEVO' ? 'azul' : 'gris'
+                              ),
                               color:
-                                f.estatus === 'NUEVO' ? '#4f8cff' : 'var(--muted)',
+                                f.estatus === 'NUEVO' ? colorTono('azul') : 'var(--muted)',
                             }}
                           >
                             {f.estatus}
@@ -1184,10 +1197,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                         )}
                         <span
                           className="pill"
-                          style={{
-                            background: COLOR_AVANCE[f.avance] + '22',
-                            color: COLOR_AVANCE[f.avance],
-                          }}
+                          style={{ ...COLOR_AVANCE[f.avance] }}
                         >
                           {f.avance === 'PENDIENTE'
                             ? 'Pendiente'
@@ -1248,7 +1258,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                         <span
                           style={{
                             fontSize: 11,
-                            color: '#ef4444',
+                            color: colorTono('rojo'),
                             flexBasis: '100%',
                           }}
                         >
@@ -1338,8 +1348,8 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                     <span
                       className="pill"
                       style={{
-                        background: (EST_COLOR[i.estatus] || '#666') + '22',
-                        color: EST_COLOR[i.estatus] || '#aaa',
+                        background: fondoTono(EST_TONO[i.estatus] ?? 'gris'),
+                        color: colorTono(EST_TONO[i.estatus] ?? 'gris'),
                       }}
                     >
                       {EST_LABEL[i.estatus] || i.estatus}

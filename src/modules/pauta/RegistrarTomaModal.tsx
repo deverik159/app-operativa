@@ -16,6 +16,7 @@ import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { caraLabel } from '../../lib/helpers';
 import { reglaEspecToma } from '../../lib/especToma';
+import { pintar } from '../../lib/tonos';
 import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
 import type { PautaRuta, TipoEvidencia } from '../../types/db';
@@ -114,6 +115,10 @@ function RegistrarTomaModal({
    * habla de tomas fotográficas.
    */
   const regla = reglaEspecToma(fila.espec_toma);
+  // El hex de la regla, en su tono legible del tema activo. null cuando la
+  // regla trae una var() (estándar = --muted): ese recuadro va sin tinte ni
+  // borde, como siempre (tema claro/oscuro, 24-sep-2026).
+  const tonoRegla = pintar(regla.color);
   const fotosSubidas = evidencias.filter((e) => e.tipo !== 'video').length;
   const faltanFotos = Math.max(0, regla.fotos - fotosSubidas);
 
@@ -308,16 +313,16 @@ function RegistrarTomaModal({
                 padding: '4px 10px',
                 borderRadius: 8,
                 fontWeight: 700,
-                background: regla.color + '22',
-                color: regla.color,
-                border: `1px solid ${regla.color}55`,
+                background: tonoRegla?.background,
+                color: tonoRegla?.color ?? regla.color,
+                border: tonoRegla ? '1px solid ' + tonoRegla.borderColor : undefined,
                 overflowWrap: 'anywhere',
               }}
             >
               📸 {fila.espec_toma?.trim() || 'Sin especificación de toma'}
             </span>
             <div style={{ color: 'var(--muted)', marginTop: 4 }}>
-              Requiere <b style={{ color: regla.color }}>{regla.fotos} fotos</b>{' '}
+              Requiere <b style={{ color: tonoRegla?.color ?? regla.color }}>{regla.fotos} fotos</b>{' '}
               ({regla.resumen}).
             </div>
           </div>
@@ -333,18 +338,11 @@ function RegistrarTomaModal({
 
         {/* Toma de reposición: el monitorista ve POR QUÉ se la regresaron
             antes de volver a disparar la cámara. */}
+        {/* Era una copia en línea de .err (mismos colores y medidas): con la
+            clase toma la pareja clara del tema (tema claro/oscuro,
+            24-sep-2026). */}
         {!yaRegistrada && fila.rechazo_motivo && (
-          <div
-            style={{
-              background: '#3a1a1a',
-              border: '1px solid #5a2a2a',
-              color: '#ffb4b4',
-              fontSize: 13,
-              padding: '10px 12px',
-              borderRadius: 10,
-              marginBottom: 14,
-            }}
-          >
+          <div className="err">
             ⛔ El coordinador regresó la toma anterior: “{fila.rechazo_motivo}”.
             Esta captura la repone.
           </div>
@@ -371,7 +369,9 @@ function RegistrarTomaModal({
                 ✓ {fotosSubidas}/{regla.fotos}
               </span>
             ) : (
-              <span style={{ color: 'var(--accent)' }}>
+              // --accent-txt: el naranja como texto, con pareja legible en
+              // el tema claro (tema claro/oscuro, 24-sep-2026).
+              <span style={{ color: 'var(--accent-txt)' }}>
                 {fotosSubidas}/{regla.fotos} · faltan {faltanFotos}
               </span>
             )}

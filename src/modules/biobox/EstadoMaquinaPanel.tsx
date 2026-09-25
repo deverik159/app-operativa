@@ -24,7 +24,8 @@ import {
   type IncidenciaAbierta,
 } from '../../lib/estadoMaquina';
 import { fmtHoras, caraLabel } from '../../lib/helpers';
-import { EST_COLOR, EST_LABEL } from '../../lib/constants';
+import { EST_LABEL, EST_TONO } from '../../lib/constants';
+import { bordeTono, colorTono, fondoTono } from '../../lib/tonos';
 
 type Props = {
   siteId: string;
@@ -65,9 +66,15 @@ function EstadoMaquinaPanel({ siteId, onCargado }: Props) {
   // Un fallo aquí NO puede llevarse la revisión. Se avisa y se sigue.
   if (err) {
     return (
+      // Borde y texto del aviso ámbar sobre el fondo de .banner, con su
+      // pareja clara (tema claro/oscuro, 24-sep-2026).
       <div
         className="banner"
-        style={{ marginBottom: 12, borderColor: '#6a5520', color: '#ffdf9e' }}
+        style={{
+          marginBottom: 12,
+          borderColor: 'var(--aviso-borde)',
+          color: 'var(--aviso-txt)',
+        }}
       >
         ⚠️ No se pudo consultar lo que esta máquina trae abierto ({err}). Puedes
         revisarla de todos modos, pero fíjate de no levantar algo que ya esté
@@ -82,8 +89,10 @@ function EstadoMaquinaPanel({ siteId, onCargado }: Props) {
     return (
       <div
         style={{
-          background: 'rgba(34,197,94,.08)',
-          border: '1px solid rgba(34,197,94,.35)',
+          // Tinte y borde del verde de estatus, con su pareja clara (tema
+          // claro/oscuro, 24-sep-2026).
+          background: fondoTono('verde'),
+          border: '1px solid ' + bordeTono('verde'),
           borderRadius: 10,
           padding: '9px 12px',
           marginBottom: 12,
@@ -104,7 +113,10 @@ function EstadoMaquinaPanel({ siteId, onCargado }: Props) {
   return (
     <div
       style={{
-        border: '1px solid ' + (detenidas ? '#ef4444' : 'var(--line)'),
+        // Borde en el rojo de estatus del tema activo. El tinte al 5% se
+        // queda: es tan leve que sirve igual sobre fondo claro u oscuro
+        // (tema claro/oscuro, 24-sep-2026).
+        border: '1px solid ' + (detenidas ? colorTono('rojo') : 'var(--line)'),
         borderRadius: 12,
         marginBottom: 14,
         overflow: 'hidden',
@@ -138,7 +150,7 @@ function EstadoMaquinaPanel({ siteId, onCargado }: Props) {
         {detenidas > 0 && (
           <span
             className="pill"
-            style={{ background: '#ef444422', color: '#ef4444' }}
+            style={{ background: fondoTono('rojo'), color: colorTono('rojo') }}
           >
             {detenidas} detenida{detenidas === 1 ? '' : 's'} +{' '}
             {fmtHoras(HORAS_ALARMA)}
@@ -147,7 +159,7 @@ function EstadoMaquinaPanel({ siteId, onCargado }: Props) {
         {mias > 0 && (
           <span
             className="pill"
-            style={{ background: '#22c55e22', color: '#22c55e' }}
+            style={{ background: fondoTono('verde'), color: colorTono('verde') }}
           >
             {mias} de tu área
           </span>
@@ -179,8 +191,8 @@ function EstadoMaquinaPanel({ siteId, onCargado }: Props) {
                   <span
                     className="pill"
                     style={{
-                      background: (EST_COLOR[f.estatus] || '#666') + '22',
-                      color: EST_COLOR[f.estatus] || '#aaa',
+                      background: fondoTono(EST_TONO[f.estatus] ?? 'gris'),
+                      color: colorTono(EST_TONO[f.estatus] ?? 'gris'),
                     }}
                   >
                     {EST_LABEL[f.estatus] || f.estatus}
@@ -188,8 +200,8 @@ function EstadoMaquinaPanel({ siteId, onCargado }: Props) {
                   <span
                     className="pill"
                     style={{
-                      background: alarma ? '#ef444422' : 'var(--panel)',
-                      color: alarma ? '#ef4444' : 'var(--muted)',
+                      background: alarma ? fondoTono('rojo') : 'var(--panel)',
+                      color: alarma ? colorTono('rojo') : 'var(--muted)',
                     }}
                     title="Lleva en este estatus"
                   >

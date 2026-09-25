@@ -1382,3 +1382,34 @@ en microtareas dentro del mismo toque). Blindaje:
   llegar fuera de los 10 s por omisión y cerrar la sesión.
 - IndexedDB: la apertura colgada se rearma a los 30 s y una transacción
   vencida suelta su conexión; candados y SW con tope.
+
+### 12.13. Tema claro y oscuro (24-sep-2026)
+
+Lo pidió Erik para los operadores en exteriores (el tema oscuro se lee mal al
+sol). **Automático por omisión** (sigue la apariencia del teléfono; en iPhone
+con apariencia automática, claro de día y oscuro de noche) + selector
+**Automático / Claro / Oscuro** en el menú del avatar ("Apariencia"),
+guardado en el teléfono (`gpovallas_tema`).
+- **Mecanismo:** `data-tema` en `<html>` (sin atributo = Automático, manda el
+  `@media`), puesto por un script en línea en `index.html` ANTES del primer
+  pintado (sin parpadeo) y por `lib/tema.ts`. El tema vive en el CSS, no en
+  estado de React: cambiarlo no re-renderiza la app.
+- **Paleta clara "para sol"** en `index.css` (las dos copias, `@media` y
+  `[data-tema="claro"]`, deben quedar idénticas): texto casi negro sobre
+  blanco, bordes marcados, colores de estatus oscurecidos (el ámbar y el verde
+  de antes daban 2.1-2.3:1 sobre blanco; ahora todos ≥ 4.5). El oscuro quedó
+  igual al de antes (comparado pixel por pixel).
+- **Colores de estatus:** se PINTAN con `lib/tonos.ts` (`pintar`,
+  `colorTono`, `fondoTono`…) y variables `--st-*`; la LÓGICA sigue comparando
+  los hex de siempre (`EST_COLOR`, `slaInfo`). `EST_TONO` se deriva de
+  `EST_COLOR`. Nunca uses `var(--…)` donde no es CSS (Leaflet, canvas,
+  atributos SVG). Colores nuevos: variable con pareja clara y oscura.
+- **iPhone:** la barra de estado sigue `black-translucent`; en claro una
+  franja oscura (`--franja-estado`) detrás del reloj lo mantiene legible. El
+  arranque (manifest `background_color`) es oscuro fijo: un instante oscuro al
+  abrir en claro. La barra de Android sigue naranja en los dos temas.
+- **QA:** 67 pantallas por tema contra un Supabase falso, con escaneo de
+  contraste texto por texto; en claro, 0 textos bajo el mínimo en lo revisado.
+  Quedan en el OSCURO algunos contrastes bajos que ya existían (avatar, botón
+  rojo, "No reparado", "Fuera de línea"): cambiarlos altera colores de marca,
+  decisión de Erik. Falta verlo en un iPhone real al sol.

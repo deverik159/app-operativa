@@ -274,7 +274,9 @@ function EnviosPendientes({
     acciones.some((p) => p.soloMemoria || p.fueraDelTelefono > 0);
 
   const renglon = {
-    borderTop: '1px solid #26344d',
+    // El borde de .banner, con su pareja del tema claro (tema claro/oscuro,
+    // 24-sep-2026).
+    borderTop: '1px solid var(--info-borde)',
     marginTop: 8,
     paddingTop: 8,
     display: 'flex',

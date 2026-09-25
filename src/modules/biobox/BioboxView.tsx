@@ -1,11 +1,13 @@
 // Máquinas por ruta, estado del inventario e incidencias abiertas.
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { sb } from '../../lib/supabase';
 import IrAqui from '../../components/IrAqui';
 import { resumenMaquinas, HORAS_ALARMA } from '../../lib/estadoMaquina';
 import type { MapaResumen } from '../../lib/estadoMaquina';
-import { fmtHoras, sinAcentos } from '../../lib/helpers';
+import { fmtHoras, sinAcentos, NARANJA } from '../../lib/helpers';
+import { colorTono } from '../../lib/tonos';
 import { tramosGoogleMaps } from '../../lib/navegacion';
 import { UNIDADES_BIOBOX } from '../../lib/constants';
 import { fueraDeLinea, maquinasUnicas, indicadoresMaquinas, pendienteRevision } from '../../lib/maquinasBiobox';
@@ -18,6 +20,18 @@ type Orden = 'abandono' | 'secuencia' | 'nombre';
 
 function nombreRuta(u: MaquinaBiobox): string {
   return u.ruta_nombre || 'Ruta ' + u.ruta_numero;
+}
+
+/**
+ * El color de la ruta como variable CSS (--ruta) para `.ruta-nombre`. En el
+ * tema claro index.css lo pinta como punto junto al nombre en vez de como
+ * color de letra: los colores que cada quien elige en Rutas (ámbar, verde
+ * azulado…) no se leen como texto sobre claro. En oscuro no se usa: ahí
+ * sigue mandando el `color` en línea de siempre (tema claro/oscuro,
+ * 24-sep-2026).
+ */
+function varRuta(color: string | null | undefined): CSSProperties {
+  return color ? ({ '--ruta': color } as CSSProperties) : {};
 }
 
 function BioboxView({ email, misDep, recargarSignal = 0 }: {
@@ -149,18 +163,20 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
               {u.direccion || '(sin dirección)'}{u.municipio ? ' · ' + u.municipio : ''}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
-              <span className="tag" style={{ color: u.ruta_color }}>{nombreRuta(u)}</span>
+              <span className="tag ruta-nombre" style={{ color: u.ruta_color, ...varRuta(u.ruta_color) }}>{nombreRuta(u)}</span>
               {u.medio && <span className="tag" style={{ whiteSpace: 'normal' }}>{u.medio}{u.tipo_mueble ? ' · ' + u.tipo_mueble : ''}</span>}
-              <span className="tag" style={{ color: pendienteRevision(u) ? '#f59e0b' : 'var(--ok)' }}>
+              {/* Ámbar y naranja con pareja legible en el tema claro (tema
+                  claro/oscuro, 24-sep-2026). */}
+              <span className="tag" style={{ color: pendienteRevision(u) ? colorTono('ambar') : 'var(--ok)' }}>
                 {u.dias_sin_revision == null ? 'Nunca revisada' : 'Revisada hace ' + u.dias_sin_revision + ' día' + (u.dias_sin_revision === 1 ? '' : 's')}
               </span>
-              {!!u.puntos_anomalia && <span className="tag" style={{ color: '#f97316' }}>
+              {!!u.puntos_anomalia && <span className="tag" style={{ color: NARANJA }}>
                 {u.puntos_anomalia} anomalía{u.puntos_anomalia === 1 ? '' : 's'}
               </span>}
               <span className="tag" style={{ color: fueraDeLinea(u) ? 'var(--bad)' : 'var(--muted)', whiteSpace: 'normal' }}>
                 {fueraDeLinea(u) ? 'Fuera de línea' : u.face_status || 'Sin estado en inventario'}
               </span>
-              {!!e?.abiertas && <span className="tag" style={{ color: alarma ? 'var(--bad)' : '#f97316', whiteSpace: 'normal', maxWidth: '100%' }}>
+              {!!e?.abiertas && <span className="tag" style={{ color: alarma ? 'var(--bad)' : NARANJA, whiteSpace: 'normal', maxWidth: '100%' }}>
                 ⚠ {e.abiertas} abierta{e.abiertas === 1 ? '' : 's'}
                 {e.horas_peor != null ? ' · ' + fmtHoras(e.horas_peor) : ''}
                 {e.areas ? ' · ' + e.areas : ''}
@@ -229,10 +245,10 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
           </label>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
-          <button className="btn ghost sm" aria-pressed={rutaFoco == null} onClick={() => setRutaFoco(null)} style={{ color: rutaFoco == null ? 'var(--accent)' : undefined }}>
+          <button className="btn ghost sm" aria-pressed={rutaFoco == null} onClick={() => setRutaFoco(null)} style={{ color: rutaFoco == null ? 'var(--accent-txt)' : undefined }}>
             Todas ({maquinasUnicas(ubics).length})
           </button>
-          {rutas.map((r) => <button key={r.nombre} className="btn ghost sm" aria-pressed={rutaFoco === r.nombre} onClick={() => setRutaFoco(rutaFoco === r.nombre ? null : r.nombre)} style={{ color: r.color, borderColor: rutaFoco === r.nombre ? r.color : undefined }}>
+          {rutas.map((r) => <button key={r.nombre} className="btn ghost sm ruta-nombre" aria-pressed={rutaFoco === r.nombre} onClick={() => setRutaFoco(rutaFoco === r.nombre ? null : r.nombre)} style={{ color: r.color, borderColor: rutaFoco === r.nombre ? r.color : undefined, ...varRuta(r.color) }}>
             {r.nombre} ({r.sitios.size})
           </button>)}
         </div>

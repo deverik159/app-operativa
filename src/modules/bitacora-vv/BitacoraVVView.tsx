@@ -25,6 +25,7 @@ import {
   type FotoLocal,
 } from '../../lib/storage';
 import { vigilarRender } from '../../lib/vigia';
+import { fondoTono } from '../../lib/tonos';
 
 type Espacio = {
   clave: string;
@@ -84,10 +85,13 @@ type Arte = {
   subido_por: string;
 };
 
+// Los fondos eran tintes oscuros escritos a mano (#2e2413, #12291c…): en el
+// tema claro quedaban manchas negras bajo texto oscuro. Ahora son el tinte
+// del tono, con su pareja clara (tema claro/oscuro, 24-sep-2026).
 const EST_PAUTA: Record<string, { l: string; c: string; bg: string }> = {
-  por_programar: { l: 'Por programar', c: 'var(--warn)', bg: '#2e2413' },
-  programada: { l: 'Programada', c: 'var(--ok)', bg: '#12291c' },
-  cerrada: { l: 'Cerrada', c: 'var(--muted)', bg: '#252b35' },
+  por_programar: { l: 'Por programar', c: 'var(--warn)', bg: fondoTono('ambar') },
+  programada: { l: 'Programada', c: 'var(--ok)', bg: fondoTono('verde') },
+  cerrada: { l: 'Cerrada', c: 'var(--muted)', bg: 'var(--tag-fondo)' },
 };
 
 const HORARIO_FULL = '00:00 - 23:59HRS';
@@ -1241,7 +1245,7 @@ function BitacoraVVView({
           <span className="tag">{campana.cliente}</span>
           {campana.quantum && <span className="tag">QTM {campana.quantum}</span>}
           {campana.estatus === 'cerrada' && (
-            <span className="pill" style={{ background: '#252b35', color: 'var(--muted)' }}>
+            <span className="pill" style={{ background: EST_PAUTA.cerrada.bg, color: EST_PAUTA.cerrada.c }}>
               Cerrada
             </span>
           )}
@@ -1450,7 +1454,7 @@ function BitacoraVVView({
               const est = EST_PAUTA[g.estatus] || {
                 l: 'Mixto',
                 c: 'var(--accent2)',
-                bg: '#1b2536',
+                bg: fondoTono('azul'),
               };
               const puedeCambiar =
                 puedeCapturar && campana.estatus === 'activa' && g.estatus !== 'cerrada';
@@ -2570,19 +2574,19 @@ function BitacoraVVView({
                     </div>
                   </div>
                   {c.estatus === 'cerrada' ? (
-                    <span className="pill" style={{ background: '#252b35', color: 'var(--muted)' }}>
+                    <span className="pill" style={{ background: EST_PAUTA.cerrada.bg, color: EST_PAUTA.cerrada.c }}>
                       Cerrada
                     </span>
                   ) : porProg > 0 ? (
-                    <span className="pill" style={{ background: '#2e2413', color: 'var(--warn)' }}>
+                    <span className="pill" style={{ background: EST_PAUTA.por_programar.bg, color: EST_PAUTA.por_programar.c }}>
                       {porProg} por programar
                     </span>
                   ) : suyas.length > 0 ? (
-                    <span className="pill" style={{ background: '#12291c', color: 'var(--ok)' }}>
+                    <span className="pill" style={{ background: EST_PAUTA.programada.bg, color: EST_PAUTA.programada.c }}>
                       Al día
                     </span>
                   ) : (
-                    <span className="pill" style={{ background: '#1b2536', color: 'var(--accent2)' }}>
+                    <span className="pill" style={{ background: fondoTono('azul'), color: 'var(--accent2)' }}>
                       Sin pauta
                     </span>
                   )}

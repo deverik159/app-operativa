@@ -26,15 +26,22 @@ export function maquinasUnicas(filas: MaquinaBiobox[]): MaquinaBiobox[] {
 /** Los números y el detalle comparten exactamente las mismas máquinas. */
 export function indicadoresMaquinas(filas: MaquinaBiobox[], estado: MapaResumen) {
   const base = maquinasUnicas(filas);
+  // Colores como variables CSS para que el número se lea en los dos temas
+  // (tema claro/oscuro, 24-sep-2026): #f59e0b y #f97316 sobre blanco no llegan
+  // a 3:1. Van escritos y no con colorTono()/NARANJA porque este archivo no
+  // importa nada en tiempo de ejecución: la prueba lo transpila solo y lo
+  // carga desde un data: URL. El respaldo del naranja es el oscuro de hoy.
+  const ambar = 'var(--st-ambar)';
+  const naranja = 'var(--st-naranja, #f97316)';
   return [
     { id: 'total', titulo: 'Máquinas', color: 'var(--txt)', filas: base },
     { id: 'nunca', titulo: 'Nunca revisadas', color: 'var(--bad)',
       filas: base.filter((u) => u.dias_sin_revision == null) },
-    { id: 'vencidas', titulo: '+' + DIAS_REVISION + ' días', color: '#f59e0b',
+    { id: 'vencidas', titulo: '+' + DIAS_REVISION + ' días', color: ambar,
       filas: base.filter((u) => u.dias_sin_revision != null && u.dias_sin_revision >= DIAS_REVISION) },
-    { id: 'anomalias', titulo: 'Con anomalías', color: '#f97316',
+    { id: 'anomalias', titulo: 'Con anomalías', color: naranja,
       filas: base.filter((u) => (u.puntos_anomalia || 0) > 0) },
-    { id: 'incidencias', titulo: 'Con incidencias abiertas', color: '#f97316',
+    { id: 'incidencias', titulo: 'Con incidencias abiertas', color: naranja,
       filas: base.filter((u) => (estado[u.site_id]?.abiertas || 0) > 0) },
     { id: 'fuera', titulo: 'Fuera de línea', color: 'var(--bad)',
       filas: base.filter(fueraDeLinea) },

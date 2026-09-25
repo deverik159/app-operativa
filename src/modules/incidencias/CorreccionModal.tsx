@@ -342,15 +342,17 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
         </div>
 
         {cambiaArea && (
+          // Caja de aviso ámbar con pareja en el tema claro (tema
+          // claro/oscuro, 24-sep-2026).
           <div
             style={{
-              background: '#3a2e12',
-              border: '1px solid #6a5520',
+              background: 'var(--aviso-fondo)',
+              border: '1px solid var(--aviso-borde)',
               borderRadius: 10,
               padding: '10px 12px',
               margin: '4px 0 12px',
               fontSize: 13,
-              color: '#ffdf9e',
+              color: 'var(--aviso-txt)',
             }}
           >
             ⚠️ El área responsable pasa de{' '}

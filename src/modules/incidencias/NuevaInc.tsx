@@ -67,6 +67,10 @@ import {
 } from '../../lib/catalogo';
 import SubirArchivos from '../../components/SubirArchivos';
 import { vigilarRender } from '../../lib/vigia';
+// Colores de estatus y el naranja como TEXTO van con su tono, legibles en
+// los dos temas: --accent en claro solo sirve de fondo de botón (tema
+// claro/oscuro, 24-sep-2026).
+import { colorTono, fondoTono, pintar } from '../../lib/tonos';
 import type {
   CatalogoIncidencia,
   IncidenciaNueva,
@@ -1899,9 +1903,11 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                   </div>
                   <span
                     className="pill"
+                    // Azul con su tono, legible en los dos temas (tema
+                    // claro/oscuro, 24-sep-2026).
                     style={{
-                      background: '#4f8cff22',
-                      color: '#4f8cff',
+                      background: fondoTono('azul'),
+                      color: colorTono('azul'),
                       alignSelf: 'center',
                       flexShrink: 0,
                     }}
@@ -1966,7 +1972,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           <>
             <div className="field">
               <label>
-                Vía de reporte <span style={{ color: 'var(--accent)' }}>*</span>
+                Vía de reporte <span style={{ color: colorTono('acento') }}>*</span>
               </label>
               <select value={viaReporte} onChange={(e) => setViaReporte(e.target.value)}>
                 <option value="">— ¿por dónde llegó la solicitud? —</option>
@@ -1979,7 +1985,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               <div className="field">
                 <label>
                   Correo de quien pidió el reporte{' '}
-                  <span style={{ color: 'var(--accent)' }}>*</span>
+                  <span style={{ color: colorTono('acento') }}>*</span>
                 </label>
                 <input
                   type="email"
@@ -2049,7 +2055,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                       {editandoId === l.id && (
                         <>
                           {' · '}
-                          <span style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                          <span style={{ color: colorTono('acento'), fontWeight: 700 }}>
                             editando abajo
                           </span>
                         </>
@@ -2175,12 +2181,12 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                 <span className="tag">
                   Área: <b>{catSel.area || '—'}</b>
                 </span>
+                {/* Tono del nivel (tema claro/oscuro, 24-sep-2026); sin
+                    nivel reconocido, gris. */}
                 <span
                   className="pill"
                   style={{
-                    background:
-                      (NIVEL_COLOR[(catSel.impacto || '').trim()] || '#555') + '22',
-                    color: NIVEL_COLOR[(catSel.impacto || '').trim()] || '#aaa',
+                    ...pintar(NIVEL_COLOR[(catSel.impacto || '').trim()] || '#6b7280'),
                   }}
                 >
                   Nivel {(catSel.impacto || '').trim() || '—'}
@@ -2424,7 +2430,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             <div className="field">
               <label>
                 Evidencia de ESTA incidencia (foto/video) —{' '}
-                <span style={{ color: 'var(--accent)' }}>obligatoria</span>
+                <span style={{ color: colorTono('acento') }}>obligatoria</span>
               </label>
               <SubirArchivos
                 archivos={filesLinea}

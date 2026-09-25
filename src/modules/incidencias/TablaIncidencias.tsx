@@ -26,6 +26,7 @@ import {
   horasValidacionReparacion,
   fmtHoras,
 } from '../../lib/helpers';
+import { pintar } from '../../lib/tonos';
 import type { Incidencia } from '../../types/db';
 
 type Props = {
@@ -313,11 +314,12 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
                     <b>{i.folio || i.record_id}</b>
                   </td>
                   <td style={celda}>
+                    {/* Tono del estatus (tema claro/oscuro, 24-sep-2026);
+                        fuera de la paleta, gris. */}
                     <span
                       className="pill"
                       style={{
-                        background: (EST_COLOR[i.estatus] || '#666') + '22',
-                        color: EST_COLOR[i.estatus] || '#aaa',
+                        ...pintar(EST_COLOR[i.estatus] || '#6b7280'),
                         whiteSpace: 'nowrap',
                       }}
                     >

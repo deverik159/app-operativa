@@ -10,6 +10,7 @@
 // ============================================================
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
+import { colorTono } from '../../lib/tonos';
 import type { Revision, RevisionRespuesta, RevisionEvidencia } from '../../types/db';
 
 type Props = {
@@ -18,9 +19,11 @@ type Props = {
   onClose: () => void;
 };
 
+// "Con falla" en el ámbar del tema activo: el #f59e0b de siempre sobre
+// blanco no se lee (tema claro/oscuro, 24-sep-2026).
 const COLOR_ESTADO: Record<string, string> = {
   operando: 'var(--ok)',
-  con_falla: '#f59e0b',
+  con_falla: colorTono('ambar'),
   fuera_de_linea: 'var(--bad)',
 };
 

@@ -9,7 +9,169 @@
        Se define como alias de `--hi` en vez de cambiar los diez usos: el
        nombre semántico ("malo") se lee mejor que el genérico en ese
        contexto, y así no se rompe nada más. */
-    --bad:#ef4444}
+    --bad:#ef4444;
+    /* ---- Tema claro/oscuro (24-sep-2026) ----
+       Este :root es el tema OSCURO de siempre: ningún valor de arriba
+       cambió, y las variables de abajo valen exactamente lo que antes
+       estaba escrito a mano en cada regla. La pareja clara está más abajo
+       (bloques "Tema CLARO"). Automático = sin data-tema en el <html>:
+       decide el @media del teléfono.
+       --accent-txt: el naranja cuando es TEXTO o borde fino. En claro,
+       #ff5a3c sobre blanco da 2.9:1; el naranja queda solo como fondo de
+       botón (con texto #151515, 5.9:1). */
+    --accent-txt:#ff5a3c;
+    /* Texto de .btn.ok y .btn.warn: en claro el verde y el ámbar son
+       oscuros y el #151515 de siempre se pierde (3:1); ahí va blanco. */
+    --sobre-ok:#151515;--sobre-warn:#151515;
+    /* Superficies con color propio: etiquetas, avisos de error/éxito/info,
+       avisos ámbar (se usan en estilos en línea de las pantallas), lo
+       activo (nav, rol principal, pestaña) y el texto de observaciones. */
+    --tag-fondo:#252b35;
+    --err-fondo:#3a1a1a;--err-borde:#5a2a2a;--err-txt:#ffb4b4;
+    --ok-fondo:#16281c;--ok-borde:#244a30;--ok-txt:#a7e8bf;
+    --info-fondo:#1a2436;--info-borde:#26344d;--info-txt:#bcd0f0;
+    --aviso-fondo:#3a2e12;--aviso-borde:#6a5520;--aviso-txt:#ffdf9e;
+    --activo-fondo:#241b17;--activo-borde:transparent;
+    --obs-txt:#c9cfd8;
+    --overlay:rgba(0,0,0,.65);--sombra:rgba(0,0,0,.5);--sombra-menu:rgba(0,0,0,.4);
+    --login-brillo:#2a1a14;--atrib-fondo:rgba(14,16,19,.72);
+    /* Franja bajo la barra de estado del iPhone (ver body::before). En
+       oscuro no hace falta: la barra superior ya es oscura. */
+    --franja-estado:transparent;
+    /* Texto sobre un fondo --purple sólido (el pin de Fijación Externa). */
+    --sobre-morado:#151515;
+    /* Tonos de estatus (src/lib/tonos.ts): texto, tinte de fondo y borde.
+       En oscuro son los hex de EST_COLOR/NIVEL_COLOR con el mismo alfa que
+       ya se concatenaba en las pantallas ('22' de fondo, '55' de borde). */
+    --st-rojo:#ef4444;--st-rojo-fondo:#ef444422;--st-rojo-borde:#ef444455;
+    --st-ambar:#f59e0b;--st-ambar-fondo:#f59e0b22;--st-ambar-borde:#f59e0b55;
+    --st-verde:#22c55e;--st-verde-fondo:#22c55e22;--st-verde-borde:#22c55e55;
+    --st-azul:#4f8cff;--st-azul-fondo:#4f8cff22;--st-azul-borde:#4f8cff55;
+    --st-morado:#a78bfa;--st-morado-fondo:#a78bfa22;--st-morado-borde:#a78bfa55;
+    --st-gris:#6b7280;--st-gris-fondo:#6b728022;--st-gris-borde:#6b728055;
+    --st-acento:#ff5a3c;--st-acento-fondo:#ff5a3c22;--st-acento-borde:#ff5a3c55;
+    /* Naranja de "anomalía / incidencia abierta sin alarma" (#f97316, Biobox
+       y KML). No es un Tono de tonos.ts: las pantallas lo usan directo con
+       var(--st-naranja, #f97316) (NARANJA en helpers.ts). */
+    --st-naranja:#f97316;--st-naranja-fondo:#f9731622;--st-naranja-borde:#f9731655;
+    color-scheme:dark}
+
+  /* ---- Tema CLARO "para sol" (24-sep-2026) ----
+     Va DOS veces con los mismos valores —CSS no tiene forma de juntar un
+     @media y un selector de atributo en una sola regla—: en Automático con
+     el teléfono en claro, y con Claro elegido a mano. SI CAMBIAS UNO,
+     CAMBIA EL OTRO. Contrastes medidos (WCAG) sobre --panel #fff:
+     --txt 18.9:1 · --muted 7.9:1 · estatus ≥ 5.2:1 sobre blanco y ≥ 4.6:1
+     sobre su propio tinte · --line 1.66:1 (bordes visibles al sol).
+     Los tintes de estatus son sólidos (el mismo 13% de antes, ya mezclado
+     con blanco) para que el contraste no dependa de lo que haya debajo. */
+  @media (prefers-color-scheme: light){
+    :root:not([data-tema="oscuro"]){
+      --bg:#eef1f5;--panel:#ffffff;--panel2:#f4f6f9;--line:#c3c9d3;--txt:#0f1115;--muted:#4a5261;
+      --accent:#ff5a3c;--accent2:#1d4fd8;--ok:#13753a;--warn:#a14a02;--hi:#c81e1e;--purple:#6b2fd1;--bad:#c81e1e;
+      --accent-txt:#b43c0b;
+      --sobre-ok:#ffffff;--sobre-warn:#ffffff;
+      --tag-fondo:#e3e7ed;
+      --err-fondo:#fdecec;--err-borde:#f1b4b4;--err-txt:#9b1c1c;
+      --ok-fondo:#e7f6ec;--ok-borde:#9fd5b1;--ok-txt:#0f5c2e;
+      --info-fondo:#e8effc;--info-borde:#a9c1ee;--info-txt:#1e3a8a;
+      --aviso-fondo:#fdf3dc;--aviso-borde:#e3c07a;--aviso-txt:#6b3500;
+      --activo-fondo:#fdeee7;--activo-borde:#e8b7a4;
+      --obs-txt:#2b313b;
+      --overlay:rgba(15,17,21,.45);--sombra:rgba(15,17,21,.18);--sombra-menu:rgba(15,17,21,.10);
+      --login-brillo:#ffe3d8;--atrib-fondo:rgba(255,255,255,.85);
+      --franja-estado:#0f1115;
+      --sobre-morado:#ffffff;
+      --st-rojo:#c81e1e;--st-rojo-fondo:#f8e1e1;--st-rojo-borde:#eaaaaa;
+      --st-ambar:#a14a02;--st-ambar-fondo:#f2e7dd;--st-ambar-borde:#dcbba0;
+      --st-verde:#13753a;--st-verde-fondo:#e0ede5;--st-verde-borde:#a6cbb5;
+      --st-azul:#1d4fd8;--st-azul-fondo:#e1e8fa;--st-azul-borde:#aabdf0;
+      --st-morado:#6b2fd1;--st-morado-fondo:#ebe3f9;--st-morado-borde:#c7b1ee;
+      --st-gris:#4b5563;--st-gris-fondo:#e7e8ea;--st-gris-borde:#bbbfc4;
+      --st-acento:#b43c0b;--st-acento-fondo:#faefea;--st-acento-borde:#e8b7a4;
+      /* #a53f06 y no #b54708: sobre la etiqueta gris (.tag, #e3e7ed) de
+         Biobox daba 4.37:1; así da 5.11 (5.46 sobre su tinte, 6.34 sobre
+         blanco). Corrección del QA (tema claro/oscuro, 24-sep-2026). */
+      --st-naranja:#a53f06;--st-naranja-fondo:#f7ece6;--st-naranja-borde:#e3baa2;
+      color-scheme:light}
+  }
+  :root[data-tema="claro"]{
+    --bg:#eef1f5;--panel:#ffffff;--panel2:#f4f6f9;--line:#c3c9d3;--txt:#0f1115;--muted:#4a5261;
+    --accent:#ff5a3c;--accent2:#1d4fd8;--ok:#13753a;--warn:#a14a02;--hi:#c81e1e;--purple:#6b2fd1;--bad:#c81e1e;
+    --accent-txt:#b43c0b;
+    --sobre-ok:#ffffff;--sobre-warn:#ffffff;
+    --tag-fondo:#e3e7ed;
+    --err-fondo:#fdecec;--err-borde:#f1b4b4;--err-txt:#9b1c1c;
+    --ok-fondo:#e7f6ec;--ok-borde:#9fd5b1;--ok-txt:#0f5c2e;
+    --info-fondo:#e8effc;--info-borde:#a9c1ee;--info-txt:#1e3a8a;
+    --aviso-fondo:#fdf3dc;--aviso-borde:#e3c07a;--aviso-txt:#6b3500;
+    --activo-fondo:#fdeee7;--activo-borde:#e8b7a4;
+    --obs-txt:#2b313b;
+    --overlay:rgba(15,17,21,.45);--sombra:rgba(15,17,21,.18);--sombra-menu:rgba(15,17,21,.10);
+    --login-brillo:#ffe3d8;--atrib-fondo:rgba(255,255,255,.85);
+    --franja-estado:#0f1115;
+    --sobre-morado:#ffffff;
+    --st-rojo:#c81e1e;--st-rojo-fondo:#f8e1e1;--st-rojo-borde:#eaaaaa;
+    --st-ambar:#a14a02;--st-ambar-fondo:#f2e7dd;--st-ambar-borde:#dcbba0;
+    --st-verde:#13753a;--st-verde-fondo:#e0ede5;--st-verde-borde:#a6cbb5;
+    --st-azul:#1d4fd8;--st-azul-fondo:#e1e8fa;--st-azul-borde:#aabdf0;
+    --st-morado:#6b2fd1;--st-morado-fondo:#ebe3f9;--st-morado-borde:#c7b1ee;
+    --st-gris:#4b5563;--st-gris-fondo:#e7e8ea;--st-gris-borde:#bbbfc4;
+    --st-acento:#b43c0b;--st-acento-fondo:#faefea;--st-acento-borde:#e8b7a4;
+    /* #a53f06: ver la nota del bloque del @media. */
+    --st-naranja:#a53f06;--st-naranja-fondo:#f7ece6;--st-naranja-borde:#e3baa2;
+    color-scheme:light}
+  /* Oscuro elegido a mano con el teléfono en claro: el :root de arriba ya
+     trae la paleta oscura (el bloque del @media no aplica por el :not); solo
+     hay que dejar explícito el esquema de los controles nativos. */
+  :root[data-tema="oscuro"]{color-scheme:dark}
+
+  /* ---- Reglas que solo existen en el tema CLARO (corrección del QA, tema
+     claro/oscuro, 24-sep-2026) ----
+     Van en las mismas dos formas que la paleta: Automático con el teléfono
+     en claro, y Claro elegido a mano. SI CAMBIAS UNA, CAMBIA LA OTRA. En
+     oscuro no aplica ninguna: se ve como siempre.
+     · Botón deshabilitado: la opacidad .5 de siempre sobre fondo claro
+       dejaba un salmón pálido con letra de 1.9:1 que al sol parecía no
+       existir. En claro se vuelve gris sólido con letra --muted (6.3:1): se
+       ve que está ahí y que no se puede tocar. El contorno va con
+       box-shadow y no con border para no mover el botón 2px al
+       deshabilitarse. El de contorno (.ghost) conserva la opacidad: su
+       letra es --txt y sigue legible.
+     · Nombre de la ruta en Biobox (.ruta-nombre: la etiqueta de la tarjeta
+       y los botones de filtro). El color lo elige cada quien en Rutas y como
+       LETRA sobre claro no se lee (ámbar 1.7:1, verde azulado 2.0:1), así que
+       pintarTexto() no lo cubre. En claro la letra va en --txt y el color de
+       la ruta pasa a un punto antes del nombre (--ruta, puesto en línea; el
+       aro tenue es para que un color pálido no desaparezca). El filtro
+       elegido se marca con contorno --txt de 2px en vez del borde del color
+       de la ruta, que con los colores pálidos no llega a 3:1. Los !important
+       vencen al color y al borde en línea, que son los de siempre en
+       oscuro. */
+  @media (prefers-color-scheme: light){
+    :root:not([data-tema="oscuro"]) .btn:disabled:not(.ghost){opacity:1;background:var(--tag-fondo);color:var(--muted);box-shadow:inset 0 0 0 1px var(--line)}
+    :root:not([data-tema="oscuro"]) .ruta-nombre{color:var(--txt) !important}
+    :root:not([data-tema="oscuro"]) .ruta-nombre::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;
+      background:var(--ruta,var(--muted));box-shadow:0 0 0 1px rgba(15,17,21,.3)}
+    :root:not([data-tema="oscuro"]) .ruta-nombre[aria-pressed="true"]{border-color:var(--txt) !important;box-shadow:inset 0 0 0 1px var(--txt)}
+  }
+  :root[data-tema="claro"] .btn:disabled:not(.ghost){opacity:1;background:var(--tag-fondo);color:var(--muted);box-shadow:inset 0 0 0 1px var(--line)}
+  :root[data-tema="claro"] .ruta-nombre{color:var(--txt) !important}
+  :root[data-tema="claro"] .ruta-nombre::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;
+    background:var(--ruta,var(--muted));box-shadow:0 0 0 1px rgba(15,17,21,.3)}
+  :root[data-tema="claro"] .ruta-nombre[aria-pressed="true"]{border-color:var(--txt) !important;box-shadow:inset 0 0 0 1px var(--txt)}
+
+  /* La barra de estado del iPhone con la app instalada es
+     "black-translucent" (index.html): texto BLANCO siempre, y el contenido
+     corre por debajo. En oscuro no importa (la barra superior es oscura),
+     pero en claro el reloj y la batería quedaban blanco sobre blanco. Esta
+     franja pinta detrás de ellos --franja-estado (transparente en oscuro).
+     Mide env(safe-area-inset-top): 0 en el navegador, en Android y en
+     horizontal, así que solo existe donde hace falta. z-index 955: encima
+     del menú inferior (900) y los paneles de la barra (950), debajo del
+     overlay de los modales (960), que la sigue oscureciendo igual. */
+  body::before{content:'';position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);
+    background:var(--franja-estado);z-index:1100;pointer-events:none}
   *{box-sizing:border-box}html,body{margin:0}
   /* Ningún elemento debe forzar scroll horizontal en la página. */
   html,body{overflow-x:hidden;max-width:100%}
@@ -41,7 +203,7 @@
   .btn:hover{filter:brightness(1.08)}.btn:disabled{opacity:.5;cursor:default}
   .btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
   .btn.sm{padding:7px 11px;font-size:13px}
-  .btn.ok{background:var(--ok)}.btn.warn{background:var(--warn)}.btn.hi{background:var(--hi);color:#fff}
+  .btn.ok{background:var(--ok);color:var(--sobre-ok)}.btn.warn{background:var(--warn);color:var(--sobre-warn)}.btn.hi{background:var(--hi);color:#fff}
   select,input,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:10px 11px;border-radius:9px;font-size:14px;font-family:inherit;width:100%}
   /* El `overflow-wrap:anywhere` + `word-break:break-word` del body se hereda
      hasta acá, y en iOS descoloca el cursor: la letra se dibuja en un renglón
@@ -58,7 +220,7 @@
     justify-content:center;padding:0;font-size:16px;line-height:1;
     border-radius:9px;flex-shrink:0}
   .btn-icono:active,.btn-icono:hover{background:var(--panel2)}
-  .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;background:#252b35;color:var(--muted)}
+  .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;background:var(--tag-fondo);color:var(--muted)}
   @keyframes pulseDot{0%,100%{transform:scale(1)}50%{transform:scale(1.22)}}
   .badge-pulse{display:inline-block;animation:pulseDot 1.4s ease-in-out infinite}
   /* Círculo giratorio minimalista para "subiendo/procesando". Hereda el
@@ -69,13 +231,13 @@
     border:2px solid currentColor;border-top-color:transparent;
     border-radius:50%;animation:girar .7s linear infinite;
     vertical-align:-2px;margin-right:7px}
-  .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(1200px 600px at 70% -10%,#2a1a14,transparent),var(--bg)}
+  .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(1200px 600px at 70% -10%,var(--login-brillo),transparent),var(--bg)}
   .login-card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:28px;max-width:400px;width:100%}
   .logo{width:52px;height:52px;border-radius:13px;background:linear-gradient(135deg,var(--accent),#ffb03c);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:26px;color:#101;margin-bottom:16px}
   .login h1{margin:0 0 4px;font-size:22px}.login .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
   .field{margin-bottom:13px}.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}
-  .err{background:#3a1a1a;border:1px solid #5a2a2a;color:#ffb4b4;font-size:13px;padding:10px 12px;border-radius:10px;margin-bottom:14px}
-  .ok-msg{background:#16281c;border:1px solid #244a30;color:#a7e8bf;font-size:13px;padding:10px 12px;border-radius:10px;margin-bottom:14px}
+  .err{background:var(--err-fondo);border:1px solid var(--err-borde);color:var(--err-txt);font-size:13px;padding:10px 12px;border-radius:10px;margin-bottom:14px}
+  .ok-msg{background:var(--ok-fondo);border:1px solid var(--ok-borde);color:var(--ok-txt);font-size:13px;padding:10px 12px;border-radius:10px;margin-bottom:14px}
   /* padding-top con safe-area: en la PWA instalada en iPhone la barra de
      estado es translúcida (black-translucent) y el contenido corre por
      debajo del reloj/notch. En navegador normal el inset es 0 y no cambia
@@ -95,7 +257,7 @@
   .layout{display:flex;max-width:1280px;margin:0 auto}
   .side{width:200px;flex-shrink:0;padding:16px 12px;border-right:1px solid var(--line);min-height:calc(100vh - 61px)}
   .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;color:var(--muted);font-size:14px;font-weight:600}
-  .nav-item:hover{background:var(--panel2);color:var(--txt)}.nav-item.active{background:#241b17;color:var(--txt)}
+  .nav-item:hover{background:var(--panel2);color:var(--txt)}.nav-item.active{background:var(--activo-fondo);color:var(--txt);box-shadow:inset 0 0 0 1px var(--activo-borde)}
   /* El globito nunca se encoge ni parte sus dígitos: con "Mis pendientes"
      (texto largo) el flex lo apretaba y "16" salía "1" arriba y "6" abajo. */
   .nav-item .badge{margin-left:auto;background:var(--accent);color:#151515;border-radius:20px;font-size:11px;padding:1px 7px;font-weight:800;flex-shrink:0;white-space:nowrap;line-height:1.5}
@@ -113,7 +275,7 @@
   .inc{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 15px}
   .inc-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
   .inc .folio{font-size:12px;color:var(--muted);font-weight:800}.inc .titulo{font-weight:700;font-size:15px;margin:3px 0}
-  .inc .meta{color:var(--muted);font-size:12px;line-height:1.5}.inc .obs{font-size:13px;margin-top:7px;color:#c9cfd8}
+  .inc .meta{color:var(--muted);font-size:12px;line-height:1.5}.inc .obs{font-size:13px;margin-top:7px;color:var(--obs-txt)}
   .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
   .inc-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;border-top:1px solid var(--line);padding-top:11px}
   /* Foto del reporte dentro de la tarjeta. cover + max-height para que una
@@ -130,7 +292,7 @@
      barra de estado es translúcida (igual que en .topbar) y sin el inset el
      título del modal quedaba DEBAJO del reloj y la Dynamic Island. En
      navegador normal el inset es 0 y no cambia nada. */
-  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;padding-top:calc(24px + env(safe-area-inset-top,0px));overflow:auto;z-index:960}
+  .overlay{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;padding-top:calc(24px + env(safe-area-inset-top,0px));overflow:auto;z-index:960}
 
   /* Paneles flotantes de la barra superior (campana y menú de usuario).
      En escritorio cuelgan del botón; en celular se vuelven una hoja de
@@ -144,8 +306,11 @@
          celular (900) y tiene que ganarle, quedando bajo el overlay (960). */
   .panel-flotante{position:fixed;right:14px;top:calc(56px + env(safe-area-inset-top,0px));width:320px;max-height:min(420px,72vh);overflow:auto;
     background:var(--panel);border:1px solid var(--line);border-radius:12px;z-index:950;
-    box-shadow:0 8px 24px rgba(0,0,0,.5)}
-  .panel-flotante.angosto{width:250px;max-height:none}
+    box-shadow:0 8px 24px var(--sombra)}
+  /* Con la sección Apariencia el menú del avatar mide ~380 px: en una
+     pantalla ancha y baja (iPad u horizontal) se salía por abajo sin poder
+     desplazarse (tema claro/oscuro, 24-sep-2026). */
+  .panel-flotante.angosto{width:250px;max-height:calc(100vh - 70px);overflow:auto}
   .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:100%;max-width:540px;padding:22px}
   /* Chat: acotado al alto visible. En iOS `vh` se mide con la barra de
      Safari COLAPSADA; con la barra visible el modal se pasaba y el campo de
@@ -165,7 +330,7 @@
   .inc-list>*{min-width:0}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
   .modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:6px}
-  .banner{background:#1a2436;border:1px solid #26344d;color:#bcd0f0;font-size:12px;padding:9px 12px;border-radius:10px;margin-bottom:16px}
+  .banner{background:var(--info-fondo);border:1px solid var(--info-borde);color:var(--info-txt);font-size:12px;padding:9px 12px;border-radius:10px;margin-bottom:16px}
   /* ============================================================
      MÓVIL / TABLET
      El menú lateral se convierte en BARRA FIJA ABAJO (estilo app).
@@ -228,7 +393,7 @@
     .side{position:fixed;bottom:0;left:0;right:0;width:auto;min-height:0;z-index:900;
       border-right:none;border-top:1px solid var(--line);border-bottom:none;
       padding:8px 10px;display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;
-      background:var(--panel);box-shadow:0 -2px 12px rgba(0,0,0,.4);
+      background:var(--panel);box-shadow:0 -2px 12px var(--sombra-menu);
       /* EL PROBLEMA DEL iPHONE: la franja del indicador de inicio —la barra
          donde se desliza para cambiar de app— se traga los toques de los
          últimos ~20px de pantalla. Con el menú pegado abajo, tocar un módulo
@@ -317,7 +482,7 @@
      que estorbar: se compacta y se despega de la esquina para que no caiga
      encima de los datos de la ruta. */
   .leaflet-control-attribution{font-size:10px;padding:1px 6px;
-    background:rgba(14,16,19,.72) !important;color:var(--muted) !important;
+    background:var(--atrib-fondo) !important;color:var(--muted) !important;
     border-radius:6px 0 0 0;max-width:60vw;white-space:nowrap;overflow:hidden;
     text-overflow:ellipsis}
   .leaflet-control-attribution a{color:var(--muted) !important}
@@ -338,5 +503,5 @@
     .rutas-map{height:300px !important}
   }
   .order-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#151515;font-weight:800;font-size:12px;flex-shrink:0}
-  .leaflet-container{background:#0e1013}
+  .leaflet-container{background:var(--bg)}
   .route-pin{background:var(--accent);color:#151515;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;border:2px solid #151515}

@@ -38,6 +38,7 @@ import {
 } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
 import { vigilarRender } from '../../lib/vigia';
+import { colorTono } from '../../lib/tonos';
 import type { Incidencia, Reasignacion } from '../../types/db';
 
 export type ModoReasign = 'solicitar' | 'aprobar';
@@ -473,8 +474,14 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
                 className="banner"
                 style={{
                   marginBottom: 12,
+                  // Aviso ámbar con pareja en el tema claro (tema
+                  // claro/oscuro, 24-sep-2026).
                   ...(areaDestino === (inc.area_responsable || '')
-                    ? { background: '#3a2e12', borderColor: '#6a5520', color: '#ffdf9e' }
+                    ? {
+                        background: 'var(--aviso-fondo)',
+                        borderColor: 'var(--aviso-borde)',
+                        color: 'var(--aviso-txt)',
+                      }
                     : {}),
                 }}
               >
@@ -503,7 +510,9 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
             <div className="field">
               <label>
                 Evidencia (foto) —{' '}
-                <span style={{ color: 'var(--accent)' }}>obligatoria</span>
+                {/* El naranja como TEXTO va con su tono (tema claro/oscuro,
+                    24-sep-2026): --accent en claro solo sirve de fondo. */}
+                <span style={{ color: colorTono('acento') }}>obligatoria</span>
               </label>
               <SubirArchivos
                 accept="image/*"
@@ -575,7 +584,7 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
             >
               <div>
                 <b>{req.area_origen || '—'}</b> →{' '}
-                <b style={{ color: '#a78bfa' }}>{req.area_destino}</b>
+                <b style={{ color: colorTono('morado') }}>{req.area_destino}</b>
               </div>
               {req.nueva_incidencia && (
                 <div>

@@ -11,8 +11,9 @@ import { candadoTactil } from '../../lib/mapaTactil';
 import { prepararArchivos } from '../../lib/comprimirImagen';
 import RepararModal, { DatosReparacion } from '../incidencias/RepararModal';
 import type { FinReparacion } from '../incidencias/RepararModal';
-import { EST_COLOR, EST_LABEL } from '../../lib/constants';
+import { EST_LABEL, EST_TONO } from '../../lib/constants';
 import { caraIncidencia, areaEfectiva, escHtml, codigoCara } from '../../lib/helpers';
+import { colorTono, fondoTono } from '../../lib/tonos';
 import { CACHE_INMUTABLE } from '../../lib/storage';
 import {
   accionesPendientes,
@@ -96,11 +97,13 @@ const catorcenaCorta = (c?: string): string => {
   return m ? `CAT ${m[1]} · ${m[2]}` : c || '';
 };
 
-/** Color del estado de la orden de fijación (PENDIENTE/COMPLETO/RESUELTO). */
+/** Color del estado de la orden de fijación (PENDIENTE/COMPLETO/RESUELTO).
+ *  Por tono, con su pareja legible en el tema claro (tema claro/oscuro,
+ *  24-sep-2026): el ámbar y el verde de siempre sobre blanco no se leen. */
 const ESTADO_FIJ: Record<string, { bg: string; fg: string }> = {
-  PENDIENTE: { bg: '#f59e0b22', fg: '#f59e0b' },
-  COMPLETO: { bg: '#22c55e22', fg: '#22c55e' },
-  RESUELTO: { bg: '#4f8cff22', fg: '#4f8cff' },
+  PENDIENTE: { bg: fondoTono('ambar'), fg: colorTono('ambar') },
+  COMPLETO: { bg: fondoTono('verde'), fg: colorTono('verde') },
+  RESUELTO: { bg: fondoTono('azul'), fg: colorTono('azul') },
 };
 type RegistroConCoords = Registro & { lat: number; lng: number };
 type FotoLocal = { file: File; preview: string };
@@ -831,9 +834,12 @@ function FijacionExternaView({
         <div
           className="warnbox"
           style={{
-            background: '#2a2214',
-            border: '1px solid #4a3a1e',
-            color: '#f0dcb0',
+            // Los colores de los avisos ámbar, con su pareja clara (tema
+            // claro/oscuro, 24-sep-2026). En oscuro es el mismo aviso ámbar
+            // del resto de la app, apenas más cálido que el de antes.
+            background: 'var(--aviso-fondo)',
+            border: '1px solid var(--aviso-borde)',
+            color: 'var(--aviso-txt)',
             fontSize: 12,
             padding: '9px 12px',
             borderRadius: 10,
@@ -1001,7 +1007,10 @@ function FijacionExternaView({
                 <div
                   style={{
                     fontSize: 12,
-                    color: '#ffb4b4',
+                    // El texto de .err, con su pareja clara (tema
+                    // claro/oscuro, 24-sep-2026): el rosa de siempre sobre
+                    // blanco no se lee.
+                    color: 'var(--err-txt)',
                     marginTop: 6,
                   }}
                 >
@@ -1080,7 +1089,8 @@ function FijacionExternaView({
                   <div style={{ display: 'flex', gap: 10 }}>
                     <span
                       className="order-badge"
-                      style={{ background: 'var(--purple)' }}
+                      // #151515 sobre el morado claro daba 2.6:1 (tema claro).
+                      style={{ background: 'var(--purple)', color: 'var(--sobre-morado)' }}
                       title="Incidencia en esta ubicación"
                     >
                       {pinPorId.get(r.id) ?? '✕'}
@@ -1110,8 +1120,8 @@ function FijacionExternaView({
                             <span
                               className="pill"
                               style={{
-                                background: '#ef444422',
-                                color: '#ef4444',
+                                background: fondoTono('rojo'),
+                                color: colorTono('rojo'),
                                 fontWeight: 700,
                                 fontSize: 11,
                               }}
@@ -1121,7 +1131,7 @@ function FijacionExternaView({
                           )}
 
                           {(inc.campania || r.campana) && (
-                            <div className="meta" style={{ color: 'var(--text)', margin: 0 }}>
+                            <div className="meta" style={{ color: 'var(--txt)', margin: 0 }}>
                               🎯 Campaña: {inc.campania || r.campana}
                             </div>
                           )}
@@ -1137,7 +1147,7 @@ function FijacionExternaView({
                           <div
                             style={{
                               fontSize: 12,
-                              color: '#ffb4b4',
+                              color: 'var(--err-txt)',
                               marginTop: 4,
                             }}
                           >
@@ -1150,8 +1160,8 @@ function FijacionExternaView({
                   <span
                     className="pill"
                     style={{
-                      background: (EST_COLOR[inc.estatus] || '#555') + '22',
-                      color: EST_COLOR[inc.estatus] || '#aaa',
+                      background: fondoTono(EST_TONO[inc.estatus] ?? 'gris'),
+                      color: colorTono(EST_TONO[inc.estatus] ?? 'gris'),
                       flexShrink: 0,
                     }}
                   >
@@ -1180,7 +1190,7 @@ function FijacionExternaView({
                     reparacionConError.has(inc.record_id) && (
                       <span
                         className="tag"
-                        style={{ color: '#ef4444' }}
+                        style={{ color: colorTono('rojo') }}
                         title="No se enviará sola: vuelve a registrarla (se ofrece descartar la anterior) o descártala en el aviso de pendientes"
                       >
                         ⚠ La reparación guardada no se pudo enviar
