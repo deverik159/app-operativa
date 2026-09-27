@@ -59,6 +59,7 @@ import { useState, useEffect, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import {
   buscarSitiosLocal,
+  buscarSitiosEnRed,
   carasDeSitioLocal,
   fechaCopia,
   haySenal,
@@ -76,7 +77,7 @@ import {
 } from '../../lib/constants';
 import type { Incidencia, InventarioItem } from '../../types/db';
 
-type Sitio = { site_id: string; direccion: string | null };
+type Sitio = { site_id: string; direccion: string | null; nombre?: string | null };
 
 const SIN_SENAL_GUARDAR = 'Necesitas señal para guardar los cambios de este reporte.';
 
@@ -297,31 +298,22 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
         // tope corto. Sin copia, redOLocal espera más a la red.
         const hayCopiaInv = !!(await fechaCopia('inventario').catch(() => null));
         if (!vivo) return;
-        // Los espacios se vuelven comodín: la clave real trae guiones bajos
-        // (MX_EM_EV_EVA_03_0009) y nadie los escribe — así "eva 03" y hasta
-        // "eva 0009" encuentran la cara sin conocer el formato exacto.
-        const patron = '%' + t.replace(/\s+/g, '%') + '%';
+        // Por clave y por nombre de la máquina o la pantalla (Erik,
+        // 27-sep-2026). Los espacios se vuelven comodín: la clave real trae
+        // guiones bajos (MX_EM_EV_EVA_03_0009) y nadie los escribe — así
+        // "eva 03" y hasta "eva 0009" la encuentran. Ver buscarSitiosEnRed.
         const r = await redOLocal<SitioLocal[]>(
           (senal) =>
-            sb
-              .from('inventario')
-              .select('site_id,direccion')
-              .eq('unidad_negocio', unidad)
-              .ilike('site_id', patron)
-              .limit(80)
-              .retry(false)
-              .abortSignal(senal),
+            buscarSitiosEnRed(unidad, t, senal, { topeNombresMs: hayCopiaInv ? 3000 : 15000 }),
           async () => locales,
           hayCopiaInv ? { topeSinCopiaMs: 0 } : undefined
         );
         if (!vivo) return;
-        const vistos = new Set<string>();
         const opts: Sitio[] = [];
-        const agregar = (x: { site_id: string | null; direccion: string | null }) => {
-          if (x.site_id && !vistos.has(x.site_id)) {
-            vistos.add(x.site_id);
-            opts.push({ site_id: x.site_id, direccion: x.direccion });
-          }
+        const agregar = (x: SitioLocal) => {
+          const ya = opts.find((o) => o.site_id === x.site_id);
+          if (!ya) opts.push({ site_id: x.site_id, direccion: x.direccion, nombre: x.nombre });
+          else if (!ya.nombre && x.nombre) ya.nombre = x.nombre;
         };
         // Primero lo que ya se ve, en el mismo orden; lo de la red, al final.
         locales.forEach(agregar);
@@ -650,6 +642,9 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
                   onClick={() => elegirSitio(o)}
                 >
                   <b>{o.site_id}</b>
+                  {o.nombre && (
+                    <span style={{ color: 'var(--muted)' }}> · {o.nombre}</span>
+                  )}
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {o.direccion || 'sin dirección'}
                   </div>

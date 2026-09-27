@@ -25,6 +25,7 @@ import { sb } from '../../lib/supabase';
 import {
   arbolDigitalLocal,
   buscarSitiosLocal,
+  buscarSitiosEnRed,
   carasDeSitioLocal,
   catalogoLocal,
   catorcenasLocal,
@@ -86,6 +87,8 @@ export type PresetNueva = { un?: string; siteId?: string };
 type Sitio = {
   site_id: string;
   direccion?: string | null;
+  /** Nombre de la máquina/pantalla con el que empató la búsqueda. */
+  nombre?: string | null;
   estado?: string | null;
   municipio?: string | null;
 };
@@ -649,30 +652,20 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         // tope corto. Sin copia, redOLocal espera más a la red.
         const hayCopiaInv = !!(await fechaCopia('inventario').catch(() => null));
         if (!active) return;
-        // Espacios como comodín, igual que en EditModal: "eva 03" encuentra
-        // MX_EM_EV_EVA_03_0009 sin conocer los guiones bajos del formato.
-        const patron = '%' + q.replace(/\s+/g, '%') + '%';
+        // Por clave y por nombre de la máquina o la pantalla (Erik,
+        // 27-sep-2026); espacios como comodín. Ver buscarSitiosEnRed.
         const r = await redOLocal<SitioLocal[]>(
           (senal) =>
-            sb
-              .from('inventario')
-              .select('site_id,direccion')
-              .eq('unidad_negocio', un)
-              .ilike('site_id', patron)
-              .limit(80)
-              .retry(false)
-              .abortSignal(senal),
+            buscarSitiosEnRed(un, q, senal, { topeNombresMs: hayCopiaInv ? 3000 : 15000 }),
           async () => locales,
           hayCopiaInv ? { topeSinCopiaMs: 0 } : undefined
         );
         if (!active) return;
-        const seen = new Set<string>();
         const opts: Sitio[] = [];
-        const agregar = (x: { site_id: string | null; direccion: string | null }) => {
-          if (x.site_id && !seen.has(x.site_id)) {
-            seen.add(x.site_id);
-            opts.push({ site_id: x.site_id, direccion: x.direccion });
-          }
+        const agregar = (x: SitioLocal) => {
+          const ya = opts.find((o) => o.site_id === x.site_id);
+          if (!ya) opts.push({ site_id: x.site_id, direccion: x.direccion, nombre: x.nombre });
+          else if (!ya.nombre && x.nombre) ya.nombre = x.nombre;
         };
         // Primero lo que ya se ve, en el mismo orden; lo de la red, al final.
         locales.forEach(agregar);
@@ -1875,7 +1868,14 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                     borderBottom: '1px solid var(--line)',
                   }}
                 >
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>{o.site_id}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>
+                    {o.site_id}
+                    {o.nombre && (
+                      <span style={{ fontWeight: 400, color: 'var(--muted)' }}>
+                        {' '}· {o.nombre}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)' }}>
                     {o.direccion}
                   </div>

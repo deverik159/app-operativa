@@ -2062,10 +2062,15 @@ function IncidenciasView({
       if (q) {
         // sinAcentos en las dos puntas: "camion" debe encontrar "Camión"
         // sin obligar a escribir el acento en el teclado del celular.
+        // También por clave de sitio/medio y por el nombre de la máquina o
+        // la pantalla (nombre_biobox): MKT los conoce así (Erik, 27-sep-2026).
         const s = sinAcentos(
-          `${i.folio} ${i.nombre_incidencia} ${i.direccion} ${i.campania}`
+          `${i.folio} ${i.nombre_incidencia} ${i.direccion} ${i.campania} ` +
+            `${i.clave_sitio || ''} ${i.clave_medio || ''} ${i.nombre_biobox || ''}`
         );
-        if (!s.includes(sinAcentos(q))) return false;
+        // Cada fragmento por separado, como el buscador de clave del alta:
+        // "eva 03" encuentra MX_EM_EV_EVA_03_0009.
+        if (!sinAcentos(q).trim().split(/\s+/).every((t) => s.includes(t))) return false;
       }
       return true;
     });

@@ -29,7 +29,8 @@
 // ============================================================
 import { sb } from './supabase';
 import { reportarError } from './reportarError';
-import { SLA_VALIDACION_DEFAULT } from './constants';
+import { SLA_VALIDACION_DEFAULT, UNIDADES_BIOBOX } from './constants';
+import { sinAcentos } from './helpers';
 import { ErrorDatos, datosDelete, datosGet, datosPut, datosTx } from './idbDatos';
 import type {
   ArbolDigital,
@@ -75,7 +76,16 @@ export type PautaLocal = {
   fecha_fin: string | null;
 };
 
-export type SitioLocal = { site_id: string; direccion: string | null };
+export type SitioLocal = {
+  site_id: string;
+  direccion: string | null;
+  /**
+   * Nombre con el que la gente conoce el sitio, cuando lo hay: el de la
+   * máquina en Biobox (site_legacy_id) o el de la pantalla en Ecovallas
+   * (nombres_pantallas) si la búsqueda empató por él.
+   */
+  nombre?: string | null;
+};
 
 export type SitioCercano = SitioLocal & { latitud: number; longitud: number };
 
@@ -460,7 +470,13 @@ async function leerMeta(t: TablaLocal): Promise<MetaTabla | null> {
 // Derivados de inventario (se arman una vez por copia)
 // ------------------------------------------------------------
 
-type SitioIdx = { site_id: string; lc: string; direccion: string | null };
+type SitioIdx = {
+  site_id: string;
+  lc: string;
+  direccion: string | null;
+  /** site_legacy_id de su primera cara: en Biobox, el nombre de la máquina. */
+  legacy: string | null;
+};
 
 type IndiceInventario = {
   /** Por unidad: un sitio por site_id (el de su primera cara). */
@@ -502,7 +518,12 @@ function indiceInventario(filas: InventarioItem[]): IndiceInventario {
     v.add(r.site_id);
     let sitios = idx.sitiosPorUnidad.get(u);
     if (!sitios) idx.sitiosPorUnidad.set(u, (sitios = []));
-    sitios.push({ site_id: r.site_id, lc, direccion: r.direccion ?? null });
+    sitios.push({
+      site_id: r.site_id,
+      lc,
+      direccion: r.direccion ?? null,
+      legacy: (r.site_legacy_id || '').trim() || null,
+    });
   }
   derivados.set(filas, idx);
   return idx;
@@ -528,21 +549,93 @@ export async function fechaCopia(tabla: TablaLocal): Promise<string | null> {
 }
 
 /**
+ * Patrón de expresión regular (para `imatch` de PostgREST, `~*` en
+ * Postgres) que empata un NOMBRE sin importar acentos ni mayúsculas: en el
+ * celular se escribe "angel" y la pantalla se llama "Ángel". Los espacios
+ * valen como comodín, igual que en la clave. Todo lo demás va literal.
+ */
+export function patronNombreSinAcentos(texto: string): string {
+  const clases: Record<string, string> = {
+    a: '[aáàâäAÁÀÂÄ]',
+    e: '[eéèêëEÉÈÊË]',
+    i: '[iíìîïIÍÌÎÏ]',
+    o: '[oóòôöOÓÒÔÖ]',
+    u: '[uúùûüUÚÙÛÜ]',
+    n: '[nñNÑ]',
+  };
+  return sinAcentos(texto)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((pal) =>
+      [...pal].map((c) => clases[c] || c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('')
+    )
+    .join('.*');
+}
+
+/**
+ * ¿La unidad es de máquinas Biobox? Ahí site_legacy_id es el nombre con el
+ * que técnicos y operadores conocen la máquina.
+ */
+function unidadDeMaquinas(unidad: string | null | undefined): boolean {
+  const u = normUnidad(unidad);
+  return !!u && UNIDADES_BIOBOX.some((x) => normUnidad(x) === u);
+}
+
+/**
  * Buscador de clave de sitio sin red: misma semántica que el ilike de
  * NuevaInc (fragmentos separados por espacios, en orden, sin mayúsculas,
  * dentro del site_id de esa unidad). Un resultado por site_id, con la
  * dirección de su primera cara. Sin el `.limit(80)` por caras de la
  * consulta en línea: un sitio con 40 caras ya no se come el tope.
+ *
+ * También por NOMBRE, como buscarSitiosEnRed (Erik, 27-sep-2026: MKT
+ * conoce la máquina o la pantalla por su nombre, no por la clave): el de
+ * la máquina en Biobox (site_legacy_id) y, en Ecovallas, el de la
+ * pantalla (nombres_pantallas, por cara), sin importar acentos. Lo que
+ * empata por clave va primero.
  */
 export async function buscarSitiosLocal(unidad: string, texto: string, max = 12): Promise<SitioLocal[]> {
   try {
     const re = patronComoIlike(texto);
     if (!re) return [];
-    const sitios = indiceInventario(await filasDe('inventario')).sitiosPorUnidad.get(normUnidad(unidad)) || [];
+    // Los nombres, sin acentos en las dos puntas (como patronNombreSinAcentos
+    // en la red).
+    const reNombre = patronComoIlike(sinAcentos(texto));
+    const empataNombre = (n: string) => !!reNombre && reNombre.test(sinAcentos(n));
+    const u = normUnidad(unidad);
+    const idx = indiceInventario(await filasDe('inventario'));
+    const sitios = idx.sitiosPorUnidad.get(u) || [];
+    const maquinas = unidadDeMaquinas(unidad);
     const salida: SitioLocal[] = [];
+    const vistos = new Set<string>();
+    const poner = (s: SitioIdx, nombre: string | null) => {
+      if (vistos.has(s.site_id)) return;
+      vistos.add(s.site_id);
+      salida.push({ site_id: s.site_id, direccion: s.direccion, ...(nombre ? { nombre } : {}) });
+    };
     for (const s of sitios) {
       if (salida.length >= max) break;
-      if (re.test(s.lc)) salida.push({ site_id: s.site_id, direccion: s.direccion });
+      if (re.test(s.lc)) poner(s, maquinas ? s.legacy : null);
+    }
+    if (maquinas) {
+      for (const s of sitios) {
+        if (salida.length >= max) break;
+        if (s.legacy && empataNombre(s.legacy)) poner(s, s.legacy);
+      }
+    }
+    if (u === 'ecovallas' && salida.length < max) {
+      const nombres = mapaNombresPantalla(await filasDe('nombres_pantallas'));
+      if (nombres.size) {
+        const porSitio = new Map(sitios.map((s) => [s.site_id, s] as [string, SitioIdx]));
+        for (const c of idx.carasPorUnidad.get(u) || []) {
+          if (salida.length >= max) break;
+          const n = nombres.get(c.vendor_face_id);
+          if (!n || !c.site_id || vistos.has(c.site_id) || !empataNombre(n)) continue;
+          const s = porSitio.get(c.site_id);
+          if (s) poner(s, n);
+        }
+      }
     }
     return salida;
   } catch {
@@ -550,6 +643,125 @@ export async function buscarSitiosLocal(unidad: string, texto: string, max = 12)
   } finally {
     await cederTurno();
   }
+}
+
+/**
+ * La misma búsqueda en la red, para `redOLocal`: por clave (site_id) y por
+ * nombre sin importar acentos (site_legacy_id en Biobox; nombres_pantallas
+ * en Ecovallas, la única unidad con pantallas con nombre). Los espacios
+ * valen como comodín: "eva 03" encuentra MX_EM_EV_EVA_03_0009 sin conocer
+ * los guiones bajos del formato.
+ *
+ * Si falla la consulta de la clave se entrega su falla (redOLocal reintenta
+ * o cae a la copia). Las pantallas van en dos pasos (nombre → caras), así
+ * que tienen su propio tope (`topeNombresMs`, desde que empieza la
+ * búsqueda): con red lenta no deben tener secuestrado lo de la clave, que
+ * ya llegó, hasta que redOLocal corte y lo tire. Si una parte del nombre
+ * falla o no alcanza y no hay nada que enseñar, se entrega como falla de
+ * red: "Sin resultados" sería mentira, y la copia sí busca por nombre.
+ */
+export async function buscarSitiosEnRed(
+  unidad: string,
+  texto: string,
+  senal: AbortSignal,
+  op?: { topeNombresMs?: number }
+): Promise<RespuestaRed<SitioLocal[]>> {
+  const inicio = Date.now();
+  const topeNombres = op?.topeNombresMs ?? TOPE_RED_MS - 1000;
+  const patron = '%' + (texto || '').trim().replace(/\s+/g, '%') + '%';
+  const patronNombre = patronNombreSinAcentos(texto);
+  const maquinas = unidadDeMaquinas(unidad);
+  const conPantallas = normUnidad(unidad) === 'ecovallas';
+  type FilaInv = {
+    site_id: string | null;
+    direccion: string | null;
+    site_legacy_id?: string | null;
+    vendor_face_id?: string;
+  };
+  // Promise.resolve arranca cada consulta YA (el builder de postgrest-js
+  // no sale hasta que alguien le hace `.then`).
+  const clave = Promise.resolve(
+    sb
+      .from('inventario')
+      .select('site_id,direccion,site_legacy_id')
+      .eq('unidad_negocio', unidad)
+      .ilike('site_id', patron)
+      .limit(80)
+      .retry(false)
+      .abortSignal(senal)
+  );
+  const maquina = maquinas
+    ? Promise.resolve(
+        sb
+          .from('inventario')
+          .select('site_id,direccion,site_legacy_id')
+          .eq('unidad_negocio', unidad)
+          .filter('site_legacy_id', 'imatch', patronNombre)
+          .limit(40)
+          .retry(false)
+          .abortSignal(senal)
+      )
+    : null;
+  /** Caras de la unidad cuyo nombre de pantalla empata; null = no contestó. */
+  const pantallas = conPantallas
+    ? (async (): Promise<{ fila: FilaInv; nombre: string }[] | null> => {
+        try {
+          const n = await sb
+            .from('nombres_pantallas')
+            .select('vendor_face_id,nombre')
+            .filter('nombre', 'imatch', patronNombre)
+            .limit(50)
+            .retry(false)
+            .abortSignal(senal);
+          if (noSirve(n)) return null;
+          const lista = (n.data as NombrePantalla[]) || [];
+          if (!lista.length) return [];
+          const nombrePorCara = new Map(lista.map((x) => [x.vendor_face_id, x.nombre] as [string, string]));
+          const caras = await sb
+            .from('inventario')
+            .select('site_id,direccion,vendor_face_id')
+            .eq('unidad_negocio', unidad)
+            .in('vendor_face_id', [...nombrePorCara.keys()])
+            .limit(80)
+            .retry(false)
+            .abortSignal(senal);
+          if (noSirve(caras)) return null;
+          return ((caras.data as FilaInv[]) || []).map((fila) => ({
+            fila,
+            nombre: nombrePorCara.get(fila.vendor_face_id || '') || '',
+          }));
+        } catch {
+          return null;
+        }
+      })()
+    : null;
+
+  const [porClave, porMaquina] = await Promise.all([clave, maquina]);
+  if (noSirve(porClave)) return porClave as RespuestaRed<SitioLocal[]>;
+
+  const salida: SitioLocal[] = [];
+  const vistos = new Set<string>();
+  const poner = (r: FilaInv, nombre?: string | null) => {
+    if (!r.site_id || vistos.has(r.site_id)) return;
+    vistos.add(r.site_id);
+    const n = (nombre || '').trim();
+    salida.push({ site_id: r.site_id, direccion: r.direccion, ...(n ? { nombre: n } : {}) });
+  };
+  ((porClave.data as FilaInv[]) || []).forEach((r) => poner(r, maquinas ? r.site_legacy_id : null));
+
+  let incompleto = false;
+  if (porMaquina) {
+    if (noSirve(porMaquina)) incompleto = true;
+    else ((porMaquina.data as FilaInv[]) || []).forEach((r) => poner(r, r.site_legacy_id));
+  }
+  if (pantallas) {
+    const r = await conTope(pantallas, Math.max(0, inicio + topeNombres - Date.now()));
+    if (r === TOPE || r === null) incompleto = true;
+    else r.forEach((x) => poner(x.fila, x.nombre));
+  }
+  if (incompleto && !salida.length)
+    return { data: null, error: { message: 'La búsqueda por nombre no contestó' }, status: 0 };
+  return { data: salida, error: null, status: porClave.status };
 }
 
 /**
@@ -682,15 +894,20 @@ export async function arbolDeIncidenciaLocal(incidencia: string): Promise<ArbolD
   }
 }
 
+/** vendor_face_id → nombre de la pantalla, armado una vez por copia. */
+function mapaNombresPantalla(filas: NombrePantalla[]): Map<string, string> {
+  let mapa = derivados.get(filas) as Map<string, string> | undefined;
+  if (!mapa) {
+    mapa = new Map(filas.map((n) => [n.vendor_face_id, n.nombre] as [string, string]));
+    derivados.set(filas, mapa);
+  }
+  return mapa;
+}
+
 /** Nombre amigable de cada pantalla pedida que lo tenga. */
 export async function nombresPantallaLocal(ids: string[]): Promise<Record<string, string>> {
   try {
-    const filas = await filasDe('nombres_pantallas');
-    let mapa = derivados.get(filas) as Map<string, string> | undefined;
-    if (!mapa) {
-      mapa = new Map(filas.map((n) => [n.vendor_face_id, n.nombre] as [string, string]));
-      derivados.set(filas, mapa);
-    }
+    const mapa = mapaNombresPantalla(await filasDe('nombres_pantallas'));
     const salida: Record<string, string> = {};
     for (const id of ids || []) {
       const n = mapa.get(id);
