@@ -62,6 +62,8 @@ import { explicarErrorGps } from '../../lib/plataforma';
 import {
   catalogoParaMuebles,
   catalogoDesdeArbol,
+  catalogoBiobox,
+  esUnidadBiobox,
   llaveCatalogo,
   filtrarCatalogo,
 } from '../../lib/catalogo';
@@ -1263,6 +1265,17 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   const cat = useMemo(() => {
     const marcadas = caras.filter((c) => selCaras.includes(c.vendor_face_id));
     const base = marcadas.length ? marcadas : caras;
+    // Biobox: la máquina es un solo mueble para la cara digital y la
+    // impresa, así que la lista no depende de la cara marcada — árbol de
+    // Digital + catálogo de las demás áreas, cada falla una vez
+    // (Erik, 27-sep-2026). Ver catalogoBiobox en lib/catalogo.ts.
+    if (esUnidadBiobox(un)) {
+      return catalogoBiobox(
+        arbolNombres,
+        catCrudo,
+        base.map((c) => c.tipo_mueble)
+      );
+    }
     // Caras DIGITALES reportan contra el árbol de Digital, no contra
     // catalogo_incidencias: así el nombre capturado siempre existe en el
     // árbol y la reparación sale guiada, nunca "Sin clasificar". Aplica a
@@ -1283,7 +1296,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       catCrudo,
       base.map((c) => c.tipo_mueble)
     );
-  }, [catCrudo, arbolNombres, caras, selCaras]);
+  }, [catCrudo, arbolNombres, caras, selCaras, un]);
 
   const catOpts = cat.opciones;
 
@@ -2103,7 +2116,13 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
 
             <div className="field">
               <label>
-                Incidencia ({cat.desdeArbol ? 'catálogo Digital' : 'catálogo'} ·{' '}
+                Incidencia (
+                {cat.biobox
+                  ? 'árbol Digital + catálogo'
+                  : cat.desdeArbol
+                    ? 'catálogo Digital'
+                    : 'catálogo'}{' '}
+                ·{' '}
                 {catVisibles.length} de {catOpts.length})
               </label>
               <input
@@ -2164,6 +2183,13 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
                   Cara digital: estas incidencias vienen del árbol de Digital,
                   el mismo con el que el técnico clasifica la reparación.
+                </div>
+              )}
+              {cat.biobox && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                  Biobox: la máquina es un solo mueble, así que la lista es la
+                  misma para la cara digital y la impresa — el árbol de Digital
+                  más el catálogo de las demás áreas, cada falla una sola vez.
                 </div>
               )}
               {mezclaMuebles && cat.restringido && !cat.desdeArbol && (

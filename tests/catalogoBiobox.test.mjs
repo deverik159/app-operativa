@@ -1,0 +1,125 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+
+// catalogo.ts importa constants/helpers: se empaqueta en memoria.
+const { outputFiles } = await build({
+  entryPoints: [new URL('../src/lib/catalogo.ts', import.meta.url).pathname],
+  bundle: true,
+  write: false,
+  format: 'esm',
+  platform: 'neutral',
+});
+const { catalogoBiobox, catalogoDesdeArbol, esUnidadBiobox, llaveCatalogo } = await import(
+  'data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64')
+);
+
+const fila = (detalle, area, tipo_mueble = 'M4', impacto = 'Alto') => ({
+  detalle, area, impacto, origen: 'Externo', tipo: 'Imponderable', tipo_mueble,
+});
+
+// Catálogo de Biobox como lo siembra biobox_causas.sql: el mueble es el
+// modelo de la máquina (M4, M5…), igual para la cara digital y la impresa.
+const CAT = [
+  fila('Chapa dañada', 'Op. Bio Box'),
+  fila('Chapa dañada', 'Op. Bio Box', 'M5'),
+  fila('Teltonika dañado', 'TI', 'M4', 'Medio'),
+  fila('Apagado parcial', 'Digital'),
+  fila('Falta arte', 'Digital', 'M4', 'Medio'),
+  fila('Falla en el proceso de reciclaje', 'Op. Bio Box'),
+  fila('Solo en M5', 'Op. Bio Box', 'M5'),
+  fila('Pantalla sin imagen', 'Digital', 'M5', 'Bajo'),
+];
+// El árbol trae una fila por causa/solución: nombres repetidos.
+const ARBOL = [
+  'Apagado parcial', 'Apagado parcial', 'Pantalla sin imagen',
+  'falla en el proceso de RECICLAJE ', 'Sin video', 'Sin video',
+];
+
+const nombres = (r) => r.opciones.map((o) => `${o.detalle} (${o.area})`);
+
+test('Biobox: árbol + catálogo sin Digital, cada falla una sola vez', () => {
+  const r = catalogoBiobox(ARBOL, CAT, ['M4']);
+  assert.equal(r.biobox, true);
+  assert.equal(r.restringido, true);
+  assert.deepEqual(nombres(r), [
+    'Apagado parcial (Digital)',
+    'Chapa dañada (Op. Bio Box)',
+    // Regla 3: en el árbol y en el catálogo con otra área → una vez, tal
+    // como lo tiene el catálogo (texto y área).
+    'Falla en el proceso de reciclaje (Op. Bio Box)',
+    'Pantalla sin imagen (Digital)',
+    'Sin video (Digital)',
+    'Teltonika dañado (TI)',
+  ]);
+  // "Falta arte" es Digital del catálogo y no está en el árbol: no sale.
+  assert.ok(!r.opciones.some((o) => o.detalle === 'Falta arte'));
+  // Llaves únicas: el <select> no repite opciones.
+  const llaves = r.opciones.map(llaveCatalogo);
+  assert.equal(new Set(llaves).size, llaves.length);
+});
+
+test('Biobox: el nombre del árbol hereda nivel de su fila Digital', () => {
+  const r = catalogoBiobox(ARBOL, CAT, ['M4']);
+  const ap = r.opciones.find((o) => o.detalle === 'Apagado parcial');
+  assert.equal(ap.impacto, 'Alto');
+  // Sin fila en el mueble, la toma de la Digital de otro mueble de la unidad.
+  const psi = r.opciones.find((o) => o.detalle === 'Pantalla sin imagen');
+  assert.equal(psi.area, 'Digital');
+  assert.equal(psi.impacto, 'Bajo');
+  // Sin fila en ningún lado: Digital, sin nivel.
+  const sv = r.opciones.find((o) => o.detalle === 'Sin video');
+  assert.equal(sv.area, 'Digital');
+  assert.equal(sv.impacto, null);
+  const rec = r.opciones.filter((o) => /reciclaje/i.test(o.detalle));
+  assert.equal(rec.length, 1);
+  assert.equal(rec[0].detalle, 'Falla en el proceso de reciclaje');
+});
+
+test('Biobox: la lista no depende del medio, solo del mueble', () => {
+  const m4 = catalogoBiobox(ARBOL, CAT, ['M4']);
+  assert.deepEqual(catalogoBiobox(ARBOL, CAT, ['M4', 'M4']).opciones, m4.opciones);
+  const m5 = catalogoBiobox(ARBOL, CAT, ['M5']);
+  assert.ok(nombres(m5).includes('Solo en M5 (Op. Bio Box)'));
+  assert.ok(!nombres(m4).includes('Solo en M5 (Op. Bio Box)'));
+  assert.ok(!nombres(m5).includes('Teltonika dañado (TI)'));
+});
+
+test('Biobox: si el árbol no cargó, cae al catálogo completo del mueble', () => {
+  const r = catalogoBiobox([], CAT, ['M4']);
+  assert.ok(!r.biobox);
+  assert.ok(nombres(r).includes('Falta arte (Digital)'));
+});
+
+test('Biobox: mueble desconocido avisa y usa todo el catálogo de la unidad', () => {
+  const r = catalogoBiobox(ARBOL, CAT, ['Otro']);
+  assert.equal(r.restringido, false);
+  assert.deepEqual(r.sinCatalogo, ['Otro']);
+  assert.ok(nombres(r).includes('Solo en M5 (Op. Bio Box)'));
+  assert.ok(!r.opciones.some((o) => o.area === 'Digital' && o.detalle === 'Falta arte'));
+});
+
+test('Biobox: sin catálogo cargado sale el árbol y no se acusa al mueble', () => {
+  const r = catalogoBiobox(ARBOL, [], ['M4']);
+  assert.equal(r.biobox, true);
+  assert.deepEqual(r.sinCatalogo, []);
+  assert.ok(r.opciones.length > 0 && r.opciones.every((o) => o.area === 'Digital'));
+});
+
+test('Biobox: el mismo nombre Digital y de otra área en el mueble sale con las dos', () => {
+  const cat = [...CAT, fila('Apagado parcial', 'Iluminación')];
+  const r = catalogoBiobox(ARBOL, cat, ['M4']);
+  assert.deepEqual(
+    nombres(r).filter((n) => n.startsWith('Apagado parcial')),
+    ['Apagado parcial (Digital)', 'Apagado parcial (Iluminación)']
+  );
+});
+
+test('Fuera de Biobox la cara digital sigue siendo solo árbol', () => {
+  const r = catalogoDesdeArbol(ARBOL, CAT, ['M4']);
+  assert.ok(!nombres(r).includes('Chapa dañada (Op. Bio Box)'));
+  assert.equal(esUnidadBiobox('Biobox'), true);
+  assert.equal(esUnidadBiobox(' biobox perú '), true);
+  assert.equal(esUnidadBiobox('Ecovallas'), false);
+  assert.equal(esUnidadBiobox(''), false);
+});

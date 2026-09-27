@@ -42,6 +42,7 @@
 // `restringido` es lo que la pantalla usa para saber si tiene que advertir.
 // ============================================================
 import type { CatalogoIncidencia } from '../types/db';
+import { UNIDADES_BIOBOX } from './constants';
 import { sinAcentos } from './helpers';
 
 /** Llave de identidad de una entrada. Dos áreas = dos cosas distintas. */
@@ -95,6 +96,8 @@ export type OpcionesCatalogo = {
   sinCatalogo: string[];
   /** true = la lista salió del árbol de Digital, no de catalogo_incidencias. */
   desdeArbol?: boolean;
+  /** true = Biobox: árbol de Digital + catálogo de las demás áreas. */
+  biobox?: boolean;
 };
 
 /**
@@ -158,7 +161,9 @@ export function catalogoParaMuebles(
  * del mueble, todas las áreas, acotado por unidad) y se revirtió: el árbol
  * SÍ abarca todo lo capturable en el medio digital — SRD lo mantiene justo
  * para eso — y la unión solo metía ruido de otras áreas (MKT,
- * Implementaciones, Comprobaciones…) (Erik, 23-sep-2026).
+ * Implementaciones, Comprobaciones…) (Erik, 23-sep-2026). La única
+ * excepción es Biobox, donde la máquina es un solo mueble para las dos
+ * caras: ver catalogoBiobox (Erik, 27-sep-2026).
  */
 export function catalogoDesdeArbol(
   nombresArbol: string[],
@@ -194,6 +199,105 @@ export function catalogoDesdeArbol(
   });
 
   return { opciones: lista, restringido: true, sinCatalogo: [], desdeArbol: true };
+}
+
+/** ¿La unidad es de máquinas Biobox (México o Perú)? */
+export function esUnidadBiobox(un?: string | null): boolean {
+  const u = (un || '').trim().toLowerCase();
+  return !!u && UNIDADES_BIOBOX.some((x) => x.toLowerCase() === u);
+}
+
+/** Llave de NOMBRE: sin acentos, mayúsculas ni espacios de sobra. */
+function llaveNombre(d?: string | null): string {
+  return sinAcentos(d).trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Catálogo de Biobox: el árbol de Digital MÁS el catálogo de la máquina sin
+ * sus filas de Digital (Erik, 27-sep-2026).
+ *
+ * En Biobox la máquina es UN solo mueble con cara digital e impresa, y una
+ * falla le puede pegar a cualquiera de las dos. Por eso la lista es la misma
+ * sin importar qué cara se marque — antes cambiaba al marcar la digital
+ * (solo árbol) o la impresa (solo catálogo). Es la excepción consciente a
+ * la regla de catalogoDesdeArbol: fuera de Biobox, la cara digital sigue
+ * siendo solo árbol.
+ *
+ * Reglas, para que cada falla salga UNA vez:
+ *   1. El catálogo se acota al mueble de la máquina, como siempre.
+ *   2. Sus filas de Digital NO salen: el árbol las sustituye. Solo prestan
+ *      su nivel/origen/tipo al nombre del árbol que empata.
+ *   3. Si un nombre del árbol está en el catálogo de la máquina con OTRA
+ *      área y no con Digital (sin importar acentos ni mayúsculas), sale una
+ *      sola vez y tal como lo tiene el catálogo — su área y su texto: el
+ *      catálogo decide a quién le toca, y es el mismo `detalle` con el que
+ *      la revisión de Biobox la levanta, así la regla de duplicados
+ *      (nombre exacto) las empata.
+ *   4. Lo demás del catálogo (Op. Bio Box, TI…) sale tal cual, una vez por
+ *      incidencia+área.
+ *
+ * Si el árbol no cargó, se devuelve el catálogo completo del mueble (con
+ * Digital): peor lista que ninguna lista.
+ */
+export function catalogoBiobox(
+  nombresArbol: string[],
+  cat: CatalogoIncidencia[],
+  muebles: (string | null | undefined)[]
+): OpcionesCatalogo {
+  const r = catalogoParaMuebles(cat, muebles);
+  const nombres = [
+    ...new Set(nombresArbol.map((n) => (n || '').trim()).filter(Boolean)),
+  ];
+  if (!nombres.length) return r;
+
+  const esDigital = (c: CatalogoIncidencia) =>
+    (c.area || '').trim().toLowerCase() === 'digital';
+  const digitales = r.opciones.filter(esDigital);
+  const digitalesUnidad = cat.filter(esDigital);
+  const otras = r.opciones.filter((c) => !esDigital(c));
+
+  const otrasPorNombre = new Map<string, CatalogoIncidencia[]>();
+  otras.forEach((c) => {
+    const k = llaveNombre(c.detalle);
+    otrasPorNombre.set(k, [...(otrasPorNombre.get(k) || []), c]);
+  });
+
+  const lista: CatalogoIncidencia[] = [];
+  nombres.forEach((nombre) => {
+    const k = llaveNombre(nombre);
+    const digital = digitales.find((c) => llaveNombre(c.detalle) === k);
+    // Regla 3: la fila del catálogo sale abajo, con las demás.
+    if (!digital && otrasPorNombre.has(k)) return;
+    const fila =
+      digital || digitalesUnidad.find((c) => llaveNombre(c.detalle) === k);
+    lista.push(
+      fila
+        ? { ...fila, detalle: nombre }
+        : ({
+            detalle: nombre,
+            area: 'Digital',
+            impacto: null,
+            origen: null,
+            tipo: null,
+            tipo_mueble: null,
+          } as CatalogoIncidencia)
+    );
+  });
+  lista.push(...otras);
+
+  lista.sort(
+    (a, b) =>
+      a.detalle.localeCompare(b.detalle, 'es') ||
+      (a.area || '').localeCompare(b.area || '', 'es')
+  );
+  // Sin catálogo cargado (sin señal y sin copia) no se acusa al mueble: la
+  // pantalla ya dice que falta la copia, y la lista es el árbol.
+  return {
+    ...r,
+    sinCatalogo: cat.length ? r.sinCatalogo : [],
+    opciones: lista,
+    biobox: true,
+  };
 }
 
 /**
