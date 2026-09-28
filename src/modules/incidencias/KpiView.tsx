@@ -50,6 +50,11 @@ type Fila = {
   etiqueta: string;
   n: number;
   filas: Incidencia[];
+  /**
+   * La llave con la que se agrupó (p. ej. el correo) cuando la etiqueta es
+   * otra cosa (el nombre): dos homónimos no deben chocar como llave de React.
+   */
+  clave?: string;
 };
 
 /** Lo que se está viendo en el popup de detalle. */
@@ -83,7 +88,7 @@ function Bars({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {data.map((f) => (
         <button
-          key={f.etiqueta}
+          key={f.clave ?? f.etiqueta}
           onClick={onAbrir ? () => onAbrir(f) : undefined}
           title={onAbrir ? `Ver las ${f.n} de ${f.etiqueta}` : f.etiqueta}
           style={{
@@ -401,7 +406,7 @@ function KpiView({
       else m.set(k, [i]);
     });
     return [...m.entries()]
-      .map(([etiqueta, filas]) => ({ etiqueta, n: filas.length, filas }))
+      .map(([etiqueta, filas]) => ({ etiqueta, n: filas.length, filas, clave: etiqueta }))
       .sort((a, b) => b.n - a.n)
       .slice(0, n);
   };
@@ -446,6 +451,24 @@ function KpiView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [f, nombres]
   );
+
+  // Quién levanta los reportes (captured_by). Igual que "Quién repara más":
+  // se agrupa por CORREO (en minúsculas, para no partir a una persona en
+  // dos barras) y el nombre se pone solo al pintar (Erik, 27-sep-2026).
+  const porReportante = useMemo(
+    () =>
+      top((i) => (i.captured_by || '').trim().toLowerCase() || null).map((x) => ({
+        ...x,
+        etiqueta: nombreDe(nombres, x.etiqueta),
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [f, nombres]
+  );
+
+  // Por dónde le llegan a MKT las solicitudes: via_reporte solo lo llena el
+  // formulario de MKT (WhatsApp, Instagram, Facebook, Correo). Se pinta solo
+  // si hay datos, como el lado: con otros filtros sería ruido permanente.
+  const porVia = top((i) => i.via_reporte || null);
 
   /** Contexto de los filtros puestos, para que el popup diga sobre qué es. */
   const contexto = [
@@ -776,6 +799,31 @@ function KpiView({
             onAbrir={(x) => abrir(`Mueble: ${x.etiqueta}`, x.filas)}
           />
         </div>
+      </div>
+
+      <div className="row2" style={{ gap: 16, marginTop: 16 }}>
+        <div className="card">
+          <div className="l" style={{ marginBottom: 12 }}>
+            Usuarios que reportan
+          </div>
+          <Bars
+            data={porReportante}
+            color="var(--accent2)"
+            onAbrir={(x) => abrir(`Reportadas por ${x.etiqueta}`, x.filas)}
+          />
+        </div>
+        {porVia.length > 0 && (
+          <div className="card">
+            <div className="l" style={{ marginBottom: 12 }}>
+              Vía de reporte (MKT)
+            </div>
+            <Bars
+              data={porVia}
+              color="var(--purple)"
+              onAbrir={(x) => abrir(`Vía de reporte: ${x.etiqueta}`, x.filas)}
+            />
+          </div>
+        )}
       </div>
 
       <div className="row2" style={{ gap: 16, marginTop: 16 }}>

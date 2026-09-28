@@ -68,6 +68,8 @@ const COLUMNAS_KPI = [
   'medio',
   'lado', // ranking por lado y caraIncidencia
   'repaired_by_email',
+  'captured_by', // "Usuarios que reportan"
+  'via_reporte', // "Vía de reporte (MKT)"
   'rechazos_reparacion',
   // tiempos y SLA (horasEnProceso, horasValidacionReparacion, % de SLA)
   'repaired_at',
