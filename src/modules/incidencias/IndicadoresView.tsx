@@ -70,6 +70,7 @@ const COLUMNAS_KPI = [
   'repaired_by_email',
   'captured_by', // "Usuarios que reportan"
   'via_reporte', // "Vía de reporte (MKT)"
+  'contacto_correo', // "Usuarios que más reportan (correo, MKT)"
   'rechazos_reparacion',
   // tiempos y SLA (horasEnProceso, horasValidacionReparacion, % de SLA)
   'repaired_at',

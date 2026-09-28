@@ -74,11 +74,14 @@ function Bars({
   data,
   color,
   onAbrir,
+  etiquetaAncha = false,
 }: {
   data: Fila[];
   color: string;
   /** Clic en un renglón. Sin esto la barra se pinta igual pero no responde. */
   onAbrir?: (f: Fila) => void;
+  /** Más espacio para la etiqueta (correos): con el ancho normal se cortan. */
+  etiquetaAncha?: boolean;
 }) {
   if (data.length === 0)
     return <div style={{ color: 'var(--muted)', fontSize: 12 }}>Sin datos.</div>;
@@ -97,7 +100,9 @@ function Bars({
                fija dejaba la etiqueta en ~17 caracteres ("Mantenimiento e
                In…") y el title con el texto completo no existe en táctil.
                El minmax(0,…) mantiene funcionando el ellipsis. */
-            gridTemplateColumns: 'minmax(0, clamp(110px, 38%, 150px)) 1fr auto',
+            gridTemplateColumns: etiquetaAncha
+              ? 'minmax(0, clamp(140px, 55%, 260px)) 1fr auto'
+              : 'minmax(0, clamp(110px, 38%, 150px)) 1fr auto',
             alignItems: 'center',
             gap: 10,
             fontSize: 13,
@@ -111,11 +116,17 @@ function Bars({
           }}
         >
           <span
-            style={{
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
+            style={
+              etiquetaAncha
+                ? // Un correo cortado con "…" no se puede leer ni copiar: se
+                  // parte en dos renglones donde haga falta (celular).
+                  { overflowWrap: 'anywhere', lineHeight: 1.25 }
+                : {
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }
+            }
           >
             {f.etiqueta}
           </span>
@@ -465,6 +476,14 @@ function KpiView({
     [f, nombres]
   );
 
+  // Quiénes le piden más reportes a MKT: el correo del solicitante
+  // (contacto_correo), que el formulario de MKT exige. Es gente de fuera,
+  // sin nombre en el padrón: la etiqueta es el correo, en minúsculas para no
+  // partir a una persona en dos barras (Erik, 27-sep-2026).
+  const porSolicitante = top(
+    (i) => (i.contacto_correo || '').trim().toLowerCase() || null
+  );
+
   // Por dónde le llegan a MKT las solicitudes: via_reporte solo lo llena el
   // formulario de MKT (WhatsApp, Instagram, Facebook, Correo). Se pinta solo
   // si hay datos, como el lado: con otros filtros sería ruido permanente.
@@ -812,6 +831,19 @@ function KpiView({
             onAbrir={(x) => abrir(`Reportadas por ${x.etiqueta}`, x.filas)}
           />
         </div>
+        {porSolicitante.length > 0 && (
+          <div className="card">
+            <div className="l" style={{ marginBottom: 12 }}>
+              Usuarios que más reportan (correo, MKT)
+            </div>
+            <Bars
+              data={porSolicitante}
+              color="var(--warn)"
+              etiquetaAncha
+              onAbrir={(x) => abrir(`Solicitadas por ${x.etiqueta}`, x.filas)}
+            />
+          </div>
+        )}
         {porVia.length > 0 && (
           <div className="card">
             <div className="l" style={{ marginBottom: 12 }}>
