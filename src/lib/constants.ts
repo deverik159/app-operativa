@@ -218,6 +218,14 @@ export const VAL_HASTA = 18 * 60 + 30;
 /** Estados de la bitácora de Bioboxes (los usa BitacoraView, aún sin migrar). */
 export const UNIDADES_BIOBOX = ['Biobox', 'Biobox Perú'];
 
+/**
+ * Clave de sitio de un reporte de Biobox levantado SIN saber la máquina
+ * (Erik, 28-sep-2026): se captura así y quien la repara elige la máquina en
+ * la reparación. Va sin clave de medio, así que la regla de duplicados no
+ * la empata con nada.
+ */
+export const CLAVE_SIN_MAQUINA = 'SIN-MAQUINA';
+
 /** Nombre presentable de la etapa de una evidencia. */
 export const ETAPA_LABEL: Record<string, string> = {
   reporte: 'Reporte',

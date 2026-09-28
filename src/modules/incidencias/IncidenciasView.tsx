@@ -2356,6 +2356,7 @@ function IncidenciasView({
       causa,
       solucion,
       archivos,
+      ubicacion,
     }: DatosReparacion,
     op?: { alProgreso?: (texto: string) => void }
   ): Promise<FinReparacion | undefined> => {
@@ -2380,6 +2381,8 @@ function IncidenciasView({
       causa_raiz: causa || null,
       solucion: solucion || null,
       repaired_by_email: email,
+      // Biobox reportada sin máquina: la que eligió quien repara.
+      ...(ubicacion || {}),
       // Fijada UNA vez, al tocar Guardar: es la marca con la que la cola
       // reconoce su propia reparación si la respuesta se pierde.
       repaired_at: new Date().toISOString(),

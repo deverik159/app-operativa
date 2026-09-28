@@ -57,6 +57,7 @@ import {
   LADOS,
   UNIDADES_CON_LADO,
   VIAS_REPORTE,
+  CLAVE_SIN_MAQUINA,
 } from '../../lib/constants';
 import { caraLabel, distKm, ladoFijoDePortico } from '../../lib/helpers';
 import { explicarErrorGps } from '../../lib/plataforma';
@@ -1055,6 +1056,40 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     // así que su identidad no cambia al re-aplicar la cola).
   }, [usandoCopia, lecturasDeCopia, caras]);
 
+  /**
+   * Biobox sin saber la máquina (Erik, 28-sep-2026): el reporte se levanta
+   * con una "cara" de mentira que solo vive en pantalla; al guardar va con
+   * clave de sitio SIN-MAQUINA y sin clave de medio, y quien la repara elige
+   * la máquina en la reparación.
+   */
+  const elegirSinMaquina = () => {
+    soltarSitioEnVuelo();
+    const virtual: InventarioItem = {
+      vendor_face_id: CLAVE_SIN_MAQUINA,
+      site_id: CLAVE_SIN_MAQUINA,
+      site_legacy_id: null,
+      cara: null,
+      categoria: 'Sin máquina',
+      unidad_negocio: un,
+      tipo_medio: null,
+      tipo_mueble: null,
+      latitud: null,
+      longitud: null,
+      direccion: null,
+      municipio: null,
+      estado: null,
+    };
+    setSiteQuery('Sin máquina');
+    setSiteOpts([]);
+    setNearOpts([]);
+    setSite({ site_id: CLAVE_SIN_MAQUINA, direccion: null });
+    setCaras([virtual]);
+    setSelCaras([CLAVE_SIN_MAQUINA]);
+    setNombreBiobox('');
+    setNombresPantalla({});
+  };
+  const sinMaquina = site?.site_id === CLAVE_SIN_MAQUINA;
+
   const limpiarSitio = () => {
     setSite(null);
     setSiteQuery('');
@@ -1091,7 +1126,9 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       alert('Marca al menos una cara para esta incidencia.');
       return;
     }
-    if (filesLinea.length === 0) {
+    // MKT reporta lo que le llega de terceros y casi nunca trae foto: para
+    // MKT la evidencia es opcional (Erik, 28-sep-2026).
+    if (!esMKT && filesLinea.length === 0) {
       alert('Adjunta al menos una foto o video de esta incidencia.');
       return;
     }
@@ -1349,7 +1386,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   const nGuardar = unaCara ? (catSel ? 1 : 0) : totalRows;
   // Con una sola cara la evidencia se valida aquí; con varias, cada partida
   // ya la exigió al agregarse.
-  const faltaEvidencia = unaCara && filesLinea.length === 0;
+  const faltaEvidencia = !esMKT && unaCara && filesLinea.length === 0;
 
   const guardar = async () => {
     if (!site) {
@@ -1362,7 +1399,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         alert('Elige la incidencia.');
         return;
       }
-      if (filesLinea.length === 0) {
+      if (!esMKT && filesLinea.length === 0) {
         alert('Adjunta al menos una evidencia (foto o video) para reportar.');
         return;
       }
@@ -1393,7 +1430,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           'Guarda los cambios o cancela la edición antes de guardar el reporte.'
       );
       return;
-    } else if (lineas.some((l) => l.files.length === 0)) {
+    } else if (!esMKT && lineas.some((l) => l.files.length === 0)) {
       // Solo pasa tras recuperar un borrador cuyas fotos no cupieron en el
       // teléfono: cada partida exige su evidencia al agregarse, y aquí no
       // debe colarse una sin ella.
@@ -1455,7 +1492,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           direccion: site.direccion,
           municipio: site.municipio || null,
           plaza: site.estado || null,
-          clave_medio: vf,
+          clave_medio: vf === CLAVE_SIN_MAQUINA ? null : vf,
           medio: c.tipo_medio || null,
           tipo_mueble: c.tipo_mueble || null,
           // "Nombre amigable del medio": el de máquina en Biobox, el de
@@ -1805,6 +1842,16 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               {geoBusy ? '📍 Ubicando…' : '📍 Sitios cerca de mí'}
             </button>
           )}
+          {lineas.length === 0 && !site && esBiobox && (
+            <button
+              className="btn ghost sm"
+              type="button"
+              style={{ marginTop: 8, marginLeft: 8 }}
+              onClick={elegirSinMaquina}
+            >
+              ❔ Sin máquina
+            </button>
+          )}
           {/* Con resultados de la copia ya a la vista no se dice "Buscando…"
               aunque la red siga en camino (tope de unos segundos). */}
           {loadingSites && !site && !sitioEnCarga && siteOpts.length === 0 && (
@@ -1935,7 +1982,13 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           </div>
         )}
 
-        {site && (
+        {site && sinMaquina && (
+          <div className="banner" style={{ marginBottom: 12 }}>
+            ❔ Sin máquina: quien repare esta incidencia elegirá la máquina
+            afectada.
+          </div>
+        )}
+        {site && !sinMaquina && (
           <div className="banner" style={{ marginBottom: 12 }}>
             📍 {site.direccion || '(sin dirección)'}
             <br />
@@ -1967,7 +2020,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             nombra quien captura (Erik, sep-2026). Sigue siendo UN dato por
             reporte —baja a todas las filas—, solo cambió de lugar. */}
 
-        {site && esBiobox && (
+        {site && esBiobox && !sinMaquina && (
           <div className="field">
             <label>Nombre del Biobox (del inventario)</label>
             <input
@@ -2322,7 +2375,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                 )}
               </div>
             )}
-            {caras.length === 1 && !pideLado && (
+            {caras.length === 1 && !pideLado && !sinMaquina && (
               <div className="field">
                 <label>Cara afectada</label>
                 <div
@@ -2456,7 +2509,11 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             <div className="field">
               <label>
                 Evidencia de ESTA incidencia (foto/video) —{' '}
-                <span style={{ color: colorTono('acento') }}>obligatoria</span>
+                {esMKT ? (
+                  <span style={{ color: 'var(--muted)' }}>opcional</span>
+                ) : (
+                  <span style={{ color: colorTono('acento') }}>obligatoria</span>
+                )}
               </label>
               <SubirArchivos
                 archivos={filesLinea}
