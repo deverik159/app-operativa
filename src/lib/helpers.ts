@@ -184,7 +184,7 @@ export function initials(n: string | null): string {
 // ============================================================
 // Horario del validador
 // ============================================================
-import { VAL_DIAS, VAL_DESDE, VAL_HASTA } from './constants';
+import { VAL_DIAS, VAL_DESDE, VAL_HASTA, AREAS_USUARIOS } from './constants';
 
 /**
  * UN solo formateador para todo el módulo (app pasmada sin señal,
@@ -537,4 +537,39 @@ export function horasEnProceso(i: {
   if (!inicio) return null;
   const h = (Date.now() - new Date(inicio).getTime()) / 3600000;
   return h >= 0 ? h : null;
+}
+
+/**
+ * Departamentos del usuario, sin repetir, con su ÁREA DE PERTENENCIA
+ * primero: `misDep[0]` es el `area_reportante` de todo lo que levanta
+ * (alta, revisión de Biobox, Pauta).
+ *
+ * Antes era "el primero que viniera" de TODAS sus filas de rol, y el campo
+ * departamento significa cosas distintas según el rol: pertenencia en
+ * reportante/validador (Monitoreo, MKT…), área técnica en técnico o
+ * coordinador (Digital, TI…). Con otra fila antes, un usuario de MKT
+ * reportaba como otra área y no salía en el filtro "Reporta" (Erik,
+ * 27-sep-2026). Orden: MKT si la tiene en cualquier fila (es lo que enciende
+ * el formulario de MKT), luego pertenencias de AREAS_USUARIOS, luego otras
+ * pertenencias, luego lo demás; empates en el orden de sus filas. La
+ * escritura se normaliza a la de AREAS_USUARIOS ("mkt " → "MKT").
+ */
+export function departamentosDelUsuario(
+  roles: { rol: string; departamento: string | null }[]
+): string[] {
+  const canon = (d: string) =>
+    AREAS_USUARIOS.find((a) => a.toLowerCase() === d.trim().toLowerCase()) || d.trim();
+  const filas = roles
+    .filter((r) => (r.departamento || '').trim())
+    .map((r) => ({
+      d: canon(r.departamento as string),
+      pertenencia: r.rol === 'reportante' || r.rol === 'validador',
+    }));
+  const rango = (d: string) => {
+    if (d === 'MKT') return 0;
+    const deUsuarios = AREAS_USUARIOS.includes(d);
+    if (filas.some((f) => f.d === d && f.pertenencia)) return deUsuarios ? 1 : 2;
+    return deUsuarios ? 3 : 4;
+  };
+  return [...new Set(filas.map((f) => f.d))].sort((a, b) => rango(a) - rango(b));
 }

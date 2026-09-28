@@ -29,7 +29,7 @@ import {
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES } from './lib/constants';
-import { initials } from './lib/helpers';
+import { departamentosDelUsuario, initials } from './lib/helpers';
 import { useNotificaciones } from './lib/useNotificaciones';
 import { vigilarNuevaVersion, traerVersionNueva } from './lib/versionApp';
 import CampanaNotifs from './components/CampanaNotifs';
@@ -1132,9 +1132,10 @@ function Main({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [firmaRoles]
   );
+  // El área de pertenencia primero: misDep[0] es el area_reportante de lo
+  // que levanta (ver departamentosDelUsuario).
   const misDep = useMemo(
-    () =>
-      [...new Set((roles || []).map((r) => r.departamento).filter(Boolean))] as string[],
+    () => departamentosDelUsuario(roles || []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [firmaRoles]
   );
