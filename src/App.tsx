@@ -31,7 +31,7 @@ import { sb } from './lib/supabase';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES } from './lib/constants';
 import { departamentosDelUsuario, initials } from './lib/helpers';
 import { useNotificaciones } from './lib/useNotificaciones';
-import { vigilarNuevaVersion, traerVersionNueva } from './lib/versionApp';
+import { vigilarNuevaVersion, traerVersionNueva, revisarVersionAhora } from './lib/versionApp';
 import CampanaNotifs from './components/CampanaNotifs';
 import BotonPush from './components/BotonPush';
 import MenuUsuario from './components/MenuUsuario';
@@ -867,8 +867,9 @@ function Main({
   const notifs = useNotificaciones();
 
   // Una app instalada puede quedarse abierta durante días. Se avisa al volver
-  // al frente o cada cinco minutos, pero no se recarga sin gesto: podría haber
-  // una incidencia a medio capturar.
+  // al frente, al enfocar la ventana, al volver la red, con ↻ o cada 10 min
+  // (ver vigilarNuevaVersion), pero no se recarga sin gesto: podría haber una
+  // incidencia a medio capturar.
   useEffect(
     () => vigilarNuevaVersion(() => setActualizacionDisponible(true)),
     []
@@ -1014,14 +1015,23 @@ function Main({
   const rolesEnCurso = useRef(false);
   /** Llegó otro disparo mientras corría una consulta: se repite al terminar. */
   const rolesOtraVez = useRef(false);
+  /** …y ese disparo pedía saltarse el "ya se consultó con este token". */
+  const rolesOtraVezForzar = useRef(false);
 
-  const refrescarRoles = useCallback(async (): Promise<void> => {
+  /**
+   * `forzar`: vuelve a consultar aunque ya haya salido bien con este mismo
+   * token. Un cambio de rol hecho en Usuarios no renueva el token, así que
+   * sin esto no se veía hasta recargar la página (Erik, 28-sep-2026).
+   */
+  const refrescarRoles = useCallback(async (forzar = false): Promise<void> => {
     if (rolesEnCurso.current) {
       rolesOtraVez.current = true;
+      if (forzar) rolesOtraVezForzar.current = true;
       return;
     }
     rolesEnCurso.current = true;
     rolesOtraVez.current = false;
+    rolesOtraVezForzar.current = false;
     try {
       const hayCopia = !!rolesRef.current && rolesRef.current.length > 0;
       // Sesión REAL: la que auth-js confirma (vigente o ya renovada). Con
@@ -1040,7 +1050,7 @@ function Main({
         }
         return;
       }
-      if (tokenRolesOk.current === real.access_token) return;
+      if (!forzar && tokenRolesOk.current === real.access_token) return;
 
       // Con copia no hace falta insistir: sin reintentos y con tope corto.
       // Sin copia, los reintentos de siempre, pero con un tope para que una
@@ -1058,7 +1068,13 @@ function Main({
 
       if (error) {
         const transitorio = pareceSinRed(error, status) || status === 401 || status >= 500;
-        if (hayCopia && transitorio) return; // se queda la copia
+        // Lo último que confirmó la red con este token cuenta como copia
+        // (p. ej. "sin roles" en SinAcceso): una falla de un refresco forzado
+        // no debe cambiarlo por el menú de emergencia.
+        const confirmado = tokenRolesOk.current === real.access_token;
+        // Que 'online' / primer plano puedan volver a consultar.
+        tokenRolesOk.current = null;
+        if ((hayCopia || confirmado) && transitorio) return; // se queda lo que había
         // Distinguir "falló la consulta" de "no tiene roles": si no, un error
         // de red o RLS se ve como "no tienes rol asignado" y manda al usuario
         // a pedir un alta que no necesita.
@@ -1089,8 +1105,10 @@ function Main({
     } finally {
       rolesEnCurso.current = false;
       if (rolesOtraVez.current) {
+        const otraForzada = rolesOtraVezForzar.current;
         rolesOtraVez.current = false;
-        window.setTimeout(() => void refrescarRolesRef.current(), 0);
+        rolesOtraVezForzar.current = false;
+        window.setTimeout(() => void refrescarRolesRef.current(otraForzada), 0);
       }
     }
   }, [email]);
@@ -1101,6 +1119,28 @@ function Main({
   useEffect(() => {
     void refrescarRoles();
   }, [refrescarRoles, session.access_token, verificada]);
+
+  // Un cambio de rol no cambia el token: al volver a la app (foco o primer
+  // plano) y cada 10 min con la app a la vista se vuelven a pedir, a lo más
+  // una vez por minuto; ↻ los pide siempre (Erik, 28-sep-2026).
+  useEffect(() => {
+    // Desde ya: al montar ya salió la consulta de siempre.
+    let ultima = Date.now();
+    const revisar = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - ultima < 60 * 1000) return;
+      ultima = Date.now();
+      void refrescarRoles(true);
+    };
+    window.addEventListener('focus', revisar);
+    document.addEventListener('visibilitychange', revisar);
+    const t = window.setInterval(revisar, 10 * 60 * 1000);
+    return () => {
+      window.removeEventListener('focus', revisar);
+      document.removeEventListener('visibilitychange', revisar);
+      window.clearInterval(t);
+    };
+  }, [refrescarRoles]);
 
   // Si el último intento no salió: al volver la red o la app al frente.
   useEffect(() => {
@@ -1683,6 +1723,10 @@ function Main({
     setRecargarSignal((n) => n + 1);
     setRecargaManual((n) => n + 1);
     notifs.recargar();
+    // También los permisos y la versión: un cambio de rol o una publicación
+    // nueva se ven al tocar ↻, sin recargar la página (Erik, 28-sep-2026).
+    void refrescarRoles(true);
+    revisarVersionAhora();
   };
 
   return (

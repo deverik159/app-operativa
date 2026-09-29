@@ -189,40 +189,94 @@ function pedirServiceWorkerNuevo(): void {
   }
 }
 
+/** Revisión que ↻ puede pedir de inmediato (la registra vigilarNuevaVersion). */
+let revisarActual: ((forzar?: boolean) => void) | null = null;
+
+/**
+ * Pregunta YA si hay versión nueva (↻ de la barra). Sin vigilante activo
+ * (desarrollo) no hace nada.
+ */
+export function revisarVersionAhora(): void {
+  revisarActual?.(true);
+}
+
+/** Lo mínimo entre dos revisiones que no pidió el usuario (foco, red…). */
+const PAUSA_REVISION_MS = 30 * 1000;
+/** Si una revisión se quedó sin respuesta, se reintenta una vez tras esto. */
+const REINTENTO_MS = 15 * 1000;
+
 export function vigilarNuevaVersion(alEncontrar: () => void): () => void {
   quitarMarcaActualizar();
   if (!import.meta.env.PROD) return () => {};
   let detenida = false;
+  let encontrada = false;
+  /** Última revisión que SÍ tuvo respuesta (la pausa solo cuenta desde ahí). */
+  let ultima = 0;
+  let reintento = 0;
 
-  const revisar = async () => {
+  const revisar = async (forzar = false) => {
     // Con la app oculta no se pregunta: al volver a primer plano `alVolver`
     // revisa de inmediato. Con 300 usuarios, el sondeo en segundo plano eran
     // miles de peticiones por jornada que nadie iba a ver (auditoría, 24-sep).
     if (document.visibilityState !== 'visible') return;
+    // Foco, red y primer plano pueden llegar juntos: una sola consulta.
+    if (!forzar && Date.now() - ultima < PAUSA_REVISION_MS) return;
+    // Ya se avisó: no se vuelve a preguntar, pero se sigue pidiendo el SW
+    // nuevo por si el primer intento falló (iOS a media precarga, sin red).
+    if (encontrada) {
+      ultima = Date.now();
+      pedirServiceWorkerNuevo();
+      return;
+    }
+    let respondio = false;
     try {
       const res = await fetch(`/version.json?_=${Date.now()}`, {
         cache: 'no-store',
       });
       if (!res.ok || detenida) return;
+      respondio = true;
+      ultima = Date.now();
       const version = (await res.json()) as VersionRemota;
       if (typeof version.id === 'string' && version.id !== BUILD_ID) {
+        encontrada = true;
         alEncontrar();
         pedirServiceWorkerNuevo();
       }
     } catch {
       // Una pérdida de red no debe mostrar una falsa actualización.
+    } finally {
+      // Sin respuesta (sin señal, "Load failed" al reanudar en iOS): un solo
+      // reintento en un rato, que puede no llegar ningún 'online'.
+      if (!respondio && !detenida && !encontrada) {
+        window.clearTimeout(reintento);
+        reintento = window.setTimeout(() => void revisar(true), REINTENTO_MS);
+      }
     }
   };
 
   const alVolver = () => {
     if (document.visibilityState === 'visible') void revisar();
   };
-  void revisar();
+  // También al enfocar la ventana y al volver la red (Erik, 28-sep-2026): en
+  // computadora la pestaña sigue "visible" aunque se use otra ventana, así
+  // que visibilitychange casi nunca llegaba y el aviso tardaba hasta el
+  // siguiente sondeo.
+  const alEnfocar = () => void revisar();
+  // Volvió la red: siempre se pregunta (lo anterior pudo fallar sin señal).
+  const alVolverRed = () => void revisar(true);
+  void revisar(true);
   document.addEventListener('visibilitychange', alVolver);
-  const intervalo = window.setInterval(revisar, 15 * 60 * 1000);
+  window.addEventListener('focus', alEnfocar);
+  window.addEventListener('online', alVolverRed);
+  const intervalo = window.setInterval(() => void revisar(), 10 * 60 * 1000);
+  revisarActual = (forzar) => void revisar(forzar);
   return () => {
     detenida = true;
+    revisarActual = null;
     window.clearInterval(intervalo);
+    window.clearTimeout(reintento);
     document.removeEventListener('visibilitychange', alVolver);
+    window.removeEventListener('focus', alEnfocar);
+    window.removeEventListener('online', alVolverRed);
   };
 }
