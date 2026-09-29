@@ -1057,7 +1057,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   }, [usandoCopia, lecturasDeCopia, caras]);
 
   /**
-   * Biobox sin saber la máquina (Erik, 28-sep-2026): el reporte se levanta
+   * Biobox sin saber la máquina, SOLO MKT (Erik, 28-sep-2026): el reporte se levanta
    * con una "cara" de mentira que solo vive en pantalla; al guardar va con
    * clave de sitio SIN-MAQUINA y sin clave de medio, y quien la repara elige
    * la máquina en la reparación.
@@ -1391,6 +1391,11 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   const guardar = async () => {
     if (!site) {
       alert('Elige una clave de sitio.');
+      return;
+    }
+    // Por si llegó de un borrador: "Sin máquina" es solo de MKT.
+    if (sinMaquina && !esMKT) {
+      alert('Elige la máquina: la opción "Sin máquina" es solo para MKT.');
       return;
     }
     let partidas: Omit<Linea, 'id'>[] = lineas;
@@ -1842,7 +1847,10 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               {geoBusy ? '📍 Ubicando…' : '📍 Sitios cerca de mí'}
             </button>
           )}
-          {lineas.length === 0 && !site && esBiobox && (
+          {/* Solo MKT: le reportan fallas que el usuario no sabe ubicar y la
+              máquina la pone el técnico al repararla. Las demás áreas
+              siempre eligen máquina (Erik, 28-sep-2026). */}
+          {lineas.length === 0 && !site && esBiobox && esMKT && (
             <button
               className="btn ghost sm"
               type="button"
