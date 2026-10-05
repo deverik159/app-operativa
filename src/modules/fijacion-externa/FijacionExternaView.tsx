@@ -138,6 +138,16 @@ function FijacionExternaView({
 }) {
   vigilarRender('FijacionExternaView');
   const [loading, setLoading] = useState(true);
+  /** Ya terminó la primera carga: cambiar el filtro de estado ya NO cambia
+   *  la pantalla por "Cargando registros…". Desmontaba el selector con la
+   *  rueda de iPhone abierta y el menú inferior quedaba a media pantalla
+   *  (mismo caso que Rutas, Erik, 6-oct-2026). Lo anterior queda atenuado
+   *  hasta que llega lo nuevo. */
+  const [yaCargo, setYaCargo] = useState(false);
+  useEffect(() => {
+    if (!loading) setYaCargo(true);
+  }, [loading]);
+  const recargando = loading && yaCargo;
   const [err, setErr] = useState('');
   const [regs, setRegs] = useState<Registro[]>([]);
   const [q, setQ] = useState('');
@@ -201,7 +211,13 @@ function FijacionExternaView({
       })
     );
 
+  /** Cada carga tiene su ficha: con el selector a la vista se puede cambiar
+   *  de filtro antes de que llegue la respuesta anterior, y ésa se descarta. */
+  const fichaCarga = useRef(0);
+  /** Filtro de estado de los registros que están en pantalla. */
+  const estadoEnPantalla = useRef<string | null>(null);
   const cargar = async (estadoSel?: string) => {
+    const ficha = ++fichaCarga.current;
     setLoading(true);
     setErr('');
     const est = estadoSel !== undefined ? estadoSel : fEstado;
@@ -214,8 +230,15 @@ function FijacionExternaView({
     let seguir = true;
     while (seguir) {
       const { data, error } = await query.range(desde, desde + PAGINA - 1);
+      if (ficha !== fichaCarga.current) return;
       if (error) {
         setErr('No se pudieron cargar los registros: ' + error.message);
+        // Lo que quedó en pantalla es de OTRO filtro: no se deja debajo del
+        // selector nuevo como si fuera de éste.
+        if (estadoEnPantalla.current !== est) {
+          setRegs([]);
+          estadoEnPantalla.current = est;
+        }
         setLoading(false);
         return;
       }
@@ -225,6 +248,7 @@ function FijacionExternaView({
       if (desde > 50000) seguir = false;
     }
     setRegs(todas);
+    estadoEnPantalla.current = est;
     setLoading(false);
   };
   /**
@@ -811,7 +835,7 @@ function FijacionExternaView({
     setTimeout(ajustar, 250);
   }, [conCoords, visibles, loading]);
 
-  if (loading)
+  if (loading && !yaCargo)
     return (
       <div
         className="loading"
@@ -823,7 +847,18 @@ function FijacionExternaView({
 
   return (
     <div>
-      <h2 className="page">Fijación Externa</h2>
+      <h2 className="page">
+        Fijación Externa
+        {recargando && (
+          <span
+            role="status"
+            style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)', marginLeft: 10 }}
+          >
+            <span className="spinner" />
+            Actualizando…
+          </span>
+        )}
+      </h2>
       <p className="phint">
         Registros asignados por el área de fijación (sistema externo).{' '}
         {verTodo ? 'Vista completa.' : 'Mostrando los tuyos.'} Sesión: {email}
@@ -851,7 +886,7 @@ function FijacionExternaView({
         </div>
       )}
 
-      <div className="cards">
+      <div className={'cards' + (recargando ? ' recargando' : '')}>
         <div className="card">
           <div className="n">{filtrados.length}</div>
           <div className="l">
@@ -895,7 +930,7 @@ function FijacionExternaView({
         </select>
       </div>
 
-      <div className="fij-split">
+      <div className={'fij-split' + (recargando ? ' recargando' : '')}>
         <div style={{ display: 'grid', gap: 11 }}>
           {filtrados.length === 0 && (
             <div className="empty">

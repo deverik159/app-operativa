@@ -74,6 +74,14 @@ function RutasView({
     unidades.includes(u)
   );
   const [loading, setLoading] = useState(true);
+  /** Ya terminó la primera carga: las siguientes (cambio de unidad o medio,
+   *  después de importar) NO cambian la pantalla por "Cargando rutas…".
+   *  Ese cambio desmontaba el selector con la rueda de iPhone todavía
+   *  abierta y el menú inferior quedaba a media pantalla, encima del mapa
+   *  (Erik, 6-oct-2026). Lo anterior se queda atenuado hasta que llega lo
+   *  nuevo. */
+  const [yaCargo, setYaCargo] = useState(false);
+  const recargando = loading && yaCargo;
   const [err, setErr] = useState('');
   const [ubics, setUbics] = useState<Ubic[]>([]);
   const [resumen, setResumen] = useState<Resumen[]>([]);
@@ -124,8 +132,11 @@ function RutasView({
    * se descarta con la ficha.
    */
   const fichaCarga = useRef(0);
+  /** De qué unidad|medio son las rutas que están en pantalla. */
+  const segmentoEnPantalla = useRef('');
   const cargar = async () => {
     const ficha = ++fichaCarga.current;
+    const segmento = unidad + '|' + tipo;
     setLoading(true);
     setErr('');
     const [u, r] = await Promise.all([
@@ -152,18 +163,26 @@ function RutasView({
       ),
     ]);
     if (ficha !== fichaCarga.current) return;
-    if (u.error) {
-      setErr('No se pudieron cargar las ubicaciones: ' + textoFalla(u.error, u.sinRed));
-      setLoading(false);
-      return;
-    }
-    if (r.error) {
-      setErr('No se pudo cargar el resumen: ' + textoFalla(r.error, r.sinRed));
+    setYaCargo(true);
+    if (u.error || r.error) {
+      setErr(
+        u.error
+          ? 'No se pudieron cargar las ubicaciones: ' + textoFalla(u.error, u.sinRed)
+          : 'No se pudo cargar el resumen: ' + textoFalla(r.error, r.sinRed)
+      );
+      // Lo que quedó en pantalla es de OTRA unidad o medio: no se deja
+      // debajo del selector nuevo como si fuera de éste.
+      if (segmentoEnPantalla.current !== segmento) {
+        setUbics([]);
+        setResumen([]);
+        segmentoEnPantalla.current = segmento;
+      }
       setLoading(false);
       return;
     }
     setUbics(u.filas);
     setResumen(r.filas);
+    segmentoEnPantalla.current = segmento;
     setLoading(false);
   };
   useEffect(() => {
@@ -1058,13 +1077,24 @@ function RutasView({
 
   return (
     <>
-      {loading ? (
+      {loading && !yaCargo ? (
         <div className="loading" style={{ textAlign: 'center', color: 'var(--muted)', padding: 60 }}>
           Cargando rutas…
         </div>
       ) : (
         <div>
-          <h2 className="page">Rutas de Monitoreo</h2>
+          <h2 className="page">
+            Rutas de Monitoreo
+            {recargando && (
+              <span
+                role="status"
+                style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)', marginLeft: 10 }}
+              >
+                <span className="spinner" />
+                Actualizando…
+              </span>
+            )}
+          </h2>
           <p className="phint">
             Ubicaciones agrupadas por ruta geográfica. Cada ruta con su color, área y el orden de sus paradas.
           </p>
@@ -1212,7 +1242,8 @@ function RutasView({
 
           {err && !editando && <div className="err">{err}</div>}
 
-          {resumen.length === 0 && (
+          {/* Con error no se dice "aún no hay rutas": no se pudieron leer. */}
+          {resumen.length === 0 && !recargando && !err && (
             <div className="empty">
               Aún no hay rutas de {unidad} {tipo}.{' '}
               {puedeGestionar
@@ -1225,7 +1256,7 @@ function RutasView({
 
           {resumen.length > 0 && (
             <>
-              <div className="cards">
+              <div className={'cards' + (recargando ? ' recargando' : '')}>
                 <div className="card">
                   <div className="n">{resumen.length}</div>
                   <div className="l">Rutas</div>
@@ -1244,7 +1275,7 @@ function RutasView({
                 </div>
               </div>
 
-              <div className="fij-split">
+              <div className={'fij-split' + (recargando ? ' recargando' : '')}>
                 {/* Leyenda de rutas */}
                 <div style={{ display: 'grid', gap: 9 }}>
                   <div

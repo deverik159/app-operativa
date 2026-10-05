@@ -1457,3 +1457,18 @@ elegidas). Fotos de visita en `evidencias/rutas/<site_id>/…` (ojo:
 (`monitoristas_por_unidad` en 0): darles el rol con su unidad en Usuarios
 antes de asignar ("Vía Verde" con acento). Falta probar en iPhone real.
 
+**Menú inferior encima del mapa en iPhone (6-oct-2026).** Al elegir la unidad
+en Rutas, el menú inferior quedaba a media pantalla y el encabezado
+desaparecía (todo lo fijo corrido). Primer intento (`1652b24`,
+`lib/ajusteIOS.ts`: empujar la página 1 px al cerrar la rueda) NO bastó.
+Causa de fondo: cambiar de unidad cambiaba la pantalla entera por "Cargando
+rutas…" y desmontaba el `<select>` con la rueda de iOS todavía abierta.
+Corrección: después de la primera carga, Rutas, Pauta (catorcena) y Fijación
+(estado) ya no se cambian por "Cargando…": lo anterior queda atenuado
+(`.recargando`, sin toques) con "Actualizando…" en el título; si la carga
+falla y era de otra unidad/catorcena/filtro, se vacía en vez de quedarse
+debajo del selector nuevo. `ajusteIOS` además vuelve a acomodar cada vez que
+la página cambia de alto en los 3 s después de cerrar la rueda. **Regla:** un
+selector nunca debe desmontarse por su propio `onChange`. Falta la prueba en
+el iPhone de Erik (Chrome no reproduce el error).
+

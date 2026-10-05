@@ -93,6 +93,15 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   const [catorcenas, setCatorcenas] = useState<number[]>([]);
   const [catSel, setCatSel] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  /** Ya terminó la primera carga: cambiar de catorcena ya NO cambia la
+   *  pantalla por "Cargando pauta…". Desmontaba el selector con la rueda de
+   *  iPhone abierta y el menú inferior quedaba a media pantalla (Erik,
+   *  6-oct-2026). Lo anterior queda atenuado hasta que llega lo nuevo. */
+  const [yaCargo, setYaCargo] = useState(false);
+  useEffect(() => {
+    if (!loading) setYaCargo(true);
+  }, [loading]);
+  const recargando = loading && yaCargo;
   const [err, setErr] = useState('');
   const [importar, setImportar] = useState(false);
   /**
@@ -371,6 +380,8 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
 
   /** Número de carga: la respuesta de una carga superada se descarta. */
   const cargaSeq = useRef(0);
+  /** Catorcena de las filas que están en pantalla. */
+  const catEnPantalla = useRef<number | null>(null);
   /** Cuenta los cambios locales de filas (tomas) para detectar respuestas viejas. */
   const cambiosLocales = useRef(0);
   const setFilasLocal: typeof setFilas = (v) => {
@@ -404,6 +415,12 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       if (miCarga !== cargaSeq.current) return; // otra carga más nueva manda
       if (error) {
         setErr('pauta: ' + error.message);
+        // Lo que quedó en pantalla es de OTRA catorcena: no se deja debajo
+        // del selector nuevo como si fuera de ésta.
+        if (catEnPantalla.current !== cat) {
+          setFilas([]);
+          catEnPantalla.current = cat;
+        }
         setLoading(false);
         return;
       }
@@ -424,6 +441,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       return;
     }
     setFilas(todas);
+    catEnPantalla.current = cat;
     setLoading(false);
   }, []);
 
@@ -691,7 +709,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   };
 
   // --- Render ---
-  if (loading) return <div className="loading">Cargando pauta…</div>;
+  if (loading && !yaCargo) return <div className="loading">Cargando pauta…</div>;
 
   if (catorcenas.length === 0)
     return (
@@ -727,7 +745,18 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
 
   return (
     <>
-      <h2 className="page">Pauta y monitoreo</h2>
+      <h2 className="page">
+        Pauta y monitoreo
+        {recargando && (
+          <span
+            role="status"
+            style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)', marginLeft: 10 }}
+          >
+            <span className="spinner" />
+            Actualizando…
+          </span>
+        )}
+      </h2>
       <p className="phint">
         Qué campaña va en cada cara, cómo va el avance y cómo llegar.
       </p>
@@ -782,7 +811,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
 
       {/* Campañas de la ruta: el filtro principal del monitorista. */}
       {campanasRuta.length > 0 && (
-        <div style={{ marginBottom: 14 }}>
+        <div className={recargando ? 'recargando' : undefined} style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
             Campañas en {fRuta === 'Todas' ? 'la catorcena' : `la ruta ${fRuta}`}{' '}
             ({campanasRuta.length}) — toca para filtrar
@@ -855,7 +884,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
           quita. Sitios y Caras limpian el filtro de avance. Los conteos de
           avance salen de `base` (sin ese filtro), para que las cifras no
           se pongan en cero al filtrar. */}
-      <div className="cards">
+      <div className={'cards' + (recargando ? ' recargando' : '')}>
         {(
           [
             {
@@ -1040,7 +1069,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
           ago-2026): así el monitorista nuevo lo prende desde su propio
           celular sin depender del coordinador. */}
       {tramos.length > 0 && (
-        <div style={{ marginBottom: 14 }}>
+        <div className={recargando ? 'recargando' : undefined} style={{ marginBottom: 14 }}>
           <button
             type="button"
             className="btn ghost sm"
@@ -1096,7 +1125,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       {sitios.length === 0 ? (
         <div className="empty">Sin resultados con estos filtros.</div>
       ) : (
-        <div className="inc-list">
+        <div className={'inc-list' + (recargando ? ' recargando' : '')}>
           {sitios.map((s) => (
             <div key={s.site_id} className="inc">
               <div className="inc-top">
