@@ -1496,8 +1496,8 @@ Apple lo pasó a un componente del sistema). Chrome no lo reproduce.
   sube y aplica (Pauta: catorcena, ruta, prefiltro de la ruta asignada y la
   llegada de otra catorcena; Fijación: estado y la llegada de otro estado);
   `subirYRegresar(fn)` sube, aplica y regresa a donde estaba (campañas y
-  tarjetas de avance de Pauta, que se tocan varias veces seguidas). Esta
-  extensión a Pauta y Fijación falta probarla en el iPhone.
+  tarjetas de avance de Pauta, que se tocan varias veces seguidas). Erik
+  probó Pauta y Fijación en su iPhone el mismo día: funcionan bien.
 - **Regla:** antes de cambiar mucho el alto de la página por una acción del
   usuario, usar `subirYLuego` (o hacerlo en un contenedor propio). En
   pantallas con mapa, preferir botones a `<select>` cuando son pocas
