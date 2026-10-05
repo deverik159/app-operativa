@@ -78,7 +78,7 @@ function RutasView({
   /** Ya terminó la primera carga: las siguientes (cambio de unidad o medio,
    *  después de importar) NO cambian la pantalla por "Cargando rutas…": lo
    *  anterior se queda atenuado hasta que llega lo nuevo, sin parpadeo ni
-   *  brinco de la página (6-oct-2026). OJO: esto NO era la causa del menú
+   *  brinco de la página (5-oct-2026). OJO: esto NO era la causa del menú
    *  flotante en iPhone; ver el comentario de los botones de unidad. */
   const [yaCargo, setYaCargo] = useState(false);
   const recargando = loading && yaCargo;
@@ -145,7 +145,7 @@ function RutasView({
    * desplazada dejaba el menú inferior y la barra de arriba colocados como si
    * el scroll fuera 0: el menú a media pantalla sobre el mapa y la barra
    * fuera de la vista. El desfase medía lo mismo que el scroll (Erik,
-   * 6-oct-2026). Primero se sube y, ya arriba (dos cuadros después, para que
+   * 5-oct-2026). Primero se sube y, ya arriba (dos cuadros después, para que
    * iOS aplique el scroll antes del cambio de alto), cambia el contenido.
    * Lo mismo cuando LLEGAN los datos de otra unidad (ver cargar): si mientras
    * decía "Actualizando…" se bajó la página, se vuelve a subir antes de que
@@ -600,7 +600,7 @@ function RutasView({
       if (!mapObj.current) return;
       mapObj.current.invalidateSize();
       // Sin animación: el salto de zoom animado era más trabajo de pantalla
-      // justo cuando iOS reacomoda la vista (bug del menú, 6-oct-2026).
+      // justo cuando iOS reacomoda la vista (bug del menú, 5-oct-2026).
       if (todosLatLng.length === 1)
         mapObj.current.setView(todosLatLng[0], 14, { animate: false });
       else if (todosLatLng.length > 1)
@@ -1173,7 +1173,7 @@ function RutasView({
 
           <div className="toolbar">
             <span className="tag">Unidad de negocio:</span>
-            {/* Botones y NO <select> (Erik, 6-oct-2026). En el iPhone (iOS 27,
+            {/* Botones y NO <select> (Erik, 5-oct-2026). En el iPhone (iOS 27,
                 app instalada), al elegir en la rueda o menú de un <select> iOS
                 abre una "sesión de captura" y, al cerrarla con la página
                 cambiando de alto (rutas nuevas + mapa), deja corrida el área
@@ -1442,7 +1442,7 @@ function RutasView({
                               la anterior siguen en pantalla hasta que llega
                               lo nuevo, y si ganaban este botón crecían todas a
                               la vez (miles de px de alto de golpe, justo
-                              antes de encogerse; 6-oct-2026). */}
+                              antes de encogerse; 5-oct-2026). */}
                           {puedeGestionar && !esSegmentoDePauta(r.unidad_negocio, r.tipo_medio) && (
                             <button
                               className="btn ghost sm"

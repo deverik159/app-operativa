@@ -96,7 +96,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   /** Ya terminó la primera carga: cambiar de catorcena ya NO cambia la
    *  pantalla por "Cargando pauta…". Desmontaba el selector con la rueda de
    *  iPhone abierta y el menú inferior quedaba a media pantalla (Erik,
-   *  6-oct-2026). Lo anterior queda atenuado hasta que llega lo nuevo. */
+   *  5-oct-2026). Lo anterior queda atenuado hasta que llega lo nuevo. */
   const [yaCargo, setYaCargo] = useState(false);
   useEffect(() => {
     if (!loading) setYaCargo(true);

@@ -141,7 +141,7 @@ function FijacionExternaView({
   /** Ya terminó la primera carga: cambiar el filtro de estado ya NO cambia
    *  la pantalla por "Cargando registros…". Desmontaba el selector con la
    *  rueda de iPhone abierta y el menú inferior quedaba a media pantalla
-   *  (mismo caso que Rutas, Erik, 6-oct-2026). Lo anterior queda atenuado
+   *  (mismo caso que Rutas, Erik, 5-oct-2026). Lo anterior queda atenuado
    *  hasta que llega lo nuevo. */
   const [yaCargo, setYaCargo] = useState(false);
   useEffect(() => {

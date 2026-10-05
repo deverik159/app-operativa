@@ -1457,7 +1457,7 @@ elegidas). Fotos de visita en `evidencias/rutas/<site_id>/…` (ojo:
 (`monitoristas_por_unidad` en 0): darles el rol con su unidad en Usuarios
 antes de asignar ("Vía Verde" con acento). Falta probar en iPhone real.
 
-**Menú inferior encima del mapa en iPhone (6-oct-2026).** En la app
+**Menú inferior encima del mapa en iPhone (5-oct-2026).** En la app
 instalada (iOS 27), al pasar en Rutas de Ecovallas (muchas rutas) a Vía Verde
 (una), el menú inferior quedaba ~157 pt arriba del borde, sobre el mapa, y la
 barra de arriba desaparecía. Medido sobre la captura: los dos estaban justo

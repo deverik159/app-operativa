@@ -1,6 +1,6 @@
 // ============================================================
 // src/lib/armazon.ts
-// "Armazón de app" en el celular: PRUEBA por teléfono (Erik, 6-oct-2026).
+// "Armazón de app" en el celular: PRUEBA por teléfono (Erik, 5-oct-2026).
 //
 // Para el menú inferior que en iPhone (iOS 27, app instalada) quedaba a
 // media pantalla sobre el mapa de Rutas (ver lib/diagPantalla.ts). Hoy el

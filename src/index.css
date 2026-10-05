@@ -189,7 +189,7 @@
      navegador mueve el scroll por su cuenta para que lo visible no salte.
      Ese ajuste implícito, al cambiar de miles de px de alto (Rutas: de
      Ecovallas a Vía Verde), es un candidato a dejar el menú inferior y la
-     barra de arriba desacomodados (Erik, 6-oct-2026). La app no depende de
+     barra de arriba desacomodados (Erik, 5-oct-2026). La app no depende de
      él: en iPhone/iPad se apaga, como era hasta iOS 26. El @supports con
      -webkit-touch-callout solo lo cumple Safari de iOS; Android sigue igual. */
   @supports (-webkit-touch-callout: none) {
@@ -249,7 +249,7 @@
      catorcena o filtro): se queda montado y atenuado, sin tocarse. Antes la
      pantalla entera se cambiaba por "Cargando…" y en iPhone eso, con la rueda
      del selector abierta, dejaba el menú inferior a media pantalla (Erik,
-     6-oct-2026). */
+     5-oct-2026). */
   .recargando{opacity:.5;pointer-events:none;transition:opacity .15s}
   .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(1200px 600px at 70% -10%,var(--login-brillo),transparent),var(--bg)}
   .login-card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:28px;max-width:400px;width:100%}
@@ -588,7 +588,7 @@
   .rt-chip{background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:20px;
     padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;min-height:36px;font-family:inherit}
   .rt-chip.on{background:var(--activo-fondo);border-color:var(--accent);color:var(--txt)}
-  /* Unidad y medio en Rutas: botones en lugar de <select> (iPhone, 6-oct-2026). */
+  /* Unidad y medio en Rutas: botones en lugar de <select> (iPhone, 5-oct-2026). */
   .rt-segmento{margin-bottom:0}
   .rt-segmento .rt-chip{font-size:13px;min-height:40px;padding:8px 14px}
   /* El elegido se distingue también al sol: ✓ en el texto y borde doble (el
@@ -668,7 +668,7 @@
     .rt-dir-opciones{grid-template-columns:1fr}
   }
 
-  /* ===== Armazón de app: PRUEBA por teléfono (6-oct-2026; ver lib/armazon.ts)
+  /* ===== Armazón de app: PRUEBA por teléfono (5-oct-2026; ver lib/armazon.ts)
      Solo con html.armazon (lo pone armazon.ts desde localStorage), en
      celular y cuando existe la barra de la app (no en el login). El
      documento ya NO se desplaza: mide justo la pantalla; barra y menú son

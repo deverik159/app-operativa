@@ -1,6 +1,6 @@
 // ============================================================
 // src/lib/diagPantalla.ts
-// Diagnóstico de pantalla, escondido (Erik, 6-oct-2026).
+// Diagnóstico de pantalla, escondido (Erik, 5-oct-2026).
 //
 // EL ERROR: en el iPhone (iOS 27, app instalada), al elegir la unidad en
 // Rutas el menú inferior quedaba a media pantalla encima del mapa y la barra
