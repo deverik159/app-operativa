@@ -668,7 +668,7 @@ function ImportarKmlModal({ unidad: sugerida, onClose, onImportado }: Props) {
                 Quitar de las rutas las máquinas que ya no están en el mapa.
                 <span style={{ color: 'var(--muted)' }}>
                   {' '}
-                  Úsalo solo si el mapa es la lista completa y definitiva.
+                  Úsalo solo si el mapa es la lista completa y definitiva. Las máquinas que se agregaron a una ruta desde la app no se quitan.
                 </span>
               </span>
             </label>

@@ -573,7 +573,7 @@ function ImportarRutasExcelModal({ unidad, onClose, onImportado }: Props) {
                 Quitar de las rutas las máquinas que no vengan en este archivo.
                 <span style={{ color: 'var(--muted)' }}>
                   {' '}
-                  Úsalo solo si este archivo es la lista completa de {unidad}.
+                  Úsalo solo si este archivo es la lista completa de {unidad}. Las máquinas que se agregaron a una ruta desde la app no se quitan.
                 </span>
               </span>
             </label>

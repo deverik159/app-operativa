@@ -538,3 +538,106 @@
   .order-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#151515;font-weight:800;font-size:12px;flex-shrink:0}
   .leaflet-container{background:var(--bg)}
   .route-pin{background:var(--accent);color:#151515;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;border:2px solid #151515}
+
+  /* ===== Rutas: armado, vista previa del Excel, asignación y avance
+     (rutas, 5-oct-2026). Todo con variables del tema; los únicos colores
+     fijos son los de la ruta (identidad elegida por el coordinador) y el
+     borde oscuro de los pines, igual que .route-pin. ===== */
+  .rt-color{width:16px;height:16px;border-radius:4px;display:inline-block;flex-shrink:0}
+  .rt-pin{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:12px;border:2px solid #151515;box-shadow:0 1px 3px var(--sombra)}
+  .rt-pin.retirada{opacity:.45}
+  /* Candidatos del mapa de armado: el SVG no entiende var() en atributos,
+     la clase sí le gana al atributo. */
+  path.rt-cand-libre{fill:var(--muted);stroke:var(--panel)}
+  .modal.rt-armado{max-width:1100px}
+  .rt-armado-cab{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .rt-armado-cuerpo{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;align-items:start}
+  .rt-armado-mapa-col{position:sticky;top:0}
+  .rt-mapa{height:460px;border-radius:12px;border:1px solid var(--line);isolation:isolate;z-index:0;overflow:hidden}
+  .rt-leyenda{display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--muted);margin-top:6px}
+  .rt-leyenda span{display:inline-flex;align-items:center;gap:5px}
+  .rt-punto{display:inline-block;width:11px;height:11px;border-radius:50%;border:1px solid var(--line)}
+  .rt-punto-libre{background:var(--muted)}
+  .rt-punto-otra{background:var(--st-ambar-fondo);border:1px dashed var(--st-ambar)}
+  .rt-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:10px;overflow-x:auto}
+  .rt-tab{background:none;border:none;border-bottom:3px solid transparent;color:var(--muted);font-weight:700;
+    font-size:13px;padding:10px 10px 8px;cursor:pointer;white-space:nowrap;min-height:40px;font-family:inherit}
+  .rt-tab.on{color:var(--txt);border-bottom-color:var(--accent)}
+  .rt-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+  .rt-chip{background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:20px;
+    padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;min-height:36px;font-family:inherit}
+  .rt-chip.on{background:var(--activo-fondo);border-color:var(--accent);color:var(--txt)}
+  .rt-lista{display:grid;gap:6px;max-height:460px;overflow-y:auto;overflow-x:hidden;padding-right:2px}
+  .rt-fila{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:9px;background:var(--panel2);
+    border:1px solid var(--line);cursor:pointer}
+  .rt-fila.elegida{border-color:var(--accent);background:var(--activo-fondo)}
+  .rt-fila-btn{font-size:18px;font-weight:800;color:var(--accent-txt)}
+  .rt-fila-tit{font-weight:700;font-size:13px;overflow-wrap:anywhere}
+  .rt-fila-sub{font-size:12px;color:var(--muted);line-height:1.4;overflow-wrap:anywhere}
+  .rt-fila-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+  .rt-fila-tags .pill{white-space:normal}
+  .rt-fila-acc{display:flex;gap:0;flex-shrink:0}
+  .rt-fila-acc .btn-icono:disabled{opacity:.3;cursor:default}
+  .rt-num,.rt-num-neutro{min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;font-size:12px;font-weight:800;flex-shrink:0}
+  .rt-num-neutro{background:var(--panel);border:1px solid var(--line)}
+  .rt-aviso{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--st-ambar-fondo);
+    border:1px solid var(--st-ambar-borde);color:var(--txt);font-size:13px}
+  .rt-aviso-acc{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:8px}
+  /* El pie con Guardar se queda a la vista mientras se recorre la lista
+     (el overlay es el que se desplaza). */
+  .rt-pie{position:sticky;bottom:0;z-index:2;display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+    justify-content:flex-end;margin:14px -22px -22px;padding:12px 22px;
+    padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));background:var(--panel);
+    border-top:1px solid var(--line);border-radius:0 0 16px 16px}
+  /* Sin padding abajo: el pie fijo (sticky) se queda a esa distancia del
+     borde y por el hueco se asomaba el contenido (QA, 5-oct-2026). */
+  .overlay.rt-overlay-full{padding-bottom:0}
+  .rt-dirs{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .rt-seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .rt-dir-fila{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 10px}
+  .rt-dir-opciones{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .rt-dir-op{text-align:left;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:9px;
+    padding:8px 9px;font-size:12px;line-height:1.4;cursor:pointer;font-family:inherit;min-height:44px;overflow-wrap:anywhere}
+  .rt-dir-op.on{border:2px solid var(--accent);background:var(--activo-fondo)}
+  .rt-dir-op:disabled{cursor:default;opacity:.75}
+  .rt-dir-et{display:block;font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+  .rt-dir-qtm{font-size:11px;color:var(--muted);opacity:.85;margin-top:2px;line-height:1.4}
+  .rt-seccion{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:12px}
+  .rt-seccion-tit{font-size:13px;font-weight:700;margin-bottom:8px}
+  .rt-check{display:flex;gap:8px;align-items:flex-start;font-size:12px;margin-top:8px;cursor:pointer;line-height:1.4}
+  .rt-check input{width:auto;margin-top:2px}
+  .rt-barra{height:8px;border-radius:6px;background:var(--line);overflow:hidden}
+  .rt-barra>div{height:100%;background:var(--ok);border-radius:6px;transition:width .3s}
+  .rt-visita{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;padding:8px 10px;border-radius:9px;
+    background:var(--panel);border:1px solid var(--line)}
+  .rt-mini{position:relative;width:64px;height:64px;padding:0;border:1px solid var(--line);border-radius:8px;
+    overflow:hidden;background:var(--panel2);cursor:pointer;flex-shrink:0}
+  .rt-mini img{width:100%;height:100%;object-fit:cover;display:block}
+  .rt-mini-n{position:absolute;right:3px;bottom:3px;background:var(--overlay);color:#fff;font-size:11px;
+    font-weight:800;border-radius:6px;padding:0 5px}
+  .overlay.rt-visor{align-items:center}
+  .rt-visor-caja{width:100%;max-width:900px;display:grid;gap:8px}
+  .rt-visor-caja img{width:100%;max-height:75vh;object-fit:contain;border-radius:10px;background:var(--panel)}
+  .rt-visor-barra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
+  .rt-visor-barra span{flex:1}
+  @media(max-width:900px){
+    .rt-armado-cuerpo{grid-template-columns:1fr}
+    .rt-armado-mapa-col{position:relative}
+    .rt-mapa{height:300px}
+    /* En una sola columna la lista no se encajona: se recorre con el
+       desplazamiento del modal (una caja con scroll dentro de otra en
+       iPhone atrapa el dedo). */
+    .rt-lista{max-height:none;overflow:visible}
+  }
+  @media(max-width:780px){
+    /* Armado a pantalla completa en el teléfono. */
+    .overlay.rt-overlay-full{padding:0}
+    .modal.rt-armado{border-radius:0;border:none;min-height:100vh;
+      padding-top:calc(14px + env(safe-area-inset-top,0px))}
+    @supports (height: 1dvh){.modal.rt-armado{min-height:100dvh}}
+    .rt-pie{margin:14px -14px -16px;padding:10px 14px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));border-radius:0}
+    .rt-dir-opciones{grid-template-columns:1fr}
+  }

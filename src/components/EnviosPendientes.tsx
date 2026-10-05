@@ -28,6 +28,10 @@
 // sin señal, 24-sep-2026): antes los reportes esperaban a que terminara la
 // de acciones, y una reparación con un video de 40 MB y señal débil los
 // retenía más de 20 min. Son independientes: cada una lleva su orden.
+//
+// MIS RUTAS (rutas, 5-oct-2026): una tercera cola, la de VISITAS del
+// monitorista (lib/visitas.ts: "Marcar visita" sin señal), con los mismos
+// disparadores, su propia vuelta y su propio descartar.
 // ============================================================
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sb } from '../lib/supabase';
@@ -47,6 +51,14 @@ import {
   tomarAvisosAcciones,
   type ResumenAccion,
 } from '../lib/acciones';
+import {
+  descartarVisita,
+  listarVisitasAviso,
+  procesarVisitasPendientes,
+  suscribirVisitas,
+  tomarAvisosVisitas,
+  type ResumenVisita,
+} from '../lib/visitas';
 
 /** Reintento periódico mientras haya pendientes. */
 const CADA_MS = 2 * 60 * 1000;
@@ -74,13 +86,15 @@ function EnviosPendientes({
 }) {
   const [lista, setLista] = useState<ResumenPendiente[]>([]);
   const [acciones, setAcciones] = useState<ResumenAccion[]>([]);
+  const [visitas, setVisitas] = useState<ResumenVisita[]>([]);
   const [abierto, setAbierto] = useState(false);
   // Una bandera por cola (verificación de la revisión sin señal,
   // 24-sep-2026): con un video lento en la de acciones, la de reportes se
   // puede reintentar y descartar.
   const [enviandoReportes, setEnviandoReportes] = useState(false);
   const [enviandoAcciones, setEnviandoAcciones] = useState(false);
-  const trabajando = enviandoReportes || enviandoAcciones;
+  const [enviandoVisitas, setEnviandoVisitas] = useState(false);
+  const trabajando = enviandoReportes || enviandoAcciones || enviandoVisitas;
   /** Avisos de la última vuelta (omitidos por duplicado, etc.): una vez. */
   const [mensajes, setMensajes] = useState<string[]>([]);
   // App pasa una flecha nueva en cada render: con ref no se re-suscribe todo.
@@ -98,6 +112,9 @@ function EnviosPendientes({
    */
   const vueltaReportesRef = useRef<Promise<void> | null>(null);
   const vueltaAccionesRef = useRef<Promise<void> | null>(null);
+  const vueltaVisitasRef = useRef<Promise<void> | null>(null);
+  /** Lo último que se pintó de las tres colas (ver refrescar). */
+  const firmaListasRef = useRef('');
   /** Las dos colas que terminan casi juntas piden UNA recarga de listas, no dos. */
   const relojRecarga = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(relojRecarga.current), []);
@@ -110,14 +127,27 @@ function EnviosPendientes({
 
   const refrescar = useCallback(async () => {
     try {
-      const [l, la] = await Promise.all([listarPendientes(email), listarAccionesAviso(email)]);
-      hayPendientesRef.current = l.length + la.length > 0;
-      setLista(l);
-      setAcciones(la);
+      const [l, la, lv] = await Promise.all([
+        listarPendientes(email),
+        listarAccionesAviso(email),
+        // Una cola de visitas que no carga no debe esconder las otras dos.
+        listarVisitasAviso(email).catch(() => [] as ResumenVisita[]),
+      ]);
+      hayPendientesRef.current = l.length + la.length + lv.length > 0;
+      // (rutas, 5-oct-2026, revisión) Regla anti-congelamiento del 24-sep:
+      // un setState tras una lectura local se compara con un ref. Si las
+      // tres listas dicen lo mismo que la vez pasada, no se re-renderiza.
+      const firma = JSON.stringify([l, la, lv]);
+      if (firma !== firmaListasRef.current) {
+        firmaListasRef.current = firma;
+        setLista(l);
+        setAcciones(la);
+        setVisitas(lv);
+      }
       // Avisos de acciones que se mandaron por su cuenta (p. ej. una previa
       // de la misma incidencia antes de la que se acaba de tocar). Solo los
       // de este correo (revisión sin señal, 24-sep-2026: teléfono compartido).
-      const buzon = tomarAvisosAcciones(email);
+      const buzon = [...tomarAvisosAcciones(email), ...tomarAvisosVisitas(email)];
       if (buzon.length) setMensajes((m) => [...m, ...buzon]);
     } catch {
       /* el aviso nunca debe romper la app */
@@ -166,6 +196,10 @@ function EnviosPendientes({
         const r = await procesarPendientes(email);
         return { mensajes: r.mensajes, recargar: r.terminados > 0 || r.conFilasNuevas > 0 };
       }),
+      correr(vueltaVisitasRef, setEnviandoVisitas, async () => {
+        const r = await procesarVisitasPendientes(email);
+        return { mensajes: r.mensajes, recargar: r.terminadas > 0 };
+      }),
     ]).then(() => undefined);
   }, [email, refrescar]);
 
@@ -179,10 +213,12 @@ function EnviosPendientes({
     };
     const quitarEnvios = suscribirEnvios(alCambiar);
     const quitarAcciones = suscribirAcciones(alCambiar);
+    const quitarVisitas = suscribirVisitas(alCambiar);
     refrescar();
     return () => {
       quitarEnvios();
       quitarAcciones();
+      quitarVisitas();
       window.clearTimeout(t);
     };
   }, [refrescar]);
@@ -256,22 +292,41 @@ function EnviosPendientes({
     refrescar();
   };
 
+  /** Descartar una visita = NO se registrará (rutas, 5-oct-2026). */
+  const descartarVis = async (p: ResumenVisita) => {
+    const texto =
+      `¿Descartar la visita a ${p.site_id}?\n\nNO se registrará: se borra de este teléfono ` +
+      'con sus fotos. Si todavía hace falta, vuelve a marcarla en Mis rutas.';
+    if (!confirm(texto)) return;
+    const r = await descartarVisita(p.id);
+    if (r === 'ocupado')
+      alert('Esa visita se está enviando en este momento. Espera a que termine e intenta de nuevo.');
+    refrescar();
+  };
+
   const n = lista.length;
   const m = acciones.length;
-  if (!n && !m && !mensajes.length) return null;
+  const nv = visitas.length;
+  if (!n && !m && !nv && !mensajes.length) return null;
 
   const soloFotos = n > 0 && lista.every((p) => p.filasCreadas);
+  // "📤 1 reporte, 2 acciones y 3 visitas sin enviar" (rutas, 5-oct-2026):
+  // las partes que haya, unidas en español.
+  const partes = [
+    ...(n ? [plural(n, 'reporte', 'reportes')] : []),
+    ...(m ? [plural(m, 'acción', 'acciones')] : []),
+    ...(nv ? [plural(nv, 'visita', 'visitas')] : []),
+  ];
+  const unidas =
+    partes.length > 1 ? `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}` : partes[0];
   const titulo =
-    n && m
-      ? `📤 ${plural(n, 'reporte', 'reportes')} y ${plural(m, 'acción', 'acciones')} sin enviar`
-      : m
-        ? `📤 ${plural(m, 'acción', 'acciones')} sin enviar`
-        : soloFotos
-          ? `📤 Fotos de ${plural(n, 'reporte', 'reportes')} sin subir`
-          : `📤 ${plural(n, 'reporte', 'reportes')} sin enviar`;
+    n && !m && !nv && soloFotos
+      ? `📤 Fotos de ${plural(n, 'reporte', 'reportes')} sin subir`
+      : `📤 ${unidas} sin enviar`;
   const enRiesgo =
     lista.some((p) => p.soloMemoria || p.fueraDelTelefono > 0) ||
-    acciones.some((p) => p.soloMemoria || p.fueraDelTelefono > 0);
+    acciones.some((p) => p.soloMemoria || p.fueraDelTelefono > 0) ||
+    visitas.some((p) => p.soloMemoria || p.fueraDelTelefono > 0);
 
   const renglon = {
     // El borde de .banner, con su pareja del tema claro (tema claro/oscuro,
@@ -312,19 +367,27 @@ function EnviosPendientes({
         </div>
       ))}
 
-      {n + m > 0 && (
+      {n + m + nv > 0 && (
         <>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ flex: '1 1 220px', minWidth: 0 }}>
               <b>{titulo}</b> ·{' '}
-              {trabajando ? 'enviando…' : 'se reintenta solo al volver la señal'}
+              {/* (rutas, 5-oct-2026, QA) Un error definitivo (sin permiso,
+                  ruta retirada) no sale solo: no prometer que sí. */}
+              {trabajando
+                ? 'enviando…'
+                : acciones.some((p) => p.conError) || visitas.some((p) => p.conError)
+                  ? 'hay envíos que no salen solos: toca «Ver detalle»'
+                  : 'se reintenta solo al volver la señal'}
             </span>
             <button
               type="button"
               className="btn sm"
               // Se puede tocar mientras alguna cola con pendientes esté
               // parada (la otra puede seguir con un video lento).
-              disabled={(!n || enviandoReportes) && (!m || enviandoAcciones)}
+              disabled={
+                (!n || enviandoReportes) && (!m || enviandoAcciones) && (!nv || enviandoVisitas)
+              }
               onClick={() => procesar()}
             >
               {trabajando && <span className="spinner" />} Reintentar ahora
@@ -424,6 +487,46 @@ function EnviosPendientes({
                   className="btn ghost sm"
                   disabled={p.enviando || enviandoAcciones}
                   onClick={() => descartarUna(p)}
+                  style={{ flexShrink: 0 }}
+                >
+                  Descartar
+                </button>
+              </div>
+            ))}
+
+          {abierto &&
+            visitas.map((p) => (
+              <div key={p.id} style={renglon}>
+                <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                  <div style={{ fontWeight: 700 }}>🧭 {p.resumen}</div>
+                  <div>
+                    Visita de las {hora(p.visitado_en)} · {plural(p.fotos, 'foto', 'fotos')}
+                    {p.subidas > 0 && ` (${p.subidas} ya subidas)`}
+                    {p.enviando && ' · enviando…'}
+                  </div>
+                  {p.soloMemoria && (
+                    <div style={{ color: 'var(--warn)' }}>
+                      No se pudo guardar en el teléfono: si cierras la app, se pierde.
+                    </div>
+                  )}
+                  {!p.soloMemoria && p.fueraDelTelefono > 0 && (
+                    <div style={{ color: 'var(--warn)' }}>
+                      {plural(p.fueraDelTelefono, 'foto no cupo', 'fotos no cupieron')} en el
+                      teléfono: si cierras la app, se pierden.
+                    </div>
+                  )}
+                  {p.ultimoError &&
+                    (p.conError ? (
+                      <div style={{ color: 'var(--warn)' }}>No se pudo registrar: {p.ultimoError}</div>
+                    ) : (
+                      <div style={{ opacity: 0.75 }}>Último intento: {p.ultimoError}</div>
+                    ))}
+                </div>
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  disabled={p.enviando || enviandoVisitas}
+                  onClick={() => descartarVis(p)}
                   style={{ flexShrink: 0 }}
                 >
                   Descartar

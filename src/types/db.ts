@@ -530,6 +530,210 @@ export interface RutaUbicacion {
   vallas_archivo: number | null;
   direccion_archivo: string | null;
   agregada_en: string | null;
+  /**
+   * Qué dirección se queda para el sitio (rutas, 5-oct-2026). La elige
+   * quien importa el Excel de rutas; nadie la corrige en campo.
+   * 'qtm' = inventario.direccion en vivo; 'archivo' = direccion_archivo.
+   */
+  direccion_fuente: DireccionFuente;
+  /** Por dónde entró la parada. Nulo en las de antes del 5-oct-2026. */
+  origen: OrigenParada | null;
+  /** Quién la puso en su ruta actual (correo en minúsculas). */
+  agregada_por: string | null;
+}
+
+/** De dónde sale la dirección que se enseña de una parada. */
+export type DireccionFuente = 'qtm' | 'archivo';
+
+/**
+ * Por dónde entró una parada: Excel de rutas, mapa KML / Excel de Biobox
+ * (capas), Pauta → Sincronizar rutas, o armada en la app (+ Nueva ruta).
+ */
+export type OrigenParada = 'archivo' | 'capas' | 'pauta' | 'app';
+
+/**
+ * Fila de `vw_rutas_con_coords`: una parada con su ruta y lo que hay en
+ * inventario del MISMO segmento (unidad + medio) de la ruta.
+ */
+export interface RutaConCoords {
+  ubicacion_id: number;
+  ruta_id: number;
+  ruta_numero: number;
+  ruta_nombre: string | null;
+  ruta_color: string;
+  ruta_unidad: string;
+  ruta_tipo: string;
+  ruta_activa: boolean;
+  site_id: string;
+  secuencia: number | null;
+  estatus_archivo: string | null;
+  vallas_archivo: number | null;
+  direccion_archivo: string | null;
+  caras_reales: number | null;
+  latitud: number | null;
+  longitud: number | null;
+  municipio: string | null;
+  sin_match_inventario: boolean;
+  /** inventario.direccion de la primera cara del sitio en el segmento. */
+  direccion_qtm: string | null;
+  direccion_fuente: DireccionFuente;
+  /**
+   * LA dirección elegida: la del archivo si la fuente es 'archivo' y no
+   * está vacía; si no, la de QTM. Es la que se enseña en Rutas / Mis rutas
+   * y la que llevan las incidencias nuevas del sitio, SALVO en Ecovallas
+   * Impreso: ahí la incidencia lleva `direccion_qtm`, porque la del archivo
+   * es la de la pauta, cambia cada catorcena y nadie la eligió (Erik,
+   * 5-oct-2026). La vista no cambia: lo decide la app con ruta_unidad y
+   * ruta_tipo.
+   */
+  direccion: string | null;
+  origen: OrigenParada | null;
+}
+
+/** Una fila de `importar_rutas(p_unidad, p_tipo, p_filas)`. */
+export interface ImportarRutasFila {
+  site_id: string;
+  ruta: number;
+  secuencia: number | null;
+  estatus: string;
+  vallas: number | null;
+  direccion: string;
+  /** Opcional. Sin ella: fila nueva 'archivo' si trae dirección; existente, se conserva. */
+  fuente_direccion?: DireccionFuente;
+  /** Opcional; default 'archivo'. */
+  origen?: OrigenParada;
+}
+
+/** Lo que regresa `importar_rutas`. */
+export interface ImportarRutasResultado {
+  rutas_creadas: number;
+  ubicaciones_procesadas: number;
+  omitidas: number;
+  /** Hasta 8 omitidas con el porqué. (OJO: en importar_rutas_capas es string[].) */
+  omitidos_ejemplo: { site_id: string | null; motivo: string }[];
+}
+
+/** Sitio que se quiere en una ruta pero ya vive en otra. */
+export interface ParadaEnOtraRuta {
+  site_id: string;
+  ruta_id: number;
+  ruta_numero: number;
+  ruta_nombre: string | null;
+}
+
+/** Sitio que `guardar_paradas_ruta` no aceptó. */
+export interface ParadaRechazada {
+  site_id: string;
+  motivo: string;
+}
+
+/**
+ * Lo que regresa `guardar_paradas_ruta(p_ruta_id, p_site_ids, p_mover)`.
+ * Con `requiere_confirmar` NO se cambió nada: se pregunta y se vuelve a
+ * llamar con p_mover = true. Una lista vacía (o toda rechazada) regresa
+ * ok:false con `mensaje` y tampoco cambia nada.
+ */
+export type GuardarParadasResultado =
+  | {
+      ok: true;
+      total: number;
+      /** Nuevas + movidas desde otra ruta. */
+      agregadas: number;
+      quitadas: number;
+      movidas: { site_id: string; ruta_origen_id: number; ruta_origen_numero: number }[];
+      rechazadas: ParadaRechazada[];
+    }
+  | {
+      ok: false;
+      requiere_confirmar: true;
+      en_otra_ruta: ParadaEnOtraRuta[];
+      rechazadas: ParadaRechazada[];
+    }
+  | {
+      ok: false;
+      requiere_confirmar?: undefined;
+      mensaje: string;
+      rechazadas: ParadaRechazada[];
+    };
+
+/** Foto de una visita: bucket evidencias, 'rutas/<site_id>/<cliente_id>_<n>.<ext>'. */
+export interface RutaVisitaFoto {
+  path: string;
+  url: string;
+}
+
+/**
+ * tabla `ruta_visitas` (rutas, 5-oct-2026): "visité este sitio" desde
+ * Mis rutas. Sin update ni delete. Si un sitio se visita dos veces en la
+ * catorcena, cuenta la última (visitado_en más reciente).
+ */
+export interface RutaVisita {
+  id: number;
+  /** Llave idempotente que genera el teléfono (UNIQUE): la cola reenvía sin duplicar. */
+  cliente_id: string;
+  /** Null si la ruta se borró después. */
+  ruta_id: number | null;
+  site_id: string;
+  usuario_email: string;
+  /** Hora del teléfono al tocar "Marcar visita". */
+  visitado_en: string;
+  /** Hora del servidor al llegar (puede ser después, por la cola). */
+  registrado_en: string;
+  lat: number | null;
+  lng: number | null;
+  precision_m: number | null;
+  fotos: RutaVisitaFoto[];
+  nota: string | null;
+}
+
+/** Lo que manda el teléfono al insertar (el resto lo pone la base). */
+export type RutaVisitaNueva = Pick<RutaVisita, 'cliente_id' | 'ruta_id' | 'site_id' | 'visitado_en'> &
+  Partial<Pick<RutaVisita, 'lat' | 'lng' | 'precision_m' | 'fotos' | 'nota'>>;
+
+/**
+ * Fila de `usuarios_asignables_ruta(p_ruta_id)` (rutas, 5-oct-2026): los
+ * monitoristas que TIENEN la unidad de la ruta (rol monitorista con unidad
+ * vacía = todas, o la de la ruta). Es exactamente lo que el trigger de
+ * `ruta_asignaciones` acepta; a quien no es coordinador/manager le regresa
+ * vacío. Misma forma que `usuarios_asignables()` (Pauta): `email` y
+ * `nombre` (corrector, 5-oct-2026: antes regresaba `correo` y Asignar
+ * tronaba al leer `email`).
+ */
+export interface UsuarioAsignableRuta {
+  /** En minúsculas. */
+  email: string;
+  nombre: string;
+}
+
+/**
+ * tabla `ruta_asignaciones_historial` (rutas, 5-oct-2026): asignaciones
+ * RETIRADAS, la llena un trigger al borrar de `ruta_asignaciones`. Solo
+ * lectura para coordinador/manager. Con ella la base acepta una visita
+ * hecha sin señal mientras la ruta era del monitorista (asignado_en <=
+ * visitado_en <= retirada_en) aunque llegue después del retiro.
+ */
+export interface RutaAsignacionHistorial {
+  id: number;
+  /** Sin llave foránea: puede apuntar a una ruta ya borrada. */
+  ruta_id: number;
+  /** En minúsculas. */
+  usuario_email: string;
+  asignado_por: string | null;
+  /** Null en asignaciones muy viejas: cuenta como "desde siempre". */
+  asignado_en: string | null;
+  retirada_en: string;
+  /** Null si la quitó el sistema (p. ej. al borrar la ruta desde el servidor). */
+  retirada_por: string | null;
+}
+
+/** tabla `catorcenas` (periodos de 14 días de la pauta). */
+export interface Catorcena {
+  numero: number;
+  fecha_inicio: string | null;
+  fecha_fin: string | null;
+  mes: string | null;
+  mes_texto: string | null;
+  cat_texto: string | null;
 }
 
 // --- Permisos ---

@@ -61,6 +61,7 @@ import {
   buscarSitiosLocal,
   buscarSitiosEnRed,
   carasDeSitioLocal,
+  direccionElegidaDeSitio,
   fechaCopia,
   haySenal,
   motivoSinRed,
@@ -74,6 +75,7 @@ import {
   UNIDADES_BIOBOX,
   LADOS,
   UNIDADES_CON_LADO,
+  CLAVE_SIN_MAQUINA,
 } from '../../lib/constants';
 import type { Incidencia, InventarioItem } from '../../types/db';
 
@@ -129,6 +131,35 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
   const [buscando, setBuscando] = useState(false);
   const [sitio, setSitio] = useState<string>(inc.clave_sitio || '');
   const [direccion, setDireccion] = useState<string | null>(inc.direccion);
+
+  /**
+   * Dirección ELEGIDA del sitio en su ruta (rutas, 5-oct-2026): si cambian
+   * el sitio o la cara, la incidencia vuelve a copiar la dirección y debe
+   * ser la que se eligió al importar la ruta (archivo o QTM), igual que en
+   * el alta. Sin ruta, la de QTM como siempre. Depende del TEXTO `sitio` y
+   * el estado es 'sitio\ndirección', escrito solo si cambia (comparado con
+   * un ref): reglas anti-ciclo de la app pasmada (24-sep-2026).
+   */
+  const [dirElegida, setDirElegida] = useState('');
+  const dirElegidaRef = useRef('');
+  useEffect(() => {
+    if (!sitio || sitio === CLAVE_SIN_MAQUINA) return;
+    let vivo = true;
+    direccionElegidaDeSitio(sitio)
+      .catch(() => null)
+      .then((d) => {
+        if (!vivo) return;
+        const clave = d ? sitio + '\n' + d : '';
+        if (clave === dirElegidaRef.current) return;
+        dirElegidaRef.current = clave;
+        setDirElegida(clave);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [sitio]);
+  const prefElegida = sitio + '\n';
+  const elegidaDelSitio = dirElegida.startsWith(prefElegida) ? dirElegida.slice(prefElegida.length) : null;
 
   /**
    * Pórticos de Vía Verde: orientación única por sitio — la "cara afectada"
@@ -364,7 +395,8 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     const laCara = caras.find((c) => c.vendor_face_id === cara) || delSitio;
     const esBiobox = UNIDADES_BIOBOX.includes(inc.unidad_negocio || '');
     return {
-      direccion: laCara?.direccion ?? delSitio?.direccion ?? direccion,
+      // La ELEGIDA en la ruta del sitio, si la hay (rutas, 5-oct-2026).
+      direccion: elegidaDelSitio ?? laCara?.direccion ?? delSitio?.direccion ?? direccion,
       municipio: delSitio?.municipio ?? null,
       // En `inventario` la plaza se llama `estado`. Así lo mapea el alta.
       plaza: delSitio?.estado ?? null,
@@ -573,7 +605,10 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
               </span>
             )}
             <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 3 }}>
-              {direccion || 'sin dirección'}
+              {/* Con sitio nuevo, la que se va a copiar: la elegida en su
+                  ruta si la hay (rutas, 5-oct-2026). Sin cambio, la que la
+                  incidencia ya guarda. */}
+              {(cambioSitio ? elegidaDelSitio ?? direccion : direccion) || 'sin dirección'}
             </div>
           </div>
           <input

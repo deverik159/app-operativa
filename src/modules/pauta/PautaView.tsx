@@ -32,6 +32,7 @@ import NuevaInc from '../incidencias/NuevaInc';
 import type { GrupoReporte } from '../incidencias/NuevaInc';
 import type { PautaRuta } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
+import { tope } from '../../lib/envios';
 
 /**
  * La pauta es de Ecovallas Impreso (decisión de sep-2026): los reportes
@@ -193,12 +194,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
 
   useEffect(() => {
     cargarAsignaciones();
-    if (puedeImportar) {
-      sb.rpc('usuarios_asignables').then(({ data }) => {
-        setAsignables((data as { email: string; nombre: string }[]) || []);
-      });
-    }
-  }, [cargarAsignaciones, puedeImportar]);
+  }, [cargarAsignaciones]);
 
   /** ruta_clave → ruta_monitoreo_id (para asignar) según la catorcena. */
   const rutaIdDeClave = useMemo(() => {
@@ -209,6 +205,41 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
     });
     return m;
   }, [filas]);
+
+  /** Ruta elegida en el filtro, si se puede asignar (número: dependencia
+   *  estable para el efecto de abajo). */
+  const rutaAsignarId =
+    puedeImportar && fRuta !== 'Todas' ? rutaIdDeClave.get(fRuta) ?? null : null;
+
+  // «＋ Asignar a…» ofrece SOLO a los monitoristas que tienen la unidad de
+  // la ruta (Erik, rutas, 5-oct-2026): usuarios_asignables_ruta, lo mismo
+  // que acepta el trigger de ruta_asignaciones. Antes salían todos los
+  // monitoristas y el elegido sin Ecovallas terminaba en un alert. Si la
+  // base aún no tiene la función (migración sin correr), la lista de antes.
+  useEffect(() => {
+    if (rutaAsignarId == null) return;
+    let activo = true;
+    (async () => {
+      let r = await sb
+        .rpc('usuarios_asignables_ruta', { p_ruta_id: rutaAsignarId })
+        .abortSignal(tope(15000));
+      if (!activo) return;
+      if (
+        r.error &&
+        (r.error.code === 'PGRST202' ||
+          r.error.code === '42883' ||
+          /could not find the function/i.test(r.error.message || ''))
+      ) {
+        r = await sb.rpc('usuarios_asignables').abortSignal(tope(15000));
+        if (!activo) return;
+      }
+      if (r.error) return; // se queda la lista que había
+      setAsignables((r.data as { email: string; nombre: string }[] | null) || []);
+    })();
+    return () => {
+      activo = false;
+    };
+  }, [rutaAsignarId]);
 
   /** Claves de ruta asignadas a MÍ, presentes en esta catorcena. */
   const misRutas = useMemo(() => {

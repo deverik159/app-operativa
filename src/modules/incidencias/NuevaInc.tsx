@@ -29,6 +29,7 @@ import {
   carasDeSitioLocal,
   catalogoLocal,
   catorcenasLocal,
+  direccionElegidaDeSitio,
   fechaCopia,
   haySenal,
   motivoSinRed,
@@ -81,8 +82,12 @@ import type {
   InventarioItem,
 } from '../../types/db';
 
-/** Preset opcional (la bitácora abre el alta con el sitio ya elegido). */
-export type PresetNueva = { un?: string; siteId?: string };
+/**
+ * Preset opcional (la bitácora abre el alta con el sitio ya elegido).
+ * `direccion` (rutas, 5-oct-2026): Mis rutas manda la dirección ELEGIDA en la
+ * ruta del sitio, para que el alta la tenga aun sin señal y sin copia.
+ */
+export type PresetNueva = { un?: string; siteId?: string; direccion?: string | null };
 
 /** Sitio elegido (agregado del inventario por site_id). */
 type Sitio = {
@@ -387,6 +392,43 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   const pickSeqRef = useRef(0);
 
   const esBiobox = un.toLowerCase().startsWith('biobox');
+
+  /**
+   * Dirección ELEGIDA del sitio en su ruta (rutas, 5-oct-2026). Al importar
+   * el Excel de rutas, quien importa elige si un sitio se queda con la
+   * dirección de QTM o con la del archivo; la incidencia nueva lleva ESA. Si
+   * el sitio no está en ninguna ruta, la de QTM como siempre.
+   *
+   * Reglas anti-ciclo (app pasmada, 24-sep-2026): el efecto depende del
+   * site_id (TEXTO), no del objeto `site`; y el estado es un texto
+   * 'site_id\ndirección' que solo se escribe si cambia (comparado con un
+   * ref). `site` no se toca: su objeto lo usan otros efectos.
+   */
+  const siteIdElegido = site && site.site_id !== CLAVE_SIN_MAQUINA ? site.site_id : '';
+  const [dirElegida, setDirElegida] = useState('');
+  const dirElegidaRef = useRef('');
+  useEffect(() => {
+    if (!siteIdElegido) return;
+    let vivo = true;
+    direccionElegidaDeSitio(siteIdElegido)
+      .catch(() => null)
+      .then((d) => {
+        if (!vivo) return;
+        const clave = d ? siteIdElegido + '\n' + d : '';
+        if (clave === dirElegidaRef.current) return;
+        dirElegidaRef.current = clave;
+        setDirElegida(clave);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [siteIdElegido]);
+  /** La dirección que se enseña y se copia a la incidencia. */
+  const direccionSitio: string | null = (() => {
+    if (!site) return null;
+    const pref = site.site_id + '\n';
+    return dirElegida.startsWith(pref) ? dirElegida.slice(pref.length) : site.direccion ?? null;
+  })();
 
   /**
    * Nombres "amigables" de las pantallas del sitio elegido, POR CARA
@@ -990,7 +1032,9 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       // otros 4 s de espera antes de pedir las caras.
       const fila = await sitioLocal(siteId).catch(() => null);
       if (seq !== pickSeqRef.current) return;
-      await pickSite({ site_id: siteId, direccion: fila?.direccion || '' });
+      // La que manda quien abre el alta (Mis rutas: la elegida en la ruta)
+      // va antes que la de QTM (rutas, 5-oct-2026).
+      await pickSite({ site_id: siteId, direccion: preset.direccion || fila?.direccion || '' });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1494,7 +1538,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         return {
           unidad_negocio: un,
           clave_sitio: site.site_id,
-          direccion: site.direccion,
+          // La ELEGIDA en la ruta del sitio, si la hay (rutas, 5-oct-2026).
+          direccion: direccionSitio,
           municipio: site.municipio || null,
           plaza: site.estado || null,
           clave_medio: vf === CLAVE_SIN_MAQUINA ? null : vf,
@@ -1998,7 +2043,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         )}
         {site && !sinMaquina && (
           <div className="banner" style={{ marginBottom: 12 }}>
-            📍 {site.direccion || '(sin dirección)'}
+            📍 {direccionSitio || '(sin dirección)'}
             <br />
             Municipio: {site.municipio || '—'} · Plaza: {site.estado || '—'} ·{' '}
             {caras.length} medio{caras.length === 1 ? '' : 's'} en este sitio

@@ -743,6 +743,8 @@ Biobox.
 | `prelanzamiento_300.sql` | ✅ aplicado y verificado (24-sep) — índices, purgas por pg_cron, `errores_cliente`, anon sin permisos (tablas, vistas y RPC definer), `app_config` cerrada, `pauta_monitoreo` sin escritura directa, `dar_baja_usuario` / `reactivar_usuario`. Re-ejecutable; el PASO 6 es una sola consulta de verificación. Sin cuentas vivas sin ficha |
 | `limpiar_indices_duplicados.sql` | ✅ aplicado (24-sep) — quitó 3 duplicados exactos (inc_estatus_idx, evid_record_idx, msg_record_idx); quedan los heredados equivalentes. prelanzamiento_300.sql ya no los recrea |
 | `primer_mes.sql` | ✅ aplicado y verificado (24-sep) — RPC `fotos_tarjetas(p_ids)` (SECURITY INVOKER, stable, un jsonb por lote) para las fotos de tarjeta; EXECUTE solo authenticated y service_role (anon no). La prueba con 5 incidencias recientes devolvió sus fotos de reporte y la de reparación |
+| `diagnostico_rutas.sql` | referencia, solo lectura (5-oct) — código de las funciones y vistas de rutas que no estaban en el repo + reparto real del inventario (pantallas, Biobox, columnas, pórticos) |
+| `supabase/migrations/20261005155712_rutas_armado_visitas.sql` | ✅ aplicada y verificada (5-oct) — dirección elegida por parada, armado desde inventario (`guardar_paradas_ruta`, `siguiente_numero_ruta`), Excel que respeta la elección y no mueve entre segmentos, KML que respeta lo armado en la app, asignar solo con la unidad (trigger + `usuarios_asignables_ruta`), `ruta_visitas` + historial de asignaciones. La primera corrida falló por una tabla temporal (el SQL Editor no garantiza la misma conexión entre sentencias): no usar tablas temporales entre sentencias |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
@@ -1413,3 +1415,45 @@ guardado en el teléfono (`gpovallas_tema`).
   Quedan en el OSCURO algunos contrastes bajos que ya existían (avatar, botón
   rojo, "No reparado", "Fuera de línea"): cambiarlos altera colores de marca,
   decisión de Erik. Falta verlo en un iPhone real al sol.
+
+### 12.14. Rutas de Monitoreo automatizadas (5-oct-2026)
+
+Lo pidió Erik: armar rutas desde el inventario, elegir la dirección al
+importar, asignar monitoristas desde Rutas y que el monitorista registre su
+recorrido. Decisiones de Erik que mandan:
+- **Ecovallas Impreso:** las rutas salen de la PAUTA (Pauta → Sincronizar
+  rutas); ahí no se arman a mano. El armado es para Ecovallas Digital
+  (pantallas), Biobox (por medio, como siempre) y Vía Verde (columnas y
+  pórticos JUNTOS: todos son Digital).
+- **Sitio en otra ruta:** se mueve solo con confirmación (dice de cuál sale);
+  nunca entre unidades/medios distintos (eso lo impide la base).
+- **Dirección:** nadie la corrige en campo. Al importar el Excel de rutas se
+  elige QTM o la del archivo (global + por sitio; al reimportar arranca con
+  lo que cada sitio ya tenía). Con QTM la dirección sigue viva. Las
+  incidencias llevan la ELEGIDA, salvo Ecovallas Impreso, que lleva la de QTM
+  (su "archivo" es la pauta, que cambia cada catorcena).
+- **Asignar:** solo monitoristas con la unidad de la ruta (sin unidad =
+  todas); lo hace cumplir un trigger, también desde Pauta.
+- **Mis rutas** (monitorista; no Ecovallas Impreso, que vive en Pauta):
+  paradas en orden con mapa, línea y números, 🧭 Ir, guía de Google Maps,
+  "Marcar visita" (foto obligatoria, GPS si se puede, hora del toque) que
+  funciona SIN SEÑAL (cola en IndexedDB `gpo-visitas`, `lib/visitas.ts`, llave
+  idempotente `cliente_id`) y "Levantar incidencia" con el sitio y la
+  dirección puestos. El monitorista NO usa el módulo Biobox: sus rutas Biobox
+  salen aquí. Una visita hecha sin señal se acepta si la ruta era suya en ese
+  momento, aunque al llegar ya se la hayan quitado (historial de
+  asignaciones, `puede_registrar_visita`).
+- **Avance:** el coordinador ve visitas por catorcena en el detalle de la
+  ruta (cuenta la última visita de cada parada).
+- **KML/Excel de operación de Biobox con "quitar faltantes":** no borra lo
+  armado en la app (`origen = 'app'`).
+
+Código: `src/modules/rutas/` (ArmarRutaModal, ImportarRutasArchivoModal,
+AsignarMonitoristas, AvanceVisitas, rutasComun), `src/modules/mis-rutas/`,
+`lib/visitas.ts`, copias nuevas en `datosLocales` (mis rutas y direcciones
+elegidas). Fotos de visita en `evidencias/rutas/<site_id>/…` (ojo:
+`limpiar_todo.sql` las trataría como fotos de incidencias).
+**Para operar:** al 5-oct no había monitoristas con unidad
+(`monitoristas_por_unidad` en 0): darles el rol con su unidad en Usuarios
+antes de asignar ("Vía Verde" con acento). Falta probar en iPhone real.
+

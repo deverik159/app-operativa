@@ -4,6 +4,9 @@
 // reparar: inventario (de las unidades del usuario), catálogo de
 // incidencias, árbol Digital, nombres de pantallas, catorcenas y la ventana
 // de pauta QTM; más la última lista de incidencias de cada usuario.
+// Rutas (5-oct-2026): también la dirección ELEGIDA del archivo por sitio de
+// ruta (direcciones_rutas, para NuevaInc/EditModal) y la copia por usuario
+// de Mis rutas (rutas, paradas y visitas de la catorcena).
 //
 // POR QUÉ (modo sin señal, 24-sep-2026): en campo, sin señal, el alta se
 // quedaba en "Buscando…" ~7 s y luego en nada (0 medios, Guardar
@@ -104,6 +107,32 @@ export type ListaLocal = {
 
 type NombrePantalla = { vendor_face_id: string; nombre: string };
 
+/**
+ * Dirección ELEGIDA del archivo para un sitio que está en una ruta (rutas,
+ * 5-oct-2026). Solo se copian las que se quedaron con la del archivo
+ * (`direccion_fuente = 'archivo'`): las demás son la de QTM, que ya viene en
+ * la copia de inventario. NuevaInc y EditModal la usan sin señal.
+ */
+type DireccionRuta = {
+  site_id: string;
+  direccion: string | null;
+  /** Segmento de la ruta (rutas, 5-oct-2026): Ecovallas Impreso se ignora. */
+  ruta_unidad?: string | null;
+  ruta_tipo?: string | null;
+};
+
+/**
+ * ¿La ruta es de Ecovallas Impreso? Sin distinguir mayúsculas (rutas,
+ * 5-oct-2026). POR QUÉ: en ese segmento la "dirección del archivo" es la de
+ * la pauta, que se reescribe cada catorcena al sincronizar y que nadie
+ * eligió; Erik decidió que sus incidencias nuevas lleven SIEMPRE la de QTM
+ * (Rutas sí sigue enseñando la de la pauta). En las demás unidades la
+ * incidencia lleva la ELEGIDA.
+ */
+export function esEcovallasImpreso(unidad: string | null | undefined, tipo: string | null | undefined): boolean {
+  return (unidad || '').trim().toLowerCase() === 'ecovallas' && (tipo || '').trim().toLowerCase() === 'impreso';
+}
+
 /** Qué se guarda de cada tabla. */
 type Filas = {
   inventario: InventarioItem;
@@ -112,6 +141,53 @@ type Filas = {
   nombres_pantallas: NombrePantalla;
   catorcenas: CatorcenaLocal;
   qtm_pautas: PautaLocal;
+  direcciones_rutas: DireccionRuta;
+};
+
+// ---- Mis rutas del monitorista (rutas, 5-oct-2026) ----------------------
+
+/** Una ruta asignada al usuario, como la pinta Mis rutas. */
+export type RutaMiaLocal = {
+  id: number;
+  numero: number;
+  nombre: string | null;
+  color: string | null;
+  unidad_negocio: string;
+  tipo_medio: string;
+  activa: boolean | null;
+};
+
+/** Una parada de esas rutas (vw_rutas_con_coords), con la dirección ELEGIDA. */
+export type ParadaMiaLocal = {
+  ruta_id: number;
+  site_id: string;
+  secuencia: number | null;
+  /** La que se queda: la del archivo o la de QTM, según se eligió al importar. */
+  direccion: string | null;
+  direccion_qtm: string | null;
+  direccion_fuente: string | null;
+  municipio: string | null;
+  latitud: number | null;
+  longitud: number | null;
+  estatus_archivo: string | null;
+  sin_match_inventario: boolean | null;
+};
+
+/** Una visita ya registrada en ruta_visitas (solo lo que pinta el avance). */
+export type VisitaMiaLocal = { site_id: string; ruta_id: number | null; visitado_en: string };
+
+/**
+ * Copia por usuario de Mis rutas: para abrirla sin señal en campo. Se guarda
+ * solo lo que llegó con red y sesión real (ver MisRutasView).
+ */
+export type MisRutasLocal = {
+  guardado: string;
+  rutas: RutaMiaLocal[];
+  paradas: ParadaMiaLocal[];
+  /** La catorcena que estaba en curso al guardar (null = ninguna). */
+  catorcena: CatorcenaLocal | null;
+  /** Visitas del usuario en esa catorcena. */
+  visitas: VisitaMiaLocal[];
 };
 
 export type TablaLocal = keyof Filas;
@@ -202,6 +278,17 @@ const COLUMNAS: Record<TablaLocal, string> = {
   nombres_pantallas: 'vendor_face_id,nombre',
   catorcenas: 'numero,fecha_inicio,fecha_fin,cat_texto',
   qtm_pautas: 'vendor_face_id,campaign,fecha_inicio,fecha_fin',
+  // ruta_unidad/ruta_tipo (rutas, 5-oct-2026): para saltar Ecovallas
+  // Impreso. Cambiar las columnas hace que la copia vieja se vuelva a bajar.
+  direcciones_rutas: 'site_id,direccion,ruta_unidad,ruta_tipo',
+};
+
+/**
+ * De dónde se baja cada tabla, cuando no es una tabla con su mismo nombre
+ * (rutas, 5-oct-2026): la dirección elegida vive en la vista de rutas.
+ */
+const FUENTE: Partial<Record<TablaLocal, string>> = {
+  direcciones_rutas: 'vw_rutas_con_coords',
 };
 
 /**
@@ -217,6 +304,8 @@ const ORDEN: Record<TablaLocal, string[]> = {
   nombres_pantallas: ['vendor_face_id'],
   catorcenas: ['numero', 'fecha_inicio'],
   qtm_pautas: ['vendor_face_id', 'fecha_inicio', 'fecha_fin', 'campaign'],
+  // site_id es único en ruta_ubicaciones: un sitio vive en una sola ruta.
+  direcciones_rutas: ['site_id'],
 };
 
 /** Orden de descarga: lo chico e imprescindible primero. */
@@ -227,6 +316,7 @@ const SECUENCIA: TablaLocal[] = [
   'nombres_pantallas',
   'catorcenas',
   'qtm_pautas',
+  'direcciones_rutas',
 ];
 
 // ------------------------------------------------------------
@@ -383,6 +473,8 @@ const leyendo = new Map<TablaLocal, Promise<unknown[] | null>>();
 /** Sube cada vez que la copia en memoria cambia o se invalida. */
 const generacion = new Map<TablaLocal, number>();
 const memListas = new Map<string, ListaLocal>();
+/** Copias de Mis rutas por llave 'misrutas|<correo>' (rutas, 5-oct-2026). */
+const memMisRutas = new Map<string, MisRutasLocal>();
 
 function subirGeneracion(t: TablaLocal): void {
   generacion.set(t, (generacion.get(t) || 0) + 1);
@@ -401,16 +493,17 @@ try {
   if (typeof BroadcastChannel !== 'undefined') {
     canal = new BroadcastChannel('gpo-datos');
     canal.onmessage = (ev: MessageEvent) => {
-      const m = ev.data as { tabla?: TablaLocal; lista?: string } | null;
+      const m = ev.data as { tabla?: TablaLocal; lista?: string; misRutas?: string } | null;
       if (m?.tabla && m.tabla in COLUMNAS) olvidarTabla(m.tabla);
       if (typeof m?.lista === 'string') memListas.delete(m.lista);
+      if (typeof m?.misRutas === 'string') memMisRutas.delete(m.misRutas);
     };
   }
 } catch {
   canal = null;
 }
 
-function avisarPestanas(m: { tabla?: TablaLocal; lista?: string }): void {
+function avisarPestanas(m: { tabla?: TablaLocal; lista?: string; misRutas?: string }): void {
   try {
     canal?.postMessage(m);
   } catch {
@@ -971,6 +1064,40 @@ export async function pautasLocal(ids: string[], inicio: string, fin: string): P
   }
 }
 
+/** site_id → dirección elegida del archivo, armado una vez por copia. */
+function mapaDireccionesRutas(filas: DireccionRuta[]): Map<string, string> {
+  let mapa = derivados.get(filas) as Map<string, string> | undefined;
+  if (!mapa) {
+    mapa = new Map();
+    for (const f of filas) {
+      // Ecovallas Impreso: la de QTM (ver esEcovallasImpreso). Se filtra aquí
+      // y no en la consulta: son pocas filas y así no depende de un `or`.
+      if (esEcovallasImpreso(f.ruta_unidad, f.ruta_tipo)) continue;
+      const d = (f.direccion || '').trim();
+      if (f.site_id && d) mapa.set(f.site_id, d);
+    }
+    derivados.set(filas, mapa);
+  }
+  return mapa;
+}
+
+/**
+ * La dirección que se ELIGIÓ quedarse del archivo para un sitio de ruta, de
+ * la copia del teléfono; null si el sitio no está en ninguna ruta, si en su
+ * ruta se eligió la de QTM o si no hay copia (rutas, 5-oct-2026). Con null,
+ * quien llama usa la de QTM, como siempre.
+ */
+export async function direccionElegidaLocal(siteId: string): Promise<string | null> {
+  try {
+    if (!siteId) return null;
+    return mapaDireccionesRutas(await filasDe('direcciones_rutas')).get(siteId) ?? null;
+  } catch {
+    return null;
+  } finally {
+    await cederTurno();
+  }
+}
+
 // ------------------------------------------------------------
 // Lista de incidencias por usuario
 // ------------------------------------------------------------
@@ -1072,6 +1199,122 @@ export async function borrarListaLocal(email: string): Promise<void> {
   try {
     await datosDelete('listas', k);
     avisarPestanas({ lista: k });
+  } catch {
+    /* sin base: no había nada */
+  }
+  // Mis rutas también es de la persona: Salir en un teléfono compartido la
+  // borra con su lista (rutas, 5-oct-2026).
+  await borrarMisRutasLocal(email);
+}
+
+// ------------------------------------------------------------
+// Mis rutas del monitorista (rutas, 5-oct-2026)
+//
+// Va en el almacén `listas` (llave = correo) con la llave
+// 'misrutas|<correo>': ningún correo empieza así, así que no choca con la
+// lista de incidencias, y no hace falta otro almacén (que subiría la versión
+// de 'gpo-datos').
+// ------------------------------------------------------------
+
+function llaveMisRutas(email: string): string {
+  const k = llaveEmail(email);
+  return k ? 'misrutas|' + k : '';
+}
+
+/**
+ * Guarda Mis rutas tal como se acaban de ver. No lanza. OJO quien llama:
+ * solo con datos que llegaron completos, con red y con sesión REAL de ese
+ * correo (ver haySesionReal); una consulta anónima devuelve [] sin error y
+ * borraría la buena.
+ */
+export async function guardarMisRutasLocal(
+  email: string,
+  datos: Omit<MisRutasLocal, 'guardado'> & { guardado?: string }
+): Promise<void> {
+  const k = llaveMisRutas(email);
+  if (!k || !datos || !Array.isArray(datos.rutas) || !Array.isArray(datos.paradas)) return;
+  const valor: MisRutasLocal = {
+    guardado: datos.guardado || new Date().toISOString(),
+    rutas: datos.rutas,
+    paradas: datos.paradas,
+    catorcena: datos.catorcena ?? null,
+    visitas: Array.isArray(datos.visitas) ? datos.visitas : [],
+  };
+  memMisRutas.set(k, valor);
+  try {
+    await datosPut('listas', { email: k, ...valor }, topeEscritura(valor.paradas.length + valor.visitas.length));
+    avisarPestanas({ misRutas: k });
+  } catch (e) {
+    if (!(e instanceof ErrorDatos && e.motivo === 'no-disponible'))
+      reportarUnaVez('misrutas:guardar', e, {
+        paradas: valor.paradas.length,
+        motivo: e instanceof ErrorDatos ? e.motivo : 'otro',
+      });
+  }
+}
+
+/** La última copia de Mis rutas de ese correo, o null. No lanza; cede el turno. */
+export async function leerMisRutasLocal(email: string): Promise<MisRutasLocal | null> {
+  try {
+    const k = llaveMisRutas(email);
+    if (!k) return null;
+    const m = memMisRutas.get(k);
+    if (m) return m;
+    const r = await datosGet<MisRutasLocal & { email?: string }>('listas', k);
+    if (!r || !Array.isArray(r.rutas) || !Array.isArray(r.paradas)) return null;
+    // Tolerante a un registro con campos de menos.
+    const copia: MisRutasLocal = {
+      guardado: typeof r.guardado === 'string' ? r.guardado : '',
+      rutas: r.rutas,
+      paradas: r.paradas,
+      catorcena: r.catorcena ?? null,
+      visitas: Array.isArray(r.visitas) ? r.visitas : [],
+    };
+    if (!memMisRutas.has(k)) memMisRutas.set(k, copia);
+    return memMisRutas.get(k) || copia;
+  } catch {
+    return null;
+  } finally {
+    await cederTurno();
+  }
+}
+
+/**
+ * Una visita que la cola acaba de mandar se anota en la copia (sin cambiar
+ * su fecha de guardado): si la señal se va otra vez antes de recargar, la
+ * parada sigue viéndose visitada. Solo si es de la catorcena de la copia.
+ * No lanza.
+ */
+export async function anotarVisitaEnCopiaLocal(email: string, v: VisitaMiaLocal): Promise<void> {
+  try {
+    const actual = await leerMisRutasLocal(email);
+    if (!actual || !v?.site_id || !v.visitado_en) return;
+    const c = actual.catorcena;
+    const dia = isoDiaLocal(v.visitado_en);
+    if (!c || !dia || dia < c.fecha_inicio.slice(0, 10) || dia > c.fecha_fin.slice(0, 10)) return;
+    if (actual.visitas.some((x) => x.site_id === v.site_id && x.visitado_en === v.visitado_en)) return;
+    await guardarMisRutasLocal(email, { ...actual, visitas: [...actual.visitas, v] });
+  } catch {
+    /* la siguiente carga con red la trae */
+  }
+}
+
+/** AAAA-MM-DD del instante en la hora del teléfono ('' si no es fecha). */
+function isoDiaLocal(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Borra la copia de Mis rutas de ese correo. No lanza. */
+export async function borrarMisRutasLocal(email: string): Promise<void> {
+  const k = llaveMisRutas(email);
+  if (!k) return;
+  memMisRutas.delete(k);
+  try {
+    await datosDelete('listas', k);
+    avisarPestanas({ misRutas: k });
   } catch {
     /* sin base: no había nada */
   }
@@ -1245,6 +1488,46 @@ export async function redOLocal<T>(
   return { datos: deLocal, origen: 'local' };
 }
 
+/**
+ * La dirección ELEGIDA del sitio en su ruta (rutas, 5-oct-2026): la columna
+ * `direccion` de vw_rutas_con_coords, que es la del archivo si al importar
+ * se eligió esa, o la de QTM si no. null si el sitio no está en ninguna ruta
+ * (o la vista no contestó): entonces quien llama usa la de QTM, como antes.
+ * Sin señal, la copia del teléfono (solo trae las del archivo: las de QTM
+ * ya son las de la copia de inventario). Tope corto (4 s) aunque la copia
+ * no traiga ese sitio: la mayoría no lo trae, y esperar 20 s a la red solo
+ * retrasaría el alta. No lanza.
+ */
+export async function direccionElegidaDeSitio(siteId: string): Promise<string | null> {
+  if (!siteId) return null;
+  type Fila = { site_id: string; direccion: string | null; ruta_unidad?: string | null; ruta_tipo?: string | null };
+  try {
+    const r = await redOLocal<Fila[]>(
+      (senal) =>
+        sb
+          .from('vw_rutas_con_coords')
+          .select('site_id,direccion,ruta_unidad,ruta_tipo')
+          .eq('site_id', siteId)
+          .limit(1)
+          .retry(false)
+          .abortSignal(senal),
+      async () => {
+        const d = await direccionElegidaLocal(siteId);
+        return d ? [{ site_id: siteId, direccion: d }] : [];
+      },
+      { topeSinCopiaMs: 0 }
+    );
+    const f = r.datos?.[0];
+    // Ecovallas Impreso: null para que quien llama use la de QTM, aunque la
+    // parada diga direccion_fuente='archivo' (rutas, 5-oct-2026).
+    if (!f || esEcovallasImpreso(f.ruta_unidad, f.ruta_tipo)) return null;
+    const d = (f.direccion || '').trim();
+    return d || null;
+  } catch {
+    return null;
+  }
+}
+
 // ------------------------------------------------------------
 // Descarga
 // ------------------------------------------------------------
@@ -1281,7 +1564,9 @@ function ventanaPautas(): Ventana {
 }
 
 function consultaPagina(t: TablaLocal, al: Alcance, v: Ventana | null, desde: number, senal: AbortSignal) {
-  let q = sb.from(t).select(COLUMNAS[t], { count: 'exact' });
+  let q = sb.from(FUENTE[t] ?? t).select(COLUMNAS[t], { count: 'exact' });
+  // Solo las que se quedaron con la del archivo (ver DireccionRuta).
+  if (t === 'direcciones_rutas') q = q.eq('direccion_fuente', 'archivo');
   if (t === 'inventario' && al.nombres) {
     // Sin mayúsculas, como las lecturas: la unidad puede venir escrita
     // distinto en inventario que en usuario_roles.
@@ -1389,7 +1674,8 @@ function cubreUnidad(unidades: string[] | null, unidad: string | null | undefine
  *     pauta es posible y la copia vieja ya no le sirve a nadie.
  */
 function vaciaEsCreible(t: TablaLocal, previas: unknown[], v: Ventana | null): boolean {
-  if (t === 'nombres_pantallas') return previas.length === 0;
+  // direcciones_rutas (rutas, 5-oct-2026): mismo criterio que los nombres.
+  if (t === 'nombres_pantallas' || t === 'direcciones_rutas') return previas.length === 0;
   if (t === 'qtm_pautas') {
     if (!previas.length) return true;
     const desde = claveFecha(v?.desde);

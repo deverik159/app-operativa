@@ -83,6 +83,12 @@ const UsuariosView = lazyConReintento(
   () => import('./modules/usuarios/UsuariosView'),
   'UsuariosView'
 );
+// Mis rutas del monitorista (rutas, 5-oct-2026): sus rutas asignadas fuera
+// de Ecovallas Impreso, con "Marcar visita" sin señal.
+const MisRutasView = lazyConReintento(
+  () => import('./modules/mis-rutas/MisRutasView'),
+  'MisRutasView'
+);
 
 /**
  * Módulo diferido de cada pestaña. App le avisa a cargaDiferida cuál está
@@ -99,6 +105,7 @@ const DIFERIDO_DE_TAB: Record<string, ComponentType<any>> = {
   pauta: PautaView,
   biobox: BioboxView,
   usuarios: UsuariosView,
+  mis_rutas: MisRutasView,
 };
 
 /** A los cuántos ms el "Cargando…" de un módulo diferido ofrece salidas. */
@@ -175,6 +182,7 @@ const RUTA_DE_TAB: Record<string, string> = {
   pauta: '/pauta',
   biobox: '/biobox',
   usuarios: '/usuarios',
+  mis_rutas: '/mis-rutas',
 };
 const TAB_DE_RUTA: Record<string, string> = Object.fromEntries(
   Object.entries(RUTA_DE_TAB).map(([tab, ruta]) => [ruta, tab])
@@ -922,11 +930,40 @@ function Main({
   const esEventoBitacora = (e?: string | null) =>
     e === 'vv_version' || e === 'vv_programada';
 
+  /**
+   * Pestañas con ruta del menú de ESTE usuario ('a|b|c'), al día en cada
+   * render (se llena junto al menú, más abajo). Para el destino de los avisos.
+   */
+  const menuConRutaRef = useRef('');
+
+  /**
+   * A dónde lleva un aviso de pauta. "Se te asignó la ruta" (evento 'ruta')
+   * va a Mis rutas si el usuario la tiene y no tiene Pauta: sus rutas no son
+   * de Ecovallas Impreso (rutas, 5-oct-2026). Lo demás, a Pauta como antes.
+   */
+  const destinoAvisoPauta = (evento?: string | null, mensaje?: string | null): string => {
+    const menu = menuConRutaRef.current.split('|');
+    const tieneMis = menu.includes('mis_rutas');
+    const tienePauta = menu.includes('pauta');
+    // (rutas, 5-oct-2026, revisión) Quien tiene Pauta Y Mis rutas: el texto
+    // del aviso (notificar_ruta_asignada) dice dónde está la ruta. El push
+    // no trae el texto: ahí decide el menú, como antes.
+    if (evento === 'ruta' && mensaje) {
+      if (tieneMis && mensaje.includes('Mis rutas')) return 'mis_rutas';
+      if (tienePauta && mensaje.includes('Pauta')) return 'pauta';
+    }
+    // Sin evento = "?ir=pauta" de un push con la app cerrada: a quien no
+    // tiene Pauta no se le manda a una pestaña que no existe en su menú.
+    return (evento === 'ruta' || !evento) && tieneMis && !tienePauta ? 'mis_rutas' : 'pauta';
+  };
+
   /** Abre Pauta RECARGADA: una lista ya abierta enseñaría la toma vieja. */
-  const irAPauta = useCallback(() => {
-    setTab('pauta');
+  const irAPauta = useCallback((evento?: string | null) => {
+    setTab(destinoAvisoPauta(evento));
     setRecargarSignal((n) => n + 1);
     notifs.recargar();
+    // destinoAvisoPauta solo lee un ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notifs.recargar]);
 
   /** Abre la Bitácora VV recargada: misma razón que irAPauta. */
@@ -949,7 +986,7 @@ function Main({
     const onMsg = (e: MessageEvent) => {
       if (e.data?.tipo !== 'notificacion-abierta') return;
       if (e.data.record_id) enfocarDesdePush(e.data.record_id);
-      else if (esEventoPauta(e.data.evento)) irAPauta();
+      else if (esEventoPauta(e.data.evento)) irAPauta(e.data.evento);
       else if (esEventoBitacora(e.data.evento)) irABitacora();
       else notifs.recargar();
     };
@@ -1202,6 +1239,23 @@ function Main({
     misRoles.every((r) => r === 'comercial' || r === 'pautas');
 
   /**
+   * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas
+   * IMPRESO (Erik, ago-2026): los ve quien tenga alguna fila en esa unidad
+   * cuyo medio no lo excluya. `medio` solo existe en filas de validador
+   * (null = ambos medios), así que a los demás roles solo se les pide la
+   * unidad. Fila sin unidad = todas; manager pasa.
+   * (Subió de lugar con Mis rutas, 5-oct-2026: la pestaña de inicio del
+   * monitorista depende de ella.)
+   */
+  const enEcovallasImpreso =
+    misRoles.includes('manager') ||
+    (roles || []).some(
+      (r) =>
+        (!r.unidad_negocio || /^ecovallas$/i.test(r.unidad_negocio.trim())) &&
+        (!r.medio || /^impreso$/i.test(r.medio.trim()))
+    );
+
+  /**
    * Su pestaña de inicio es la suya, no un dashboard que no ve. También es
    * a donde cae una ruta que el usuario no tiene en su menú.
    *
@@ -1212,8 +1266,12 @@ function Main({
    * monitorista ya no monta un instante Indicadores —que además pediría su
    * chunk— antes de saltar a Pauta (auditoría primer mes, 24-sep-2026).
    */
+  // Monitorista puro: Pauta sigue siendo su inicio; si no tiene Ecovallas
+  // Impreso (Pauta no está en su menú), Mis rutas (rutas, 5-oct-2026).
   const tabDeSiempre = esMonitoristaPuro
-    ? 'pauta'
+    ? enEcovallasImpreso
+      ? 'pauta'
+      : 'mis_rutas'
     : esBitacoraPuro
       ? 'bitacora_vv'
       : 'dashboard';
@@ -1277,21 +1335,6 @@ function Main({
       }
     };
   }, [conAcceso, email, unidadesSync]);
-
-  /**
-   * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas
-   * IMPRESO (Erik, ago-2026): los ve quien tenga alguna fila en esa unidad
-   * cuyo medio no lo excluya. `medio` solo existe en filas de validador
-   * (null = ambos medios), así que a los demás roles solo se les pide la
-   * unidad. Fila sin unidad = todas; manager pasa.
-   */
-  const enEcovallasImpreso =
-    misRoles.includes('manager') ||
-    (roles || []).some(
-      (r) =>
-        (!r.unidad_negocio || /^ecovallas$/i.test(r.unidad_negocio.trim())) &&
-        (!r.medio || /^impreso$/i.test(r.medio.trim()))
-    );
 
   /**
    * ¿Este usuario pertenece a la unidad Biobox? El módulo de máquinas es DE
@@ -1499,6 +1542,15 @@ function Main({
         ic: '📋',
         t: 'Pauta y Monitoreo',
       },
+    // Mis rutas (rutas, 5-oct-2026): las rutas asignadas al monitorista que
+    // NO son de Ecovallas Impreso (Biobox, Vía Verde, pantallas…), con mapa,
+    // "Marcar visita" sin señal y "Levantar incidencia". El manager la ve
+    // para probar (has() lo deja pasar).
+    has('monitorista') && {
+      k: 'mis_rutas',
+      ic: '🧭',
+      t: 'Mis rutas',
+    },
     // Revisión de máquinas Biobox. La lista es a propósito más amplia que la
     // de Pauta: además de quien administra y quien repara, revisa el
     // monitorista (reportante) —es quien levanta la incidencia desde el
@@ -1526,6 +1578,8 @@ function Main({
     .map((n) => n.k);
   // Texto estable para las dependencias: `nav` es un arreglo nuevo en cada render.
   const clavesConRuta = tabsConRuta.join('|');
+  // Para el destino de los avisos (destinoAvisoPauta; rutas, 5-oct-2026).
+  menuConRutaRef.current = clavesConRuta;
 
   /**
    * Resolución de la ruta de arranque, en el MISMO render en que llegan los
@@ -1765,8 +1819,9 @@ function Main({
               } else if (esEventoPauta(n.evento)) {
                 // Toma regresada / por comprobar / ruta asignada: el
                 // destino es Pauta, RECARGADA — una lista ya abierta
-                // seguía enseñando la toma vieja.
-                setTab('pauta');
+                // seguía enseñando la toma vieja. La ruta asignada fuera
+                // de Ecovallas Impreso, a Mis rutas (rutas, 5-oct-2026).
+                setTab(destinoAvisoPauta(n.evento, n.mensaje));
                 setRecargarSignal((x) => x + 1);
               } else if (esEventoBitacora(n.evento)) {
                 // Versión por programar / programada: a la Bitácora VV,
@@ -1961,6 +2016,9 @@ function Main({
                 />
               )}
               {tab === 'usuarios' && <UsuariosView email={email} />}
+              {tab === 'mis_rutas' && (
+                <MisRutasView email={email} misDep={misDep} recargarSignal={recargarSignal} />
+              )}
             </Suspense>
           </ErrorBoundary>
         </div>
