@@ -135,6 +135,21 @@ function anotar(evento: string): void {
   pintar();
 }
 
+/** Overflow calculado de html y body, y cuánto se ha desplazado cada uno. */
+function raiz(): string {
+  const de = document.documentElement;
+  const b = document.body;
+  const ov = (el: Element) => {
+    const cs = getComputedStyle(el);
+    return `${cs.overflowX}/${cs.overflowY}`;
+  };
+  const se = document.scrollingElement;
+  return (
+    `html ${ov(de)} ${n(de.scrollTop)} · body ${ov(b)} ${n(b.scrollTop)} · ` +
+    `scroller ${se ? se.tagName.toLowerCase() : '–'}`
+  );
+}
+
 function medidas(): string {
   const vv = window.visualViewport;
   const menu = document.querySelector('.side')?.getBoundingClientRect();
@@ -156,6 +171,10 @@ function medidas(): string {
       ? `visible ${n(vv.height)} · desfase ${n(vv.offsetTop)} · hueco ${n(iH - vv.height - vv.offsetTop)} · zoom ${vv.scale.toFixed(2)}`
       : 'visible: sin dato',
     `scroll ${n(window.scrollY)} de ${n(document.documentElement.scrollHeight)} · pageTop ${n(vv?.pageTop)}`,
+    // Quién se desplaza de verdad: si "body" sube y "scroll" se queda en 0,
+    // el body se volvió contenedor de scroll y lo fijo ya no sigue la página
+    // (el error viejo de overflow-x en html/body, ver index.css).
+    `raíz ${raiz()}`,
     `menú ${n(menu?.top)}–${n(menu?.bottom)} · barra ${n(barra?.top)} · abajo toca: ${nombre(abajo)}`,
     `foco ${nombre(foco)} · ${instalada ? 'app instalada' : 'navegador'} · ${String(BUILD_ID).slice(0, 7)}`,
     armazonActivo()
