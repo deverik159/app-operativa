@@ -27,9 +27,10 @@ import { useState } from 'react';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
-import { UNIDADES } from '../../lib/constants';
 
 type Props = {
+  /** La unidad del filtro de Rutas: el archivo se importa a esa. */
+  unidad: string;
   onClose: () => void;
   onImportado: (resumen: string) => void;
 };
@@ -60,9 +61,13 @@ function norm(s: unknown): string {
 /** Forma de una clave: MX_CM_BB_MED_0001. */
 const RE_CLAVE = /^[A-Z]{2}_[A-Z]{2}_[A-Z]{2,3}_[A-Z]{3}_\d{3,5}$/;
 
-function ImportarRutasExcelModal({ onClose, onImportado }: Props) {
-  // Misma lección que en el KML: la unidad se elige, no se hereda.
-  const [unidad, setUnidad] = useState('');
+function ImportarRutasExcelModal({ unidad, onClose, onImportado }: Props) {
+  // La unidad se HEREDA de la pantalla (Erik, 5-oct-2026: ya la elegiste en
+  // el filtro, no tiene caso pedirla otra vez). El KML sí la vuelve a pedir a
+  // propósito: empata por CERCANÍA y con la unidad equivocada amarró máquinas
+  // a las vallas de al lado. Aquí el empate es por clave EXACTA dentro de la
+  // unidad: con la unidad equivocada todo saldría "sin dar de alta", nunca un
+  // empate falso. Y el botón que abre este modal solo aparece en Biobox.
   const [leyendo, setLeyendo] = useState(false);
   const [importando, setImportando] = useState(false);
   const [err, setErr] = useState('');
@@ -368,22 +373,13 @@ function ImportarRutasExcelModal({ onClose, onImportado }: Props) {
         {!filas && (
           <>
             <div className="field" style={{ marginTop: 14 }}>
-              <label>¿De qué unidad de negocio es este archivo?</label>
-              <select
-                value={unidad}
-                onChange={(e) => {
-                  setUnidad(e.target.value);
-                  setErr('');
-                }}
-                disabled={leyendo}
-              >
-                <option value="">— elige la unidad —</option>
-                {UNIDADES.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
+              <label>Unidad de negocio</label>
+              <div style={{ fontWeight: 700 }}>
+                {unidad}{' '}
+                <span style={{ fontWeight: 400, color: 'var(--muted)', fontSize: 12 }}>
+                  (la del filtro de Rutas)
+                </span>
+              </div>
             </div>
 
             <div

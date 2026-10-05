@@ -452,6 +452,7 @@ function RutasView({
       )}
       {excelRutasAbierto && (
         <ImportarRutasExcelModal
+          unidad={unidad}
           onClose={() => setExcelRutasAbierto(false)}
           onImportado={(resumen) => {
             setResultadoImport('Importación desde el Excel: ' + resumen);
