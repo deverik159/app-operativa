@@ -1458,35 +1458,39 @@ elegidas). Fotos de visita en `evidencias/rutas/<site_id>/…` (ojo:
 antes de asignar ("Vía Verde" con acento). Falta probar en iPhone real.
 
 **Menú inferior encima del mapa en iPhone (6-oct-2026).** En la app
-instalada (iOS 27), al elegir la unidad en Rutas el menú inferior quedaba a
-media pantalla sobre el mapa y la barra de arriba desaparecía. Es un error de
-iOS 26/27 (WebKit 297779; foros de Apple 800154 y 800125, de nuevo en iOS
-27; Apple lo pasó a un componente del sistema): al cerrarse el teclado o el
-menú de un `<select>`, iOS no regresa el área visible a su lugar y todo lo
-fijo (`.side`) y lo pegado arriba (`.topbar`) queda corrido. Se dispara con
-la "sesión de captura" del `<select>` más un cambio grande de alto de la
-página justo al cerrarse (llegan las rutas y el mapa).
-- Intentos que NO sirvieron: `1652b24` (mover la página 1 px y regresarla:
-  WebKit junta las dos llamadas y no hay movimiento; tampoco corrige el
-  desfase) y `b494e1a` (no desmontar el `<select>` al recargar; se queda
-  como mejora: Rutas, Pauta y Fijación ya no cambian la pantalla por
-  "Cargando…" al recargar, lo anterior queda atenuado con `.recargando`).
-- Tercer intento: en Rutas, unidad y medio son **botones** (`.rt-segmento`,
-  el elegido con ✓ y borde doble), no `<select>`: un botón no abre esa
-  sesión. El mapa ya no se redibuja con los datos viejos mientras carga y
-  `fitBounds` va sin animación. `lib/ajusteIOS.ts` se borró. Se descartó
-  soltar el foco de TODOS los `<select>` al elegir: si iOS manda el cambio
-  con la rueda aún girando, la cerraría en una opción intermedia (en Pauta,
-  "Asignar a…" asignaría a otra persona).
+instalada (iOS 27), al pasar en Rutas de Ecovallas (muchas rutas) a Vía Verde
+(una), el menú inferior quedaba ~157 pt arriba del borde, sobre el mapa, y la
+barra de arriba desaparecía. Medido sobre la captura: los dos estaban justo
+donde estarían con scroll 0 mientras la página estaba ~150 abajo. iOS 26/27
+pierde la cuenta del scroll de la página cuando el documento cambia miles de
+px de alto (familia WebKit 297779 / 312149, foros de Apple 800154 y 800125;
+Apple lo pasó a un componente del sistema). Chrome no lo reproduce.
+- NO sirvieron: `1652b24` (mover 1 px y regresar: WebKit junta las dos
+  llamadas), `b494e1a` (no desmontar el `<select>` al recargar; queda como
+  mejora: Rutas, Pauta y Fijación atenúan lo anterior con `.recargando` en
+  vez de "Cargando…"), `ccf90f0` (unidad y medio como botones `.rt-segmento`
+  en vez de `<select>`; quedan, pero el select no era el disparador).
+- Cuarto intento: cambiar de unidad o medio **sube primero la página** y
+  cambia el contenido dos cuadros después (el mismo remedio de `84cfe3f` al
+  cambiar de módulo). El botón 🧩 Paradas usa el segmento de cada ruta, así
+  las tarjetas viejas no crecen al tocar. En iOS, `overflow-anchor:none`
+  (iOS 27 estrena el anclaje de scroll). Leaflet sin manejo de teclado en
+  táctil (hacía `window.scrollTo` en cada toque al mapa).
+- **Armazón de app** (`lib/armazon.ts` + bloque al final de `index.css`),
+  APAGADO para todos: en un teléfono que lo pide, la página ya no se
+  desplaza; barra y menú son piezas de una columna y solo `.main` tiene
+  scroll (no queda scroll de página que iOS pueda perder). Si el cuarto
+  intento no basta y el armazón sí, dejarlo para todos: invertir
+  `armazonPedido()` (`!== '0'`), luego quitar la bandera, el parche de
+  `window.scrollTo` (cambiar `App.tsx` "arranca arriba" por `.main`) y las
+  reglas viejas de `.side` fija / `.main` 116px.
 - **Diagnóstico escondido** (`lib/diagPantalla.ts`): 5 toques seguidos al
-  logo de la barra de arriba muestran medidas del área visible (ventana,
-  pantalla, ventana de lo fijo, alto visible, desfase, hueco, scroll, qué
-  recibe un toque abajo, foco) y una bitácora de los últimos eventos. Se
-  prende ANTES de reproducir (con el error la barra no se ve), dura 24 h en
-  ese teléfono; otros 5 toques lo quitan. El comentario del archivo dice
+  logo muestran medidas (ventana, pantalla, ventana de lo fijo, visible,
+  desfase, hueco, scroll, qué recibe un toque abajo, foco, armazón) y una
+  bitácora; trae el botón para prender/apagar el armazón en ese teléfono.
+  Prenderlo ANTES de reproducir; dura 24 h. El comentario del archivo dice
   cómo leer la captura.
-- **Regla:** en pantallas con mapa o que cambian mucho de alto, preferir
-  botones a `<select>` cuando son pocas opciones; un selector nunca debe
-  desmontarse por su propio `onChange`. Chrome no reproduce estos errores:
-  probar en el iPhone de Erik.
+- **Regla:** antes de cambiar mucho el alto de la página por una acción del
+  usuario, subir el scroll (o hacerlo en un contenedor propio). En pantallas
+  con mapa, preferir botones a `<select>` cuando son pocas opciones.
 

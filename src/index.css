@@ -185,6 +185,16 @@
   @supports (overflow-x: clip) {
     html,body{overflow-x:clip}
   }
+  /* iOS 27 estrena el "anclaje de scroll": cuando cambia el contenido, el
+     navegador mueve el scroll por su cuenta para que lo visible no salte.
+     Ese ajuste implícito, al cambiar de miles de px de alto (Rutas: de
+     Ecovallas a Vía Verde), es un candidato a dejar el menú inferior y la
+     barra de arriba desacomodados (Erik, 6-oct-2026). La app no depende de
+     él: en iPhone/iPad se apaga, como era hasta iOS 26. El @supports con
+     -webkit-touch-callout solo lo cumple Safari de iOS; Android sigue igual. */
+  @supports (-webkit-touch-callout: none) {
+    html,body{overflow-anchor:none}
+  }
   /* Claves como MX_EM_EV_EVA_01_0009 y las URLs no tienen espacios: sin esto
      estiran su contenedor y desbordan la pantalla en móvil. */
   body{overflow-wrap:anywhere;word-break:break-word}
@@ -656,4 +666,32 @@
     @supports (height: 1dvh){.modal.rt-armado{min-height:100dvh}}
     .rt-pie{margin:14px -14px -16px;padding:10px 14px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));border-radius:0}
     .rt-dir-opciones{grid-template-columns:1fr}
+  }
+
+  /* ===== Armazón de app: PRUEBA por teléfono (6-oct-2026; ver lib/armazon.ts)
+     Solo con html.armazon (lo pone armazon.ts desde localStorage), en
+     celular y cuando existe la barra de la app (no en el login). El
+     documento ya NO se desplaza: mide justo la pantalla; barra y menú son
+     piezas normales de una columna y solo .main tiene scroll. Así iOS no
+     tiene un scroll de página que perder al cambiar mucho de alto (menú
+     flotando sobre el mapa de Rutas). A .main NO ponerle position+z-index,
+     transform, filter, contain, will-change ni isolation: los modales
+     (.overlay, fijos) viven dentro y se recortarían o quedarían bajo el menú. */
+  @media(max-width:780px){
+    html.armazon:has(.topbar),
+    html.armazon:has(.topbar) body{height:100%;overflow:hidden;overscroll-behavior:none}
+    html.armazon:has(.topbar) #root{height:100%}
+    html.armazon:has(.topbar) #root>div:has(>.topbar){height:100%;display:flex;flex-direction:column;overflow:hidden}
+    /* Barra, avisos y demás no se encogen; solo .layout crece. */
+    html.armazon:has(.topbar) #root>div:has(>.topbar)>*{flex:0 0 auto}
+    html.armazon:has(.topbar) #root>div:has(>.topbar)>.layout{flex:1 1 0;min-height:0;display:flex;
+      flex-direction:column;width:100%;max-width:none;margin:0}
+    html.armazon:has(.topbar) .topbar{position:relative;top:auto}
+    /* .main va arriba del menú en pantalla aunque en el DOM vaya después. */
+    /* --teclado: lo que tapa el teclado abierto (lo mide armazon.ts), para
+       poder subir lo último de .main por encima de él. */
+    html.armazon:has(.topbar) .layout>.main{order:1;flex:1 1 auto;min-height:0;
+      overflow-y:auto;overflow-x:hidden;padding-bottom:calc(20px + var(--teclado, 0px))}
+    html.armazon:has(.topbar) .layout>.side{order:2;flex:0 0 auto;position:relative;
+      bottom:auto;left:auto;right:auto;z-index:1}
   }

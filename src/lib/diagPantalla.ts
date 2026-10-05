@@ -17,10 +17,20 @@
 //   borrado). NO sirve: WebKit junta las dos llamadas y no hay movimiento;
 //   aunque lo hubiera, no corrige el desfase del área visible.
 // - b494e1a: no desmontar el <select> al recargar. Mejora, pero no la causa.
-// - Tercer intento: en Rutas, unidad y medio son botones, que no abren esa
-//   sesión. Se descartó soltar el foco de TODOS los <select> al elegir: si
-//   iOS manda el cambio con la rueda aún girando, cerraría la rueda en una
-//   opción intermedia (en Pauta, "Asignar a…" asignaría a otra persona).
+// - ccf90f0: en Rutas, unidad y medio son botones, que no abren esa
+//   sesión. Siguió pasando: el <select> no era el disparador. Se descartó
+//   soltar el foco de TODOS los <select> al elegir: si iOS manda el cambio
+//   con la rueda aún girando, la cerraría en una opción intermedia (en
+//   Pauta, "Asignar a…" asignaría a otra persona).
+// - Cuarto intento: en la captura de Erik el menú y la barra estaban justo
+//   donde estarían con scroll 0 mientras la página estaba ~150 abajo: iOS
+//   pierde la cuenta del scroll cuando el documento cambia miles de px de
+//   alto (Ecovallas, muchas rutas → Vía Verde, una). Ahora cambiar de unidad
+//   o medio sube primero la página y cambia el contenido dos cuadros
+//   después (como 84cfe3f al cambiar de módulo); las tarjetas viejas ya no
+//   crecen al tocar; en iOS se apaga el anclaje de scroll de iOS 27
+//   (overflow-anchor). Y, como respaldo por teléfono, el armazón
+//   (lib/armazon.ts), que se prende desde este recuadro.
 //
 // ESTE DIAGNÓSTICO: Chrome no reproduce el error, así que la única forma de
 // ver qué hace iOS es medirlo EN el teléfono. 5 toques seguidos al logo de la
@@ -38,7 +48,13 @@
 // - "abajo toca" dice qué recibe un toque cerca del borde de abajo: si dice
 //   "menú" mientras el menú se ve a media pantalla, el error es solo de
 //   pintado; si dice otra cosa, el layout también está corrido.
-// - La bitácora (últimos eventos, con segundos) dice en qué orden pasó.
+// - La bitácora (últimos eventos, con segundos) dice en qué orden pasó;
+//   cada renglón lleva v=alto visible, d=desfase, w=ventana, s=scroll,
+//   h=alto del documento y, con el armazón, m=scroll de .main.
+//
+// El botón "Armazón" del recuadro prende o apaga en ESE teléfono el armazón
+// de app (lib/armazon.ts: la página ya no se desplaza, solo .main) y recarga.
+// Sirve para probar en el iPhone si así desaparece el error.
 //
 // Los colores van fijos y no con variables del tema a propósito: es una
 // herramienta interna y debe leerse igual en claro y oscuro.
@@ -48,6 +64,8 @@
 // ============================================================
 
 import { BUILD_ID } from './versionApp';
+import { armazonActivo, armazonPedido, fijarArmazon, principal } from './armazon';
+import { confirmarRecargaConEnvios } from './envios';
 
 const CLAVE = 'gpo-diag-pantalla';
 const DURA_MS = 24 * 60 * 60 * 1000;
@@ -57,6 +75,7 @@ const CADA_MS = 300;
 const RENGLONES_BITACORA = 7;
 
 let caja: HTMLDivElement | null = null;
+let texto: HTMLDivElement | null = null;
 let sonda: HTMLDivElement | null = null;
 let reloj = 0;
 let inicio = 0;
@@ -97,9 +116,11 @@ function nombre(el: EventTarget | null): string {
 /** Valores clave en una línea corta, para la bitácora. */
 function firma(): string {
   const vv = window.visualViewport;
-  return vv
+  const base = vv
     ? `v${n(vv.height)} d${n(vv.offsetTop)} w${n(window.innerHeight)} s${n(window.scrollY)}`
     : `w${n(window.innerHeight)} s${n(window.scrollY)}`;
+  const m = armazonActivo() ? ` m${n(principal()?.scrollTop)}` : '';
+  return `${base} h${n(document.documentElement.scrollHeight)}${m}`;
 }
 
 function anotar(evento: string): void {
@@ -137,15 +158,18 @@ function medidas(): string {
     `scroll ${n(window.scrollY)} de ${n(document.documentElement.scrollHeight)} · pageTop ${n(vv?.pageTop)}`,
     `menú ${n(menu?.top)}–${n(menu?.bottom)} · barra ${n(barra?.top)} · abajo toca: ${nombre(abajo)}`,
     `foco ${nombre(foco)} · ${instalada ? 'app instalada' : 'navegador'} · ${String(BUILD_ID).slice(0, 7)}`,
+    armazonActivo()
+      ? `armazón SÍ · main ${n(principal()?.scrollTop)} de ${n(principal()?.scrollHeight)} (alto ${n(principal()?.clientHeight)})`
+      : `armazón ${armazonPedido() ? 'pedido, sin actuar aquí' : 'no'}`,
     ...bitacora,
     '5 toques al logo para quitar',
   ].join('\n');
 }
 
 function pintar(): void {
-  if (!caja) return;
+  if (!texto) return;
   try {
-    caja.textContent = medidas();
+    texto.textContent = medidas();
   } catch {
     /* una medida que falla no debe tumbar nada */
   }
@@ -170,7 +194,6 @@ function mostrar(): void {
     pointerEvents: 'none',
   } as Partial<CSSStyleDeclaration>);
   caja = document.createElement('div');
-  caja.setAttribute('aria-hidden', 'true');
   Object.assign(caja.style, {
     position: 'fixed',
     left: '8px',
@@ -185,6 +208,39 @@ function mostrar(): void {
     borderRadius: '8px',
     pointerEvents: 'none',
   } as Partial<CSSStyleDeclaration>);
+  texto = document.createElement('div');
+  caja.appendChild(texto);
+  // Lo único que se toca del recuadro: prender/apagar el armazón en este
+  // teléfono. Recarga para no mudar un scroll a media sesión.
+  const boton = document.createElement('button');
+  boton.type = 'button';
+  boton.textContent = armazonPedido()
+    ? 'Armazón: SÍ · tocar para quitar'
+    : 'Armazón: NO · tocar para probar';
+  Object.assign(boton.style, {
+    pointerEvents: 'auto',
+    marginTop: '6px',
+    minHeight: '36px',
+    width: '100%',
+    background: '#ff5a3c',
+    color: '#151515',
+    border: 'none',
+    borderRadius: '6px',
+    font: '700 12px/1.2 system-ui, sans-serif',
+    cursor: 'pointer',
+  } as Partial<CSSStyleDeclaration>);
+  boton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Con confirmación: el botón queda cerca del menú y del pie de los
+    // modales, y un roce no debe recargar la app ni cambiar la prueba.
+    const pregunta = armazonPedido()
+      ? '¿Quitar el armazón en este teléfono y recargar la app?'
+      : '¿Probar el armazón en este teléfono? La app se recarga.';
+    if (!window.confirm(pregunta) || !confirmarRecargaConEnvios()) return;
+    fijarArmazon(!armazonPedido());
+    window.location.reload();
+  });
+  caja.appendChild(boton);
   document.body.appendChild(sonda);
   document.body.appendChild(caja);
   anotar('inicio');
@@ -196,6 +252,7 @@ function ocultar(): void {
   caja?.remove();
   sonda?.remove();
   caja = null;
+  texto = null;
   sonda = null;
 }
 
@@ -232,8 +289,30 @@ export function instalarDiagPantalla(): void {
       },
       true
     );
-    document.addEventListener('focusin', (e) => anotar('foco→' + nombre(e.target)), true);
-    document.addEventListener('focusout', (e) => anotar('suelta ' + nombre(e.target)), true);
+    // Todos los registros salen de inmediato con el recuadro apagado (antes
+    // de armar el texto), y los de scroll se juntan a uno por cuadro: leer
+    // medidas dentro del evento forzaría el layout justo cuando se está
+    // midiendo el error.
+    document.addEventListener('focusin', (e) => {
+      if (caja) anotar('foco→' + nombre(e.target));
+    }, true);
+    document.addEventListener('focusout', (e) => {
+      if (caja) anotar('suelta ' + nombre(e.target));
+    }, true);
+    let scrollPendiente = '';
+    const anotarEnCuadro = (evento: string) => {
+      if (!caja) return;
+      if (scrollPendiente) {
+        scrollPendiente = evento;
+        return;
+      }
+      scrollPendiente = evento;
+      requestAnimationFrame(() => {
+        const ev = scrollPendiente;
+        scrollPendiente = '';
+        anotar(ev);
+      });
+    };
     document.addEventListener(
       'change',
       (e) => {
@@ -242,11 +321,19 @@ export function instalarDiagPantalla(): void {
       true
     );
     window.addEventListener('resize', () => anotar('resize ventana'));
-    window.addEventListener('scroll', () => anotar('scroll'), { passive: true });
+    // En captura: también llegan los scroll de .main y otras cajas (no
+    // burbujean).
+    document.addEventListener(
+      'scroll',
+      (e) => {
+        if (caja) anotarEnCuadro(e.target === document ? 'scroll' : 'scroll ' + nombre(e.target));
+      },
+      { capture: true, passive: true }
+    );
     const vv = window.visualViewport;
     if (vv) {
       vv.addEventListener('resize', () => anotar('resize visible'));
-      vv.addEventListener('scroll', () => anotar('scroll visible'));
+      vv.addEventListener('scroll', () => anotarEnCuadro('scroll visible'));
     }
     if (prendido()) {
       if (document.body) mostrar();

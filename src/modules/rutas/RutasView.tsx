@@ -25,6 +25,7 @@ import { tope } from '../../lib/envios';
 import { pareceSinRed } from '../../lib/enLinea';
 import { haySesionReal } from '../../lib/datosLocales';
 import { vigilarRender } from '../../lib/vigia';
+import { armazonActivo, principal } from '../../lib/armazon';
 import IrAqui from '../../components/IrAqui';
 import ImportarKmlModal from './ImportarKmlModal';
 import ImportarRutasExcelModal from './ImportarRutasExcelModal';
@@ -138,6 +139,46 @@ function RutasView({
   const dePauta = esSegmentoDePauta(unidad, tipo);
 
   /**
+   * Cambiar de unidad o medio ARRANCA ARRIBA, igual que cambiar de módulo
+   * (84cfe3f). En el iPhone (iOS 27, app instalada), pasar de una unidad con
+   * muchas rutas a una con pocas (Ecovallas → Vía Verde) con la página
+   * desplazada dejaba el menú inferior y la barra de arriba colocados como si
+   * el scroll fuera 0: el menú a media pantalla sobre el mapa y la barra
+   * fuera de la vista. El desfase medía lo mismo que el scroll (Erik,
+   * 6-oct-2026). Primero se sube y, ya arriba (dos cuadros después, para que
+   * iOS aplique el scroll antes del cambio de alto), cambia el contenido.
+   * Lo mismo cuando LLEGAN los datos de otra unidad (ver cargar): si mientras
+   * decía "Actualizando…" se bajó la página, se vuelve a subir antes de que
+   * el documento se encoja.
+   */
+  const subirYLuego = (fn: () => void) => {
+    const desplazada =
+      window.scrollY > 0 || (armazonActivo() && (principal()?.scrollTop ?? 0) > 0);
+    if (!desplazada) {
+      fn();
+      return;
+    }
+    window.scrollTo(0, 0); // con el armazón, sube .main (lib/armazon.ts)
+    requestAnimationFrame(() => requestAnimationFrame(fn));
+  };
+  /** Cada toque de unidad/medio tiene su ficha: si llega otro antes de que
+   *  se aplique el anterior (diferido dos cuadros), manda el más nuevo. */
+  const fichaSegmento = useRef(0);
+  /** Unidad y medio tocados que aún no se aplican (para el siguiente toque). */
+  const segmentoPendiente = useRef<{ u: string; t: string } | null>(null);
+  const cambiarSegmento = (u: string, t: string) => {
+    const f = ++fichaSegmento.current;
+    segmentoPendiente.current = { u, t };
+    subirYLuego(() => {
+      if (f !== fichaSegmento.current) return;
+      segmentoPendiente.current = null;
+      setUnidad(u);
+      setTipo(t);
+      setRutaFoco(null);
+    });
+  };
+
+  /**
    * Carga del segmento. Paginada: PostgREST corta en silencio en 1000 filas
    * y una unidad grande ya se acerca (bug del lector, 5-oct-2026). Cada
    * página lleva tope. Una respuesta vieja (el usuario ya cambió de unidad)
@@ -176,6 +217,15 @@ function RutasView({
     ]);
     if (ficha !== fichaCarga.current) return;
     setYaCargo(true);
+    // Datos de OTRA unidad o medio: el alto cambia mucho; se aplican con la
+    // página arriba (ver subirYLuego). Del mismo segmento, de inmediato.
+    const aplicar = (fn: () => void) => {
+      if (segmentoEnPantalla.current === segmento) fn();
+      else
+        subirYLuego(() => {
+          if (ficha === fichaCarga.current) fn();
+        });
+    };
     if (u.error || r.error) {
       setErr(
         u.error
@@ -184,18 +234,22 @@ function RutasView({
       );
       // Lo que quedó en pantalla es de OTRA unidad o medio: no se deja
       // debajo del selector nuevo como si fuera de éste.
-      if (segmentoEnPantalla.current !== segmento) {
-        setUbics([]);
-        setResumen([]);
-        segmentoEnPantalla.current = segmento;
-      }
-      setLoading(false);
+      aplicar(() => {
+        if (segmentoEnPantalla.current !== segmento) {
+          setUbics([]);
+          setResumen([]);
+          segmentoEnPantalla.current = segmento;
+        }
+        setLoading(false);
+      });
       return;
     }
-    setUbics(u.filas);
-    setResumen(r.filas);
-    segmentoEnPantalla.current = segmento;
-    setLoading(false);
+    aplicar(() => {
+      setUbics(u.filas);
+      setResumen(r.filas);
+      segmentoEnPantalla.current = segmento;
+      setLoading(false);
+    });
   };
   useEffect(() => {
     cargar();
@@ -1136,11 +1190,10 @@ function RutasView({
                   className={'rt-chip' + (u === unidad ? ' on' : '')}
                   aria-pressed={u === unidad}
                   onClick={() => {
-                    if (u === unidad) return;
-                    setUnidad(u);
+                    const ahora = segmentoPendiente.current ?? { u: unidad, t: tipo };
+                    if (u === ahora.u) return;
                     // Vía Verde no tiene Impreso: columnas y pórticos son Digital.
-                    if (u === 'Vía Verde') setTipo('Digital');
-                    setRutaFoco(null);
+                    cambiarSegmento(u, u === 'Vía Verde' ? 'Digital' : ahora.t);
                   }}
                 >
                   {u === unidad ? '✓ ' : ''}
@@ -1157,9 +1210,9 @@ function RutasView({
                   className={'rt-chip' + (t === tipo ? ' on' : '')}
                   aria-pressed={t === tipo}
                   onClick={() => {
-                    if (t === tipo) return;
-                    setTipo(t);
-                    setRutaFoco(null);
+                    const ahora = segmentoPendiente.current ?? { u: unidad, t: tipo };
+                    if (t === ahora.t) return;
+                    cambiarSegmento(ahora.u, t);
                   }}
                 >
                   {t === tipo ? '✓ ' : ''}
@@ -1384,7 +1437,13 @@ function RutasView({
                           }}
                         >
                           {!r.activa && <span className="tag">inactiva</span>}
-                          {puedeGestionar && !dePauta && (
+                          {/* Con el segmento de la propia ruta y no con el
+                              elegido: al tocar otra unidad, las tarjetas de
+                              la anterior siguen en pantalla hasta que llega
+                              lo nuevo, y si ganaban este botón crecían todas a
+                              la vez (miles de px de alto de golpe, justo
+                              antes de encogerse; 6-oct-2026). */}
+                          {puedeGestionar && !esSegmentoDePauta(r.unidad_negocio, r.tipo_medio) && (
                             <button
                               className="btn ghost sm"
                               onClick={(e) => {

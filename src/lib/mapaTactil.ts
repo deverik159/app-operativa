@@ -36,6 +36,11 @@ export function candadoTactil(map: L.Map): void {
   if (!esTactil()) return;
 
   map.dragging.disable();
+  // Sin el manejo de teclado de Leaflet en táctil: al tocar el mapa hacía
+  // focus() al contenedor y luego window.scrollTo() para "regresar" la
+  // página; un scroll programático en cada toque, inútil sin flechas, y con
+  // el armazón (lib/armazon.ts) haría brincar .main.
+  map.keyboard.disable();
 
   const Candado = L.Control.extend({
     options: { position: 'topleft' },

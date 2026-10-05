@@ -20,6 +20,7 @@ import { registrarSW } from './lib/push';
 import { instalarReporteGlobal } from './lib/reportarError';
 import { iniciarTema } from './lib/tema';
 import { instalarDiagPantalla } from './lib/diagPantalla';
+import { iniciarArmazon } from './lib/armazon';
 
 // Antes del render: así también se registra lo que truene al arrancar.
 instalarReporteGlobal();
@@ -32,6 +33,9 @@ iniciarTema();
 // Medidas de pantalla escondidas (5 toques al logo) para el menú inferior
 // que en iPhone quedaba a media pantalla. Ver lib/diagPantalla.ts.
 instalarDiagPantalla();
+// Armazón de app en el celular: apagado salvo en el teléfono que lo pidió
+// desde el diagnóstico. Ver lib/armazon.ts.
+iniciarArmazon();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
