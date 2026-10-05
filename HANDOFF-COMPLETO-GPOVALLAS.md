@@ -1490,7 +1490,16 @@ Apple lo pasó a un componente del sistema). Chrome no lo reproduce.
   bitácora; trae el botón para prender/apagar el armazón en ese teléfono.
   Prenderlo ANTES de reproducir; dura 24 h. El comentario del archivo dice
   cómo leer la captura.
+- **Confirmado por Erik en su iPhone** (5-oct-2026). El remedio quedó como
+  función compartida, `lib/subirAntes.ts`, que solo actúa en iPhone/iPad
+  (en Android y computadora la página no se mueve): `subirYLuego(fn, clave)`
+  sube y aplica (Pauta: catorcena, ruta, prefiltro de la ruta asignada y la
+  llegada de otra catorcena; Fijación: estado y la llegada de otro estado);
+  `subirYRegresar(fn)` sube, aplica y regresa a donde estaba (campañas y
+  tarjetas de avance de Pauta, que se tocan varias veces seguidas). Esta
+  extensión a Pauta y Fijación falta probarla en el iPhone.
 - **Regla:** antes de cambiar mucho el alto de la página por una acción del
-  usuario, subir el scroll (o hacerlo en un contenedor propio). En pantallas
-  con mapa, preferir botones a `<select>` cuando son pocas opciones.
+  usuario, usar `subirYLuego` (o hacerlo en un contenedor propio). En
+  pantallas con mapa, preferir botones a `<select>` cuando son pocas
+  opciones.
 

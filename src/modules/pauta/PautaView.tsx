@@ -33,6 +33,7 @@ import type { GrupoReporte } from '../incidencias/NuevaInc';
 import type { PautaRuta } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
 import { tope } from '../../lib/envios';
+import { subirYLuego, subirYRegresar } from '../../lib/subirAntes';
 
 /**
  * La pauta es de Ecovallas Impreso (decisión de sep-2026): los reportes
@@ -274,7 +275,11 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   useEffect(() => {
     if (prefiltrada || !filas.length || !asignaciones.length) return;
     const primera = [...misRutas][0];
-    if (primera && fRuta === 'Todas') setFRuta(primera);
+    // Es el mismo cambio grande de alto que elegir una ruta (toda la
+    // catorcena → una ruta): con la página arriba (lib/subirAntes.ts). Sin
+    // clave y con updater, para no pisar una ruta elegida a mano mientras.
+    if (primera && fRuta === 'Todas')
+      subirYLuego(() => setFRuta((prev) => (prev === 'Todas' ? primera : prev)));
     setPrefiltrada(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [misRutas, filas, asignaciones]);
@@ -382,6 +387,21 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   const cargaSeq = useRef(0);
   /** Catorcena de las filas que están en pantalla. */
   const catEnPantalla = useRef<number | null>(null);
+  /**
+   * Datos de OTRA catorcena: la lista cambia mucho de alto y se aplica con
+   * la página arriba (lib/subirAntes.ts: en iPhone, un cambio grande de alto
+   * con la página desplazada dejaba el menú inferior a media pantalla,
+   * 5-oct-2026). De la misma catorcena (recargas), de inmediato. Solo usa
+   * refs y el helper, así que la copia que guarda `cargar` (useCallback sin
+   * dependencias) siempre sirve.
+   */
+  const aplicarDeCatorcena = (cat: number, miCarga: number, fn: () => void) => {
+    if (catEnPantalla.current === cat) fn();
+    else
+      subirYLuego(() => {
+        if (miCarga === cargaSeq.current) fn();
+      });
+  };
   /** Cuenta los cambios locales de filas (tomas) para detectar respuestas viejas. */
   const cambiosLocales = useRef(0);
   const setFilasLocal: typeof setFilas = (v) => {
@@ -417,11 +437,13 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
         setErr('pauta: ' + error.message);
         // Lo que quedó en pantalla es de OTRA catorcena: no se deja debajo
         // del selector nuevo como si fuera de ésta.
-        if (catEnPantalla.current !== cat) {
-          setFilas([]);
-          catEnPantalla.current = cat;
-        }
-        setLoading(false);
+        aplicarDeCatorcena(cat, miCarga, () => {
+          if (catEnPantalla.current !== cat) {
+            setFilas([]);
+            catEnPantalla.current = cat;
+          }
+          setLoading(false);
+        });
         return;
       }
       const lote = (data as PautaRuta[]) || [];
@@ -440,9 +462,11 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       setTimeout(() => void cargar(cat, true), 0);
       return;
     }
-    setFilas(todas);
-    catEnPantalla.current = cat;
-    setLoading(false);
+    aplicarDeCatorcena(cat, miCarga, () => {
+      setFilas(todas);
+      catEnPantalla.current = cat;
+      setLoading(false);
+    });
   }, []);
 
   useEffect(() => {
@@ -763,9 +787,14 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       {err && <div className="err">{err}</div>}
 
       <div className="toolbar">
+        {/* Catorcena, ruta, campañas y tarjetas cambian mucho el alto de la
+            lista: se sube la página antes (lib/subirAntes.ts, 5-oct-2026). */}
         <select
           value={catSel ?? ''}
-          onChange={(e) => setCatSel(Number(e.target.value))}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            subirYLuego(() => setCatSel(v), 'pauta-catorcena');
+          }}
         >
           {catorcenas.map((c) => (
             <option key={c} value={c}>
@@ -773,7 +802,13 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
             </option>
           ))}
         </select>
-        <select value={fRuta} onChange={(e) => setFRuta(e.target.value)}>
+        <select
+          value={fRuta}
+          onChange={(e) => {
+            const v = e.target.value;
+            subirYLuego(() => setFRuta(v), 'pauta-ruta');
+          }}
+        >
           <option value="Todas">Ruta: todas</option>
           {rutas.map((r) => (
             <option key={r} value={r}>
@@ -826,7 +861,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                 <button
                   type="button"
                   key={c}
-                  onClick={() => toggleCampana(c)}
+                  onClick={() => subirYRegresar(() => toggleCampana(c))}
                   className="pill"
                   style={{
                     cursor: 'pointer',
@@ -858,7 +893,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
             {fCampanas.length > 0 && (
               <button
                 type="button"
-                onClick={() => setFCampanas([])}
+                onClick={() => subirYRegresar(() => setFCampanas([]))}
                 className="pill"
                 style={{
                   cursor: 'pointer',
@@ -950,7 +985,12 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
             type="button"
             key={t.l}
             className="card"
-            onClick={t.click}
+            onClick={() => {
+              // Sitios/Caras sin filtro de tarjeta activo no cambian nada:
+              // ni se mueve la página.
+              if ((t.l === 'Sitios' || t.l === 'Caras') && fAvance === 'Todos' && !fConInc) return;
+              subirYRegresar(t.click);
+            }}
             aria-pressed={t.activa}
             style={{
               cursor: 'pointer',

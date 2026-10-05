@@ -25,7 +25,7 @@ import { tope } from '../../lib/envios';
 import { pareceSinRed } from '../../lib/enLinea';
 import { haySesionReal } from '../../lib/datosLocales';
 import { vigilarRender } from '../../lib/vigia';
-import { armazonActivo, principal } from '../../lib/armazon';
+import { subirYLuego } from '../../lib/subirAntes';
 import IrAqui from '../../components/IrAqui';
 import ImportarKmlModal from './ImportarKmlModal';
 import ImportarRutasExcelModal from './ImportarRutasExcelModal';
@@ -139,7 +139,7 @@ function RutasView({
   const dePauta = esSegmentoDePauta(unidad, tipo);
 
   /**
-   * Cambiar de unidad o medio ARRANCA ARRIBA, igual que cambiar de módulo
+   * En iPhone/iPad, cambiar de unidad o medio ARRANCA ARRIBA, como cambiar de módulo
    * (84cfe3f). En el iPhone (iOS 27, app instalada), pasar de una unidad con
    * muchas rutas a una con pocas (Ecovallas → Vía Verde) con la página
    * desplazada dejaba el menú inferior y la barra de arriba colocados como si
@@ -149,18 +149,9 @@ function RutasView({
    * iOS aplique el scroll antes del cambio de alto), cambia el contenido.
    * Lo mismo cuando LLEGAN los datos de otra unidad (ver cargar): si mientras
    * decía "Actualizando…" se bajó la página, se vuelve a subir antes de que
-   * el documento se encoja.
+   * el documento se encoja. El remedio vive en lib/subirAntes.ts (también lo
+   * usan Pauta y Fijación).
    */
-  const subirYLuego = (fn: () => void) => {
-    const desplazada =
-      window.scrollY > 0 || (armazonActivo() && (principal()?.scrollTop ?? 0) > 0);
-    if (!desplazada) {
-      fn();
-      return;
-    }
-    window.scrollTo(0, 0); // con el armazón, sube .main (lib/armazon.ts)
-    requestAnimationFrame(() => requestAnimationFrame(fn));
-  };
   /** Cada toque de unidad/medio tiene su ficha: si llega otro antes de que
    *  se aplique el anterior (diferido dos cuadros), manda el más nuevo. */
   const fichaSegmento = useRef(0);

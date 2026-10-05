@@ -25,6 +25,7 @@ import type { AccionPendiente, ResultadoAccion } from '../../lib/acciones';
 import { haySenal, haySesionReal } from '../../lib/datosLocales';
 import type { Incidencia } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
+import { subirYLuego } from '../../lib/subirAntes';
 
 /**
  * ÁREA de este módulo. Las incidencias que aparecen como órdenes de trabajo
@@ -216,6 +217,19 @@ function FijacionExternaView({
   const fichaCarga = useRef(0);
   /** Filtro de estado de los registros que están en pantalla. */
   const estadoEnPantalla = useRef<string | null>(null);
+  /**
+   * Registros de OTRO estado: la lista cambia mucho de alto y se aplica con
+   * la página arriba (lib/subirAntes.ts: en iPhone, un cambio grande de alto
+   * con la página desplazada dejaba el menú inferior a media pantalla,
+   * 5-oct-2026). Del mismo estado (recargas tras guardar), de inmediato.
+   */
+  const aplicarDeEstado = (est: string, ficha: number, fn: () => void) => {
+    if (estadoEnPantalla.current === est) fn();
+    else
+      subirYLuego(() => {
+        if (ficha === fichaCarga.current) fn();
+      });
+  };
   const cargar = async (estadoSel?: string) => {
     const ficha = ++fichaCarga.current;
     setLoading(true);
@@ -235,11 +249,13 @@ function FijacionExternaView({
         setErr('No se pudieron cargar los registros: ' + error.message);
         // Lo que quedó en pantalla es de OTRO filtro: no se deja debajo del
         // selector nuevo como si fuera de éste.
-        if (estadoEnPantalla.current !== est) {
-          setRegs([]);
-          estadoEnPantalla.current = est;
-        }
-        setLoading(false);
+        aplicarDeEstado(est, ficha, () => {
+          if (estadoEnPantalla.current !== est) {
+            setRegs([]);
+            estadoEnPantalla.current = est;
+          }
+          setLoading(false);
+        });
         return;
       }
       todas = todas.concat((data as Registro[]) || []);
@@ -247,9 +263,11 @@ function FijacionExternaView({
       else desde += PAGINA;
       if (desde > 50000) seguir = false;
     }
-    setRegs(todas);
-    estadoEnPantalla.current = est;
-    setLoading(false);
+    aplicarDeEstado(est, ficha, () => {
+      setRegs(todas);
+      estadoEnPantalla.current = est;
+      setLoading(false);
+    });
   };
   /**
    * Incidencias vivas que se pueden trabajar desde aquí. Se traen TODAS las
@@ -915,13 +933,16 @@ function FijacionExternaView({
           onChange={(e) => setQ(e.target.value)}
         />
         {/* Sin width:'auto' inline: anulaba el apilado a ancho completo que
-            la media query de .toolbar da en celular. */}
+            la media query de .toolbar da en celular. Cambiar de estado sube
+            la página antes (lib/subirAntes.ts, 5-oct-2026). */}
         <select
           value={fEstado}
           onChange={(e) => {
             const v = e.target.value;
-            setFEstado(v);
-            cargar(v);
+            subirYLuego(() => {
+              setFEstado(v);
+              cargar(v);
+            }, 'fij-estado');
           }}
         >
           <option value="PENDIENTE">Pendientes</option>
