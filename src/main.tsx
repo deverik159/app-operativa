@@ -19,7 +19,7 @@ import App from './App';
 import { registrarSW } from './lib/push';
 import { instalarReporteGlobal } from './lib/reportarError';
 import { iniciarTema } from './lib/tema';
-import { instalarAjusteIOS } from './lib/ajusteIOS';
+import { instalarDiagPantalla } from './lib/diagPantalla';
 
 // Antes del render: así también se registra lo que truene al arrancar.
 instalarReporteGlobal();
@@ -29,9 +29,9 @@ instalarReporteGlobal();
 // al teléfono en Automático. No es estado de React: no re-renderiza nada.
 iniciarTema();
 
-// iPhone: el menú inferior se quedaba a media pantalla al cerrar la rueda
-// de un selector (Rutas, 6-oct-2026). Ver lib/ajusteIOS.ts.
-instalarAjusteIOS();
+// Medidas de pantalla escondidas (5 toques al logo) para el menú inferior
+// que en iPhone quedaba a media pantalla. Ver lib/diagPantalla.ts.
+instalarDiagPantalla();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

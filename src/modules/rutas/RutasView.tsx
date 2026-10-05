@@ -68,18 +68,17 @@ function RutasView({
   unidades: string[];
 }) {
   vigilarRender('RutasView');
-  // El coordinador de una sola unidad ve SOLO las rutas de la suya; el
-  // selector le ofrece únicamente sus opciones (Erik, ago-2026).
+  // El coordinador de una sola unidad ve SOLO las rutas de la suya; los
+  // botones de unidad le ofrecen únicamente sus opciones (Erik, ago-2026).
   const unidadesVisibles = UNIDADES_CON_RUTAS.filter((u) =>
     unidades.includes(u)
   );
   const [loading, setLoading] = useState(true);
   /** Ya terminó la primera carga: las siguientes (cambio de unidad o medio,
-   *  después de importar) NO cambian la pantalla por "Cargando rutas…".
-   *  Ese cambio desmontaba el selector con la rueda de iPhone todavía
-   *  abierta y el menú inferior quedaba a media pantalla, encima del mapa
-   *  (Erik, 6-oct-2026). Lo anterior se queda atenuado hasta que llega lo
-   *  nuevo. */
+   *  después de importar) NO cambian la pantalla por "Cargando rutas…": lo
+   *  anterior se queda atenuado hasta que llega lo nuevo, sin parpadeo ni
+   *  brinco de la página (6-oct-2026). OJO: esto NO era la causa del menú
+   *  flotante en iPhone; ver el comentario de los botones de unidad. */
   const [yaCargo, setYaCargo] = useState(false);
   const recargando = loading && yaCargo;
   const [err, setErr] = useState('');
@@ -91,6 +90,19 @@ function RutasView({
   // para no abrir en un medio vacío (rutas, 5-oct-2026).
   const [unidad, setUnidad] = useState(unidadesVisibles[0] || 'Ecovallas');
   const [tipo, setTipo] = useState(unidadesVisibles[0] === 'Vía Verde' ? 'Digital' : 'Impreso');
+  // Los roles se actualizan sin recargar (431d4c7): si al usuario le quitan
+  // la unidad que tiene abierta, pasa a la primera que sí tiene en vez de
+  // quedarse consultando una ajena sin ningún botón marcado. Depende del
+  // texto y no del arreglo, que se arma de nuevo en cada render.
+  const firmaUnidades = unidadesVisibles.join('|');
+  useEffect(() => {
+    if (unidadesVisibles.length === 0 || unidadesVisibles.includes(unidad)) return;
+    const u = unidadesVisibles[0];
+    setUnidad(u);
+    setTipo(u === 'Vía Verde' ? 'Digital' : 'Impreso');
+    setRutaFoco(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firmaUnidades]);
   // Gestión de rutas (crear/editar)
   const [editando, setEditando] = useState<Partial<Resumen> | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -428,7 +440,10 @@ function RutasView({
 
   // Mapa
   useEffect(() => {
-    if (!mapRef.current) return;
+    // Mientras llegan las rutas de otra unidad o medio no se redibuja con las
+    // viejas: el mapa se vuelve a dibujar una sola vez, con lo nuevo (antes
+    // se dibujaba dos veces, y la primera justo al cerrarse el selector).
+    if (!mapRef.current || loading) return;
     if (mapObj.current && mapObj.current.getContainer() !== mapRef.current) {
       mapObj.current.remove();
       mapObj.current = null;
@@ -530,12 +545,15 @@ function RutasView({
     const ajustar = () => {
       if (!mapObj.current) return;
       mapObj.current.invalidateSize();
+      // Sin animación: el salto de zoom animado era más trabajo de pantalla
+      // justo cuando iOS reacomoda la vista (bug del menú, 6-oct-2026).
       if (todosLatLng.length === 1)
-        mapObj.current.setView(todosLatLng[0], 14);
+        mapObj.current.setView(todosLatLng[0], 14, { animate: false });
       else if (todosLatLng.length > 1)
         mapObj.current.fitBounds(todosLatLng, {
           padding: [40, 40],
           maxZoom: 15,
+          animate: false,
         });
     };
     ajustar();
@@ -1101,34 +1119,54 @@ function RutasView({
 
           <div className="toolbar">
             <span className="tag">Unidad de negocio:</span>
-            {/* Sin width:'auto' inline: la clase .toolbar ya lo da en escritorio
-                y el inline anulaba el apilado a ancho completo en celular. */}
-            <select
-              value={unidad}
-              onChange={(e) => {
-                setUnidad(e.target.value);
-                // Vía Verde no tiene Impreso: columnas y pórticos son Digital.
-                if (e.target.value === 'Vía Verde') setTipo('Digital');
-                setRutaFoco(null);
-              }}
-            >
+            {/* Botones y NO <select> (Erik, 6-oct-2026). En el iPhone (iOS 27,
+                app instalada), al elegir en la rueda o menú de un <select> iOS
+                abre una "sesión de captura" y, al cerrarla con la página
+                cambiando de alto (rutas nuevas + mapa), deja corrida el área
+                visible: el menú inferior quedaba encima del mapa y la barra de
+                arriba desaparecía. Es un error de iOS 26/27 documentado por
+                Apple y WebKit, sin arreglo de su lado; un botón no abre esa
+                sesión, así que no hay nada que iOS deje desacomodado. Son 3
+                unidades y 2 medios: caben. */}
+            <div className="rt-chips rt-segmento" role="group" aria-label="Unidad de negocio">
               {unidadesVisibles.map((u) => (
-                <option key={u} value={u}>
+                <button
+                  key={u}
+                  type="button"
+                  className={'rt-chip' + (u === unidad ? ' on' : '')}
+                  aria-pressed={u === unidad}
+                  onClick={() => {
+                    if (u === unidad) return;
+                    setUnidad(u);
+                    // Vía Verde no tiene Impreso: columnas y pórticos son Digital.
+                    if (u === 'Vía Verde') setTipo('Digital');
+                    setRutaFoco(null);
+                  }}
+                >
+                  {u === unidad ? '✓ ' : ''}
                   {u}
-                </option>
+                </button>
               ))}
-            </select>
-            <select
-              value={tipo}
-              onChange={(e) => {
-                setTipo(e.target.value);
-                setRutaFoco(null);
-              }}
-            >
+            </div>
+            <div className="rt-chips rt-segmento" role="group" aria-label="Medio">
               {/* (rutas, 5-oct-2026, QA) Vía Verde no tiene Impreso: ni se ofrece. */}
-              {unidad !== 'Vía Verde' && <option value="Impreso">Impreso</option>}
-              <option value="Digital">Digital</option>
-            </select>
+              {(unidad === 'Vía Verde' ? ['Digital'] : ['Impreso', 'Digital']).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={'rt-chip' + (t === tipo ? ' on' : '')}
+                  aria-pressed={t === tipo}
+                  onClick={() => {
+                    if (t === tipo) return;
+                    setTipo(t);
+                    setRutaFoco(null);
+                  }}
+                >
+                  {t === tipo ? '✓ ' : ''}
+                  {t}
+                </button>
+              ))}
+            </div>
             {puedeGestionar && (
               <button className="btn sm" onClick={nuevaRuta}>
                 + Nueva ruta

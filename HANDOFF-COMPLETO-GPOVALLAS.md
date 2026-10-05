@@ -1457,18 +1457,36 @@ elegidas). Fotos de visita en `evidencias/rutas/<site_id>/…` (ojo:
 (`monitoristas_por_unidad` en 0): darles el rol con su unidad en Usuarios
 antes de asignar ("Vía Verde" con acento). Falta probar en iPhone real.
 
-**Menú inferior encima del mapa en iPhone (6-oct-2026).** Al elegir la unidad
-en Rutas, el menú inferior quedaba a media pantalla y el encabezado
-desaparecía (todo lo fijo corrido). Primer intento (`1652b24`,
-`lib/ajusteIOS.ts`: empujar la página 1 px al cerrar la rueda) NO bastó.
-Causa de fondo: cambiar de unidad cambiaba la pantalla entera por "Cargando
-rutas…" y desmontaba el `<select>` con la rueda de iOS todavía abierta.
-Corrección: después de la primera carga, Rutas, Pauta (catorcena) y Fijación
-(estado) ya no se cambian por "Cargando…": lo anterior queda atenuado
-(`.recargando`, sin toques) con "Actualizando…" en el título; si la carga
-falla y era de otra unidad/catorcena/filtro, se vacía en vez de quedarse
-debajo del selector nuevo. `ajusteIOS` además vuelve a acomodar cada vez que
-la página cambia de alto en los 3 s después de cerrar la rueda. **Regla:** un
-selector nunca debe desmontarse por su propio `onChange`. Falta la prueba en
-el iPhone de Erik (Chrome no reproduce el error).
+**Menú inferior encima del mapa en iPhone (6-oct-2026).** En la app
+instalada (iOS 27), al elegir la unidad en Rutas el menú inferior quedaba a
+media pantalla sobre el mapa y la barra de arriba desaparecía. Es un error de
+iOS 26/27 (WebKit 297779; foros de Apple 800154 y 800125, de nuevo en iOS
+27; Apple lo pasó a un componente del sistema): al cerrarse el teclado o el
+menú de un `<select>`, iOS no regresa el área visible a su lugar y todo lo
+fijo (`.side`) y lo pegado arriba (`.topbar`) queda corrido. Se dispara con
+la "sesión de captura" del `<select>` más un cambio grande de alto de la
+página justo al cerrarse (llegan las rutas y el mapa).
+- Intentos que NO sirvieron: `1652b24` (mover la página 1 px y regresarla:
+  WebKit junta las dos llamadas y no hay movimiento; tampoco corrige el
+  desfase) y `b494e1a` (no desmontar el `<select>` al recargar; se queda
+  como mejora: Rutas, Pauta y Fijación ya no cambian la pantalla por
+  "Cargando…" al recargar, lo anterior queda atenuado con `.recargando`).
+- Tercer intento: en Rutas, unidad y medio son **botones** (`.rt-segmento`,
+  el elegido con ✓ y borde doble), no `<select>`: un botón no abre esa
+  sesión. El mapa ya no se redibuja con los datos viejos mientras carga y
+  `fitBounds` va sin animación. `lib/ajusteIOS.ts` se borró. Se descartó
+  soltar el foco de TODOS los `<select>` al elegir: si iOS manda el cambio
+  con la rueda aún girando, la cerraría en una opción intermedia (en Pauta,
+  "Asignar a…" asignaría a otra persona).
+- **Diagnóstico escondido** (`lib/diagPantalla.ts`): 5 toques seguidos al
+  logo de la barra de arriba muestran medidas del área visible (ventana,
+  pantalla, ventana de lo fijo, alto visible, desfase, hueco, scroll, qué
+  recibe un toque abajo, foco) y una bitácora de los últimos eventos. Se
+  prende ANTES de reproducir (con el error la barra no se ve), dura 24 h en
+  ese teléfono; otros 5 toques lo quitan. El comentario del archivo dice
+  cómo leer la captura.
+- **Regla:** en pantallas con mapa o que cambian mucho de alto, preferir
+  botones a `<select>` cuando son pocas opciones; un selector nunca debe
+  desmontarse por su propio `onChange`. Chrome no reproduce estos errores:
+  probar en el iPhone de Erik.
 

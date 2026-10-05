@@ -255,6 +255,9 @@
   .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 18px;padding-top:calc(12px + env(safe-area-inset-top,0px));background:var(--panel);border-bottom:1px solid var(--line)}
   .brand{display:flex;align-items:center;gap:11px;min-width:0;flex:1 1 auto;overflow:hidden}
   .brand .logo{width:36px;height:36px;font-size:19px;margin:0;border-radius:10px;flex-shrink:0}
+  /* 5 toques seguidos abren el diagnóstico de pantalla (lib/diagPantalla.ts):
+     sin esto, en iPhone el doble toque haría zoom. */
+  .brand .logo{touch-action:manipulation}
   /* El título se recorta con puntos suspensivos en vez de empujar (y taparse
      con) los botones de la derecha. */
   .brand h1{font-size:15px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -428,6 +431,7 @@
     .toolbar{gap:8px}
     .toolbar .search{flex:1 1 100%;min-width:0}
     .toolbar select{width:100%;flex:1 1 100%}
+    .toolbar .rt-segmento{flex:1 1 100%}
     /* Desde/Hasta comparten renglón: son pareja y a lo ancho desperdician. */
     .filtro-fecha{flex:1 1 45%;min-width:0}
     .filtro-fecha input{flex:1;min-width:0}
@@ -574,6 +578,12 @@
   .rt-chip{background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:20px;
     padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;min-height:36px;font-family:inherit}
   .rt-chip.on{background:var(--activo-fondo);border-color:var(--accent);color:var(--txt)}
+  /* Unidad y medio en Rutas: botones en lugar de <select> (iPhone, 6-oct-2026). */
+  .rt-segmento{margin-bottom:0}
+  .rt-segmento .rt-chip{font-size:13px;min-height:40px;padding:8px 14px}
+  /* El elegido se distingue también al sol: ✓ en el texto y borde doble (el
+     fondo de .on casi no cambia contra el de los demás). */
+  .rt-segmento .rt-chip.on{border-width:2px;padding:7px 13px}
   .rt-lista{display:grid;gap:6px;max-height:460px;overflow-y:auto;overflow-x:hidden;padding-right:2px}
   .rt-fila{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:9px;background:var(--panel2);
     border:1px solid var(--line);cursor:pointer}
