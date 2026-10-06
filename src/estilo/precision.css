@@ -269,6 +269,16 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
   .modal .modal-actions.pie-fijo .btn.ghost{flex:0 0 auto}
 }
 .panel-flotante{border-color:var(--line2);border-radius:14px}
+/* Salir siempre a la vista al pie del menú del avatar (MenuUsuario.tsx). */
+.menu-salir{position:sticky;bottom:0;z-index:1;padding:10px;background:var(--panel);border-top:1px solid var(--line)}
+@media(max-width:780px){
+  /* El menú puede bajar hasta arriba de la barra de módulos (≈80px) en vez
+     de cortarse al 70%: con todo a la vista casi nunca hace falta desplazar. */
+  .panel-flotante.angosto{max-height:calc(100vh - 58px - env(safe-area-inset-top,0px) - 96px)}
+  @supports (height: 1dvh){
+    .panel-flotante.angosto{max-height:calc(100dvh - 58px - env(safe-area-inset-top,0px) - 96px)}
+  }
+}
 
 /* Selectores de unidad y medio (Rutas) y fichas */
 .rt-chip{font-weight:600;border-color:var(--line2);background:transparent}

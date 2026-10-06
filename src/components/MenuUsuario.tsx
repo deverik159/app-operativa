@@ -206,7 +206,11 @@ function MenuUsuario({
 
           <SelectorApariencia />
 
-          <div style={{ padding: 10 }}>
+          {/* .menu-salir: fijo al pie del menú (estilo/precision.css). Con
+              varios roles, áreas y Apariencia el menú pasa del alto de un
+              teléfono y Salir quedaba fuera de la vista, dentro de un panel
+              que había que desplazar sin saberlo (Erik, 6-oct-2026). */}
+          <div className="menu-salir">
             <button
               className="btn ghost sm"
               style={{ width: '100%' }}
