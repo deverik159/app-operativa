@@ -27,6 +27,7 @@ import { useState } from 'react';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
+import CerrarModal from '../../components/CerrarModal';
 
 type Props = {
   /** La unidad del filtro de Rutas: el archivo se importa a esa. */
@@ -362,6 +363,7 @@ function ImportarRutasExcelModal({ unidad, onClose, onImportado }: Props) {
       }}
     >
       <div className="modal" style={{ maxWidth: 700 }}>
+        <CerrarModal onClick={onClose} disabled={importando} />
         <h2 style={{ margin: '0 0 3px' }}>Importar rutas desde Excel</h2>
         <p className="phint">
           Una fila por máquina: su clave y quién la recorre. La ruta se arma

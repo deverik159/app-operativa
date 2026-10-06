@@ -40,6 +40,7 @@ import SubirArchivos from '../../components/SubirArchivos';
 import { vigilarRender } from '../../lib/vigia';
 import { colorTono } from '../../lib/tonos';
 import type { Incidencia, Reasignacion } from '../../types/db';
+import CerrarModal from '../../components/CerrarModal';
 
 export type ModoReasign = 'solicitar' | 'aprobar';
 
@@ -399,6 +400,7 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
       }}
     >
       <div className="modal">
+        <CerrarModal onClick={onClose} />
         <h2 style={{ margin: '0 0 3px' }}>
           {mode === 'aprobar' ? 'Revisar reasignación' : 'Solicitar reasignación'}
         </h2>

@@ -10,6 +10,7 @@
 // con el motivo escrito para reintentar (modo sin señal, 24-sep-2026).
 // ============================================================
 import { useState } from 'react';
+import CerrarModal from '../../components/CerrarModal';
 
 type MotivoModalProps = {
   titulo: string;
@@ -57,6 +58,7 @@ function MotivoModal({
       }}
     >
       <div className="modal">
+        <CerrarModal onClick={onClose} disabled={busy} />
         <h2 style={{ margin: '0 0 3px' }}>{titulo}</h2>
         <div className="field">
           <label>{label}</label>
@@ -68,7 +70,7 @@ function MotivoModal({
             autoFocus
           />
         </div>
-        <div className="modal-actions">
+        <div className="modal-actions pie-fijo">
           <button className="btn ghost" onClick={onClose} disabled={busy}>
             Cancelar
           </button>

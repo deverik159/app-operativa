@@ -34,6 +34,7 @@ import type { PautaRuta } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
 import { tope } from '../../lib/envios';
 import { subirYLuego, subirYRegresar } from '../../lib/subirAntes';
+import CerrarModal from '../../components/CerrarModal';
 
 /**
  * La pauta es de Ecovallas Impreso (decisión de sep-2026): los reportes
@@ -1399,6 +1400,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
           }}
         >
           <div className="modal" style={{ maxWidth: 400, margin: 'auto 0' }}>
+            <CerrarModal onClick={() => setVerIncDe(null)} />
             <h2 style={{ margin: '0 0 3px', fontSize: 17 }}>
               Incidencias abiertas
             </h2>
@@ -1483,6 +1485,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
           }}
         >
           <div className="modal" style={{ maxWidth: 360, margin: 'auto 0' }}>
+            <CerrarModal onClick={() => setOfrecerIncEn(null)} />
             <h2 style={{ margin: '0 0 3px', fontSize: 17 }}>
               ✓ Toma registrada
             </h2>

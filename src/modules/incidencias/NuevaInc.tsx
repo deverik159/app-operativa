@@ -76,6 +76,7 @@ import { vigilarRender } from '../../lib/vigia';
 // los dos temas: --accent en claro solo sirve de fondo de botón (tema
 // claro/oscuro, 24-sep-2026).
 import { colorTono, fondoTono, pintar } from '../../lib/tonos';
+import CerrarModal from '../../components/CerrarModal';
 import type {
   CatalogoIncidencia,
   IncidenciaNueva,
@@ -1764,6 +1765,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       }}
     >
       <div className="modal">
+        <CerrarModal onClick={() => cerrarSeguro()} />
         {/* Borrador de otra apertura (auditoría primer mes, 24-sep-2026).
             Arriba de todo: es lo primero que hay que decidir. */}
         {oferta && (
@@ -2635,7 +2637,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             adjuntar{noGuardados === 1 ? 'lo' : 'los'}.
           </div>
         )}
-        <div className="modal-actions">
+        <div className="modal-actions pie-fijo">
           {/* Mismo seguro que el fondo: Cancelar junto a Guardar en un
               teléfono se toca por error, y tira las fotos de campo. */}
           <button className="btn ghost" onClick={() => cerrarSeguro()}>

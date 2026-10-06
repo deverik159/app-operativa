@@ -21,6 +21,7 @@ import { leerKml, empatarInventario } from '../../lib/kml';
 import { NARANJA } from '../../lib/helpers';
 import { colorTono } from '../../lib/tonos';
 import type { CapaKml, Empate, Confianza, FilaInventario } from '../../lib/kml';
+import CerrarModal from '../../components/CerrarModal';
 
 type Props = {
   /** Sugerencia tomada de la pantalla. NO se usa sin confirmar. */
@@ -330,6 +331,7 @@ function ImportarKmlModal({ unidad: sugerida, onClose, onImportado }: Props) {
       }}
     >
       <div className="modal" style={{ maxWidth: 760 }}>
+        <CerrarModal onClick={onClose} disabled={importando} />
         <h2 style={{ margin: '0 0 3px' }}>Importar rutas desde el mapa</h2>
         <p className="phint">
           Cada capa del mapa se vuelve una ruta. Se importan Digital e Impreso

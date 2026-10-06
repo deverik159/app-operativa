@@ -27,6 +27,7 @@ import {
 } from '../../lib/helpers';
 import { colorTono, fondoTono, pintar } from '../../lib/tonos';
 import type { Incidencia } from '../../types/db';
+import CerrarModal from '../../components/CerrarModal';
 
 /** Cuántos grupos se listan antes de cortar. */
 const TOPE_GRUPOS = 40;
@@ -146,6 +147,7 @@ function KpiDetalleModal({
       }}
     >
       <div className="modal" style={{ maxWidth: 760 }}>
+        <CerrarModal onClick={onClose} />
         <h2 style={{ margin: '0 0 3px' }}>{titulo}</h2>
         <p className="phint">
           {items.length} incidencia{items.length === 1 ? '' : 's'}
@@ -372,7 +374,7 @@ function KpiDetalleModal({
           </div>
         )}
 
-        <div className="modal-actions">
+        <div className="modal-actions pie-fijo">
           <button className="btn ghost" onClick={onClose}>
             Cerrar
           </button>

@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { colorTono } from '../../lib/tonos';
 import type { Revision, RevisionRespuesta, RevisionEvidencia } from '../../types/db';
+import CerrarModal from '../../components/CerrarModal';
 
 type Props = {
   siteId: string;
@@ -99,6 +100,7 @@ function HistorialModal({ siteId, titulo, onClose }: Props) {
       }}
     >
       <div className="modal" style={{ maxWidth: 720 }}>
+        <CerrarModal onClick={onClose} />
         <h2 style={{ margin: '0 0 3px' }}>Hoja de vida</h2>
         <p className="phint">{titulo}</p>
 
@@ -283,7 +285,7 @@ function HistorialModal({ siteId, titulo, onClose }: Props) {
           </div>
         )}
 
-        <div className="modal-actions" style={{ marginTop: 14 }}>
+        <div className="modal-actions pie-fijo" style={{ marginTop: 14 }}>
           <button className="btn ghost" onClick={onClose} style={{ width: '100%' }}>
             Cerrar
           </button>

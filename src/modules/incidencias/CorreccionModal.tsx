@@ -35,6 +35,7 @@ import type { OpcionesCatalogo } from '../../lib/catalogo';
 import { tieneAreaRedirigida } from '../../lib/helpers';
 import { vigilarRender } from '../../lib/vigia';
 import type { CatalogoIncidencia, Incidencia } from '../../types/db';
+import CerrarModal from '../../components/CerrarModal';
 
 type Props = {
   inc: Incidencia;
@@ -252,6 +253,7 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
       }}
     >
       <div className="modal">
+        <CerrarModal onClick={onClose} />
         <h2 style={{ margin: '0 0 3px' }}>Corregir clasificación</h2>
         <p className="phint">
           {inc.folio} · {inc.clave_sitio}
@@ -397,7 +399,7 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
           />
         </div>
 
-        <div className="modal-actions">
+        <div className="modal-actions pie-fijo">
           <button className="btn ghost" onClick={onClose}>
             Cancelar
           </button>

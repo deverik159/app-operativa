@@ -21,6 +21,7 @@ import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
 import type { PautaRuta, TipoEvidencia } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
+import CerrarModal from '../../components/CerrarModal';
 
 /** Fila de `pauta_evidencias`. */
 type EvidenciaPauta = {
@@ -250,6 +251,7 @@ function RegistrarTomaModal({
       }}
     >
       <div className="modal">
+        <CerrarModal onClick={onClose} disabled={subiendo || guardando || resolviendo} />
         <h2 style={{ margin: '0 0 3px' }}>
           {yaRegistrada ? 'Evidencia de la toma' : 'Registrar toma'}
         </h2>
@@ -497,7 +499,7 @@ function RegistrarTomaModal({
           </div>
         )}
 
-        <div className="modal-actions">
+        <div className="modal-actions pie-fijo">
           <button
             className="btn ghost"
             onClick={() => (regresando ? setRegresando(false) : onClose())}

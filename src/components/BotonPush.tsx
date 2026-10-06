@@ -16,6 +16,7 @@ import {
 } from '../lib/push';
 import type { EstadoPush } from '../lib/push';
 import { esIOS as esIOSLib } from '../lib/plataforma';
+import CerrarModal from './CerrarModal';
 
 function BotonPush({ email }: { email: string }) {
   const [estado, setEstado] = useState<EstadoPush | null>(null);
@@ -97,6 +98,7 @@ function BotonPush({ email }: { email: string }) {
               desborde superior queda fuera de alcance; con margin auto el
               overlay scrollea completo. */}
           <div className="modal" style={{ maxWidth: 420, margin: 'auto 0' }}>
+            <CerrarModal onClick={() => setAbierto(false)} />
             <h2 style={{ margin: '0 0 3px' }}>Notificaciones en el celular</h2>
             <p className="phint">
               Para enterarte sin tener que abrir la app.

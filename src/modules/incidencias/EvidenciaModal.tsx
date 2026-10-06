@@ -30,6 +30,7 @@ import {
 import { reportarError } from '../../lib/reportarError';
 import { vigilarRender } from '../../lib/vigia';
 import SubirArchivos from '../../components/SubirArchivos';
+import CerrarModal from '../../components/CerrarModal';
 import type {
   Evidencia,
   EtapaEvidencia,
@@ -357,6 +358,7 @@ function EvidenciaModal({
       }}
     >
       <div className="modal">
+        <CerrarModal onClick={onClose} />
         <h2 style={{ margin: '0 0 3px' }}>Evidencia</h2>
         <p className="phint">
           {inc.folio} · {inc.nombre_incidencia}
@@ -511,7 +513,7 @@ function EvidenciaModal({
           </>
         )}
 
-        <div className="modal-actions">
+        <div className="modal-actions pie-fijo">
           <button className="btn" onClick={onClose}>
             Cerrar
           </button>

@@ -78,6 +78,7 @@ import {
   CLAVE_SIN_MAQUINA,
 } from '../../lib/constants';
 import type { Incidencia, InventarioItem } from '../../types/db';
+import CerrarModal from '../../components/CerrarModal';
 
 type Sitio = { site_id: string; direccion: string | null; nombre?: string | null };
 
@@ -533,6 +534,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
       }}
     >
       <div className="modal">
+        <CerrarModal onClick={() => cerrarSeguro()} />
         <h2 style={{ margin: '0 0 3px' }}>Corregir mi reporte</h2>
         <p className="phint">
           {inc.folio} · {inc.nombre_incidencia}
@@ -824,7 +826,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
           </div>
         </div>
 
-        <div className="modal-actions">
+        <div className="modal-actions pie-fijo">
           <button className="btn ghost" onClick={() => cerrarSeguro()}>
             Cancelar
           </button>

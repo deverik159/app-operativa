@@ -26,6 +26,7 @@ import {
 } from '../../lib/storage';
 import { vigilarRender } from '../../lib/vigia';
 import { fondoTono } from '../../lib/tonos';
+import CerrarModal from '../../components/CerrarModal';
 
 type Espacio = {
   clave: string;
@@ -1562,6 +1563,7 @@ function BitacoraVVView({
         {addPauta && (
           <div className="overlay" onClick={() => setAddPauta(false)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <CerrarModal onClick={() => setAddPauta(false)} />
               <h3 style={{ marginTop: 0 }}>Agregar pauta — {campana.nombre}</h3>
 
               <div className="row2">
@@ -1726,6 +1728,7 @@ function BitacoraVVView({
         {full && (
           <div className="overlay" onClick={() => !guardando && setFull(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <CerrarModal onClick={() => setFull(null)} disabled={guardando} />
               <h3 style={{ marginTop: 0 }}>🎠 FULL con rotación — {campana.nombre}</h3>
               <p className="phint">
                 Todas las columnas, cada una con su versión: escribe las
@@ -1918,6 +1921,7 @@ function BitacoraVVView({
         {ppe && (
           <div className="overlay" onClick={() => !guardando && setPpe(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <CerrarModal onClick={() => setPpe(null)} disabled={guardando} />
               <h3 style={{ marginTop: 0 }}>⏱ Pauta por espacio — {campana.nombre}</h3>
               <p className="phint">
                 Para campañas donde cada id lleva sus propias fechas y horarios:
@@ -2085,6 +2089,7 @@ function BitacoraVVView({
         {cambioDe && (
           <div className="overlay" onClick={() => setCambioDe(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <CerrarModal onClick={() => setCambioDe(null)} />
               <h3 style={{ marginTop: 0 }}>🔁 Cambio de versión</h3>
               <p className="phint">
                 Hoy: <b>{cambioDe.version}</b> en {cambioDe.filas.length} espacio
@@ -2128,6 +2133,7 @@ function BitacoraVVView({
         {sa && (
           <div className="overlay" onClick={() => !subiendoArtes && cerrarSubirArtes()}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <CerrarModal onClick={cerrarSubirArtes} disabled={subiendoArtes} />
               <h3 style={{ marginTop: 0 }}>🎨 Subir artes — {campana.nombre}</h3>
               <div className="field">
                 <label>Versión a la que pertenecen</label>
@@ -2288,6 +2294,12 @@ function BitacoraVVView({
         }}
       >
         <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <CerrarModal
+            onClick={() => {
+              setFormCamp(null);
+              setEditando(null);
+            }}
+          />
           <h3 style={{ marginTop: 0 }}>{editando ? 'Editar campaña' : 'Nueva campaña'}</h3>
           <div className="row2">
             <div className="field">

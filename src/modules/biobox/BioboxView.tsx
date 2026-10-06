@@ -15,6 +15,7 @@ import type { MaquinaBiobox } from '../../lib/maquinasBiobox';
 import EstadoMaquinaPanel from './EstadoMaquinaPanel';
 import RevisionModal from './RevisionModal';
 import HistorialModal from './HistorialModal';
+import CerrarModal from '../../components/CerrarModal';
 
 type Orden = 'abandono' | 'secuencia' | 'nombre';
 
@@ -271,13 +272,14 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
       {indicadorAbierto && createPortal(
         <div className="overlay" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) setDetalle(null); }}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="biobox-indicador-titulo" style={{ maxWidth: 800 }}>
+            <CerrarModal onClick={() => setDetalle(null)} />
             <h2 id="biobox-indicador-titulo">{indicadorAbierto.titulo}</h2>
             <p className="phint">{indicadorAbierto.filas.length} máquinas · {unidad}{rutaFoco ? ' · ' + rutaFoco : ''}{medio !== 'todos' ? ' · ' + medio : ''}{busca ? ' · ' + busca : ''}{soloPendientes ? ' · Pendientes de revisión' : ''}</p>
             <div style={{ display: 'grid', gap: 9, maxHeight: '60dvh', overflowY: 'auto' }}>
               {indicadorAbierto.filas.map((u) => tarjetaMaquina(u, true))}
               {!indicadorAbierto.filas.length && <p>Sin máquinas para este indicador con los filtros seleccionados.</p>}
             </div>
-            <div className="modal-actions" style={{ marginTop: 12 }}><button autoFocus className="btn ghost" onClick={() => setDetalle(null)}>Cerrar</button></div>
+            <div className="modal-actions pie-fijo" style={{ marginTop: 12 }}><button autoFocus className="btn ghost" onClick={() => setDetalle(null)}>Cerrar</button></div>
           </section>
         </div>, document.body
       )}

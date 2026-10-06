@@ -18,6 +18,7 @@ import type { WorkBook } from 'xlsx';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
+import CerrarModal from '../../components/CerrarModal';
 
 /** Fila ya normalizada, lista para la RPC. */
 type FilaPauta = Record<string, string | null>;
@@ -264,6 +265,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
       }}
     >
       <div className="modal">
+        <CerrarModal onClick={onClose} disabled={importando} />
         <h2 style={{ margin: '0 0 3px' }}>Importar pauta</h2>
         <p className="phint">
           Carga la catorcena desde el Excel. Reemplaza la pauta de ese periodo.
@@ -408,7 +410,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
           </div>
         )}
 
-        <div className="modal-actions">
+        <div className="modal-actions pie-fijo">
           <button className="btn ghost" onClick={onClose} disabled={importando}>
             {resultado ? 'Cerrar' : 'Cancelar'}
           </button>

@@ -32,6 +32,7 @@ import type {
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { vigilarRender } from '../../lib/vigia';
 import PreviaVideo from '../../components/PreviaVideo';
+import CerrarModal from '../../components/CerrarModal';
 
 type Props = {
   inc: Incidencia;
@@ -1355,6 +1356,8 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
         className="modal modal-chat"
         style={{ display: 'flex', flexDirection: 'column' }}
       >
+        {/* Absoluto: no entra en la columna flex del chat. */}
+        <CerrarModal onClick={onClose} />
         <h2 style={{ margin: '0 0 3px' }}>Chat de la incidencia</h2>
         <p
           className="phint"
