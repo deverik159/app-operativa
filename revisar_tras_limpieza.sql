@@ -67,49 +67,47 @@ order by o, record_id;
 
 
 -- ══════════ PASO B — BORRAR LO REVIVIDO (solo si el PASO A sacó algo) ══════════
--- Pon los record_id del PASO A en el arreglo de abajo y corre el bloque
--- completo. Con el arreglo vacío no hace nada. Borra la incidencia con su
--- chat, evidencias, reasignaciones y avisos, deja sus archivos en la tabla
--- puente para scripts/limpiar-storage.mjs, y reacomoda los folios: cada
--- prefijo sigue en el mayor folio vivo + 1 (sin nada vivo, en 00001).
-begin;
-
-create temp table _revividos on commit drop as
-select unnest(array[
-  -- 'a1b2c3d4', 'e5f6a7b8'   ← aquí los record_id
-  null
-]::text[]) as record_id;
-delete from _revividos where record_id is null;
-
-delete from public.chat_adjuntos  where record_id in (select record_id from _revividos);
-delete from public.mensajes       where record_id in (select record_id from _revividos);
-delete from public.chat_lecturas  where record_id in (select record_id from _revividos);
-delete from public.evidencias     where record_id in (select record_id from _revividos);
-delete from public.reasignaciones where record_id in (select record_id from _revividos);
-delete from public.notificaciones where record_id in (select record_id from _revividos);
-delete from public.incidencias    where record_id in (select record_id from _revividos);
-
--- Sus archivos, para el script (misma tabla puente que limpiar_todo.sql).
-create table if not exists public._limpieza_paths (path text primary key);
-alter table public._limpieza_paths enable row level security;
-revoke all on public._limpieza_paths from anon, authenticated;
-insert into public._limpieza_paths (path)
-select o.name
-from storage.objects o
-where o.bucket_id = 'evidencias'
-  and o.name not like 'fijacion-externa/%'
-  and (split_part(o.name, '/', 1) in (select record_id from _revividos)
-       or (o.name like 'chat/%' and split_part(o.name, '/', 2) in (select record_id from _revividos)))
-on conflict do nothing;
-
--- Folios: el mayor vivo + 1 por prefijo, SOLO si se borró algo (con el
--- arreglo vacío no se tocan: si después se borra una incidencia real, su
--- folio no se reusa). Exige exactamente 5 dígitos después del prefijo: así
--- 'BBM500001' cuenta para BBM5 y no para BBM.
+-- Pon los record_id del PASO A en el arreglo `ids` de abajo y corre el
+-- bloque completo. Con el arreglo vacío no hace nada. Borra la incidencia
+-- con su chat, evidencias, reasignaciones y avisos, deja sus archivos en la
+-- tabla puente para scripts/limpiar-storage.mjs, y reacomoda los folios:
+-- cada prefijo sigue en el mayor folio vivo + 1 (sin nada vivo, en 00001).
+-- UN solo bloque `do`, sin tabla temporal: el SQL Editor no garantiza la
+-- misma conexión entre sentencias (6-oct-2026).
 do $$
+declare
+  ids text[] := array[]::text[];   -- ← aquí, p. ej. array['a1b2c3d4', 'e5f6a7b8']
 begin
-  if to_regclass('public.folio_counters') is not null
-     and exists (select 1 from _revividos) then
+  if cardinality(ids) = 0 then
+    return;
+  end if;
+
+  delete from public.chat_adjuntos  where record_id = any (ids);
+  delete from public.mensajes       where record_id = any (ids);
+  delete from public.chat_lecturas  where record_id = any (ids);
+  delete from public.evidencias     where record_id = any (ids);
+  delete from public.reasignaciones where record_id = any (ids);
+  delete from public.notificaciones where record_id = any (ids);
+  delete from public.incidencias    where record_id = any (ids);
+
+  -- Sus archivos, para el script (misma tabla puente que limpiar_todo.sql).
+  create table if not exists public._limpieza_paths (path text primary key);
+  alter table public._limpieza_paths enable row level security;
+  revoke all on public._limpieza_paths from anon, authenticated;
+  insert into public._limpieza_paths (path)
+  select o.name
+  from storage.objects o
+  where o.bucket_id = 'evidencias'
+    and o.name not like 'fijacion-externa/%'
+    and (split_part(o.name, '/', 1) = any (ids)
+         or (o.name like 'chat/%' and split_part(o.name, '/', 2) = any (ids)))
+  on conflict do nothing;
+
+  -- Folios: el mayor vivo + 1 por prefijo, SOLO si se borró algo (con el
+  -- arreglo vacío no se tocan: si después se borra una incidencia real, su
+  -- folio no se reusa). Exige exactamente 5 dígitos después del prefijo: así
+  -- 'BBM500001' cuenta para BBM5 y no para BBM.
+  if to_regclass('public.folio_counters') is not null then
     update public.folio_counters fc
     set next_seq = 1 + coalesce((
       select max(right(i.folio, 5)::int)
@@ -118,8 +116,6 @@ begin
     ), 0);
   end if;
 end $$;
-
-commit;
 
 notify pgrst, 'reload schema';
 

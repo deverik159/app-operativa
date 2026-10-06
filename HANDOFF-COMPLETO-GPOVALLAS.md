@@ -746,6 +746,14 @@ Biobox.
 | `diagnostico_rutas.sql` | referencia, solo lectura (5-oct) — código de las funciones y vistas de rutas que no estaban en el repo + reparto real del inventario (pantallas, Biobox, columnas, pórticos) |
 | `supabase/migrations/20261005155712_rutas_armado_visitas.sql` | ✅ aplicada y verificada (5-oct) — dirección elegida por parada, armado desde inventario (`guardar_paradas_ruta`, `siguiente_numero_ruta`), Excel que respeta la elección y no mueve entre segmentos, KML que respeta lo armado en la app, asignar solo con la unidad (trigger + `usuarios_asignables_ruta`), `ruta_visitas` + historial de asignaciones. La primera corrida falló por una tabla temporal (el SQL Editor no garantiza la misma conexión entre sentencias): no usar tablas temporales entre sentencias |
 
+| Archivo (23-sep → 6-oct) | Estado |
+|---|---|
+| `supabase/migrations/20260925065305_chat_respuestas_lecturas.sql` | ✅ aplicada (25-sep, SQL Editor; falta `migration repair`) — `mensajes.responde_a`, edición protegida, `chat_lecturas` + RPC `marcar_chat_leido`, `chat_adjuntos.ancho/alto` |
+| `supabase/migrations/20260925165706_fotos_tarjetas_video.sql` | ✅ aplicada (25-sep, SQL Editor; falta `migration repair`) — `fotos_tarjetas` con el video cuando la etapa no tiene foto |
+| `supabase/migrations/20260928001429_area_reportante_mkt.sql` | ✅ aplicada (27-sep, SQL Editor; falta `migration repair`) — solo datos: lo capturado con el formulario de MKT queda con área MKT |
+| `diagnostico_catalogo_biobox.sql` | referencia, solo lectura — ✅ corrido (27-sep): 16 nombres en el árbol; 5 Digital de Biobox fuera del árbol (§9.1) |
+| `limpiar_todo.sql` + `revisar_tras_limpieza.sql` | herramienta — **NO correr** salvo la víspera del piloto (§12.15) |
+
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
 `fijacion_externa_marcar.sql`.
@@ -834,6 +842,21 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 ## 9. PENDIENTES
 
 ### 9.1. Inmediatos
+- **De §12.15 (al 6-oct-2026):**
+  - Dar de alta en `arbol_digital` las 5 fallas Digital de Biobox que el
+    catálogo tiene y el árbol no (Apagado parcial, Falta arte, Monitor con
+    fallas, NUC con fallas, NUC fuera de línea), con causa, diagnóstico y
+    solución de SRD; hoy no salen en Nueva incidencia de Biobox. Ojo: el
+    árbol es global (también saldrían en Ecovallas digital) y "Falta arte"
+    existe en Biobox como Admin Comercial Y Digital: decidir el área antes.
+  - Registrar con `npx supabase migration repair <versión> --status applied`
+    las migraciones corridas a mano en el SQL Editor: `20260925065305`,
+    `20260925165706`, `20260928001429` y, si fue por SQL Editor,
+    `20261005155712`.
+  - Con la primera incidencia "Sin máquina", confirmar que el técnico puede
+    guardar la máquina al reparar (depende de que la RLS de reparación deje
+    actualizar `clave_sitio` y `clave_medio`).
+  - Correr `limpiar_todo.sql` la víspera del piloto (§12.15), no antes.
 - **Habilitar Google** en Supabase → Authentication → Providers (Client ID y
   Secret de Google Cloud) y dar de alta las URLs de redirect, incluida la de
   red local con `https://`. El botón ya está en el login; sin esto Google
@@ -1076,6 +1099,9 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
   en `storage.objects`: los archivos se eliminan mediante Storage API.
 - La limpieza histórica ya se ejecutó dejando agosto de 2026 como datos de
   prueba. No correr scripts de limpieza sin revisar primero sus conteos.
+- Para arrancar el piloto con la base limpia, el vigente es
+  `limpiar_todo.sql` (rehecho el 27-sep y el 6-oct; ver §12.15): lo de
+  arriba es historia.
 
 ### 12.7. Actualización del 10–11-sep-2026: catálogo Digital, pauta y despliegue
 
@@ -1521,4 +1547,100 @@ Apple lo pasó a un componente del sistema). Chrome no lo reproduce.
   usuario, usar `subirYLuego` (o hacerlo en un contenedor propio). En
   pantallas con mapa, preferir botones a `<select>` cuando son pocas
   opciones.
+
+### 12.15. Incidencias, chat, MKT y Biobox (23-sep → 6-oct-2026)
+
+Trabajo hecho desde la Mac de Erik (con Claude). Todo publicado en `main`
+salvo lo que se diga; pendientes en §9.1.
+
+- **Chat estilo WhatsApp** (`ChatModal.tsx`; migración
+  `20260925065305_chat_respuestas_lecturas`): abre en el último mensaje y lo
+  sigue solo si se está al final (si se sube a leer sale el botón de bajar
+  con contador); ↩︎ responder con cita (`mensajes.responde_a`); edición
+  DENTRO de la burbuja; ✓/✓✓ y "Visto: X hace N min" (tabla `chat_lecturas`,
+  la escribe SOLO la RPC `marcar_chat_leido`; se marca solo con lo último a
+  la vista, sin búsqueda, con la app visible); hilo compacto (más de 30
+  mensajes abre con 20, "Ver 20 más"); fotos con su proporción
+  (`chat_adjuntos.ancho/alto`). Copia sin señal de cada chat ABIERTO
+  (`lib/chatLocal.ts`, IndexedDB, 150 mensajes y 60 chats, se borra al
+  Salir; no se precargan chats no abiertos). Sin señal dice qué pasó en vez
+  de "TypeError: Failed to fetch".
+- **Previa de videos** (migración `20260925165706_fotos_tarjetas_video`): al
+  subir un video se guarda un cuadro JPEG en `mini/` (`storage.ts
+  cuadroDeVideo`, en los 5 flujos de subida); `fotos_tarjetas` devuelve
+  `reporte_video`/`reparacion_video` cuando la etapa no tiene foto;
+  `components/PreviaVideo`. En el chat no se guardan cuadros (la burbuja usa
+  `src#t=0.1`).
+- **Catálogo de Biobox** (`lib/catalogo.ts → catalogoBiobox`): en Biobox y
+  Biobox Perú la máquina es UN mueble para la cara digital y la impresa, así
+  que la lista es la misma en las dos: árbol Digital + catálogo del mueble
+  SIN sus filas Digital, una vez por falla (si un nombre del árbol está en
+  el catálogo con otra área, sale con el texto y el área del catálogo, que
+  es lo que levanta la revisión). Fuera de Biobox la cara digital es SOLO
+  árbol (decisión firme de Erik, 23-sep: la unión metía ruido de MKT,
+  Implementaciones…). Diagnóstico de solo lectura:
+  `diagnostico_catalogo_biobox.sql`.
+- **Búsqueda de sitio por nombre** (NuevaInc y EditModal;
+  `datosLocales.buscarSitiosEnRed` / `buscarSitiosLocal`): por clave o por el
+  nombre de la máquina (Biobox: `site_legacy_id`) o de la pantalla
+  (Ecovallas: `nombres_pantallas`), sin acentos, con y sin señal. Sin
+  leyendas nuevas a propósito (Erik avisa a la gente). La lista de
+  incidencias también busca en `clave_sitio`, `clave_medio` y
+  `nombre_biobox`, por fragmentos ("eva 03").
+- **Área que reporta** (`helpers.departamentosDelUsuario` → `misDep[0]`):
+  la de pertenencia, con MKT primero si la tiene en cualquier fila. Antes era
+  "la primera fila de rol" y lo de MKT salía con otra área (no aparecía en
+  el filtro "Reporta"). Migración de datos
+  `20260928001429_area_reportante_mkt`: las de formulario MKT se reconocen
+  porque traen `contacto_correo` o `via_reporte`.
+- **Indicadores**: "Usuarios que reportan" (`captured_by`), "Usuarios que
+  más reportan (correo, MKT)" (`contacto_correo`, el solicitante) y "Vía de
+  reporte (MKT)" (`via_reporte`); las dos de MKT se ocultan sin datos. Toda
+  columna que lea `KpiView` va también en `COLUMNAS_KPI` de
+  `IndicadoresView` (si falta, sale en 0 sin aviso).
+- **MKT al capturar** (solo MKT, `esMKT`): evidencia opcional; en Biobox,
+  "Sin máquina" (ícono `MapPinOff`): se guarda con `clave_sitio =
+  'SIN-MAQUINA'` (`CLAVE_SIN_MAQUINA`, constants.ts) y SIN `clave_medio`
+  (la regla de duplicados no la empata con nada). `RepararModal` obliga a
+  elegir la máquina (búsqueda por clave o nombre + cara) y la guarda con la
+  reparación (`DatosReparacion.ubicacion` → patch en
+  `IncidenciasView.guardarReparacion`).
+- **Versión nueva y roles en vivo**: `versionApp.vigilarNuevaVersion`
+  revisa al arrancar, al volver a primer plano, al enfocar la ventana, al
+  volver la red, con ↻ (`revisarVersionAhora`) y cada 10 min (pausa de 30 s
+  que solo cuenta si hubo respuesta; un reintento a los 15 s).
+  `App.refrescarRoles(forzar)`: ↻ siempre, foco/primer plano (máx. 1 por
+  minuto) y cada 10 min. Antes los roles solo se re-pedían al renovarse el
+  token. Al cambiar un rol en Usuarios: agregar el nuevo ANTES de quitar el
+  viejo.
+- **Limpieza para el piloto** (`limpiar_todo.sql`,
+  `revisar_tras_limpieza.sql`, `scripts/limpiar-storage.mjs`): vacía 20
+  tablas operativas (incidencias y sus hijas, chat y lecturas, revisiones,
+  avance de pauta, bitácora VV, asignaciones de ruta, visitas e historial,
+  errores) con un TRUNCATE sin cascade (no dispara pushes ni historiales),
+  regresa los folios a 00001 (`folio_counters`), y deja para el script todo
+  el bucket menos `fijacion-externa/` (base de Mario). Candado `BORRAR
+  AAAA-MM-DD` que caduca al día siguiente; cada paso que escribe es UN
+  bloque `do` (el SQL Editor no garantiza la misma conexión entre
+  sentencias). La hora queda en `app_config.limpieza_piloto` y
+  `revisar_tras_limpieza.sql` caza reportes de prueba que revivan de la cola
+  de un teléfono. **NO correrlo hasta la víspera del piloto**, siguiendo el
+  protocolo de su encabezado (vaciar las colas de envíos en cada equipo y
+  cuenta, cerrar pestañas).
+- **Pruebas**: `node --test tests/*.test.mjs` (24 en verde al 6-oct):
+  `catalogoBiobox`, `departamentos`, `versionApp`, `maquinasBiobox`,
+  `authInterno`.
+- **Rediseño Precisión (6-oct)**: verificado sobre lo anterior (compila, 24
+  pruebas, y en pantalla NuevaInc de Biobox como MKT, Reparar "Sin máquina"
+  en oscuro e Indicadores). El emoji ❔ de "Sin máquina" que quedaba se
+  cambió por el ícono `MapPinOff`. Una revisión del rediseño encontró 5
+  detalles y se corrigieron: textos de alert/confirm que perdieron el ↻ y
+  el ✏️ al quitar emojis (en texto plano no hay ícono: van escritos, "↻
+  (Recargar)"); el ✕ tapaba el aviso de borrador que va antes del título en
+  NuevaInc (regla `.modal-cerrar+.banner` en precision.css); BotonPush e
+  IrAqui leían `className.includes('overlay')`, que truena si el toque cae
+  en un `<svg>` (ahora `e.target === e.currentTarget`); y en Fijación el
+  ícono de Campaña quedaba en otro renglón (`.inc .meta` es columna: el
+  contenido va en un `<span>`). Si al bajar `main` falla el build por
+  `lucide-react`, correr `npm install` (es dependencia nueva del rediseño).
 

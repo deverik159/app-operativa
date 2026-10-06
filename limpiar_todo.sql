@@ -54,9 +54,9 @@
 --
 -- LOS PASOS:
 --   1) PASO 1 solo (lectura). Revisa: eso y nada más se borrará.
---   2) PASO 2: en su candado cambia 'NO' por 'BORRAR AAAA-MM-DD' con la
---      fecha de HOY (hora de México) y córrelo completo. Es UNA
---      transacción: o entra todo, o nada. El candado caduca solo: al día
+--   2) PASO 2: en su línea `confirmo` cambia 'NO' por 'BORRAR AAAA-MM-DD'
+--      con la fecha de HOY (hora de México) y córrelo completo. Es UNA
+--      sola sentencia: o entra todo, o nada. El candado caduca solo: al día
 --      siguiente ese texto ya no abre, aunque el SQL Editor lo guarde.
 --   3) node scripts/limpiar-storage.mjs  (borra los archivos; ver abajo)
 --   4) PASO 4 (lectura): todo debe quedar en cero.
@@ -177,49 +177,48 @@ select seccion, que, cuantas, nota from (
 order by seccion, o, que;
 
 
--- ══════════ PASO 2 — BORRADO (una transacción: o entra todo, o nada) ══════════
--- ⚠ CANDADO: para que corra, en la línea de set_config de abajo cambia
--- 'NO' por 'BORRAR AAAA-MM-DD' con la fecha de HOY en México (p. ej.
+-- ══════════ PASO 2 — BORRADO (UNA sola sentencia: o entra todo, o nada) ══════════
+-- ⚠ CANDADO: para que corra, en la línea `confirmo` de abajo cambia 'NO'
+-- por 'BORRAR AAAA-MM-DD' con la fecha de HOY en México (p. ej.
 -- 'BORRAR 2026-09-27'). Darle "Run" a todo el archivo por error no borra
 -- nada, y un snippet guardado con la fecha de ayer tampoco.
-begin;
-
-select set_config('gpo.confirmo_limpieza', 'NO', true);
-
+--
+-- Es UN solo bloque `do` a propósito (6-oct-2026): el SQL Editor no
+-- garantiza la misma conexión entre sentencias (le pasó a la migración de
+-- rutas con una tabla temporal), así que el candado, la tabla puente, el
+-- vaciado, los folios y la hora van juntos en una sola transacción.
 do $$
 declare
+  confirmo constant text := 'NO';   -- ← aquí: 'BORRAR AAAA-MM-DD' (fecha de HOY)
   esperado text := 'BORRAR ' || to_char(now() at time zone 'America/Mexico_City', 'YYYY-MM-DD');
-begin
-  if current_setting('gpo.confirmo_limpieza', true) is distinct from esperado then
-    raise exception 'Candado puesto: revisa el PASO 1 y, en el PASO 2, cambia ''NO'' por ''%'' (la fecha de HOY). No se borró nada.', esperado;
-  end if;
-end $$;
-
--- Si alguien está usando la app, no se espera a que suelte: se cancela y
--- se vuelve a correr en un momento.
-set local lock_timeout = '5s';
-
--- Tabla puente para el script de Storage (el SQL no puede borrar archivos:
--- trigger protect_delete). Todo el bucket MENOS las fotos de fijación
--- externa, que son de la base de Mario: ningún catálogo guarda archivos, y
--- las miniaturas mini/ y las fotos de reasignación (que solo guardan la
--- URL) caen solas por carpeta. Es tabla real y no temporal porque la lee el
--- script en otra sesión; con RLS y sin políticas nadie la ve desde la app.
-drop table if exists public._limpieza_paths;
-create table public._limpieza_paths (path text primary key);
-insert into public._limpieza_paths (path)
-select o.name
-from storage.objects o
-where o.bucket_id = 'evidencias'
-  and o.name not like 'fijacion-externa/%';
-alter table public._limpieza_paths enable row level security;
-revoke all on public._limpieza_paths from anon, authenticated;
-
--- Vaciado: un solo TRUNCATE con todas las tablas que existan, SIN cascade.
-do $$
-declare
   lista text;
 begin
+  if confirmo is distinct from esperado then
+    raise exception 'Candado puesto: revisa el PASO 1 y, en el PASO 2, cambia ''NO'' por ''%'' (la fecha de HOY). No se borró nada.', esperado;
+  end if;
+
+  -- Si alguien está usando la app, no se espera a que suelte: se cancela y
+  -- se vuelve a correr en un momento.
+  perform set_config('lock_timeout', '5s', true);
+
+  -- Tabla puente para el script de Storage (el SQL no puede borrar
+  -- archivos: trigger protect_delete). Todo el bucket MENOS las fotos de
+  -- fijación externa, que son de la base de Mario: ningún catálogo guarda
+  -- archivos, y las miniaturas mini/ y las fotos de reasignación (que solo
+  -- guardan la URL) caen solas por carpeta. Es tabla real y no temporal
+  -- porque la lee el script en otra sesión; con RLS y sin políticas nadie
+  -- la ve desde la app.
+  drop table if exists public._limpieza_paths;
+  create table public._limpieza_paths (path text primary key);
+  insert into public._limpieza_paths (path)
+  select o.name
+  from storage.objects o
+  where o.bucket_id = 'evidencias'
+    and o.name not like 'fijacion-externa/%';
+  alter table public._limpieza_paths enable row level security;
+  revoke all on public._limpieza_paths from anon, authenticated;
+
+  -- Vaciado: un solo TRUNCATE con todas las tablas que existan, SIN cascade.
   select string_agg(format('public.%I', t), ', ')
     into lista
   from unnest(array[
@@ -237,21 +236,15 @@ begin
     raise exception 'No encontré ninguna de las tablas a vaciar: ¿es el proyecto correcto?';
   end if;
   execute 'truncate table ' || lista;
-end $$;
 
--- Folios desde 00001 en todos los prefijos (EV, EVD, VV, BBM…): set_folio
--- toma el número de aquí.
-do $$
-begin
+  -- Folios desde 00001 en todos los prefijos (EV, EVD, VV, BBM…): set_folio
+  -- toma el número de aquí.
   if to_regclass('public.folio_counters') is not null then
     update public.folio_counters set next_seq = 1;
   end if;
-end $$;
 
--- La hora de la limpieza queda en la base: revisar_tras_limpieza.sql la
--- lee sola para cazar reportes de prueba que revivan de alguna cola.
-do $$
-begin
+  -- La hora de la limpieza queda en la base: revisar_tras_limpieza.sql la
+  -- lee sola para cazar reportes de prueba que revivan de alguna cola.
   if to_regclass('public.app_config') is not null then
     insert into public.app_config (clave, valor, nota)
     values ('limpieza_piloto', now()::text,
@@ -259,8 +252,6 @@ begin
     on conflict (clave) do update set valor = excluded.valor, actualizado_en = now();
   end if;
 end $$;
-
-commit;
 
 -- Que PostgREST vea la tabla puente nueva (la lee el script).
 notify pgrst, 'reload schema';
