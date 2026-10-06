@@ -987,6 +987,25 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 
 ## 12. CAMBIOS OPERATIVOS RECIENTES (agosto–septiembre 2026)
 
+### 12.0. Rediseño visual "Precisión" (publicado el 6-oct-2026)
+
+- Misma app, otra piel: Inter, líneas finas, un solo acento (`#cc4119`, texto
+  blanco encima vía `--sobre-acento`), estatus como punto de color, listas
+  agrupadas, filtros en píldoras y segmentos, íconos lucide en vez de emojis.
+  Tema Automático/Claro/Oscuro con el mismo `lib/tema.ts`. Ninguna función,
+  rol ni flujo cambió.
+- La piel vive en `src/estilo/precision.css`, cargado DESPUÉS de `index.css`.
+  `index.css` (posiciones, safe areas, todo lo del iPhone) casi no se tocó. En
+  `precision.css` no va position/transform/filter/backdrop-filter sobre
+  `.topbar`, `.side`, `.main` ni `.overlay`.
+- Piezas nuevas: `IconoNav`, `MenuMas` (en celular, 4 módulos + "Más"),
+  `CerrarModal` (✕ con el mismo manejador que Cancelar), `Ic` (ícono en línea)
+  y `lib/toqueFantasma.ts` (ignora clics los primeros 450 ms de una ventana).
+- Al agregar una ventana: el overlay NO lleva clases extra (varias cierran
+  comparando `className === 'overlay'`); para el pie fijo usar
+  `.modal-actions.pie-fijo`.
+- Detalle completo, prototipos y decisiones: `rediseno/LEEME-REDISENO.md`.
+
 ### 12.1. Móvil y evidencia
 
 - La PWA instalada respeta el notch de iPhone; los modales y la barra superior
