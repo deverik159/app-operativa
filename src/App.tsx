@@ -37,7 +37,8 @@ import BotonPush from './components/BotonPush';
 import MenuUsuario from './components/MenuUsuario';
 import ErrorBoundary from './components/ErrorBoundary';
 import EnviosPendientes from './components/EnviosPendientes';
-import IconoNav from './components/IconoNav';
+import IconoNav, { tituloCorto } from './components/IconoNav';
+import MenuMas from './components/MenuMas';
 import {
   confirmarRecargaConEnvios,
   hayEnviosEnRiesgo,
@@ -1771,6 +1772,11 @@ function Main({
     return <SinAcceso email={email} />;
 
   const irANav = (n: NavItem) => (n.action ? n.action() : setTab(n.k));
+  /**
+   * Cuántos módulos van en la barra de abajo del celular (rediseño, oct-2026).
+   * Con 5 o menos caben todos; con más, los 4 primeros y el resto en "Más".
+   */
+  const enBarra = nav.length > 5 ? 4 : nav.length;
 
   const recargarTodo = () => {
     // Primero la sesión: las recargas de abajo esperan su getSession y, con
@@ -1917,19 +1923,36 @@ function Main({
 
       <div className="layout">
         <div className="side">
-          {nav.map((n) => (
+          {nav.map((n, i) => (
             <div
               key={n.k}
-              className={'nav-item' + (tab === n.k ? ' active' : '')}
+              className={
+                'nav-item' +
+                (tab === n.k ? ' active' : '') +
+                // En celular, lo que no cabe en la barra se va a "Más"
+                // (MenuMas). En escritorio .nav-extra no cambia nada.
+                (i >= enBarra ? ' nav-extra' : '')
+              }
               onClick={() => irANav(n)}
             >
               <IconoNav k={n.k} emoji={n.ic} />
-              <span>{n.t}</span>
+              <span className="nav-t">{n.t}</span>
+              <span className="nav-t-corto">{tituloCorto(n.k, n.t)}</span>
               {!!n.badge && n.badge > 0 && (
                 <span className="badge">{n.badge}</span>
               )}
             </div>
           ))}
+          {enBarra < nav.length && (
+            <MenuMas
+              items={nav.slice(enBarra)}
+              activa={nav.slice(enBarra).some((n) => n.k === tab)}
+              onElegir={(m) => {
+                const n = nav.find((x) => x.k === m.k);
+                if (n) irANav(n);
+              }}
+            />
+          )}
         </div>
 
         <div className="main">

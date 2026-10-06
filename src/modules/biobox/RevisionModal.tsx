@@ -48,6 +48,7 @@ import type {
 } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
 import { colorTono, fondoTono, type Tono } from '../../lib/tonos';
+import CerrarModal from '../../components/CerrarModal';
 
 /** Subcarpeta en el bucket, para no mezclar con incidencias ni pauta. */
 const CARPETA = 'revisiones';
@@ -733,6 +734,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
       }}
     >
       <div className="modal" style={{ maxWidth: 720 }}>
+        <CerrarModal onClick={onClose} disabled={guardando} />
         <h2 style={{ margin: '0 0 3px' }}>Revisión de máquina</h2>
         <p className="phint">
           {ubic.site_legacy_id ? `${ubic.site_legacy_id} · ` : ''}
@@ -1144,7 +1146,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                 {err}
               </div>
             )}
-            <div className="modal-actions">
+            <div className="modal-actions pie-fijo">
               <button className="btn ghost" onClick={onClose} disabled={guardando}>
                 {guardado ? 'Cerrar' : 'Cancelar'}
               </button>

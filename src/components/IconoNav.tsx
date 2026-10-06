@@ -43,3 +43,23 @@ export default function IconoNav({ k, emoji }: { k: string; emoji: string }) {
   if (!Icono) return <span className="nav-ic">{emoji}</span>;
   return <Icono className="nav-ic" size={18} strokeWidth={1.8} aria-hidden="true" />;
 }
+
+/**
+ * Nombre corto para la barra de abajo del celular (5 botones en ~360px).
+ * El largo se sigue viendo en escritorio y en la hoja "Más".
+ */
+const CORTOS: Record<string, string> = {
+  todas: 'Incidencias',
+  dashboard: 'Indicadores',
+  rutas: 'Rutas',
+  pauta: 'Pauta',
+  mis_rutas: 'Mis rutas',
+  bitacora_vv: 'Bitácora',
+  fijacion_externa: 'Fijación',
+  biobox: 'Biobox',
+};
+
+export function tituloCorto(k: string, t: string): string {
+  if (k === 'bandeja') return t === 'Mis pendientes' ? 'Pendientes' : 'Bandeja';
+  return CORTOS[k] ?? t;
+}

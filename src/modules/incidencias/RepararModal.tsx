@@ -68,6 +68,7 @@ import { vigilarRender } from '../../lib/vigia';
 import SubirArchivos from '../../components/SubirArchivos';
 import PreviaVideo from '../../components/PreviaVideo';
 import type { ArbolDigital, Evidencia, Incidencia, InventarioItem } from '../../types/db';
+import CerrarModal from '../../components/CerrarModal';
 
 /**
  * Lo que el modal usa de cada fila de arbol_digital. Sirve igual para la
@@ -928,6 +929,8 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
       }}
     >
       <div className="modal">
+        {/* Igual que Cancelar: `cerrar` pregunta si hay fotos o guardado. */}
+        <CerrarModal onClick={() => cerrar()} />
         <h2 style={{ margin: '0 0 3px' }}>Registrar reparación</h2>
         <p className="phint">
           {inc.folio} · {inc.nombre_incidencia} · cara {caraIncidencia(inc)}
@@ -1306,7 +1309,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
           </>
         )}
 
-        <div className="modal-actions">
+        <div className="modal-actions pie-fijo">
           {/* Nunca apagado (app pasmada sin señal, 24-sep-2026): mientras
               prepara o guarda, `cerrar` pregunta en vez de ignorar. */}
           <button className="btn ghost" onClick={() => cerrar()}>

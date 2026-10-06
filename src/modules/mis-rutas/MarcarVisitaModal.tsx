@@ -19,6 +19,7 @@ import SubirArchivos from '../../components/SubirArchivos';
 import { explicarErrorGps } from '../../lib/plataforma';
 import { vigilarRender } from '../../lib/vigia';
 import { marcarVisita } from '../../lib/visitas';
+import CerrarModal from '../../components/CerrarModal';
 
 export type ParadaVisita = {
   ruta_id: number;
@@ -168,6 +169,7 @@ function MarcarVisitaModal({
       }}
     >
       <div className="modal">
+        <CerrarModal onClick={onClose} disabled={guardando} />
         <h2 style={{ margin: '0 0 3px' }}>Marcar visita</h2>
         <p className="phint">
           {parada.rutaTexto}
@@ -243,7 +245,7 @@ function MarcarVisitaModal({
           />
         </div>
 
-        <div className="modal-actions">
+        <div className="modal-actions pie-fijo">
           <button type="button" className="btn ghost" onClick={onClose} disabled={guardando}>
             Cancelar
           </button>
