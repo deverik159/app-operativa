@@ -47,6 +47,7 @@ del sistema (`theme-color`) toma el color del fondo de cada tema.
 | `components/IconoNav.tsx` | Íconos lucide del menú en vez de emojis, y nombre corto para la barra del celular |
 | `components/MenuMas.tsx` | En el celular, 4 módulos en la barra y el resto en la hoja "Más" (portal en `<body>`). Si hay 5 o menos, caben todos |
 | `components/CerrarModal.tsx` | El ✕ de las ventanas. Usa el MISMO manejador y bloqueo que el Cancelar de cada una |
+| `components/Ic.tsx` | Ícono en línea con el texto (1.1em, hereda color). Sustituyó a los emojis de botones, etiquetas y avisos. Dentro de cadenas el emoji solo se quitó; no se tocaron los comentarios ni el texto que se guarda en el chat ("🎬 Video"/"📷 Foto") |
 | `lib/toqueFantasma.ts` | Ignora los clics dentro de una ventana o panel durante sus primeros 450 ms (el toque que la abrió puede repetirse en iOS) |
 
 **Clases reutilizables (en `precision.css`):**
@@ -95,7 +96,7 @@ del sistema (`theme-color`) toma el color del fondo de cada tema.
 ## Pendiente o por decidir
 
 - Feedback de usuarios (Erik lo está recogiendo).
-- Quedan emojis dentro de algunos botones y etiquetas de los módulos (📥, 🗺️,
-  🎯…). Funcionan; cambiarlos por íconos es pulido opcional.
+- Opcional (no se ve): pasar a clases los estilos en línea que quedan en
+  Rutas, Pauta, Bitácora y Fijación. Ya usan las variables del tema.
 - El color por omisión de una ruta nueva sigue siendo `#ff5a3c`. Es un DATO
   (identidad de la ruta), no la piel; se dejó a propósito.
