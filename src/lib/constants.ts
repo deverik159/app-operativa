@@ -169,6 +169,16 @@ export const SLA_VALIDACION_DEFAULT = {
 export const LADOS = ['Norte', 'Sur', 'Ambas'] as const;
 
 /**
+ * Partes de la estructura que NO son una cara del inventario (Erik,
+ * 6-oct-2026): si la incidencia es del Adicional o de la Puerta, no se
+ * eligen caras; se guarda sin clave de medio y con este valor en `lado`
+ * (la "cara afectada" que ya enseñan tarjeta, reparación y Excel). La
+ * base lo acepta desde la migración lado_adicional_puerta.
+ */
+export const ELEMENTOS_SIN_CARA = ['Adicional', 'Puerta'] as const;
+export type ElementoSinCara = (typeof ELEMENTOS_SIN_CARA)[number];
+
+/**
  * Vías por las que un tercero pide un reporte a MKT. Acompañan al contacto
  * (incidencias_contacto_mkt.sql); el CHECK de `incidencias.via_reporte`
  * acepta exactamente estos valores o NULL — ver incidencias_via_reporte.sql.

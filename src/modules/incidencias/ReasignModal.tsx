@@ -26,6 +26,7 @@ import { catalogoLocal, haySenal, motivoSinRed, redOLocal } from '../../lib/dato
 import { idCorto } from '../../lib/helpers';
 import {
   catalogoParaMuebles,
+  ladoAlReclasificar,
   llaveCatalogo,
   filtrarCatalogo,
 } from '../../lib/catalogo';
@@ -361,6 +362,9 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
     // en el catálogo, se aplican solo nombre y área, sin inventar el resto.
     if (aprobar && req.nueva_incidencia) {
       patch.nombre_incidencia = req.nueva_incidencia;
+      // Entra o sale del Adicional o la Puerta: su cara afectada lo sigue.
+      const ladoNuevo = ladoAlReclasificar(inc.lado, req.nueva_incidencia);
+      if (ladoNuevo !== undefined) patch.lado = ladoNuevo;
       const { data: catRows } = await sb
         .from('catalogo_incidencias')
         .select('*')

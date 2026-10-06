@@ -42,7 +42,8 @@
 // `restringido` es lo que la pantalla usa para saber si tiene que advertir.
 // ============================================================
 import type { CatalogoIncidencia } from '../types/db';
-import { UNIDADES_BIOBOX } from './constants';
+import { ELEMENTOS_SIN_CARA, UNIDADES_BIOBOX } from './constants';
+import type { ElementoSinCara } from './constants';
 import { sinAcentos } from './helpers';
 
 /** Llave de identidad de una entrada. Dos áreas = dos cosas distintas. */
@@ -349,5 +350,62 @@ export function buscarEnCatalogo(
   return {
     entrada: coincidencias[0] || null,
     ambigua: coincidencias.length > 1,
+  };
+}
+
+/**
+ * ¿La incidencia es de una parte de la estructura y no de una cara? Por el
+ * texto del catálogo, sin acentos ni mayúsculas: lo que diga "Adicional"
+ * (p. ej. "Adicional dañado") es del Adicional, y lo que diga "Puerta"
+ * ("Puertas / copetes abiertos") es de la Puerta (Erik, 6-oct-2026).
+ */
+export function elementoDeIncidencia(detalle?: string | null): ElementoSinCara | null {
+  const d = sinAcentos(detalle);
+  if (/\badicional/.test(d)) return 'Adicional';
+  if (/\bpuerta/.test(d)) return 'Puerta';
+  return null;
+}
+
+/**
+ * Al reclasificar (corrección del validador, reasignación aprobada) el
+ * `lado` sigue a la incidencia si entra o sale del Adicional o la Puerta:
+ * sin esto quedaría "Adicional" como cara afectada de una falla de pantalla,
+ * o una del adicional con Norte/Sur. Al salir queda null: la cara afectada
+ * de una falla de cara no se puede adivinar. `undefined` = no cambia.
+ */
+export function ladoAlReclasificar(
+  ladoActual: string | null | undefined,
+  detalleNuevo: string | null | undefined
+): ElementoSinCara | null | undefined {
+  const antes = (ELEMENTOS_SIN_CARA as readonly string[]).includes(ladoActual || '')
+    ? ladoActual
+    : null;
+  const nuevo = elementoDeIncidencia(detalleNuevo);
+  return nuevo === antes ? undefined : nuevo;
+}
+
+/**
+ * Medio y mueble de una incidencia del Adicional o de la Puerta en un sitio
+ * de VARIAS caras, donde la fila no lleva cara de la cual copiarlos. Se
+ * toman de las caras con que se armó el catálogo (las marcadas, o todas)
+ * que son del mueble de la entrada elegida: en los 75 sitios mixtos de
+ * Ecovallas la digital es "Ecovallas Digital" y la impresa "Ecovallas
+ * Fijas", así que el mueble separa el "Adicional dañado" de Digital del de
+ * Mantenimiento — y de él salen el folio (EVD/EV) y la regla de duplicados.
+ * Si no hay un único valor, null: mejor vacío que inventado.
+ */
+export function ubicacionSinCara(
+  mueble: string | null | undefined,
+  base: { tipo_medio?: string | null; tipo_mueble?: string | null }[]
+): { medio: string | null; tipo_mueble: string | null } {
+  const delMueble = mueble ? base.filter((c) => igual(c.tipo_mueble, mueble)) : [];
+  const fuente = delMueble.length ? delMueble : base;
+  const unico = (xs: (string | null | undefined)[]) => {
+    const u = [...new Set(xs.filter((x): x is string => !!x))];
+    return u.length === 1 ? u[0] : null;
+  };
+  return {
+    medio: unico(fuente.map((c) => c.tipo_medio)),
+    tipo_mueble: unico(fuente.map((c) => c.tipo_mueble)),
   };
 }

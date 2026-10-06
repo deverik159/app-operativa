@@ -71,9 +71,11 @@ import {
   type SitioLocal,
 } from '../../lib/datosLocales';
 import { caraLabel, ladoFijoDePortico } from '../../lib/helpers';
+import { ubicacionSinCara } from '../../lib/catalogo';
 import { vigilarRender } from '../../lib/vigia';
 import {
   UNIDADES_BIOBOX,
+  ELEMENTOS_SIN_CARA,
   LADOS,
   UNIDADES_CON_LADO,
   CLAVE_SIN_MAQUINA,
@@ -125,6 +127,14 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
   const [observaciones, setObservaciones] = useState(inc.observaciones || '');
   const [lado, setLado] = useState(inc.lado || '');
   const pideLado = UNIDADES_CON_LADO.includes(inc.unidad_negocio || '');
+  /**
+   * Del Adicional o de la Puerta (Erik, 6-oct-2026): no lleva cara y su
+   * "cara afectada" es ese elemento. Se conserva tal cual al guardar: sin
+   * esto, aquí se mandaba lado null (o se limpiaba por no ser Norte/Sur).
+   */
+  const elementoInc = (ELEMENTOS_SIN_CARA as readonly string[]).includes(inc.lado || '')
+    ? inc.lado
+    : null;
 
   // --- Sitio ---
   // Arranca con el sitio que ya tiene. Cambiarlo es la razón principal de
@@ -176,7 +186,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     } else {
       // Fuera de un pórtico, "Norte a Sur"/"Sur a Norte" no es opción del
       // selector: se limpia para que no viaje escondido al guardar.
-      setLado((l) => ((LADOS as readonly string[]).includes(l) ? l : ''));
+      setLado((l) => ((LADOS as readonly string[]).includes(l) || l === elementoInc ? l : ''));
     }
   }, [ladoFijo]);
 
@@ -397,19 +407,23 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     const delSitio = caras[0];
     const laCara = caras.find((c) => c.vendor_face_id === cara) || delSitio;
     const esBiobox = UNIDADES_BIOBOX.includes(inc.unidad_negocio || '');
+    // Adicional o Puerta en un sitio de varias caras: sin cara de la cual
+    // copiar medio y mueble, se sacan como en el alta (ubicacionSinCara).
+    const sinCara =
+      elementoInc && caras.length > 1 ? ubicacionSinCara(inc.tipo_mueble, caras) : null;
     return {
       // La ELEGIDA en la ruta del sitio, si la hay (rutas, 5-oct-2026).
       direccion: elegidaDelSitio ?? laCara?.direccion ?? delSitio?.direccion ?? direccion,
       municipio: delSitio?.municipio ?? null,
       // En `inventario` la plaza se llama `estado`. Así lo mapea el alta.
       plaza: delSitio?.estado ?? null,
-      medio: laCara?.tipo_medio ?? null,
-      tipo_mueble: laCara?.tipo_mueble ?? null,
+      medio: sinCara ? sinCara.medio : laCara?.tipo_medio ?? null,
+      tipo_mueble: sinCara ? sinCara.tipo_mueble : laCara?.tipo_mueble ?? null,
       // "Nombre amigable del medio": máquina en Biobox (site_legacy_id),
       // pantalla en Ecovallas (nombres_pantallas). Igual que en el alta.
       nombre_biobox: esBiobox
         ? laCara?.site_legacy_id || null
-        : (laCara && nombresPantalla[laCara.vendor_face_id]) || null,
+        : (!sinCara && laCara && nombresPantalla[laCara.vendor_face_id]) || null,
     };
   };
 
@@ -426,7 +440,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
       alert('Espera a que carguen las caras del sitio.');
       return;
     }
-    if (caras.length > 1 && !cara) {
+    if (caras.length > 1 && !cara && !elementoInc) {
       alert('Este sitio tiene varias caras: elige a cuál corresponde.');
       return;
     }
@@ -455,10 +469,12 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     const patch: Partial<Incidencia> = {
       observaciones: observaciones.trim() || null,
       clave_sitio: sitio,
-      clave_medio: cara || null,
+      // Del Adicional o de la Puerta: con varias caras va sin ninguna; con
+      // una sola conserva la suya, igual que en el alta.
+      clave_medio: elementoInc && caras.length > 1 ? null : cara || null,
       // Se manda solo donde aplica. En las demás unidades siempre null: si se
       // mandara la cadena vacía, el CHECK de la base la rechazaría.
-      lado: pideLado ? lado || null : null,
+      lado: elementoInc ? elementoInc : pideLado ? lado || null : null,
       // Vuelve a la cola del validador. Si ya estaba ahí, no cambia nada.
       estatus: 'por_validar',
     };
@@ -700,7 +716,21 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
         {/* Si las caras no cargaron (sin red y sin copia) sí se enseña: si
             no, el aviso y su Reintentar quedaban escondidos (revisión sin
             señal, 24-sep-2026). */}
-        {(!(pideLado && caras.length <= 1) || (caras.length === 0 && !!deCopia.caras)) && (
+        {elementoInc && (
+          <div className="field">
+            <label>Cara afectada</label>
+            <div className="tag" style={{ display: 'inline-block', padding: '6px 10px' }}>
+              {elementoInc}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+              Incidencia {elementoInc === 'Puerta' ? 'de la puerta' : 'del adicional'}: no lleva cara.
+            </div>
+          </div>
+        )}
+        {/* Del Adicional o la Puerta solo se enseña si las caras no cargaron:
+            es donde vive el Reintentar. */}
+        {((!elementoInc && !(pideLado && caras.length <= 1)) ||
+          (caras.length === 0 && !!deCopia.caras)) && (
         <div className="field">
           <label>Cara</label>
           {cargandoCaras ? (
@@ -766,7 +796,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
           </div>
         )}
 
-        {pideLado && (
+        {pideLado && !elementoInc && (
           <div className="field">
             {/* "Cara afectada" y no "Lado": es como lo nombra quien captura,
                 y es el mismo texto que usa el alta (NuevaInc). */}

@@ -29,6 +29,7 @@ import { sb } from '../../lib/supabase';
 import { catalogoLocal, haySenal, motivoSinRed, redOLocal } from '../../lib/datosLocales';
 import {
   catalogoParaMuebles,
+  ladoAlReclasificar,
   llaveCatalogo,
   filtrarCatalogo,
 } from '../../lib/catalogo';
@@ -182,6 +183,8 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
   const areaNueva = (sel?.area || '').trim();
   const cambiaArea = !!sel && areaNueva !== (inc.area_responsable || '');
   const redirigida = tieneAreaRedirigida(inc);
+  // Entra o sale del Adicional o la Puerta: su cara afectada lo sigue.
+  const ladoNuevo = sel ? ladoAlReclasificar(inc.lado, sel.detalle) : undefined;
 
   // El trigger `set_sla` tiene esta regla, verificada el 26-ago-2026:
   //
@@ -211,7 +214,8 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
       alert(SIN_SENAL);
       return;
     }
-    // Solo estos cinco. `assigned_area` queda fuera a propósito.
+    // Solo estos (y `lado` si entra o sale del Adicional o la Puerta).
+    // `assigned_area` queda fuera a propósito.
     const patch: Partial<Incidencia> = {
       nombre_incidencia: sel.detalle,
       nivel: nivelNuevo || null,
@@ -219,6 +223,7 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
       tipo: (sel.tipo || '').trim() || null,
       area_responsable: areaNueva || null,
       observaciones: observaciones.trim() || null,
+      ...(ladoNuevo !== undefined ? { lado: ladoNuevo } : {}),
     };
     // Se CUENTA lo afectado (modo sin señal, 24-sep-2026): la RLS que no deja
     // pasar la fila responde 0 filas SIN error, y antes eso se daba por
@@ -371,6 +376,14 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
                 el retraso acumulado hasta ahora deja de contarse.
               </>
             )}
+          </div>
+        )}
+
+        {ladoNuevo !== undefined && (
+          <div className="phint" style={{ margin: '0 0 12px' }}>
+            {ladoNuevo
+              ? <>La cara afectada pasa a ser <b>{ladoNuevo}</b>.</>
+              : <>Deja de ser {inc.lado === 'Puerta' ? 'de la puerta' : 'del adicional'}: la cara afectada queda vacía.</>}
           </div>
         )}
 

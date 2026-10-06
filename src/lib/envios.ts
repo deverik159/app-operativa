@@ -1258,7 +1258,7 @@ function omitirDuplicadas(e: Envio, choques: Duplicada<FilaEnvio>[], avisos: str
   const quitar = new Set(choques.map((c) => c.fila.record_id));
   choques.forEach((c) =>
     avisos.push(
-      `Se omitió «${c.fila.nombre_incidencia || 'incidencia'}» (cara ${c.fila.clave_medio || '—'}) ` +
+      `Se omitió «${c.fila.nombre_incidencia || 'incidencia'}» (cara ${c.fila.lado || c.fila.clave_medio || '—'}) ` +
         `de ${c.fila.clave_sitio || 'el reporte'}: ya estaba en proceso con folio ${c.folio || '—'}.`
     )
   );

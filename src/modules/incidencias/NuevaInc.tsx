@@ -60,6 +60,7 @@ import {
   UNIDADES_CON_LADO,
   VIAS_REPORTE,
   CLAVE_SIN_MAQUINA,
+  type ElementoSinCara,
 } from '../../lib/constants';
 import { caraLabel, distKm, ladoFijoDePortico } from '../../lib/helpers';
 import { explicarErrorGps } from '../../lib/plataforma';
@@ -68,6 +69,8 @@ import {
   catalogoDesdeArbol,
   catalogoBiobox,
   esUnidadBiobox,
+  elementoDeIncidencia,
+  ubicacionSinCara,
   llaveCatalogo,
   filtrarCatalogo,
 } from '../../lib/catalogo';
@@ -128,6 +131,20 @@ type Linea = {
   campPorCara: Record<string, string> | null;
   obs: string;
   files: File[];
+  /**
+   * Incidencia del Adicional o de la Puerta (Erik, 6-oct-2026): no se eligen
+   * caras y se guarda UNA fila con este valor en `lado`. En un sitio de una
+   * cara la fila conserva su clave de medio (así la regla de duplicados la
+   * cruza con la revisión de Biobox); con varias va sin ella y `caras`
+   * queda vacío. Ver ELEMENTOS_SIN_CARA.
+   */
+  elemento?: ElementoSinCara | null;
+  /**
+   * Las caras marcadas cuando se eligió esa incidencia: de ellas salió el
+   * catálogo y de ellas salen el medio y el mueble de la fila sin cara
+   * (ver ubicacionSinCara). Vacío = todas las del sitio.
+   */
+  carasCatalogo?: string[];
 };
 
 /** Catorcena del calendario (la actual y sus vecinas). */
@@ -279,6 +296,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   /** Incidencias del árbol de Digital: el catálogo de las caras digitales. */
   const [arbolNombres, setArbolNombres] = useState<string[]>([]);
   const [catSel, setCatSel] = useState<CatalogoIncidencia | null>(null);
+  /** Del Adicional o de la Puerta: no se eligen caras (ver Linea.elemento). */
+  const elementoSel = elementoDeIncidencia(catSel?.detalle);
   const [catBusca, setCatBusca] = useState('');
   /** Lado de la cara. Solo aplica en las unidades de UNIDADES_CON_LADO. */
   const [lado, setLado] = useState('');
@@ -1169,7 +1188,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       alert('Elige la incidencia del catálogo.');
       return;
     }
-    if (selCaras.length === 0) {
+    if (!elementoSel && selCaras.length === 0) {
       alert('Marca al menos una cara para esta incidencia.');
       return;
     }
@@ -1181,10 +1200,13 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     }
     const datos = {
       cat: catSel,
-      caras: [...selCaras],
+      // Del Adicional o de la Puerta: sin caras (ver Linea.elemento).
+      caras: elementoSel ? [] : [...selCaras],
+      elemento: elementoSel,
+      carasCatalogo: elementoSel ? [...selCaras] : undefined,
       campania,
       // Foto del momento: solo las caras de ESTA partida, ya recortadas.
-      campPorCara: usaCampPorCara
+      campPorCara: usaCampPorCara && !elementoSel
         ? Object.fromEntries(
             selCaras.map((vf) => [vf, (campPorCara[vf] || '').trim()])
           )
@@ -1207,7 +1229,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   /** Carga una partida ya agregada de vuelta al editor para corregirla. */
   const editarLinea = (l: Linea) => {
     setCatSel(l.cat);
-    setSelCaras([...l.caras]);
+    // Las del catálogo de esa partida: con otras marcadas la lista cambia.
+    setSelCaras([...(l.elemento ? l.carasCatalogo || [] : l.caras)]);
     setCampania(l.campania);
     setCampPorCara(l.campPorCara ? { ...l.campPorCara } : {});
     setCampLibrePorCara({});
@@ -1427,7 +1450,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurando, un]);
 
-  const totalRows = lineas.reduce((s, l) => s + l.caras.length, 0);
+  // Una partida del Adicional o de la Puerta es UNA fila (no lleva caras).
+  const totalRows = lineas.reduce((s, l) => s + (l.caras.length || (l.elemento ? 1 : 0)), 0);
   const unaCara = caras.length === 1;
   // Con una sola cara no se usan partidas: la incidencia elegida es el reporte.
   const nGuardar = unaCara ? (catSel ? 1 : 0) : totalRows;
@@ -1458,9 +1482,11 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       partidas = [
         {
           cat: catSel,
+          // Con una sola cara, también la del Adicional o la Puerta la lleva.
           caras: [caras[0].vendor_face_id],
+          elemento: elementoSel,
           campania,
-          campPorCara: usaCampPorCara
+          campPorCara: usaCampPorCara && !elementoSel
             ? {
                 [caras[0].vendor_face_id]: (
                   campPorCara[caras[0].vendor_face_id] || ''
@@ -1507,7 +1533,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     // vez arriba y baja a todas las filas. Si estuviera por partida habría que
     // repetirlo en cada falla del mismo sitio, que es la forma más rápida de
     // que alguien lo deje mal en la tercera.
-    if (pideLado && !lado) {
+    if (pideLado && !lado && partidas.some((l) => !l.elemento)) {
       alert('En ' + un + ' hay que indicar la cara afectada: Norte, Sur o Ambas.');
       return;
     }
@@ -1534,10 +1560,20 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     const grupos: GrupoReporte[] = partidas.map((l) => ({
       files: l.files,
       borrador: origen,
-      carasLabel: l.caras.map(caraLabel).join(', '),
-      filas: l.caras.map((vf) => {
+      carasLabel: l.elemento || l.caras.map(caraLabel).join(', '),
+      // Del Adicional o de la Puerta en un sitio de varias caras: UNA fila
+      // sin cara (vf null).
+      filas: (l.elemento && !l.caras.length ? [null] : l.caras).map((vf) => {
         const c =
-          caras.find((x) => x.vendor_face_id === vf) || ({} as InventarioItem);
+          (vf && caras.find((x) => x.vendor_face_id === vf)) || ({} as InventarioItem);
+        const sinCara = vf
+          ? null
+          : ubicacionSinCara(
+              l.cat.tipo_mueble,
+              l.carasCatalogo?.length
+                ? caras.filter((x) => l.carasCatalogo!.includes(x.vendor_face_id))
+                : caras
+            );
         return {
           unidad_negocio: un,
           clave_sitio: site.site_id,
@@ -1545,15 +1581,15 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           direccion: direccionSitio,
           municipio: site.municipio || null,
           plaza: site.estado || null,
-          clave_medio: vf === CLAVE_SIN_MAQUINA ? null : vf,
-          medio: c.tipo_medio || null,
-          tipo_mueble: c.tipo_mueble || null,
+          clave_medio: vf && vf !== CLAVE_SIN_MAQUINA ? vf : null,
+          medio: sinCara ? sinCara.medio : c.tipo_medio || null,
+          tipo_mueble: sinCara ? sinCara.tipo_mueble : c.tipo_mueble || null,
           // "Nombre amigable del medio": el de máquina en Biobox, el de
           // pantalla en Ecovallas (nombres_pantallas, por cara). La columna
           // conserva su nombre histórico y toda la tubería ya la enseña.
           nombre_biobox: esBiobox
             ? nombreBiobox || null
-            : nombresPantalla[vf] || null,
+            : (vf && nombresPantalla[vf]) || null,
           nombre_incidencia: l.cat.detalle,
           area_responsable: l.cat.area,
           // impacto del catálogo viene con espacios de sobra.
@@ -1562,11 +1598,12 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           tipo: l.cat.tipo,
           // Con pauta QTM cada fila lleva la campaña de SU cara; sin ella,
           // la única de la partida, como antes.
-          campania: l.campPorCara
+          campania: l.campPorCara && vf
             ? l.campPorCara[vf] || null
             : l.campania || null,
           observaciones: l.obs || null,
-          lado: pideLado ? lado : null,
+          // El Adicional o la Puerta van como la "cara afectada".
+          lado: l.elemento ? l.elemento : pideLado ? lado : null,
           // Contacto del solicitante: solo lo captura MKT; fuera de ese
           // flujo va null (las columnas viven en incidencias_contacto_mkt.sql).
           contacto_correo: esMKT ? contactoCorreo.trim() || null : null,
@@ -2167,13 +2204,21 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                         marginTop: 2,
                       }}
                     >
-                      → {l.cat.area} · Nivel {(l.cat.impacto || '').trim()} ·
-                      caras: {l.caras.map(caraLabel).join(', ')}
+                      → {l.cat.area} · Nivel {(l.cat.impacto || '').trim()} ·{' '}
+                      {l.elemento
+                        ? `medio: ${l.elemento}`
+                        : `caras: ${l.caras.map(caraLabel).join(', ')}`}
                       <br />
                       <span style={{ color: 'var(--ok)' }}>
                         <Ic i={Paperclip} />{l.files.length} archivo
                         {l.files.length > 1 ? 's' : ''} para{' '}
-                        {l.caras.length > 1 ? 'estas caras' : 'esta cara'}
+                        {l.elemento === 'Puerta'
+                          ? 'la puerta'
+                          : l.elemento === 'Adicional'
+                            ? 'el adicional'
+                            : l.caras.length > 1
+                              ? 'estas caras'
+                              : 'esta cara'}
                       </span>
                       {editandoId === l.id && (
                         <>
@@ -2335,16 +2380,28 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             {caras.length > 1 && (
               <div className="field">
                 <label>
-                  Medios afectados ({selCaras.length}/{caras.length}){' '}
-                  <button
-                    type="button"
-                    className="btn ghost sm"
-                    style={{ marginLeft: 8 }}
-                    onClick={todas}
-                  >
-                    {selCaras.length === caras.length ? 'Ninguna' : 'Todas'}
-                  </button>
+                  {elementoSel ? (
+                    <>Medios afectados ({elementoSel})</>
+                  ) : (
+                    <>
+                      Medios afectados ({selCaras.length}/{caras.length}){' '}
+                      <button
+                        type="button"
+                        className="btn ghost sm"
+                        style={{ marginLeft: 8 }}
+                        onClick={todas}
+                      >
+                        {selCaras.length === caras.length ? 'Ninguna' : 'Todas'}
+                      </button>
+                    </>
+                  )}
                 </label>
+                {elementoSel && (
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                    Esta incidencia es {elementoSel === 'Puerta' ? 'de la puerta' : 'del adicional'}:
+                    no se eligen caras.
+                  </div>
+                )}
                 <div
                   style={{
                     display: 'grid',
@@ -2358,6 +2415,23 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                     overflow: 'auto',
                   }}
                 >
+                  {elementoSel && (
+                    <label
+                      style={{
+                        display: 'flex',
+                        gap: 7,
+                        alignItems: 'center',
+                        background: 'var(--panel)',
+                        border: '1px solid var(--accent)',
+                        borderRadius: 8,
+                        padding: '6px 8px',
+                        fontSize: 12,
+                      }}
+                    >
+                      <input type="checkbox" style={{ width: 'auto' }} checked readOnly />
+                      <b>{elementoSel}</b>
+                    </label>
+                  )}
                   {caras.map((c) => (
                     <label
                       key={c.vendor_face_id}
@@ -2368,19 +2442,22 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                         background: 'var(--panel)',
                         border:
                           '1px solid ' +
-                          (selCaras.includes(c.vendor_face_id)
+                          (!elementoSel && selCaras.includes(c.vendor_face_id)
                             ? 'var(--accent)'
                             : 'var(--line)'),
                         borderRadius: 8,
                         padding: '6px 8px',
-                        cursor: 'pointer',
+                        cursor: elementoSel ? 'not-allowed' : 'pointer',
                         fontSize: 12,
+                        // Del Adicional o de la Puerta: las caras en gris.
+                        opacity: elementoSel ? 0.45 : 1,
                       }}
                     >
                       <input
                         type="checkbox"
                         style={{ width: 'auto' }}
-                        checked={selCaras.includes(c.vendor_face_id)}
+                        checked={!elementoSel && selCaras.includes(c.vendor_face_id)}
+                        disabled={!!elementoSel}
                         onChange={() => toggleCara(c.vendor_face_id)}
                       />
                       <span>
@@ -2401,7 +2478,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                 inventario es la columna ("COL") y no dice nada. El selector
                 escribe `lado` (un dato por reporte, baja a todas las filas)
                 y la cara física se asigna sola. */}
-            {pideLado && caras.length > 0 && (
+            {pideLado && caras.length > 0 && !(unaCara && elementoSel) && (
               <div className="field">
                 <label>Cara afectada</label>
                 {ladoFijo ? (
@@ -2439,18 +2516,32 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                   className="tag"
                   style={{ display: 'inline-block', padding: '6px 10px' }}
                 >
-                  {caraLabel(caras[0].vendor_face_id)} ·{' '}
-                  {caras[0].categoria || caras[0].tipo_medio}
-                  {nombresPantalla[caras[0].vendor_face_id]
-                    ? ` · ${nombresPantalla[caras[0].vendor_face_id]}`
-                    : ''}
+                  {elementoSel ? (
+                    elementoSel
+                  ) : (
+                    <>
+                      {caraLabel(caras[0].vendor_face_id)} ·{' '}
+                      {caras[0].categoria || caras[0].tipo_medio}
+                      {nombresPantalla[caras[0].vendor_face_id]
+                        ? ` · ${nombresPantalla[caras[0].vendor_face_id]}`
+                        : ''}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+            {unaCara && pideLado && elementoSel && (
+              <div className="field">
+                <label>Cara afectada</label>
+                <div className="tag" style={{ display: 'inline-block', padding: '6px 10px' }}>
+                  {elementoSel}
                 </div>
               </div>
             )}
 
             <div className="row2">
               <div className="field">
-                {usaCampPorCara ? (
+                {usaCampPorCara && !elementoSel ? (
                   <>
                     <label>Campaña por cara</label>
                     {selCaras.length === 0 ? (
@@ -2582,7 +2673,18 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               <div
                 style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}
               >
-                {filesLinea.length > 0 ? (
+                {elementoSel ? (
+                  // Del Adicional o de la Puerta: las fotos van con esa
+                  // incidencia, no con caras.
+                  filesLinea.length > 0 ? (
+                    <span style={{ color: 'var(--ok)' }}>
+                      {filesLinea.length} archivo(s) · se ligarán{' '}
+                      {elementoSel === 'Puerta' ? 'a la puerta' : 'al adicional'}
+                    </span>
+                  ) : (
+                    `Estas fotos quedan ligadas ${elementoSel === 'Puerta' ? 'a la puerta' : 'al adicional'}.`
+                  )
+                ) : filesLinea.length > 0 ? (
                   <>
                     {filesLinea.length} archivo(s) ·{' '}
                     {selCaras.length > 0 ? (

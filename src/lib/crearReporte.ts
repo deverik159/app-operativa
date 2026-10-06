@@ -212,7 +212,7 @@ export async function crearReporte(
           r.choques
             .map(
               (c) =>
-                `• ${c.fila.nombre_incidencia} (cara ${c.fila.clave_medio}) → folio ${c.folio || '—'}`
+                `• ${c.fila.nombre_incidencia} (cara ${c.fila.lado || c.fila.clave_medio || '—'}) → folio ${c.folio || '—'}`
             )
             .join('\n') +
           '\n\nQuita esa partida del reporte para guardar el resto.'

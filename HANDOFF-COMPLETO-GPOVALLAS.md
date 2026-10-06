@@ -753,6 +753,7 @@ Biobox.
 | `supabase/migrations/20260928001429_area_reportante_mkt.sql` | ✅ aplicada (27-sep, SQL Editor; falta `migration repair`) — solo datos: lo capturado con el formulario de MKT queda con área MKT |
 | `diagnostico_catalogo_biobox.sql` | referencia, solo lectura — ✅ corrido (27-sep): 16 nombres en el árbol; 5 Digital de Biobox fuera del árbol (§9.1) |
 | `limpiar_todo.sql` + `revisar_tras_limpieza.sql` | herramienta — **NO correr** salvo la víspera del piloto (§12.15) |
+| `supabase/migrations/20261006195659_lado_adicional_puerta.sql` | ⏳ correr en el SQL Editor ANTES del push del 6-oct (luego `migration repair`) — el CHECK de `incidencias.lado` acepta también `Adicional` y `Puerta` (§12.15) |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
@@ -851,8 +852,8 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
     existe en Biobox como Admin Comercial Y Digital: decidir el área antes.
   - Registrar con `npx supabase migration repair <versión> --status applied`
     las migraciones corridas a mano en el SQL Editor: `20260925065305`,
-    `20260925165706`, `20260928001429` y, si fue por SQL Editor,
-    `20261005155712`.
+    `20260925165706`, `20260928001429`, `20261006195659` y, si fue por SQL
+    Editor, `20261005155712`.
   - Con la primera incidencia "Sin máquina", confirmar que el técnico puede
     guardar la máquina al reparar (depende de que la RLS de reparación deje
     actualizar `clave_sitio` y `clave_medio`).
@@ -1632,9 +1633,25 @@ salvo lo que se diga; pendientes en §9.1.
   La línea del historial dice "se cargaron" (es lo cargado, no lo filtrado).
   La tabla ya traía su propio conteo. El número del menú sigue siendo el de
   pendientes, sin filtros.
-- **Pruebas**: `node --test tests/*.test.mjs` (24 en verde al 6-oct):
-  `catalogoBiobox`, `departamentos`, `versionApp`, `maquinasBiobox`,
-  `authInterno`.
+- **Adicional y Puerta** (6-oct; migración
+  `20261006195659_lado_adicional_puerta`): si la incidencia elegida dice
+  "Adicional" o "Puerta" (`catalogo.elementoDeIncidencia`, sin acentos), en
+  "Medios afectados" las caras quedan en gris y sale marcada la opción
+  Adicional/Puerta. Se guarda UNA fila con `lado = 'Adicional'|'Puerta'`
+  (es la "cara afectada"; no pide Norte/Sur). En sitio de UNA cara (todos
+  los Biobox) conserva su `clave_medio`, para que la regla de duplicados la
+  cruce con lo que levanta la revisión de Biobox; en sitio de varias va sin
+  `clave_medio` y medio/mueble salen de las caras del mueble de la entrada
+  elegida (`catalogo.ubicacionSinCara`: en los 75 sitios mixtos de Ecovallas
+  el mueble separa Digital de Fijas, y de él sale el folio EVD/EV).
+  Duplicados (`duplicados.esDeElemento`): mismo sitio + incidencia + unidad
+  (+ medio si ambas lo traen), con o sin cara; "Sin máquina" no se compara.
+  EditModal no pide cara para estas; CorreccionModal y la reasignación
+  aprobada mueven el `lado` al entrar o salir de Adicional/Puerta
+  (`catalogo.ladoAlReclasificar`; al salir queda vacío).
+- **Pruebas**: `node --test tests/*.test.mjs` (32 en verde al 6-oct):
+  `catalogoBiobox`, `duplicadosElemento`, `departamentos`, `versionApp`,
+  `maquinasBiobox`, `authInterno`.
 - **Rediseño Precisión (6-oct)**: verificado sobre lo anterior (compila, 24
   pruebas, y en pantalla NuevaInc de Biobox como MKT, Reparar "Sin máquina"
   en oscuro e Indicadores). El emoji ❔ de "Sin máquina" que quedaba se

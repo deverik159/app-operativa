@@ -10,7 +10,7 @@ const { outputFiles } = await build({
   format: 'esm',
   platform: 'neutral',
 });
-const { catalogoBiobox, catalogoDesdeArbol, esUnidadBiobox, llaveCatalogo } = await import(
+const { catalogoBiobox, catalogoDesdeArbol, esUnidadBiobox, llaveCatalogo, elementoDeIncidencia, ubicacionSinCara, ladoAlReclasificar } = await import(
   'data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64')
 );
 
@@ -122,4 +122,45 @@ test('Fuera de Biobox la cara digital sigue siendo solo árbol', () => {
   assert.equal(esUnidadBiobox(' biobox perú '), true);
   assert.equal(esUnidadBiobox('Ecovallas'), false);
   assert.equal(esUnidadBiobox(''), false);
+});
+
+test('Adicional y Puerta se reconocen por el texto de la incidencia', () => {
+  assert.equal(elementoDeIncidencia('Adicional dañado'), 'Adicional');
+  assert.equal(elementoDeIncidencia('ADICIONAL roto'), 'Adicional');
+  assert.equal(elementoDeIncidencia('Puertas / copetes abiertos'), 'Puerta');
+  assert.equal(elementoDeIncidencia('Puerta sin chapa'), 'Puerta');
+  assert.equal(elementoDeIncidencia('Pantalla apagada'), null);
+  assert.equal(elementoDeIncidencia('Chapa dañada'), null);
+  assert.equal(elementoDeIncidencia(null), null);
+});
+
+test('Sin cara: medio y mueble salen de las caras del mueble elegido', () => {
+  const dig = { tipo_medio: 'Digital', tipo_mueble: 'Ecovallas Digital' };
+  const imp = { tipo_medio: 'Impreso', tipo_mueble: 'Ecovallas Fijas' };
+  // Sitio mixto: el mueble de la entrada decide.
+  assert.deepEqual(ubicacionSinCara('ecovallas fijas ', [dig, imp]), {
+    medio: 'Impreso', tipo_mueble: 'Ecovallas Fijas',
+  });
+  assert.deepEqual(ubicacionSinCara('Ecovallas Digital', [dig, imp, imp]), {
+    medio: 'Digital', tipo_mueble: 'Ecovallas Digital',
+  });
+  // Entrada solo del árbol (sin mueble): las caras marcadas, todas digitales.
+  assert.deepEqual(ubicacionSinCara(null, [dig, dig]), {
+    medio: 'Digital', tipo_mueble: 'Ecovallas Digital',
+  });
+  // Sin un único valor: null, no se inventa.
+  assert.deepEqual(ubicacionSinCara(null, [dig, imp]), { medio: null, tipo_mueble: null });
+  assert.deepEqual(ubicacionSinCara('Otro', [imp, imp]), {
+    medio: 'Impreso', tipo_mueble: 'Ecovallas Fijas',
+  });
+});
+
+test('Al reclasificar, el lado entra o sale del Adicional y la Puerta', () => {
+  assert.equal(ladoAlReclasificar('Norte', 'Adicional dañado'), 'Adicional');
+  assert.equal(ladoAlReclasificar(null, 'Puertas / copetes abiertos'), 'Puerta');
+  assert.equal(ladoAlReclasificar('Adicional', 'Pantalla apagada'), null);
+  assert.equal(ladoAlReclasificar('Adicional', 'Puerta sin chapa'), 'Puerta');
+  assert.equal(ladoAlReclasificar('Adicional', 'Adicional roto'), undefined);
+  assert.equal(ladoAlReclasificar('Sur', 'Pantalla apagada'), undefined);
+  assert.equal(ladoAlReclasificar(null, 'Chapa dañada'), undefined);
 });
