@@ -257,14 +257,14 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
 .modal .modal-actions.pie-fijo{position:sticky;bottom:0;z-index:2;margin:16px -22px -22px;padding:12px 22px 14px;
   background:var(--panel);border-top:1px solid var(--line);border-radius:0 0 16px 16px}
 @media(max-width:780px){
-  /* Hoja desde abajo: pegada al borde, esquinas solo arriba. margin-top:auto
-     la baja cuando es corta; cuando es larga empieza arriba y se desplaza
-     como siempre. */
-  .overlay:has(.pie-fijo){padding-left:0;padding-right:0}
-  .overlay:has(.pie-fijo)>.modal{margin-top:auto;border-radius:18px 18px 0 0;border-bottom:0;
-    padding-left:max(14px, env(safe-area-inset-left,0px));padding-right:max(14px, env(safe-area-inset-right,0px))}
+  /* CENTRADA (margin:auto 0), no como hoja pegada abajo: con poco
+     contenido —Nueva antes de elegir sitio, el detalle de un indicador,
+     Evidencia mientras carga— la hoja se quedaba al fondo de la pantalla
+     (Erik, 6-oct-2026). Cuando es más alta que la pantalla, los márgenes
+     automáticos valen 0: empieza arriba y se desplaza como siempre. */
+  .overlay:has(.pie-fijo)>.modal{margin:auto 0}
   .modal .modal-actions.pie-fijo{margin:14px -14px -16px;padding:10px 14px;
-    padding-bottom:max(24px, calc(10px + env(safe-area-inset-bottom,0px)));border-radius:0;flex-wrap:nowrap}
+    padding-bottom:max(24px, calc(10px + env(safe-area-inset-bottom,0px)));border-radius:0 0 16px 16px;flex-wrap:nowrap}
   .modal .modal-actions.pie-fijo .btn{min-height:46px}
   .modal .modal-actions.pie-fijo .btn.ghost{flex:0 0 auto}
 }
