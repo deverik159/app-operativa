@@ -152,10 +152,10 @@ input[type="checkbox"]:focus,input[type="radio"]:focus{box-shadow:none}
   border-top:1px solid var(--line2);border-radius:18px 18px 0 0;
   padding:8px 14px max(24px, calc(12px + env(safe-area-inset-bottom,0px)));
   padding-left:max(14px, env(safe-area-inset-left,0px));padding-right:max(14px, env(safe-area-inset-right,0px));
-  max-height:80vh;overflow-y:auto;box-shadow:0 -10px 40px var(--sombra);animation:hoja-mas-sube .24s cubic-bezier(.2,.8,.2,1)}
+  max-height:80vh;overflow-y:auto;box-shadow:0 -10px 40px var(--sombra);animation:hoja-mas-sube .24s cubic-bezier(.2,.8,.2,1),tf-aparece .01s}
 @supports (height: 1dvh){.hoja-mas{max-height:80dvh}}
 @keyframes hoja-mas-sube{from{transform:translateY(30px);opacity:.5}to{transform:none;opacity:1}}
-@media (prefers-reduced-motion: reduce){.hoja-mas{animation:none}}
+@media (prefers-reduced-motion: reduce){.hoja-mas{animation:tf-aparece .01s}}
 .hoja-mas-asa{width:36px;height:5px;border-radius:3px;background:var(--line2);margin:0 auto 12px}
 .hoja-mas h3{font-size:17px;font-weight:650;letter-spacing:-.015em;margin:0 4px 12px}
 .hoja-mas-lista{background:var(--panel);border:1px solid var(--line);border-radius:14px}
@@ -287,3 +287,10 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
 
 /* Lo que va encima del acento */
 .order-badge,.route-pin{color:var(--sobre-acento)}
+
+/* ---- Toque fantasma (lib/toqueFantasma.ts) ----
+   Animación MUDA (no cambia nada visible): solo sirve para que el código
+   se entere, con su animationstart, de que una ventana o panel acaba de
+   aparecer y descarte el clic repetido del toque que la abrió. */
+@keyframes tf-aparece{from{outline-color:transparent}to{outline-color:transparent}}
+.overlay,.panel-flotante{animation:tf-aparece .01s}

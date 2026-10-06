@@ -23,6 +23,7 @@ import { instalarReporteGlobal } from './lib/reportarError';
 import { iniciarTema } from './lib/tema';
 import { instalarDiagPantalla } from './lib/diagPantalla';
 import { iniciarArmazon } from './lib/armazon';
+import { instalarToqueFantasma } from './lib/toqueFantasma';
 
 // Antes del render: así también se registra lo que truene al arrancar.
 instalarReporteGlobal();
@@ -38,6 +39,8 @@ instalarDiagPantalla();
 // Armazón de app en el celular: apagado salvo en el teléfono que lo pidió
 // desde el diagnóstico. Ver lib/armazon.ts.
 iniciarArmazon();
+// Ventanas que se abrían y cerraban solas en iPhone: ver lib/toqueFantasma.ts.
+instalarToqueFantasma();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
