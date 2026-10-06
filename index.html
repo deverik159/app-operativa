@@ -10,15 +10,18 @@
          menú del avatar puede fijar Claro u Oscuro (src/lib/tema.ts).
          · color-scheme: el navegador sabe desde el primer byte que hay dos
            esquemas y pinta el lienzo del color correcto antes del CSS.
-         · theme-color (barra del sistema en Android y Safari): el naranja de
-           marca en los dos temas, como siempre.
+         · theme-color (barra del sistema en Android y Safari): el fondo de
+           la app en cada tema (rediseño "Precisión", oct-2026; antes el
+           naranja de marca). Uno por esquema para el primer pintado; luego
+           tema.ts los iguala al tema efectivo (también si se fija a mano).
          · El script pone data-tema ANTES del primer pintado: sin él, quien
            eligió Claro con el teléfono en oscuro vería un destello oscuro al
            abrir. Va antes de cualquier CSS/JS y no carga nada. Es el ÚNICO
            script en línea: mismo 'gpovallas_tema' que tema.ts; lo que no sea
            'claro'/'oscuro' es Automático (sin atributo). -->
     <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#ff5a3c" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f5f7" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0a0c" />
     <script>
       (function () {
         try {

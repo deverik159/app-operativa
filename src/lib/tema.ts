@@ -28,15 +28,16 @@ const CLAVE = 'gpovallas_tema';
 const CONSULTA_CLARO = '(prefers-color-scheme: light)';
 
 /**
- * Color de la barra del sistema (theme-color) por tema. Hoy el naranja de
- * marca en los dos, como antes del tema claro: la barra de Android era
- * naranja y se conserva (el reloj y los íconos se leen sobre él). iOS
- * instalado no usa theme-color (ver index.html). Se deja por tema para poder
- * cambiarlo sin tocar el resto.
+ * Color de la barra del sistema (theme-color) por tema. Rediseño
+ * "Precisión" (oct-2026): el mismo color del fondo de la app (--bg de
+ * estilo/precision.css), para que barra y app se lean como una sola pieza;
+ * antes era el naranja de marca en los dos temas. Android elige solo el
+ * color del reloj y los íconos según el fondo. iOS instalado no usa
+ * theme-color (ver index.html).
  */
 const COLOR_BARRA: Record<TemaEfectivo, string> = {
-  claro: '#ff5a3c',
-  oscuro: '#ff5a3c',
+  claro: '#f5f5f7',
+  oscuro: '#0a0a0c',
 };
 
 function esPref(v: unknown): v is PrefTema {
