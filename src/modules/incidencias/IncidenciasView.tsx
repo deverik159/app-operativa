@@ -2094,6 +2094,21 @@ function IncidenciasView({
   ]);
 
   /**
+   * Contador de lo que se ve (Erik, 6-oct-2026): "74 incidencias" sin
+   * filtros y "12 de 74" al filtrar. Antes el único número a la vista era el
+   * del historial cargado, que no cambia con los filtros.
+   */
+  const totalVista = (modo === 'bandeja' ? bandeja : itemsVista).length;
+  const hayFiltro =
+    fUN !== 'Todas' ||
+    fArea !== 'Todas' ||
+    fEstado !== 'Todos' ||
+    fReporta !== 'Todas' ||
+    !!fDesde ||
+    !!fHasta ||
+    !!q.trim();
+
+  /**
    * Pintado progresivo de tarjetas (ver PASO_PINTADO).
    *
    * El corte se guarda JUNTO con la "clave" de filtros para la que se pidió:
@@ -2720,7 +2735,7 @@ function IncidenciasView({
           <p className="phint" style={{ marginTop: -12 }}>
             {modo === 'todas' ? (
               <>
-                <Ic i={List} />Historial: se muestran las {historial.n.toLocaleString('es-MX')}{' '}
+                <Ic i={List} />Historial: se cargaron las {historial.n.toLocaleString('es-MX')}{' '}
                 cerradas o no reparadas más recientes (desde el{' '}
                 {diaCorto(historial.frontera)}).{' '}
                 {historial.tope
@@ -2891,6 +2906,14 @@ function IncidenciasView({
           </button>
         )}
       </div>
+
+      {!(modo === 'todas' && puedeVerTabla && vista === 'tabla') && (
+        <p className="phint" style={{ margin: '0 0 10px' }} role="status">
+          {hayFiltro
+            ? `${visibles.length.toLocaleString('es-MX')} de ${totalVista.toLocaleString('es-MX')} incidencia${totalVista === 1 ? '' : 's'}`
+            : `${totalVista.toLocaleString('es-MX')} incidencia${totalVista === 1 ? '' : 's'}`}
+        </p>
+      )}
 
       {visibles.length === 0 ? (
         <div className="empty">Sin incidencias para mostrar.</div>

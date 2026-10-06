@@ -1627,6 +1627,11 @@ salvo lo que se diga; pendientes en §9.1.
   de un teléfono. **NO correrlo hasta la víspera del piloto**, siguiendo el
   protocolo de su encabezado (vaciar las colas de envíos en cada equipo y
   cuenta, cerrar pestañas).
+- **Contador de la lista** (Incidencias y Mis pendientes, 6-oct): arriba de
+  las tarjetas dice "74 incidencias" y, con filtros o búsqueda, "12 de 74".
+  La línea del historial dice "se cargaron" (es lo cargado, no lo filtrado).
+  La tabla ya traía su propio conteo. El número del menú sigue siendo el de
+  pendientes, sin filtros.
 - **Pruebas**: `node --test tests/*.test.mjs` (24 en verde al 6-oct):
   `catalogoBiobox`, `departamentos`, `versionApp`, `maquinasBiobox`,
   `authInterno`.
