@@ -14,8 +14,10 @@
 // `capture` se ignora y el usuario acabaría con dos botones que hacen lo
 // mismo.
 // ============================================================
+import { Camera } from 'lucide-react';
 import { useRef, useState, useEffect } from 'react';
 import { prepararArchivos } from '../lib/comprimirImagen';
+import Ic from './Ic';
 
 type Props = {
   /** Recibe los archivos elegidos. Se acumulan en el padre, no aquí. */
@@ -280,7 +282,7 @@ function SubirArchivos({
             {procesando ? (
               <span className="spinner" />
             ) : (
-              <span style={{ fontSize: 17 }}>📷</span>
+              <Ic i={Camera} />
             )}{' '}
             {procesando ? 'Procesando…' : 'Cámara'}
           </button>
@@ -316,7 +318,7 @@ function SubirArchivos({
             disabled={disabled || procesando}
             onClick={() => camFotoRef.current?.click()}
           >
-            📷 Tomar foto
+            <Ic i={Camera} />Tomar foto
           </button>
           <button
             type="button"

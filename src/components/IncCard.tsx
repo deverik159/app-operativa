@@ -5,15 +5,22 @@
 import { memo, type CSSProperties } from 'react';
 import {
   Check,
+  Clock,
   Compass,
+  Cpu,
+  Hourglass,
   MapPin,
   MessageSquare,
   Paperclip,
   Pencil,
+  Repeat,
   Shuffle,
+  Target,
   Undo2,
+  User,
   Wrench,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   EST_COLOR,
@@ -25,6 +32,7 @@ import { alFallarMiniatura, esUrlVideo, urlMiniatura } from '../lib/storage';
 import PreviaVideo from './PreviaVideo';
 import { colorTono, fondoTono, tonoDe, type Tono } from '../lib/tonos';
 import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
+import Ic from './Ic';
 
 /**
  * Colores de un chip (tema claro/oscuro, 24-sep-2026): el texto y el tinte
@@ -190,7 +198,7 @@ function IncCard({
           </div>
           <div className="titulo">{i.nombre_incidencia}</div>
           {i.incidencia_srd && (
-            <div className="inc-srd">⚙ Digital: {i.incidencia_srd}</div>
+            <div className="inc-srd"><Ic i={Cpu} />Digital: {i.incidencia_srd}</div>
           )}
           <div className="meta">
             <span className="inc-clave">
@@ -216,7 +224,7 @@ function IncCard({
               {/* sla.color sigue siendo el hex de helpers.ts (lo comparan
                   los avisos de IncidenciasView); aquí solo elige el tono. */}
               <span className="pill multilinea" style={chipDe(sla.color)}>
-                ⏱ {etiquetaSla}: {sla.label}
+                <Ic i={Clock} />{etiquetaSla}: {sla.label}
               </span>
             </div>
           )}
@@ -237,7 +245,7 @@ function IncCard({
                     Guardando…
                   </>
                 ) : (
-                  '⏳ En cola'
+                  <><Ic i={Hourglass} />En cola</>
                 )}
               </span>
             </div>
@@ -260,7 +268,7 @@ function IncCard({
           quién regresarle respuesta sin buscar en ningún otro lado. */}
       {(i.contacto_correo || i.contacto_telefono || i.via_reporte) && (
         <div className="inc-contacto">
-          👤 Solicitó{i.via_reporte ? ` por ${i.via_reporte}` : ''}:{' '}
+          <Ic i={User} />Solicitó{i.via_reporte ? ` por ${i.via_reporte}` : ''}:{' '}
           {[i.contacto_correo, i.contacto_telefono].filter(Boolean).join(' · ')}
         </div>
       )}
@@ -313,7 +321,7 @@ function IncCard({
             style={chip('morado')}
             title="Lado de la cara reportada"
           >
-            🧭 Cara {i.lado}
+            <Ic i={Compass} />Cara {i.lado}
           </span>
         )}
         {/* tipo (Imponderable…) y origen ya no se muestran en la tarjeta:
@@ -333,7 +341,7 @@ function IncCard({
             style={chip('morado')}
             title={`Reasignada: antes pertenecía a ${i.reasignada_de}`}
           >
-            🔁 Antes: {i.reasignada_de}
+            <Ic i={Repeat} />Antes: {i.reasignada_de}
           </span>
         )}
         {redirigida && (
@@ -342,12 +350,12 @@ function IncCard({
             style={chip('acento')}
             title="Área que realmente repara (el catálogo decía otra)"
           >
-            🛠 Repara: {i.assigned_area}
+            <Ic i={Wrench} />Repara: {i.assigned_area}
           </span>
         )}
         {i.campania && (
           <span className="tag" style={{ overflowWrap: 'anywhere', maxWidth: '100%' }}>
-            🎯 {i.campania}
+            <Ic i={Target} />{i.campania}
           </span>
         )}
         {/* Rastro visible de los rechazos: el motivo se sobrescribe con cada
@@ -411,7 +419,7 @@ function IncCard({
       {i.reasignacion_pendiente && (
         <div className="inc-aviso">
           <span className="pill" style={chip('morado')}>
-            🔀 Reasignación pendiente
+            <Ic i={Shuffle} />Reasignación pendiente
           </span>
         </div>
       )}
@@ -439,7 +447,7 @@ function IncCard({
               teléfono ensanchaba TODA la lista de tarjetas (los items del
               grid no encogen por debajo de su min-content). */}
           <span className="pill multilinea" style={chip('azul')}>
-            ⚡ Directa a Digital · prevalidación pendiente
+            <Ic i={Zap} />Directa a Digital · prevalidación pendiente
           </span>
         </div>
       )}

@@ -19,6 +19,7 @@
 // Si la ubicación no tiene coordenadas, el botón NO se dibuja: es preferible
 // su ausencia a mandar al monitorista a un punto equivocado.
 // ============================================================
+import { Map, MapPin, Navigation } from 'lucide-react';
 import { useState } from 'react';
 import {
   urlGoogleMaps,
@@ -28,6 +29,7 @@ import {
 } from '../lib/navegacion';
 import type { Destino } from '../lib/navegacion';
 import { esIOS } from '../lib/plataforma';
+import Ic from './Ic';
 
 type Props = {
   destino: { lat?: number | null; lng?: number | null; nombre?: string | null };
@@ -107,7 +109,7 @@ function IrAqui({ destino, size = 'sm' }: Props) {
         title={`Navegar a ${destino.nombre || 'esta ubicación'}`}
         style={{ flexShrink: 0 }}
       >
-        🧭 Ir
+        <Ic i={Navigation} />Ir
       </button>
 
       {abierto && (
@@ -133,18 +135,18 @@ function IrAqui({ destino, size = 'sm' }: Props) {
 
             <div style={{ display: 'grid', gap: 8 }}>
               {opcion(
-                '🗺️',
+                <Map size={20} aria-hidden="true" />,
                 'Google Maps',
                 'Desde tu ubicación actual',
                 urlGoogleMaps(d)
               )}
-              {opcion('🚗', 'Waze', 'Con alertas de tráfico', urlWaze(d))}
+              {opcion(<Navigation size={20} aria-hidden="true" />, 'Waze', 'Con alertas de tráfico', urlWaze(d))}
               {esApple() &&
                 opcion(
                   // Emoji, NO el carácter del logo de Apple (U+F8FF): ese es
                   // de "Área de Uso Privado" y solo tiene glifo con la fuente
                   // de Apple. En el navegador se dibuja vacío.
-                  '🍎',
+                  <MapPin size={20} aria-hidden="true" />,
                   'Apple Maps',
                   'App de mapas del iPhone',
                   urlAppleMaps(d)

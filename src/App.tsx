@@ -26,6 +26,7 @@ import {
   Suspense,
   type ComponentType,
 } from 'react';
+import { Lock, RefreshCw, WifiOff } from 'lucide-react';
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES } from './lib/constants';
@@ -54,6 +55,7 @@ import { lazyConReintento, fijarModuloEnPantalla } from './lib/cargaDiferida';
 // fallar— por la descarga de un chunk.
 import IncidenciasView from './modules/incidencias/IncidenciasView';
 import type { UsuarioRol } from './types/db';
+import Ic from './components/Ic';
 
 /**
  * Los demás módulos se descargan al abrir su pestaña (auditoría primer mes,
@@ -583,7 +585,7 @@ function Login() {
         </div>
         {!enLinea && !err && (
           <div className="banner" role="status">
-            📴 Sin señal. {NECESITAS_SENAL}
+            <Ic i={WifiOff} />Sin señal. {NECESITAS_SENAL}
           </div>
         )}
         {err && <div className="err">{err}</div>}
@@ -728,7 +730,7 @@ function SinAcceso({ email }: { email: string }) {
   return (
     <div className="login">
       <div className="login-card">
-        <div className="logo">🔒</div>
+        <div className="logo"><Lock size={24} strokeWidth={2} aria-hidden="true" /></div>
         <h1>Falta darte acceso</h1>
         <div className="sub">
           Tu cuenta se creó correctamente, pero todavía no tiene permisos en la
@@ -1809,8 +1811,9 @@ function Main({
             className="btn ghost sm"
             onClick={recargarTodo}
             title="Recargar"
+            aria-label="Recargar"
           >
-            ↻
+            <RefreshCw size={16} strokeWidth={2} aria-hidden="true" style={{ verticalAlign: -3 }} />
           </button>
           <BotonPush email={email} />
           <CampanaNotifs
@@ -1871,7 +1874,7 @@ function Main({
           con lo guardado y que lo capturado no se pierde. */}
       {!enLinea && (
         <div className="banner" style={{ margin: '10px 16px 0' }} role="status">
-          📴 Sin señal: trabajas con lo guardado en el teléfono. Lo que hagas se
+          <Ic i={WifiOff} />Sin señal: trabajas con lo guardado en el teléfono. Lo que hagas se
           envía solo al volver la red.
         </div>
       )}

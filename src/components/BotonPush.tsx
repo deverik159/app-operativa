@@ -7,6 +7,7 @@
 // Safari, hay que agregar la app a la pantalla de inicio primero, y sin
 // explicarlo el usuario cree que la app está rota.
 // ============================================================
+import { Bell, PhoneOff, Smartphone } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import {
   estadoPush,
@@ -17,6 +18,7 @@ import {
 import type { EstadoPush } from '../lib/push';
 import { esIOS as esIOSLib } from '../lib/plataforma';
 import CerrarModal from './CerrarModal';
+import Ic from './Ic';
 
 function BotonPush({ email }: { email: string }) {
   const [estado, setEstado] = useState<EstadoPush | null>(null);
@@ -82,7 +84,11 @@ function BotonPush({ email }: { email: string }) {
             notificaciones que ya tienes; esto otro es un ajuste DEL APARATO:
             si este teléfono o esta computadora recibe avisos cuando la app
             está cerrada. Dos campanas juntas se leían como lo mismo. */}
-        {activo ? '📲' : '📵'}
+        {activo ? (
+          <Smartphone size={16} strokeWidth={2} aria-hidden="true" style={{ verticalAlign: -3 }} />
+        ) : (
+          <PhoneOff size={16} strokeWidth={2} aria-hidden="true" style={{ verticalAlign: -3 }} />
+        )}
       </button>
 
       {abierto && (
@@ -188,7 +194,7 @@ function BotonPush({ email }: { email: string }) {
               </button>
               {estado === 'sin-permiso' && (
                 <button className="btn" onClick={activar} disabled={busy}>
-                  {busy ? 'Activando…' : '🔔 Activar'}
+                  {busy ? 'Activando…' : <><Ic i={Bell} />Activar</>}
                 </button>
               )}
               {activo && (

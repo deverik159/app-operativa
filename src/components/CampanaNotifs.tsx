@@ -3,10 +3,12 @@
 // La campana 🔔 de la barra superior con su panel desplegable.
 // Solo presentación: el estado vive en useNotificaciones().
 // ============================================================
+import { Bell } from 'lucide-react';
 import { useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useClickFuera } from '../lib/useClickFuera';
 import type { Notificacion } from '../types/db';
+import Ic from './Ic';
 
 type Props = {
   notifs: Notificacion[];
@@ -70,7 +72,7 @@ function CampanaNotifs({
         title="Notificaciones"
         style={{ position: 'relative' }}
       >
-        🔔
+        <Bell size={16} strokeWidth={2} aria-hidden="true" style={{ verticalAlign: -3 }} />
         {noLeidas > 0 && (
           <span
             className="badge-pulse"

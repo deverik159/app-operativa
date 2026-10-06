@@ -33,8 +33,10 @@
 // monitorista (lib/visitas.ts: "Marcar visita" sin señal), con los mismos
 // disparadores, su propia vuelta y su propio descartar.
 // ============================================================
+import { MapPin } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sb } from '../lib/supabase';
+import Ic from './Ic';
 import {
   descartarEnvio,
   listarPendientes,
@@ -498,7 +500,7 @@ function EnviosPendientes({
             visitas.map((p) => (
               <div key={p.id} style={renglon}>
                 <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-                  <div style={{ fontWeight: 700 }}>🧭 {p.resumen}</div>
+                  <div style={{ fontWeight: 700 }}><Ic i={MapPin} />{p.resumen}</div>
                   <div>
                     Visita de las {hora(p.visitado_en)} · {plural(p.fotos, 'foto', 'fotos')}
                     {p.subidas > 0 && ` (${p.subidas} ya subidas)`}
