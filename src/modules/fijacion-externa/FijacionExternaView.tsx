@@ -932,23 +932,33 @@ function FijacionExternaView({
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        {/* Sin width:'auto' inline: anulaba el apilado a ancho completo que
-            la media query de .toolbar da en celular. Cambiar de estado sube
-            la página antes (lib/subirAntes.ts, 5-oct-2026). */}
-        <select
-          value={fEstado}
-          onChange={(e) => {
-            const v = e.target.value;
-            subirYLuego(() => {
-              setFEstado(v);
-              cargar(v);
-            }, 'fij-estado');
-          }}
-        >
-          <option value="PENDIENTE">Pendientes</option>
-          <option value="COMPLETO">Completos</option>
-          <option value="TODOS">Todos</option>
-        </select>
+        {/* Segmento y no <select> (rediseño, oct-2026): son 3 opciones y,
+            como en Rutas, los botones evitan la rueda del iPhone. Cambiar de
+            estado sube la página antes (lib/subirAntes.ts, 5-oct-2026). */}
+        <div className="segmento" role="group" aria-label="Estado de los registros">
+          {(
+            [
+              ['PENDIENTE', 'Pendientes'],
+              ['COMPLETO', 'Completos'],
+              ['TODOS', 'Todos'],
+            ] as const
+          ).map(([v, t]) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={fEstado === v}
+              onClick={() => {
+                if (fEstado === v) return;
+                subirYLuego(() => {
+                  setFEstado(v);
+                  cargar(v);
+                }, 'fij-estado');
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className={'fij-split' + (recargando ? ' recargando' : '')}>

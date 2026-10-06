@@ -2423,15 +2423,6 @@ function BitacoraVVView({
           onChange={(e) => setQ(e.target.value)}
           placeholder="Cliente, campaña o Quantum…"
         />
-        <button
-          className={'btn sm' + (vistaAire ? '' : ' ghost')}
-          onClick={() => setVistaAire((v) => !v)}
-        >
-          📡 {vistaAire ? 'Ver campañas' : 'Hoy al aire'}
-        </button>
-        <button className="btn ghost sm" onClick={() => setVerCerradas((v) => !v)}>
-          {verCerradas ? 'Ocultar cerradas' : 'Ver cerradas'}
-        </button>
         {puedeCapturar && (
           <button
             className="btn"
@@ -2443,6 +2434,26 @@ function BitacoraVVView({
             ➕ Nueva campaña
           </button>
         )}
+      </div>
+      {/* Vista en segmento (rediseño, oct-2026): se ve en cuál estás. Antes
+          era un botón que decía la OTRA vista ("📡 Ver campañas"). */}
+      <div className="toolbar filtros-pildora">
+        <div className="segmento" role="group" aria-label="Vista">
+          <button type="button" aria-pressed={!vistaAire} onClick={() => setVistaAire(false)}>
+            Campañas
+          </button>
+          <button type="button" aria-pressed={vistaAire} onClick={() => setVistaAire(true)}>
+            📡 Hoy al aire
+          </button>
+        </div>
+        <button
+          type="button"
+          className={'btn ghost sm' + (verCerradas ? ' on' : '')}
+          aria-pressed={verCerradas}
+          onClick={() => setVerCerradas((v) => !v)}
+        >
+          Ver cerradas
+        </button>
       </div>
 
       {vistaAire ? (

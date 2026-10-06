@@ -209,14 +209,15 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
     <div>
       <h2 className="page">Máquinas Biobox</h2>
       <p className="phint">Revisión de máquinas por ruta, estado del inventario e incidencias abiertas.</p>
-      <div className="toolbar">
+      {/* Píldoras (rediseño, oct-2026). */}
+      <div className="toolbar filtros-pildora">
         <select aria-label="Unidad" value={unidad} onChange={(e) => {
           setUnidad(e.target.value); setRutaFoco(null); setDetalle(null); setMaquinaAbierta(null);
           setUbics([]); setEstado({}); setActualizado(null);
         }}>
           {UNIDADES_BIOBOX.map((u) => <option key={u} value={u}>Unidad: {u}</option>)}
         </select>
-        <select aria-label="Medio" value={medio} onChange={(e) => setMedio(e.target.value)}>
+        <select aria-label="Medio" className={medio !== 'todos' ? 'on' : undefined} value={medio} onChange={(e) => setMedio(e.target.value)}>
           <option value="todos">Medio: Digital e Impreso</option>
           <option value="Digital">Digital</option><option value="Impreso">Impreso</option>
         </select>
@@ -235,13 +236,16 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
       {!!ubics.length && <>
         <div className="toolbar">
           <input className="search" aria-label="Buscar máquina" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por número, dirección o clave" />
+        </div>
+        <div className="toolbar filtros-pildora">
           <select aria-label="Orden de máquinas" value={orden} onChange={(e) => setOrden(e.target.value as Orden)}>
             <option value="abandono">Ordenar: más urgente primero</option>
             <option value="secuencia">Ordenar: secuencia de la ruta</option>
             <option value="nombre">Ordenar: número de máquina</option>
           </select>
-          <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12 }}>
-            <input type="checkbox" checked={soloPendientes} onChange={(e) => setSoloPendientes(e.target.checked)} style={{ width: 'auto' }} />
+          {/* Casilla real dentro de una píldora (.pildora-check). */}
+          <label className="pildora-check">
+            <input type="checkbox" checked={soloPendientes} onChange={(e) => setSoloPendientes(e.target.checked)} />
             Solo las que toca revisar
           </label>
         </div>
@@ -254,9 +258,9 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
           </button>)}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 9, margin: '14px 0' }}>
-          {indicadores.map((i) => <button key={i.id} type="button" disabled={cargando} onClick={() => { setDetalle(i.id); setMaquinaAbierta(null); }} style={{ background: 'var(--panel2)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', minWidth: 0, textAlign: 'left', cursor: 'pointer', font: 'inherit' }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: i.color }}>{i.filas.length}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{i.titulo}</div>
+          {indicadores.map((i) => <button key={i.id} type="button" disabled={cargando} onClick={() => { setDetalle(i.id); setMaquinaAbierta(null); }} className="card" style={{ minWidth: 0, textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
+            <div className="n" style={{ color: i.color }}>{i.filas.length}</div>
+            <div className="l">{i.titulo}</div>
           </button>)}
         </div>
         {rutaFoco != null && !!tramos.length && <div className="card" style={{ marginBottom: 12 }}>

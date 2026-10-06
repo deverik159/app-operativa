@@ -787,10 +787,13 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       </p>
       {err && <div className="err">{err}</div>}
 
-      <div className="toolbar">
+      {/* Píldoras (rediseño, oct-2026): catorcena y ruta; la ruta se resalta
+          cuando filtra. */}
+      <div className="toolbar filtros-pildora">
         {/* Catorcena, ruta, campañas y tarjetas cambian mucho el alto de la
             lista: se sube la página antes (lib/subirAntes.ts, 5-oct-2026). */}
         <select
+          aria-label="Catorcena"
           value={catSel ?? ''}
           onChange={(e) => {
             const v = Number(e.target.value);
@@ -804,6 +807,8 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
           ))}
         </select>
         <select
+          aria-label="Ruta"
+          className={fRuta !== 'Todas' ? 'on' : undefined}
           value={fRuta}
           onChange={(e) => {
             const v = e.target.value;
@@ -819,6 +824,8 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
             </option>
           ))}
         </select>
+      </div>
+      <div className="toolbar">
         {/* El filtro de avance ya no es un select: son las tarjetas de
             abajo, que ahora se tocan para filtrar. */}
         <input

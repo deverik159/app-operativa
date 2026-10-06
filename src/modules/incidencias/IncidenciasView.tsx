@@ -2776,19 +2776,23 @@ function IncidenciasView({
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+      </div>
+      {/* Píldoras (rediseño, oct-2026): una fila deslizable en celular; el
+          filtro que está actuando se resalta con .on. */}
+      <div className="toolbar filtros-pildora">
         {/* Cada filtro dice QUÉ filtra en su primera opción: sin eso, tres
             selects que dicen "Todas / Todas / Todos" no se distinguen
             (pliego petitorio). El value se queda igual: es el que comparan
             los filtros. */}
         {/* Solo las unidades del usuario: a quien reporta únicamente en
             Ecovallas, ofrecerle Biobox solo produce filtros vacíos. */}
-        <select value={fUN} onChange={(e) => setFUN(e.target.value)}>
+        <select aria-label="Unidad" className={fUN !== 'Todas' ? 'on' : undefined} value={fUN} onChange={(e) => setFUN(e.target.value)}>
           <option value="Todas">Unidad: todas</option>
           {misUnidades.map((u) => (
             <option key={u}>{u}</option>
           ))}
         </select>
-        <select value={fArea} onChange={(e) => setFArea(e.target.value)}>
+        <select aria-label="Área" className={fArea !== 'Todas' ? 'on' : undefined} value={fArea} onChange={(e) => setFArea(e.target.value)}>
           <option value="Todas">Área: todas</option>
           {areasElegibles.map((a) => (
             <option key={a} value={a}>
@@ -2796,7 +2800,7 @@ function IncidenciasView({
             </option>
           ))}
         </select>
-        <select value={fReporta} onChange={(e) => setFReporta(e.target.value)}>
+        <select aria-label="Reporta" className={fReporta !== 'Todas' ? 'on' : undefined} value={fReporta} onChange={(e) => setFReporta(e.target.value)}>
           <option value="Todas">Reporta: todas</option>
           {areasReportantes.map((a) => (
             <option key={a} value={a}>
@@ -2804,7 +2808,7 @@ function IncidenciasView({
             </option>
           ))}
         </select>
-        <select value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
+        <select aria-label="Estatus" className={fEstado !== 'Todos' ? 'on' : undefined} value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
           <option value="Todos">Estatus: todos</option>
           {/* `reportado` sale del selector: es un estatus heredado que ya
               no produce el flujo (todo nace en `por_validar` o, con
@@ -2820,6 +2824,8 @@ function IncidenciasView({
               </option>
             ))}
         </select>
+      </div>
+      <div className="toolbar">
         {/* Rango de fechas de captura. Etiqueta VISIBLE y no solo `title`:
             los tooltips no existen en táctil, y en iOS un input date vacío
             no pinta placeholder — eran dos pastillas en blanco idénticas. */}

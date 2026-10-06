@@ -316,6 +316,14 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 11px center}
 .toolbar.filtros-pildora select.on{background-color:var(--txt);color:var(--bg);border-color:var(--txt)}
+/* Casilla dentro de una píldora (p. ej. "Solo las que toca revisar"). */
+.pildora-check{display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;height:34px;padding:0 13px;border-radius:17px;
+  border:1px solid var(--line2);font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;white-space:nowrap}
+.pildora-check input{width:auto;margin:0;accent-color:var(--accent)}
+.pildora-check:has(input:checked){background:var(--txt);color:var(--bg);border-color:var(--txt)}
+.toolbar.filtros-pildora .btn{flex:0 0 auto;border-radius:17px}
+.toolbar.filtros-pildora .btn.on{background:var(--txt);color:var(--bg);border-color:var(--txt)}
+.toolbar.filtros-pildora .segmento{flex:0 0 auto;width:auto}
 @media(max-width:780px){
   /* Una fila que se desliza de lado (antes: un select por renglón). 16px de
      letra: con menos, iOS hace zoom al tocar el select. */
@@ -323,5 +331,6 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
     padding:0 12px 2px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
   .toolbar.filtros-pildora::-webkit-scrollbar{display:none}
   .toolbar.filtros-pildora select{width:auto;flex:0 0 auto;height:38px;border-radius:19px;font-size:16px}
+  .pildora-check{height:38px;border-radius:19px;font-size:14px}
   .segmento{width:100%}
 }
