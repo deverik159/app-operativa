@@ -182,9 +182,40 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
 @media(max-width:380px){.card .l{font-size:11.5px}}
 
 .inc{border-radius:14px}
-.inc .folio{font-weight:500;color:var(--faint);font-variant-numeric:tabular-nums}
+.inc .folio{font-weight:500;color:var(--faint)}
 .inc .titulo{font-weight:600;letter-spacing:-.015em}
 .inc .meta{line-height:1.55}
+
+/* ---- Tarjeta de incidencia (components/IncCard.tsx) ---- */
+.inc .meta{display:flex;flex-direction:column;gap:1px}
+.inc-clave{overflow-wrap:anywhere}
+.inc-dir{display:flex;align-items:flex-start;gap:5px}
+.inc-dir svg{flex-shrink:0;margin-top:3px;color:var(--faint)}
+.inc-srd{color:var(--accent2);font-size:12px;font-weight:600;margin-top:3px}
+/* Estatus: punto de color + texto (el tono llega en --c). */
+.inc-col-estado{display:flex;flex-direction:column;align-items:flex-end;gap:6px;text-align:right}
+.inc-estado{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--txt);white-space:nowrap}
+.inc-estado i,.chip-tono i{width:7px;height:7px;border-radius:50%;background:var(--c);flex-shrink:0}
+.inc-estado i{box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 22%,transparent)}
+/* Nivel: etiqueta de contorno con punto. */
+.chip-tono{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:6px;border:1px solid var(--line2);
+  font-size:11.5px;font-weight:500;color:var(--muted);white-space:nowrap}
+.inc-contacto{font-size:12px;color:var(--muted);margin:4px 0 8px}
+.inc-captura{font-size:11.5px;color:var(--faint);margin-top:9px}
+.inc-detalle{background:var(--panel2);border-radius:10px;padding:9px 11px;margin-top:9px;color:var(--muted)}
+.inc-rechazo{background:var(--err-fondo);border:1px solid var(--err-borde);border-radius:10px;padding:9px 11px;margin-top:9px;color:var(--err-txt)}
+.inc-aviso{margin-top:9px}
+.inc-globo-chat{margin-left:2px;background:#22c55e;color:#0b3d1e;border-radius:20px;font-size:10px;font-weight:800;padding:0 6px}
+/* Botones de la tarjeta: ícono + texto. La acción principal va arriba y
+   las filas que siguen ya no repiten la línea separadora. */
+.inc-actions .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.inc-actions+.inc-actions{border-top:0;padding-top:0;margin-top:8px}
+.btn.peligro{color:var(--hi);border-color:color-mix(in srgb,var(--hi) 45%,transparent)}
+.btn.peligro:hover{background-color:color-mix(in srgb,var(--hi) 9%,transparent)}
+@media(max-width:780px){
+  /* En celular el estatus va abajo del encabezado (index.css); aquí en fila. */
+  .inc-col-estado{flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;text-align:left}
+}
 
 /* Lista agrupada (orden "B"): las tarjetas se juntan en un solo bloque con
    separadores finos. Solo donde se pide con .agrupada (hoy Incidencias),

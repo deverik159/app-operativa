@@ -2,7 +2,19 @@
 // src/components/IncCard.tsx
 // Tarjeta de una incidencia con sus acciones. Traducido del HTML.
 // ============================================================
-import { memo } from 'react';
+import { memo, type CSSProperties } from 'react';
+import {
+  Check,
+  Compass,
+  MapPin,
+  MessageSquare,
+  Paperclip,
+  Pencil,
+  Shuffle,
+  Undo2,
+  Wrench,
+  X,
+} from 'lucide-react';
 import {
   EST_COLOR,
   EST_LABEL,
@@ -24,6 +36,15 @@ import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
  */
 const chip = (t: Tono) => ({ background: fondoTono(t), color: colorTono(t) });
 const chipDe = (hex: string | null | undefined) => chip(tonoDe(hex) ?? 'gris');
+/**
+ * Rediseño "Precisión" (oct-2026): el estatus y el nivel van como un punto
+ * de color con texto (.inc-estado, .chip-tono en estilo/precision.css). El
+ * tono sale de las mismas variables de tema; aquí solo se pasa en --c.
+ */
+const tonoVar = (hex: string | null | undefined) =>
+  ({ '--c': colorTono(tonoDe(hex) ?? 'gris') }) as CSSProperties;
+/** Íconos de los botones de la tarjeta: mismo tamaño en todos. */
+const IC = { size: 15, strokeWidth: 2, 'aria-hidden': true } as const;
 
 /** Modo del modal de reasignación: pedirla, o revisarla como coordinador. */
 export type ModoReasign = 'solicitar' | 'aprobar';
@@ -169,31 +190,29 @@ function IncCard({
           </div>
           <div className="titulo">{i.nombre_incidencia}</div>
           {i.incidencia_srd && (
-            <div
-              style={{
-                color: 'var(--accent2)',
-                fontSize: 12,
-                fontWeight: 700,
-                marginTop: 3,
-              }}
-            >
-              ⚙ Digital: {i.incidencia_srd}
-            </div>
+            <div className="inc-srd">⚙ Digital: {i.incidencia_srd}</div>
           )}
           <div className="meta">
-            {i.medio} · {i.clave_sitio}
-            {i.lado || i.clave_medio ? ` · cara ${caraIncidencia(i)}` : ''}
-            {i.nombre_biobox ? ` · ${i.nombre_biobox}` : ''}
-            <br />
-            {i.direccion}
+            <span className="inc-clave">
+              {i.medio} · {i.clave_sitio}
+              {i.lado || i.clave_medio ? ` · cara ${caraIncidencia(i)}` : ''}
+              {i.nombre_biobox ? ` · ${i.nombre_biobox}` : ''}
+            </span>
+            {i.direccion && (
+              <span className="inc-dir">
+                <MapPin size={13} strokeWidth={2} aria-hidden="true" />
+                {i.direccion}
+              </span>
+            )}
           </div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <span className="pill" style={chipDe(EST_COLOR[i.estatus])}>
+        <div className="inc-col-estado">
+          <span className="inc-estado" style={tonoVar(EST_COLOR[i.estatus])}>
+            <i />
             {EST_LABEL[i.estatus] || i.estatus}
           </span>
           {sla && (
-            <div style={{ marginTop: 6 }}>
+            <div>
               {/* sla.color sigue siendo el hex de helpers.ts (lo comparan
                   los avisos de IncidenciasView); aquí solo elige el tono. */}
               <span className="pill multilinea" style={chipDe(sla.color)}>
@@ -202,7 +221,7 @@ function IncCard({
             </div>
           )}
           {(ocupada || enCola) && (
-            <div style={{ marginTop: 6 }}>
+            <div>
               <span
                 className="pill multilinea"
                 style={chip('ambar')}
@@ -224,7 +243,7 @@ function IncCard({
             </div>
           )}
           {conError && !ocupada && (
-            <div style={{ marginTop: 6 }}>
+            <div>
               <span
                 className="pill multilinea"
                 style={chip('rojo')}
@@ -240,7 +259,7 @@ function IncCard({
       {/* Contacto del solicitante (lo captura MKT): quien atiende ve a
           quién regresarle respuesta sin buscar en ningún otro lado. */}
       {(i.contacto_correo || i.contacto_telefono || i.via_reporte) && (
-        <div style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 8px' }}>
+        <div className="inc-contacto">
           👤 Solicitó{i.via_reporte ? ` por ${i.via_reporte}` : ''}:{' '}
           {[i.contacto_correo, i.contacto_telefono].filter(Boolean).join(' · ')}
         </div>
@@ -283,7 +302,8 @@ function IncCard({
       )}
       <div className="chips">
         {i.nivel && (
-          <span className="pill" style={chipDe(NIVEL_COLOR[i.nivel])}>
+          <span className="chip-tono" style={tonoVar(NIVEL_COLOR[i.nivel])}>
+            <i />
             Nivel {i.nivel}
           </span>
         )}
@@ -344,8 +364,8 @@ function IncCard({
           </span>
         )}
       </div>
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-        🕒 Capturada:{' '}
+      <div className="inc-captura">
+        Capturada:{' '}
         {i.fecha_reporte
           ? new Date(i.fecha_reporte).toLocaleString('es-MX', {
               dateStyle: 'medium',
@@ -357,16 +377,7 @@ function IncCard({
         {i.captured_by ? ` · por ${String(i.captured_by).split('@')[0]}` : ''}
       </div>
       {(i.detalle_reparacion || i.diagnostico || i.causa_raiz || i.solucion) && (
-        <div
-          className="obs"
-          style={{
-            background: 'var(--panel2)',
-            borderRadius: 9,
-            padding: '9px 11px',
-            marginTop: 9,
-            color: 'var(--muted)',
-          }}
-        >
+        <div className="obs inc-detalle">
           {i.diagnostico && (
             <div>
               <b>Diagnóstico:</b> {i.diagnostico}
@@ -391,93 +402,19 @@ function IncCard({
       )}
       {i.estatus === 'en_proceso' && i.motivo_rechazo_reparacion && (
         // Los colores de la caja .err, con su pareja del tema claro
-        // (tema claro/oscuro, 24-sep-2026).
-        <div
-          className="obs"
-          style={{
-            background: 'var(--err-fondo)',
-            border: '1px solid var(--err-borde)',
-            borderRadius: 9,
-            padding: '9px 11px',
-            marginTop: 9,
-            color: 'var(--err-txt)',
-          }}
-        >
+        // (tema claro/oscuro, 24-sep-2026). Ver .inc-rechazo.
+        <div className="obs inc-rechazo">
           ⚠️ Reparación rechazada por el validador: “
           {i.motivo_rechazo_reparacion}”
         </div>
       )}
       {i.reasignacion_pendiente && (
-        <div style={{ marginTop: 9 }}>
+        <div className="inc-aviso">
           <span className="pill" style={chip('morado')}>
             🔀 Reasignación pendiente
           </span>
         </div>
       )}
-      <div className="inc-actions">
-        <button className="btn ghost sm" onClick={() => onEvidence(i)}>
-          📎 Evidencia
-        </button>
-        <button className="btn ghost sm" onClick={() => onChat(i)}>
-          💬 Chat
-          {nChat > 0 && (
-            // Globo sólido: verde con texto verde oscuro se lee igual en los
-            // dos temas (≈5:1), por eso sus colores se quedan fijos.
-            <span
-              className="badge-pulse"
-              style={{
-                marginLeft: 6,
-                background: '#22c55e',
-                color: '#0b3d1e',
-                borderRadius: 20,
-                fontSize: 10,
-                fontWeight: 800,
-                padding: '0 6px',
-              }}
-            >
-              {nChat}
-            </span>
-          )}
-        </button>
-        {puedeEditar && (
-          <button
-            className="btn ghost sm"
-            onClick={() => onEdit(i)}
-            disabled={bloqueadaRed}
-          >
-            ✏️ Editar
-          </button>
-        )}
-        {i.estatus === 'en_proceso' &&
-          !i.reasignacion_pendiente &&
-          can.reasignar && (
-            <button
-              className="btn ghost sm"
-              onClick={() => onReassign(i, 'solicitar')}
-              disabled={bloqueadaRed}
-            >
-              🔀 Reasignar
-            </button>
-          )}
-        {i.reasignacion_pendiente && can.aprobarReasign && (
-          <button
-            className="btn ghost sm"
-            onClick={() => onReassign(i, 'aprobar')}
-            disabled={bloqueadaRed}
-          >
-            🔀 Revisar reasignación
-          </button>
-        )}
-        {puedeCorregir && (
-          <button
-            className="btn ghost sm"
-            onClick={() => onCorregir(i)}
-            disabled={bloqueadaRed}
-          >
-            🧭 Corrección
-          </button>
-        )}
-      </div>
       {can.validar && i.estatus === 'por_validar' && (
         <div className="inc-actions">
           {/* UN SOLO BOTÓN. Estuvo partido en "Validar" y "Validar y asignar"
@@ -486,17 +423,18 @@ function IncCard({
 
               El rechazo tampoco está aquí: ver la nota del final. */}
           <button
-            className="btn ok sm"
+            className="btn sm"
             onClick={() => onEstatus(i.record_id, 'en_proceso')}
             disabled={bloqueada}
           >
-            ✓ Validar incidencia
+            <Check {...IC} />
+            Validar incidencia
           </button>
         </div>
       )}
 
       {prevalidacionPend && (
-        <div style={{ marginTop: 9 }}>
+        <div className="inc-aviso">
           {/* multilinea: la frase completa mide ~320px en nowrap y en un
               teléfono ensanchaba TODA la lista de tarjetas (los items del
               grid no encogen por debajo de su min-content). */}
@@ -508,36 +446,39 @@ function IncCard({
       {puedeReparar && i.estatus === 'en_proceso' && prevalidacionPend && (
         <div className="inc-actions">
           <button
-            className="btn ok sm"
+            className="btn sm"
             onClick={() => onPrevalidar(i)}
             disabled={bloqueada}
           >
-            ✓ Prevalidar
+            <Check {...IC} />
+            Prevalidar
           </button>
           <button
-            className="btn hi sm"
+            className="btn ghost sm peligro"
             onClick={() => onDescartar(i)}
             disabled={bloqueada}
           >
-            ✕ Descartar
+            <X {...IC} />
+            Descartar
           </button>
         </div>
       )}
       {puedeReparar && i.estatus === 'en_proceso' && !prevalidacionPend && (
         <div className="inc-actions">
           <button
-            className="btn warn sm"
+            className="btn sm"
             onClick={() => onRepair(i)}
             disabled={bloqueada}
           >
-            🔧 Registrar reparación
+            <Wrench {...IC} />
+            Registrar reparación
           </button>
         </div>
       )}
       {can.validar && i.estatus === 'reparado' && (
         <div className="inc-actions">
           <button
-            className="btn ok sm"
+            className="btn sm"
             disabled={bloqueada}
             onClick={() => {
               // Aprobar CIERRA la incidencia y ya no hay vuelta atrás desde
@@ -554,17 +495,80 @@ function IncCard({
               onEstatus(i.record_id, 'cerrada');
             }}
           >
-            ✓ Aprobar reparación
+            <Check {...IC} />
+            Aprobar reparación
           </button>
           <button
-            className="btn hi sm"
+            className="btn ghost sm peligro"
             onClick={() => onRechazarRep(i)}
             disabled={bloqueada}
           >
-            ✕ Rechazar (regresar al área)
+            <Undo2 {...IC} />
+            Rechazar (regresar al área)
           </button>
         </div>
       )}
+      {/* Rediseño (oct-2026): primero la acción principal (arriba), luego
+          Evidencia, Chat y lo demás. Solo cambia el orden en pantalla. */}
+      <div className="inc-actions">
+        <button className="btn ghost sm" onClick={() => onEvidence(i)}>
+          <Paperclip {...IC} />
+          Evidencia
+        </button>
+        <button className="btn ghost sm" onClick={() => onChat(i)}>
+          <MessageSquare {...IC} />
+          Chat
+          {nChat > 0 && (
+            // Globo sólido: verde con texto verde oscuro se lee igual en los
+            // dos temas (≈5:1), por eso sus colores se quedan fijos (.inc-globo-chat).
+            <span className="badge-pulse inc-globo-chat">
+              {nChat}
+            </span>
+          )}
+        </button>
+        {puedeEditar && (
+          <button
+            className="btn ghost sm"
+            onClick={() => onEdit(i)}
+            disabled={bloqueadaRed}
+          >
+            <Pencil {...IC} />
+            Editar
+          </button>
+        )}
+        {i.estatus === 'en_proceso' &&
+          !i.reasignacion_pendiente &&
+          can.reasignar && (
+            <button
+              className="btn ghost sm"
+              onClick={() => onReassign(i, 'solicitar')}
+              disabled={bloqueadaRed}
+            >
+              <Shuffle {...IC} />
+              Reasignar
+            </button>
+          )}
+        {i.reasignacion_pendiente && can.aprobarReasign && (
+          <button
+            className="btn ghost sm"
+            onClick={() => onReassign(i, 'aprobar')}
+            disabled={bloqueadaRed}
+          >
+            <Shuffle {...IC} />
+            Revisar reasignación
+          </button>
+        )}
+        {puedeCorregir && (
+          <button
+            className="btn ghost sm"
+            onClick={() => onCorregir(i)}
+            disabled={bloqueadaRed}
+          >
+            <Compass {...IC} />
+            Corrección
+          </button>
+        )}
+      </div>
     </div>
   );
 }
