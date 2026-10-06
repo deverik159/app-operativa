@@ -95,7 +95,7 @@ function BotonPush({ email }: { email: string }) {
         <div
           className="overlay"
           onClick={(e) => {
-            if ((e.target as HTMLElement).className.includes('overlay'))
+            if (e.target === e.currentTarget)
               setAbierto(false);
           }}
         >

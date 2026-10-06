@@ -244,6 +244,8 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
 .modal-cerrar:hover{color:var(--txt);background:var(--panel2)}
 .modal-cerrar:disabled{opacity:.4;cursor:default}
 .modal:has(>.modal-cerrar)>h2{padding-right:44px}
+/* Un aviso ANTES del título (NuevaInc: borrador por recuperar) tampoco va bajo el ✕. */
+.modal:has(>.modal-cerrar)>.modal-cerrar+.banner{padding-right:48px}
 
 /* ---- Pie fijo (opt-in: .modal-actions.pie-fijo) ----
    El botón principal queda a la vista mientras se recorre un formulario

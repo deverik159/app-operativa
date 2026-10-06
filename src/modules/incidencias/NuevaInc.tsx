@@ -20,7 +20,7 @@
 // lib/datosLocales.ts guarda en el teléfono. El buscador enseña lo local al
 // instante y suma lo de la red si llega. Guardar ya iba a la cola.
 // ============================================================
-import { MapPin, Paperclip, Pencil, Trash, WifiOff } from 'lucide-react';
+import { MapPin, MapPinOff, Paperclip, Pencil, Trash, WifiOff } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import {
@@ -1488,7 +1488,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       // debe colarse una sin ella.
       alert(
         'Hay incidencias en el reporte que se quedaron sin foto al recuperarlo.\n\n' +
-          'Edítalas con y vuelve a adjuntar su evidencia.'
+          'Edítalas con el lápiz (✏️) y vuelve a adjuntar su evidencia.'
       );
       return;
     }
@@ -1906,7 +1906,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               style={{ marginTop: 8, marginLeft: 8 }}
               onClick={elegirSinMaquina}
             >
-              ❔ Sin máquina
+              <Ic i={MapPinOff} />Sin máquina
             </button>
           )}
           {/* Con resultados de la copia ya a la vista no se dice "Buscando…"
@@ -2041,7 +2041,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
 
         {site && sinMaquina && (
           <div className="banner" style={{ marginBottom: 12 }}>
-            ❔ Sin máquina: quien repare esta incidencia elegirá la máquina
+            <Ic i={MapPinOff} />Sin máquina: quien repare esta incidencia elegirá la máquina
             afectada.
           </div>
         )}

@@ -486,7 +486,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     if (!((data as Incidencia[] | null) || []).length) {
       alert(
         'No se guardó ningún cambio. Lo más probable es que el validador ya ' +
-          'haya movido esta incidencia mientras la editabas. Refresca con y ' +
+          'haya movido esta incidencia mientras la editabas. Refresca con ↻ (Recargar) y ' +
           'revisa cómo quedó antes de volver a capturar.'
       );
       return;
@@ -517,7 +517,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
       if (
         confirm(
           'Se están guardando los cambios. Si cierras, el guardado sigue por su cuenta: ' +
-            'revisa la tarjeta con antes de volver a corregir.\n\n¿Cerrar de todas formas?'
+            'revisa la tarjeta con ↻ (Recargar) antes de volver a corregir.\n\n¿Cerrar de todas formas?'
         )
       )
         onClose();

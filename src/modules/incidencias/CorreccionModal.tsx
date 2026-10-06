@@ -240,7 +240,7 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
     if (count === 0) {
       alert(
         'No se guardó la corrección: tu rol o tu área no permiten cambiar esta ' +
-          'incidencia. Refresca con y revisa cómo quedó.'
+          'incidencia. Refresca con ↻ (Recargar) y revisa cómo quedó.'
       );
       return;
     }

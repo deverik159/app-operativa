@@ -117,7 +117,7 @@ function IrAqui({ destino, size = 'sm' }: Props) {
           className="overlay"
           onClick={(e) => {
             e.stopPropagation();
-            if ((e.target as HTMLElement).className.includes('overlay'))
+            if (e.target === e.currentTarget)
               setAbierto(false);
           }}
         >

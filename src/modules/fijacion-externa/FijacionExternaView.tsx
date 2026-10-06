@@ -1200,7 +1200,7 @@ function FijacionExternaView({
 
                           {(inc.campania || r.campana) && (
                             <div className="meta" style={{ color: 'var(--txt)', margin: 0 }}>
-                              <Ic i={Target} />Campaña: {inc.campania || r.campana}
+                              <span><Ic i={Target} />Campaña: {inc.campania || r.campana}</span>
                             </div>
                           )}
                         </div>
