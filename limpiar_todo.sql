@@ -10,7 +10,8 @@
 --   · revisiones de Biobox con respuestas y evidencias
 --   · avance de pauta: tomas/comprobaciones y sus fotos
 --   · bitácora VV: campañas, versiones de pauta, artes e historial
---   · asignaciones de rutas a monitoristas
+--   · asignaciones de rutas a monitoristas y su historial de retiradas
+--   · visitas a rutas (Mis rutas) con sus fotos
 --   · errores de la app registrados en pruebas
 --   · los folios vuelven a empezar en 00001 (folio_counters)
 --   · los archivos de todo lo anterior en Storage
@@ -24,9 +25,10 @@
 --
 -- POR QUÉ TRUNCATE Y NO DELETE (cambio contra la versión del 31-ago):
 --   · no dispara triggers por fila: borrar ruta_asignaciones con DELETE
---     manda un push "Se te retiró la ruta" a cada monitorista, y borrar la
---     bitácora VV con DELETE truena (vv_log_pauta escribe historial de una
---     campaña que se está borrando);
+--     manda un push "Se te retiró la ruta" a cada monitorista y llena
+--     ruta_asignaciones_historial, y borrar la bitácora VV con DELETE
+--     truena (vv_log_pauta escribe historial de una campaña que se está
+--     borrando);
 --   · es instantáneo y no deja filas muertas que limpiar;
 --   · va SIN cascade: si alguna tabla que se conserva apuntara con llave
 --     foránea a una de las que se vacían, truena y no borra NADA (el PASO 1
@@ -78,7 +80,8 @@ se_borra(orden, tabla) as (values
   (8, 'revisiones'), (9, 'revision_respuestas'), (10, 'revision_evidencias'),
   (11, 'pauta_monitoreo'), (12, 'pauta_evidencias'),
   (13, 'vv_campanas'), (14, 'vv_pautas'), (15, 'vv_artes'), (16, 'vv_pauta_historial'),
-  (17, 'ruta_asignaciones'), (18, 'errores_cliente')
+  (17, 'ruta_asignaciones'), (18, 'ruta_asignaciones_historial'), (19, 'ruta_visitas'),
+  (20, 'errores_cliente')
 ),
 se_queda(orden, tabla) as (values
   (1, 'inventario'), (2, 'inventario_estatus_historial'), (3, 'catalogo_incidencias'),
@@ -126,6 +129,7 @@ select seccion, que, cuantas, nota from (
              when name like 'chat/%' then 'adjuntos del chat'
              when name like 'revisiones/%' then 'revisiones de Biobox'
              when name like 'pauta/%' then 'fotos de tomas de pauta'
+             when name like 'rutas/%' then 'fotos de visitas de ruta'
              when name like '%/%' then 'incidencias (carpeta por record_id)'
              else 'sueltos en la raíz del bucket'
            end as grupo,
@@ -224,7 +228,8 @@ begin
     'revisiones', 'revision_respuestas', 'revision_evidencias',
     'pauta_monitoreo', 'pauta_evidencias',
     'vv_campanas', 'vv_pautas', 'vv_artes', 'vv_pauta_historial',
-    'ruta_asignaciones', 'errores_cliente'
+    'ruta_asignaciones', 'ruta_asignaciones_historial', 'ruta_visitas',
+    'errores_cliente'
   ]) as t
   where to_regclass('public.' || t) is not null;
 
@@ -289,7 +294,8 @@ select que, cuantas, debe from (
     'revisiones', 'revision_respuestas', 'revision_evidencias',
     'pauta_monitoreo', 'pauta_evidencias',
     'vv_campanas', 'vv_pautas', 'vv_artes', 'vv_pauta_historial',
-    'ruta_asignaciones', 'errores_cliente'
+    'ruta_asignaciones', 'ruta_asignaciones_historial', 'ruta_visitas',
+    'errores_cliente'
   ]) as t
   union all
   select 2, 'folios que no están en 1',

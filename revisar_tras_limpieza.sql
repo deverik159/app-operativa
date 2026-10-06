@@ -51,6 +51,7 @@ select que, record_id, detalle from (
       and o.name not like 'bitacora-vv/%'
       and o.name not like 'revisiones/%'
       and o.name not like 'pauta/%'
+      and o.name not like 'rutas/%'
   ) x
   where not exists (select 1 from public.incidencias i where i.record_id = x.rid)
   group by x.rid
