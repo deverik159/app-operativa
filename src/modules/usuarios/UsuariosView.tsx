@@ -280,7 +280,7 @@ function UsuariosView({ email = '' }: { email?: string }) {
       ) : lista.length === 0 ? (
         <div className="empty">Sin usuarios que coincidan.</div>
       ) : (
-        <div className="inc-list">
+        <div className="inc-list agrupada">
           {lista.map((u) => (
             <div key={u.email} className="inc">
               <div className="row2">

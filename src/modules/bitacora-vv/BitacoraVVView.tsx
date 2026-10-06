@@ -2563,7 +2563,7 @@ function BitacoraVVView({
             : 'Nada coincide con ese filtro.'}
         </div>
       ) : (
-        <div className="inc-list">
+        <div className="inc-list agrupada">
           {visibles.map((c) => {
             const suyas = pautasDe.get(c.id) || [];
             const porProg = suyas.filter((p) => p.estatus === 'por_programar').length;

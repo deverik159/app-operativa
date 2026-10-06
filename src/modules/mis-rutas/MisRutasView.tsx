@@ -984,7 +984,7 @@ function MisRutasView({
           {paradas.length === 0 ? (
             <div className="empty">Esta ruta todavía no tiene paradas.</div>
           ) : (
-            <div className="inc-list">
+            <div className="inc-list agrupada">
               {paradas.map((p, i) => {
                 const e = estados.get(p.site_id) ?? ({ tipo: 'pendiente' } as Estado);
                 const navegable = esNavegable({ lat: p.latitud, lng: p.longitud });

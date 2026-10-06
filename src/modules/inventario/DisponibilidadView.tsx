@@ -376,7 +376,7 @@ function DisponibilidadView() {
             )}
           </div>
 
-          <div className="inc-list">
+          <div className="inc-list agrupada">
             {sitios.map(([siteId, lista]) => {
               const primera = lista[0];
               return (

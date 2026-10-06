@@ -1166,7 +1166,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       {sitios.length === 0 ? (
         <div className="empty">Sin resultados con estos filtros.</div>
       ) : (
-        <div className={'inc-list' + (recargando ? ' recargando' : '')}>
+        <div className={'inc-list agrupada' + (recargando ? ' recargando' : '')}>
           {sitios.map((s) => (
             <div key={s.site_id} className="inc">
               <div className="inc-top">
