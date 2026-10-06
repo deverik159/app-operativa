@@ -2879,7 +2879,7 @@ function IncidenciasView({
         />
       ) : (
         <>
-        <div className="inc-list">
+        <div className="inc-list agrupada">
           {visibles.slice(0, nPintadas).map((i) => (
             // El id y el envoltorio son lo que permite hacer scroll hasta la
             // tarjeta y resaltarla al llegar desde una notificación.
@@ -2889,8 +2889,10 @@ function IncidenciasView({
               style={
                 resaltado === i.record_id
                   ? {
+                      // Por dentro: en la lista agrupada las tarjetas van
+                      // pegadas y un contorno por fuera pisaría a la vecina.
                       outline: '2px solid var(--accent)',
-                      outlineOffset: 3,
+                      outlineOffset: -2,
                       borderRadius: 14,
                       transition: 'outline-color .3s',
                     }

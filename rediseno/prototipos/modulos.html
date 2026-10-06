@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Módulos · Prototipo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- Tokens y piezas base (barra, lista agrupada, pestañas, menú, tema): los mismos de precision.html -->
+<link rel="stylesheet" href="app.css">
+<!-- Piezas de los módulos (campos, avisos, filas, mapa, barras…) -->
+<link rel="stylesheet" href="piezas.css">
+<style>
+/* ============================================================
+   Página contenedora (no es parte de la app)
+   ============================================================ */
+:root{--p-bg:#ececee;--p-txt:#16161a;--p-muted:#5d5f66;--p-chip:#dcdce0;--p-chip-on:#16161a;--p-chip-on-txt:#fff}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--p-bg:#050506;--p-txt:#ececef;--p-muted:#9a9ca4;--p-chip:#1c1c20;--p-chip-on:#ececef;--p-chip-on-txt:#111}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--p-bg);color:var(--p-txt);font-family:Inter,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1640px;margin:0 auto;padding:32px 16px 80px}
+.intro{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;justify-content:space-between;margin-bottom:18px}
+.intro h1{font-size:26px;letter-spacing:-.025em;margin:0 0 6px}
+.intro p{color:var(--p-muted);line-height:1.5;margin:0;font-size:14px;max-width:760px}
+.ctl{display:flex;gap:4px;background:var(--p-chip);padding:3px;border-radius:10px}
+.ctl button{border:0;background:none;font:inherit;font-size:13px;font-weight:500;color:var(--p-muted);padding:7px 12px;border-radius:7px;cursor:pointer}
+.ctl button[aria-pressed="true"]{background:var(--p-chip-on);color:var(--p-chip-on-txt)}
+.mods{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 26px}
+.mods button{border:0;font:inherit;font-size:13px;font-weight:500;padding:7px 12px;border-radius:20px;background:var(--p-chip);color:var(--p-txt);cursor:pointer}
+.mods button[aria-pressed="true"]{background:var(--p-chip-on);color:var(--p-chip-on-txt)}
+.stage{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap}
+.phone{flex:0 0 360px;height:760px;border-radius:48px;padding:10px;background:#0c0c0d;box-shadow:0 0 0 1px #2a2a2e,0 24px 60px -20px rgba(0,0,0,.45)}
+.phone .screen{border-radius:38px}
+.desk{flex:1 1 820px;min-width:min(820px,100%);height:760px;border-radius:14px;background:#0c0c0d;box-shadow:0 0 0 1px #2a2a2e,0 30px 80px -30px rgba(0,0,0,.5);overflow:hidden}
+.desk .chrome{height:34px;display:flex;align-items:center;gap:7px;padding:0 14px;background:#1b1b1e}
+.desk .chrome i{width:11px;height:11px;border-radius:50%;background:#3a3a3f}
+.desk .screen{height:calc(100% - 34px)}
+.screen{position:relative;height:100%;overflow:hidden;isolation:isolate;container-type:inline-size}
+.nota{margin-top:40px;max-width:900px;color:var(--p-muted);font-size:14px;line-height:1.6}
+.nota h3{color:var(--p-txt);font-size:16px;margin:22px 0 6px}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="intro">
+    <div>
+      <h1>Todos los módulos · Precisión</h1>
+      <p>Las 12 pantallas con el estilo elegido: los mismos datos, filtros y acciones que hoy (tomados del código), con otra piel. Navega con los botones de abajo, con el menú de cada pantalla o con <b>Más</b>. El teléfono y el escritorio van juntos.</p>
+    </div>
+    <div class="ctl" id="tema-global" role="group" aria-label="Tema de los dos marcos">
+      <button data-g="auto" aria-pressed="true">Automático</button><button data-g="claro" aria-pressed="false">Claro</button><button data-g="oscuro" aria-pressed="false">Oscuro</button>
+    </div>
+  </header>
+  <nav class="mods" id="mods" aria-label="Ir al módulo"></nav>
+  <div class="stage">
+    <div class="phone"><div class="screen"></div></div>
+    <div class="desk"><div class="chrome"><i></i><i></i><i></i></div><div class="screen"></div></div>
+  </div>
+  <section class="nota">
+    <h3>Qué cuidé en cada pantalla</h3>
+    <p>No se quitó ninguna función. Los filtros que hoy son varios <code>&lt;select&gt;</code> seguidos pasan a una fila de píldoras en celular; las tarjetas de indicadores que filtran siguen filtrando (se marcan con borde); los mapas conservan el candado táctil; las acciones que dependen del rol (Importar, Nueva ruta, Asignar, Revisar y comprobar) aparecen como en un coordinador. El naranja queda solo para la acción principal de cada fila.</p>
+    <h3>Ventanas emergentes</h3>
+    <p><a href="ventanas.html" style="color:inherit"><b>Ver las ventanas (Registrar reparación, Chat, Evidencia, Marcar visita, Revisión de máquina, Detalle de ruta, ¿Cómo te llevo?) →</b></a></p>
+  </section>
+</div>
+
+<script>
+/* ------------------------------------------------------------
+   Iconos (trazos estilo Lucide)
+   ------------------------------------------------------------ */
+const P = {
+  bell:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  search:'<circle cx="11" cy="11" r="7.5"/><path d="m20.5 20.5-4.2-4.2"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  list:'<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  map:'<path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/>',
+  more:'<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  clock:'<circle cx="12" cy="12" r="9.5"/><path d="M12 7v5l3 2"/>',
+  msg:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  moon:'<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  monitor:'<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  chevd:'<path d="m6 9 6 6 6-6"/>',
+  chart:'<path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/>',
+  scan:'<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
+  road:'<path d="M4 20 8 4M16 4l4 16M12 5v2M12 10.5v3M12 17v2"/>',
+  clip:'<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  board:'<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
+  compass:'<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/>',
+  lock:'<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  nav:'<path d="m3 11 19-9-9 19-2-8-8-2z"/>',
+  camera:'<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/>',
+  upload:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
+  refresh:'<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+  edit:'<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  trash:'<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>',
+  star:'<path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/>',
+  calendar:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  history:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/>',
+  locate:'<circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="2"/>',
+  aire:'<path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5M19.1 4.9C23 8.8 23 15.1 19.1 19"/><circle cx="12" cy="12" r="2"/>',
+  wrench:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  userplus:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
+  file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>',
+  image:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>',
+  layers:'<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>'
+};
+const ico = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
+
+/* ------------------------------------------------------------
+   Piezas
+   ------------------------------------------------------------ */
+const cab = (t, h, acc = '', recarga = false) => `
+  <div class="cab"><div>${recarga ? '<div class="recarga">Actualizando…</div>' : ''}<h2 class="page">${t}</h2><p class="phint">${h}</p></div>${acc ? `<div class="acc">${acc}</div>` : ''}</div>`;
+const btn = (t, ic = '', k = '') => `<button class="btn ${k}">${ic ? ico(ic) : ''}${t}</button>`;
+const tag = (t, c = '', ic = '', alerta = false) => `<span class="tag ${c ? 't-' + c : ''}${alerta ? ' alerta' : ''}">${ic ? ico(ic) : (c ? '<i></i>' : '')}${t}</span>`;
+const estado = (t, c) => `<span class="estado t-${c}"><i></i>${t}</span>`;
+const aviso = (c, ic, html) => `<div class="aviso t-${c}">${ico(ic)}<div>${html}</div></div>`;
+const sec = (t, a = '') => `<div class="sec"><h3>${t}</h3>${a ? `<a href="#" onclick="return false">${a}</a>` : ''}</div>`;
+const seg = (items, sel = 0, extra = '') => `<div class="seg" role="tablist" ${extra}>${items.map((x, i) => `<button role="tab" aria-selected="${i === sel}"${Array.isArray(x) ? ` data-vista-btn="${x[1]}"` : ''}>${Array.isArray(x) ? x[0] : x}</button>`).join('')}</div>`;
+const buscar = (ph, extra = '') => `<div class="toolbar"><label class="search">${ico('search')}<input placeholder="${ph}" aria-label="Buscar"></label>${extra}</div>`;
+const sel = (opts, lbl) => `<select aria-label="${lbl}">${opts.map(o => `<option>${o}</option>`).join('')}</select>`;
+const fpills = items => `<div class="fpills">${items.map(x => x).join('')}</div>`;
+const fp = (t, on = false, ic = 'chevd', rc = '') => `<button class="fpill" aria-pressed="${on}">${rc ? `<span class="dotc" style="--rc:${rc}"></span>` : ''}${t}${ic ? ico(ic) : ''}</button>`;
+const kpis = (list, cls = '') => `<section class="cards ${cls}">${list.map(([n, l, c, on, sub]) => `<button class="card t-${c || 'gris'}"${on !== undefined ? ` aria-pressed="${!!on}"` : ''}><div class="n">${n}</div><div class="l">${l}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</button>`).join('')}</section>`;
+
+const RC = { r1: '#e5484d', r2: '#3e8ef7', r3: '#30a46c', r4: '#f5a524', r5: '#8e4ec6' };
+
+function mapa({ pins = [], areas = [], poly = null, pista = '', h = 230 } = {}) {
+  const pinSVG = pins.map(([x, y, n, fill, txt, borde]) =>
+    `<g><circle cx="${x}" cy="${y}" r="10.5" fill="${fill}" stroke="${borde || 'var(--map-bg)'}" stroke-width="${borde ? 2 : 2}"/><text x="${x}" y="${y + 3.6}" text-anchor="middle" font-size="10" font-weight="600" font-family="Inter,system-ui" fill="${txt || '#fff'}">${n}</text></g>`).join('');
+  const areaSVG = areas.map(([c, pts]) => `<polygon points="${pts}" fill="${c}" fill-opacity=".14" stroke="${c}" stroke-opacity=".5" stroke-width="1.2"/>`).join('');
+  const polySVG = poly ? `<polyline points="${poly[1]}" fill="none" stroke="${poly[0]}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" opacity=".9"/>` : '';
+  return `<div class="mapa" style="height:${h}px">
+    <svg class="m" viewBox="0 0 340 230" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <rect width="340" height="230" fill="var(--map-bg)"/>
+      <path d="M-10 195 q60 -22 120 8 t140 -2 L350 240 H-10z" fill="var(--map-water)"/>
+      <path d="M262 150 q32 -22 64 4 q10 32 -22 46 q-42 6 -42 -50z" fill="var(--map-park)"/>
+      <path d="M0 112 H340 M62 0 V230 M192 0 V230 M0 32 H340 M300 0 V230 M0 150 H340" stroke="var(--map-road2)" stroke-width="2.5"/>
+      <path d="M-10 62 C80 50 160 92 350 70" stroke="var(--map-road)" stroke-width="9" fill="none"/>
+      <path d="M122 -10 C132 80 100 150 142 240" stroke="var(--map-road)" stroke-width="7" fill="none"/>
+      <path d="M-10 172 L350 138" stroke="var(--map-road)" stroke-width="6" fill="none"/>
+      <path d="M252 -10 L232 240" stroke="var(--map-road)" stroke-width="5" fill="none"/>
+      ${areaSVG}${polySVG}${pinSVG}
+    </svg>
+    <button class="candado" aria-label="Mapa fijo: toca para soltarlo">${ico('lock')}</button>
+    ${pista ? `<div class="pista">${pista}</div>` : ''}
+    <div class="zoom"><button aria-label="Acercar">+</button><button aria-label="Alejar">−</button></div>
+    <div class="atrib">© OpenStreetMap</div>
+  </div>`;
+}
+
+/* ------------------------------------------------------------
+   1. Bandeja (la ya aprobada)
+   ------------------------------------------------------------ */
+const INCS = [
+  { folio: 'INC-2026-0412', un: 'Ecovallas', titulo: 'Lona rota en cara B', clave: 'MX_EM_EV_EVA_01_0009', lugar: 'Naucalpan, Edomex', hace: 'hace 2 h', est: ['Por validar', 'morado'], nivel: ['Alto', 'rojo'], sla: ['Validar reporte: 1 h', 'ambar', 1], chat: 3, cta: 'Validar incidencia', ic: 'check' },
+  { folio: 'INC-2026-0409', un: 'Vía Verde', titulo: 'Pantalla sin señal en pórtico 14', clave: 'MX_VV_DG_POR_014', lugar: 'Periférico Norte km 22', hace: 'hace 5 h', est: ['En proceso', 'azul'], nivel: ['Medio', 'ambar'], sla: ['SLA Digital: 19 h', 'verde', 0], chat: 1, cta: 'Registrar reparación', ic: 'wrench' },
+  { folio: 'INC-2026-0398', un: 'Biobox', titulo: 'Máquina fuera de línea', clave: 'BBX-CDMX-031', lugar: 'Coyoacán, CDMX', hace: 'ayer', est: ['Reparado', 'verde'], nivel: ['Bajo', 'azul'], sla: ['Validar reparación: vencido', 'rojo', 1], chat: 0, cta: 'Aprobar reparación', ic: 'check', extra: btn('Rechazar', 'x', 'peligro') },
+  { folio: 'INC-2026-0391', un: 'Ecovallas', titulo: 'Iluminación apagada', clave: 'MX_CDMX_EV_EVA_02_0117', lugar: 'Insurgentes Sur 1602', hace: 'hace 2 d', est: ['En proceso', 'azul'], nivel: ['Medio', 'ambar'], sla: ['SLA Iluminación: 2 d', 'verde', 0], chat: 0, cta: 'Registrar reparación', ic: 'wrench' }
+];
+const incHTML = (i, rico = false) => `<article class="inc t-${i.est[1]}">
+  <div class="inc-top">
+    <div class="inc-body">
+      <div class="folio">${i.folio} · ${i.un}</div>
+      <h4 class="titulo">${i.titulo}</h4>
+      <div class="meta"><span>${ico('pin')}${i.lugar}</span><span class="clave">${rico ? 'Cartelera · ' : ''}${i.clave}${rico ? ' · cara B' : ''}</span></div>
+    </div>
+    ${estado(i.est[0], i.est[1])}
+  </div>
+  ${rico && i.obs ? `<div class="sub2" style="margin-top:8px;font-size:13px;color:var(--muted)">“${i.obs}”</div>` : ''}
+  <div class="chips">
+    ${tag('Nivel ' + i.nivel[0].toLowerCase(), i.nivel[1])}
+    ${tag(i.sla[0], i.sla[1], 'clock', i.sla[2])}
+    ${rico ? tag('→ ' + (i.area || 'Mantenimiento')) : ''}
+    ${rico && i.camp ? tag('🎯 ' + i.camp) : ''}
+    <span class="hace">${i.hace}</span>
+  </div>
+  ${rico ? `<div class="folio" style="margin-top:8px">Capturada: ${i.cap || '05 oct 10:42 · Cat-34 · Sem 2 · por juan.p'}</div>` : ''}
+  <div class="acciones envuelve">
+    ${btn(i.cta, i.ic)}${i.extra || ''}
+    ${btn('Chat' + (i.chat ? ' · ' + i.chat : ''), 'msg', 'ghost')}
+    ${rico ? btn('Evidencia', 'clip', 'ghost') : ''}
+  </div>
+</article>`;
+
+const S = {};
+S.bandeja = () => `
+  ${cab('Mi bandeja', 'Lo que espera una acción tuya.')}
+  ${aviso('ambar', 'clock', '<b>Validaciones:</b> 2 vencidas · 3 por vencer')}
+  ${kpis([['24', 'Abiertas', 'rojo'], ['9', 'En proceso', 'azul'], ['5', 'Por validar', 'morado'], ['3', 'SLA vencido', 'ambar']])}
+  <div class="filtros">
+    ${buscar('Buscar folio, sitio, campaña…', sel(['Unidad', 'Ecovallas', 'Vía Verde', 'Biobox'], 'Unidad'))}
+    ${seg(['Todas <span>18</span>', 'Mías <span>6</span>', 'Vencidas <span>3</span>'])}
+  </div>
+  ${sec('Requieren atención · 2', 'Ver todas')}
+  <div class="grupo">${INCS.slice(0, 2).map(i => incHTML(i)).join('')}</div>
+  ${sec('En seguimiento · 2')}
+  <div class="grupo">${INCS.slice(2).map(i => incHTML(i)).join('')}</div>`;
+
+/* ------------------------------------------------------------
+   2. Nueva
+   ------------------------------------------------------------ */
+S.nueva = () => `
+  ${cab('Reporte de incidencias del sitio', 'Elige el sitio una vez y agrega todas las fallas: cada una a las caras que apliquen.')}
+  ${aviso('azul', 'file', '<b>Tienes un reporte sin terminar</b> · MX_EM_EV_EVA_01_0009, 1 partida<div class="acc2">' + btn('Recuperar', '', 'ghost') + btn('Descartar', '', 'ghost') + '</div>')}
+  <div class="form-cols">
+    <div>
+      <div class="panel">
+        <h3>${ico('pin')}Sitio</h3>
+        <div class="campo"><label>Unidad de negocio</label><select class="entrada"><option>Ecovallas</option><option>Vía Verde</option><option>Biobox</option></select></div>
+        <div class="campo"><label>Clave de sitio</label>
+          <label class="search" style="height:40px">${ico('search')}<input value="eva 01" aria-label="Clave de sitio"></label>
+          <div class="sitio">${ico('pin')}<div><b>MX_EM_EV_EVA_01_0009</b><span>Av. Gustavo Baz 120, Naucalpan</span><span>Plaza: Edomex · 3 medios en este sitio</span></div></div>
+          <div class="acciones" style="margin-top:8px">${btn('Sitios cerca de mí', 'locate', 'ghost')}</div>
+        </div>
+      </div>
+      ${sec('Incidencias en el reporte · 1 · 2 caras')}
+      <div class="grupo">
+        <div class="row"><div class="row-top"><div><b style="font-size:14px;font-weight:600">Lona rota o desprendida</b><div class="sub2">→ Mantenimiento · Nivel alto · caras: A, B</div><div class="folio" style="margin-top:4px">${'📎'} 2 archivos para estas caras</div></div>
+          <div style="display:flex;gap:4px">${btn('', 'edit', 'ghost icono')}${btn('', 'trash', 'ghost icono')}</div></div></div>
+      </div>
+    </div>
+    <div>
+      <div class="panel punteado">
+        <h3>${ico('plus')}Agregar una incidencia</h3>
+        <div class="campo"><label>Incidencia <em>catálogo · 64 de 64</em></label>
+          <label class="search" style="height:40px;margin-bottom:6px">${ico('search')}<input placeholder="Buscar por incidencia o por área…" aria-label="Buscar en el catálogo"></label>
+          <select class="entrada"><option>Iluminación apagada (Iluminación)</option></select>
+          <div class="chips" style="margin-top:8px">${tag('Área: Iluminación')}${tag('Nivel medio', 'ambar')}</div>
+        </div>
+        <div class="campo"><div class="lbl">Medios afectados <em>2/3 · <a href="#" onclick="return false" style="color:var(--accent-txt);text-decoration:none">Todas</a></em></div>
+          <div class="checks"><button class="check" aria-pressed="true">Cara A</button><button class="check" aria-pressed="true">Cara B</button><button class="check" aria-pressed="false">Cara C</button></div></div>
+        <div class="campo"><label>Campaña por cara</label>
+          <div class="dos"><div><div class="folio" style="margin-bottom:4px">Cara A</div><select class="entrada"><option>COCA-COLA</option></select></div><div><div class="folio" style="margin-bottom:4px">Cara B</div><select class="entrada"><option>Sin campaña</option></select></div></div></div>
+        <div class="campo"><label>Observaciones</label><textarea class="entrada" placeholder="Qué viste, desde dónde, qué tan urgente…"></textarea></div>
+        <div class="campo"><label>Evidencia de esta incidencia <em>obligatoria</em></label>
+          <div class="subir"><div class="mini"></div><div class="mini video"></div><button class="mini agregar">${ico('camera')}Agregar</button></div></div>
+        <button class="btn ghost lg" style="width:100%;margin-top:4px">${ico('plus')}Agregar esta incidencia al reporte</button>
+      </div>
+    </div>
+  </div>
+  <div class="pie-form">${btn('Cancelar', '', 'ghost lg')}${btn('Guardar reporte (1)', '', 'lg')}</div>`;
+
+/* ------------------------------------------------------------
+   3. Incidencias
+   ------------------------------------------------------------ */
+S.incidencias = () => {
+  const lista = [
+    { ...INCS[0], obs: 'La lona se desprendió de la esquina superior, se ve desde la avenida.', camp: 'COCA-COLA', area: 'Mantenimiento' },
+    { ...INCS[1], area: 'Digital', cap: '05 oct 07:15 · Cat-34 · Sem 2 · por ana.r' },
+    { ...INCS[2], area: 'Op. Bio Box', obs: 'No enciende la pantalla de depósito.' },
+    { ...INCS[3], area: 'Iluminación', camp: 'NETFLIX' }
+  ];
+  return `
+  ${cab('Incidencias', 'Todo lo que tu rol puede ver (filtrado por seguridad).', btn('Ver tabla', 'layers', 'ghost') + btn('Exportar', 'download', 'ghost'))}
+  ${aviso('gris', 'history', 'Historial: se muestran las 200 cerradas o no reparadas más recientes (desde el 12 ago).')}
+  ${buscar('Buscar folio, sitio, campaña…')}
+  ${fpills([fp('Unidad: <b>todas</b>'), fp('Área: <b>todas</b>'), fp('Reporta: <b>todas</b>'), fp('Estatus: <b>En proceso</b>', true), fp('Desde', false, 'calendar'), fp('Hasta', false, 'calendar')])}
+  ${sec('128 incidencias · más recientes primero')}
+  <div class="grupo">${lista.map(i => incHTML(i, true)).join('')}</div>
+  <div style="text-align:center;margin:-6px 0 20px"><div class="folio" style="margin-bottom:8px">Mostrando 4 de 128</div>${btn('Mostrar 124 más', '', 'ghost')}</div>`;
+};
+
+/* ------------------------------------------------------------
+   4. Indicadores
+   ------------------------------------------------------------ */
+const barras = (titulo, filas) => {
+  const max = Math.max(...filas.map(f => f[1]));
+  return `<div class="grupo graf"><h4>${titulo}</h4>${filas.map(([l, v]) => `<button class="bar"><div class="t"><span>${l}</span><b>${v}</b></div><div class="r"><i style="width:${Math.round(v / max * 100)}%"></i></div></button>`).join('')}</div>`;
+};
+S.indicadores = () => `
+  ${cab('Indicadores', 'Panel en vivo desde tus incidencias. Filtra y explora la operación.')}
+  ${seg(['30 días', '90 días', '12 meses', 'Todo'], 1)}
+  ${fpills([fp('Unidad: <b>todas</b>'), fp('Área: <b>todas</b>'), fp('Reporta: <b>todas</b>'), fp('Estatus: <b>todos</b>'), fp('Nivel: <b>todos</b>'), fp('Catorcena: <b>todas</b>'), fp('Semana: <b>todas</b>')])}
+  <p class="folio" style="margin:0 2px 12px">1,284 incidencias reportadas desde el 08/07/2026.</p>
+  ${kpis([['1,284', 'Incidencias', 'gris'], ['212', 'Abiertas', 'rojo'], ['1,072', 'Cerradas', 'verde'], ['91%', 'Efectividad', 'verde'], ['38', 'Rechazos de reparación', 'ambar'],
+          ['31 h', 'Tiempo prom. reparación', 'azul'], ['64', 'En proceso ahora', 'azul'], ['96 h', 'Peor en proceso', 'rojo', undefined, 'más de 72 h'], ['4.2 h', 'Validación → reparación', 'morado'], ['87%', 'SLA en tiempo', 'verde', undefined, '1,117 de 1,284']], 'rej2')}
+  <div class="charts">
+    ${barras('Por unidad de negocio', [['Ecovallas', 642], ['Vía Verde', 318], ['Biobox', 214], ['Verde Vertical', 72], ['Biobox Perú', 38]])}
+    ${barras('Top incidencias', [['Iluminación apagada', 188], ['Lona rota o desprendida', 141], ['Pantalla sin señal', 117], ['Grafiti', 86], ['Máquina fuera de línea', 64]])}
+    ${barras('Carga por área responsable', [['Mantenimiento', 402], ['Iluminación', 251], ['Digital', 236], ['Op. Bio Box', 198], ['Fijación', 117]])}
+    ${barras('Quién repara más', [['cuadrilla.norte', 214], ['digital.ops', 189], ['iluminacion.1', 152], ['bio.tecnico2', 97]])}
+  </div>
+  <p class="folio" style="margin:0 2px 20px">Semanas de lunes a domingo dentro de cada catorcena. El SLA se mide desde la validación hasta la reparación.</p>`;
+
+/* ------------------------------------------------------------
+   5. Disponibilidad
+   ------------------------------------------------------------ */
+const cara = (n, id, med, v, c, det) => `<div class="sub-fila"><div class="row-top"><div><b>${n}</b><div class="folio">${id} · ${med}</div></div>${estado(v, c)}</div>${det ? `<div class="sub2" style="font-size:12.5px">${det}</div>` : ''}<div style="margin-top:6px">${btn('Historial', 'history', 'ghost')}</div></div>`;
+S.disponibilidad = () => `
+  ${cab('Disponibilidad', 'Busca una cara y comprueba si se puede vender en la catorcena que elijas. El estatus viene de QTM y se actualiza cada noche.')}
+  <div class="toolbar"><label class="search">${ico('search')}<input value="gustavo baz" aria-label="Clave, sitio o dirección"></label></div>
+  <div class="toolbar">${sel(['Cat 34 · 1 oct – 14 oct', 'Cat 35 · 15 oct – 28 oct'], 'Catorcena')}${btn('Buscar', 'search')}</div>
+  <div class="chips" style="margin:0 0 16px">${tag('5 caras en 2 sitios')}${tag('2 disponibles', 'verde')}${tag('2 ya pautadas', 'azul')}${tag('1 no vendible', 'rojo')}</div>
+  <div class="grupo">
+    <div class="row"><div class="mono" style="font-weight:600">MX_EM_EV_EVA_01_0009</div><div class="sub2">Av. Gustavo Baz 120</div><div class="folio">Naucalpan · Edomex · Ecovallas · 3 caras</div>
+      <div class="sub-filas">
+        ${cara('Cara A', 'VF-20931 · Cartelera · Unipolar', '', 'Disponible', 'verde', '')}
+        ${cara('Cara B', 'VF-20932 · Cartelera · Unipolar', '', 'Ya pautada', 'azul', 'COCA-COLA · VERANO 2026')}
+        ${cara('Cara C', 'VF-20933 · Cartelera · Unipolar', '', 'Se retira a media catorcena', 'ambar', 'Se retira el 08 oct; la catorcena termina el 14 oct.')}
+      </div></div>
+  </div>
+  <div class="grupo">
+    <div class="row"><div class="mono" style="font-weight:600">MX_EM_EV_EVA_01_0011</div><div class="sub2">Av. Gustavo Baz 418</div><div class="folio">Naucalpan · Edomex · Ecovallas · 2 caras</div>
+      <div class="sub-filas">
+        ${cara('Cara A', 'VF-20951 · Mural · Azotea', '', 'Disponible', 'verde', '')}
+        ${cara('Cara B', 'VF-20952 · Mural · Azotea', '', 'Fuera de servicio', 'rojo', 'Estructura en revisión.')}
+      </div></div>
+  </div>`;
+
+/* ------------------------------------------------------------
+   6. Rutas de Monitoreo
+   ------------------------------------------------------------ */
+const ruta = (n, nom, c, meta, inactiva = false, foco = false) => `<div class="row con-barra" style="--rc:${c}${!foco && inactiva ? ';opacity:.55' : ''}"><span class="barra-ruta"></span>
+  <div class="row-top"><div><b style="font-size:14.5px;font-weight:600"><span class="dotr"></span>Ruta ${n} · ${nom}</b><div class="sub2">${meta}</div></div>${inactiva ? tag('inactiva') : ''}</div>
+  <div class="acciones">${btn('Paradas', 'layers', 'ghost')}${btn('Detalle', 'list', 'ghost')}${btn('', 'edit', 'ghost icono')}</div></div>`;
+S.rutas = () => `
+  ${cab('Rutas de Monitoreo', 'Ubicaciones agrupadas por ruta geográfica. Cada ruta con su color, área y el orden de sus paradas.', btn('Importar rutas (Excel)', 'upload', 'ghost') + btn('Nueva ruta', 'plus'))}
+  <div class="campo"><div class="lbl">Unidad de negocio</div>${seg(['Ecovallas', 'Biobox', 'Vía Verde'], 0, 'style="margin-bottom:8px"')}${seg(['Impreso', 'Digital'], 1, 'style="margin-bottom:16px"')}</div>
+  <div class="acciones solo-cel" style="margin:-4px 0 16px">${btn('Nueva ruta', 'plus')}${btn('Importar (Excel)', 'upload', 'ghost')}</div>
+  ${kpis([['4', 'Rutas', 'gris'], ['118', 'Ubicaciones', 'azul'], ['3', 'Retiradas', 'rojo']], 'rej rej3')}
+  <div class="split">
+    ${mapa({
+      areas: [[RC.r1, '30,40 120,30 140,110 50,120'], [RC.r2, '150,40 250,30 270,110 160,120'], [RC.r3, '40,140 140,130 150,200 60,210'], [RC.r4, '170,135 300,128 310,200 180,205']],
+      poly: [RC.r2, '165,55 190,48 225,52 245,80 230,100 190,104 170,90'],
+      pins: [[165, 55, 1, RC.r2], [190, 48, 2, RC.r2], [225, 52, 3, RC.r2], [245, 80, 4, RC.r2], [230, 100, 5, RC.r2], [190, 104, 6, RC.r2], [170, 90, 7, RC.r2]]
+    })}
+    <div class="lado">
+      ${sec('4 rutas · Ecovallas Digital')}
+      <div class="grupo">
+        <button class="linea-ver">${ico('map')}Ver todas las rutas</button>
+        ${ruta(1, 'Satélite', RC.r1, '31 ubicaciones · 1 retirada')}
+        ${ruta(2, 'Polanco', RC.r2, '28 ubicaciones · 2 inhabilitadas', false, true)}
+        ${ruta(3, 'Periférico Sur', RC.r3, '34 ubicaciones · 2 retiradas')}
+        ${ruta(4, 'Santa Fe', RC.r4, '25 ubicaciones', true)}
+      </div>
+    </div>
+  </div>`;
+
+/* ------------------------------------------------------------
+   7. Pauta y monitoreo
+   ------------------------------------------------------------ */
+const caraP = (c, camp, arte, antes, medio, est, av, avc, accion) => `<div class="sub-fila">
+  <div class="row-top"><div><b>Cara ${c} · ${camp}</b><div class="sub2" style="font-size:12.5px">Arte: ${arte} · Antes: ${antes}</div><div class="folio">${medio}</div></div>${estado(av, avc)}</div>
+  <div class="chips" style="margin-top:6px">${est ? tag(est, 'azul') : ''}</div>
+  <div class="acciones">${accion}</div></div>`;
+S.pauta = () => `
+  ${cab('Pauta y monitoreo', 'Qué campaña va en cada cara, cómo va el avance y cómo llegar.', btn('Importar', 'upload', 'ghost') + btn('Sincronizar rutas', 'refresh', 'ghost'))}
+  <div class="toolbar">${sel(['Catorcena 34', 'Catorcena 33'], 'Catorcena')}${sel(['⭐ Ruta 3', 'Ruta: todas', 'Ruta 1', 'Ruta 2'], 'Ruta')}</div>
+  ${buscar('Buscar sitio, cara, campaña…')}
+  ${sec('Campañas en la ruta 3 · 5 — toca para filtrar', 'limpiar')}
+  ${fpills([fp('COCA-COLA · 12', true, ''), fp('NETFLIX · 8', false, ''), fp('BBVA · 6', false, ''), fp('AMAZON · 4', false, ''), fp('TELCEL · 3', false, '')])}
+  ${kpis([['18', 'Sitios', 'gris'], ['33', 'Caras', 'gris'], ['14', 'Pendientes', 'ambar', true], ['11', 'Tomadas', 'azul', false], ['8', 'Comprobadas', 'verde', false], ['2', 'Incidencias', 'rojo', false]], 'rej')}
+  <div class="panel" style="padding:12px 14px">
+    <div class="sub2" style="margin:0 0 8px;font-weight:600;color:var(--muted)">Ruta 3 asignada a</div>
+    <div class="chips" style="margin:0 0 8px"><span class="rol">mario.g<button aria-label="Quitar">${ico('x')}</button></span><span class="rol">lucia.h<button aria-label="Quitar">${ico('x')}</button></span></div>
+    <select class="entrada"><option>＋ Asignar a…</option></select>
+    <div class="ayuda">Al asignar, le llega la notificación y su ruta se le abre sola al entrar a Pauta.</div>
+  </div>
+  <details class="plegable"><summary>${ico('map')}Guías de ruta (Google Maps) ${tag('1 sin ubicación', 'ambar')}<span class="chev">${ico('chev')}</span></summary>
+    <div class="cuerpo-p">${btn('Paradas 1–9', 'nav', 'ghost')}${btn('Paradas 10–18', 'nav', 'ghost')}</div></details>
+  ${sec('Pendientes · 14')}
+  <div class="grupo">
+    <div class="row">
+      <div class="folio">Ruta 3 · secuencia 12</div>
+      <div class="row-top"><div><div class="mono" style="font-weight:600;font-size:13px;margin-top:2px">MX_CDMX_EV_EVA_02_0117</div><div class="sub2">Insurgentes Sur 1602, Benito Juárez</div></div>${btn('Ir', 'nav', 'ghost')}</div>
+      <div class="chips"><button class="tag t-rojo alerta" style="cursor:pointer">${ico('alert')}1 incidencia abierta ›</button></div>
+      <div class="sub-filas">
+        ${caraP('A', 'COCA-COLA', 'V2_VERANO', 'PEPSI', 'Lona · fija 01 oct', 'NUEVO', 'Pendiente', 'gris', btn('Registrar toma', 'camera'))}
+        ${caraP('B', 'NETFLIX', 'STRANGER_T5', 'NETFLIX', 'Lona · fija 01 oct', '', 'Tomada 03 oct', 'ambar', btn('Revisar y comprobar (3)', 'check') + btn('Evidencia (3 fotos)', 'image', 'ghost'))}
+      </div>
+    </div>
+    <div class="row">
+      <div class="folio">Ruta 3 · secuencia 13</div>
+      <div class="row-top"><div><div class="mono" style="font-weight:600;font-size:13px;margin-top:2px">MX_CDMX_EV_EVA_02_0121</div><div class="sub2">Insurgentes Sur 1890, Álvaro Obregón</div></div>${btn('Ir', 'nav', 'ghost')}</div>
+      <div class="sub-filas">
+        ${caraP('A', 'COCA-COLA', 'V2_VERANO', 'BBVA', 'Lona · fija 01 oct', '', 'Comprobada 04 oct', 'verde', btn('Evidencia (2 fotos)', 'image', 'ghost') + '<span class="folio" style="align-self:center">Entregó mario.g</span>')}
+      </div>
+    </div>
+  </div>`;
+
+/* ------------------------------------------------------------
+   8. Mis rutas
+   ------------------------------------------------------------ */
+const parada = (i, id, dir, est, c, botones, rc) => `<div class="row" style="display:flex;gap:12px;--rc:${rc}">
+  <span class="num ${c === 'verde' ? 'lleno' : ''}" style="${c === 'verde' ? '--rc:var(--verde)' : c === 'ambar' ? '--rc:var(--ambar)' : ''}">${i}</span>
+  <div style="flex:1;min-width:0">
+    <div class="row-top"><div style="min-width:0"><div class="folio">Parada ${i}</div><div class="mono" style="font-weight:600;font-size:13px">${id}</div><div class="sub2">${dir}</div></div></div>
+    <div class="chips" style="margin-top:8px">${tag(est, c, c === 'verde' ? 'check' : c === 'ambar' ? 'clock' : '')}</div>
+    <div class="acciones envuelve">${botones}</div>
+  </div></div>`;
+S.misrutas = () => `
+  ${cab('Mis rutas', 'Tus rutas asignadas, en orden. Marca cada visita con su foto; sin señal se guarda en el teléfono y se envía sola.')}
+  <p class="folio" style="margin:-8px 2px 14px">${ico('calendar')} Catorcena <b style="color:var(--txt)">34</b> · 1 oct – 14 oct · Las rutas de Ecovallas Impreso están en Pauta y Monitoreo.</p>
+  ${seg(['Ruta 2 · Polanco · 7/12', 'Ruta 5 · Lomas · 0/9'])}
+  <div class="panel">
+    <div class="row-top"><b style="font-size:15px;font-weight:600"><span class="dotr" style="--rc:${RC.r2}"></span>Ruta 2 · Polanco</b>${tag('Digital')}</div>
+    <div class="progreso"><i style="width:58%"></i><i style="width:8%"></i></div>
+    <div class="sub2">Ecovallas · Digital · 12 paradas · <b style="color:var(--txt)">✓ 7 visitadas</b> · ⏳ 1 sin enviar</div>
+  </div>
+  <div class="split">
+    ${mapa({
+      poly: [RC.r2, '40,60 90,48 140,58 180,50 230,70 260,100 240,140 190,150 140,140 100,160 60,150 50,110'],
+      pins: [[40, 60, 1, 'var(--verde)'], [90, 48, 2, 'var(--verde)'], [140, 58, 3, 'var(--verde)'], [180, 50, 4, 'var(--verde)'], [230, 70, 5, 'var(--verde)'], [260, 100, 6, 'var(--verde)'], [240, 140, 7, 'var(--verde)'], [190, 150, 8, 'var(--ambar)'],
+             [140, 140, 9, 'var(--surface)', 'var(--txt)', RC.r2], [100, 160, 10, 'var(--surface)', 'var(--txt)', RC.r2], [60, 150, 11, 'var(--surface)', 'var(--txt)', RC.r2], [50, 110, 12, 'var(--surface)', 'var(--txt)', RC.r2]]
+    })}
+    <div class="lado">
+      <details class="plegable"><summary>${ico('map')}Guías de ruta (Google Maps)<span class="chev">${ico('chev')}</span></summary><div class="cuerpo-p">${btn('Paradas 1–9', 'nav', 'ghost')}${btn('Paradas 10–12', 'nav', 'ghost')}</div></details>
+      ${sec('Siguientes')}
+      <div class="grupo">
+        ${parada(8, 'MX_CDMX_EV_DG_08_0044', 'Av. Presidente Masaryk 360 · Miguel Hidalgo', 'Visita 09:41 sin enviar', 'ambar', btn('Ir', 'nav', 'ghost') + btn('Marcar otra visita', 'camera', 'ghost'), RC.r2)}
+        ${parada(9, 'MX_CDMX_EV_DG_08_0051', 'Ejército Nacional 843 · Miguel Hidalgo', 'Pendiente en esta catorcena', 'gris', btn('Ir', 'nav', 'ghost') + btn('Marcar visita', 'camera') + btn('Levantar incidencia', 'plus', 'ghost'), RC.r2)}
+        ${parada(10, 'MX_CDMX_EV_DG_08_0057', 'Horacio 1502 · Miguel Hidalgo', 'Pendiente en esta catorcena', 'gris', btn('Ir', 'nav', 'ghost') + btn('Marcar visita', 'camera') + btn('Levantar incidencia', 'plus', 'ghost'), RC.r2)}
+      </div>
+      ${sec('Visitadas · 7')}
+      <div class="grupo">
+        ${parada(7, 'MX_CDMX_EV_DG_08_0039', 'Campos Elíseos 204 · Miguel Hidalgo', 'Visitada 09:12', 'verde', btn('Ir', 'nav', 'ghost') + btn('Marcar otra visita', 'camera', 'ghost'), RC.r2)}
+      </div>
+    </div>
+  </div>`;
+
+/* ------------------------------------------------------------
+   9. Bitácora VV
+   ------------------------------------------------------------ */
+const camp = (cli, nom, fechas, admin, est, c, chips) => `<div class="row"><div class="row-top"><div><div class="folio">${cli}</div><b style="font-size:14.5px;font-weight:600">${nom}</b><div class="sub2">${fechas} · Admin: ${admin}</div></div>${estado(est, c)}</div><div class="chips">${chips.map(x => tag(x)).join('')}</div></div>`;
+const tile = (n, v, c) => v ? `<div class="tile"><b>${n}</b><span><span class="v">${v}</span> · ${c}</span></div>` : `<div class="tile libre"><b>${n}</b><span>libre</span></div>`;
+S.bitacora = () => `
+  <div class="vista-host" data-vista="lista">
+  ${cab('Bitácora VV', 'Campañas y versiones de Vía Verde. Cada cambio de versión queda registrado con quién y cuándo.', btn('Nueva campaña', 'plus'))}
+  ${buscar('Cliente, campaña o Quantum…')}
+  ${seg([[ 'Campañas', 'lista'], ['Hoy al aire', 'aire']])}
+  <div class="v-lista">
+    <div class="acciones solo-cel" style="margin:-6px 0 16px">${btn('Nueva campaña', 'plus')}${btn('Ver cerradas', '', 'ghost')}</div>
+    ${sec('Activas · 4', 'Ver cerradas')}
+    <div class="grupo">
+      ${camp('AMAZON', 'AMAZON MUNDIAL', '01 oct – 31 oct', 'Laura P.', '2 por programar', 'ambar', ['12 espacios', '3 versiones', 'Mediamonitor'])}
+      ${camp('BBVA', 'BBVA TARJETA AZUL', '15 sep – 15 oct', 'Laura P.', 'Al día', 'verde', ['8 espacios', '2 versiones'])}
+      ${camp('LIVERPOOL', 'VENTA NOCTURNA', '20 oct – 26 oct', 'Raúl M.', 'Sin pauta', 'gris', ['0 espacios'])}
+      ${camp('IKEA', 'TEMPORADA HOGAR', '01 oct – 30 nov', 'Raúl M.', 'Al día', 'verde', ['16 espacios', '6 versiones', 'Mediamonitor'])}
+    </div>
+  </div>
+  <div class="v-aire">
+    <div class="toolbar"><input class="entrada" type="date" value="2026-10-06" aria-label="Fecha" style="flex:1"></div>
+    <div class="chips" style="margin:0 0 14px">${tag('18 al aire', 'verde')}${tag('6 libres')}</div>
+    ${sec('Pórticos')}
+    <div class="tiles">${tile('P-01 Periférico', 'R1_HOMBRE-MEX', 'AMAZON')}${tile('P-02 Periférico', 'MESA EXTERIOR_PORT', 'IKEA')}${tile('P-03 Viaducto', '')}${tile('P-04 Viaducto', 'AZUL_V2 · BONUS', 'BBVA')}</div>
+    ${sec('Columnas CDMX')}
+    <div class="tiles">${tile('C-11', 'CAMASTRO', 'IKEA')}${tile('C-12', 'FRUTERO', 'IKEA')}${tile('C-13', 'R2_MUJER-MEX', 'AMAZON')}${tile('C-14', '')}</div>
+    ${sec('Columnas Edo Mex')}
+    <div class="tiles">${tile('E-21', 'AZUL_V2', 'BBVA')}${tile('E-22', '')}${tile('E-23', 'R1_HOMBRE-MEX', 'AMAZON')}${tile('E-24', '')}</div>
+  </div>
+  </div>`;
+
+/* ------------------------------------------------------------
+   10. Fijación Externa
+   ------------------------------------------------------------ */
+const regF = (n, clave, dir, camp, est, c, chips, limite, acciones, sinUb) => `<div class="row" style="display:flex;gap:12px;--rc:var(--accent)">
+  <span class="num ${sinUb ? '' : 'lleno'}" style="${sinUb ? '' : '--rc:var(--accent)'}">${sinUb ? '✕' : n}</span>
+  <div style="flex:1;min-width:0">
+    <div class="row-top"><div style="min-width:0"><div class="folio mono">${clave}</div><b style="font-size:14.5px;font-weight:600">${dir}</b><div class="sub2">${camp}</div></div>${estado(est, c)}</div>
+    <div class="chips">${chips.map(x => tag(x)).join('')}</div>
+    ${limite ? `<div class="folio" style="margin-top:8px">${ico('clock')} Límite: ${limite}</div>` : ''}
+    <div class="acciones envuelve">${acciones}</div>
+  </div></div>`;
+S.fijacion = () => `
+  ${cab('Fijación Externa', 'Registros asignados por el área de fijación (sistema externo). Mostrando los tuyos.')}
+  ${aviso('ambar', 'alert', '3 registros sin ubicación (su clave no cruza con el inventario) no aparecen en el mapa.')}
+  ${kpis([['14', 'Pendientes', 'ambar'], ['11', 'Con ubicación', 'verde'], ['3', 'Sin ubicación', 'gris']], 'rej rej3')}
+  ${buscar('Buscar clave, dirección, campaña, zona…')}
+  ${seg(['Pendientes', 'Completos', 'Todos'])}
+  <div class="split">
+    ${mapa({ pins: [[70, 70, 1, 'var(--accent)'], [130, 95, 2, 'var(--accent)'], [200, 60, 3, 'var(--accent)'], [250, 120, 4, 'var(--accent)'], [160, 160, 5, 'var(--accent)'], [90, 150, 6, 'var(--morado)']] })}
+    <div class="lado">
+      <div class="grupo">
+        ${regF(1, 'MX_EM_EV_EVA_01_0009', 'Av. Gustavo Baz 120', 'COCA-COLA · V2_VERANO', 'Pendiente', 'ambar', ['Zona 4', 'CAT 34 · 2026', '🧽 blanqueo', '👥 Cuadrilla Norte'], '08 oct', btn('Marcar fijado', 'check') + btn('Maps', 'nav', 'ghost') + btn('Evidencia', 'clip', 'ghost'))}
+        ${regF(2, 'MX_EM_EV_EVA_01_0014', 'Blvd. Ávila Camacho 3130', 'NETFLIX · STRANGER_T5', 'Pendiente', 'ambar', ['Zona 4', 'CAT 34 · 2026'], '09 oct', btn('Marcar fijado', 'check') + btn('Maps', 'nav', 'ghost') + btn('Evidencia', 'clip', 'ghost'))}
+        <div class="row" style="display:flex;gap:12px;--rc:var(--morado);box-shadow:inset 3px 0 0 var(--morado)">
+          <span class="num lleno">6</span>
+          <div style="flex:1;min-width:0">
+            <div class="folio">INC-2026-0388 · ${tag('Incidencia', 'morado')}</div>
+            <div class="row-top"><div><b style="font-size:14.5px;font-weight:600">Lona mal tensada</b><div class="sub2">Cartelera · MX_EM_EV_EVA_01_0022 · cara A</div></div>${estado('En proceso', 'azul')}</div>
+            <div class="chips">${tag('Nivel alto', 'rojo')}${tag('🎯 Campaña: BBVA')}</div>
+            <div class="acciones">${btn('Registrar reparación', 'wrench')}</div>
+          </div></div>
+        ${regF(0, 'MX_CDMX_EV_EVA_09_0301', '(sin dirección)', 'AMAZON · R1_HOMBRE-MEX', 'Pendiente', 'ambar', ['Zona 2'], '', btn('Marcar fijado', 'check') + btn('Evidencia', 'clip', 'ghost'), true)}
+      </div>
+      <div style="text-align:center;margin:-6px 0 20px"><div class="folio" style="margin-bottom:8px">Mostrando 4 de 14</div>${btn('Ver más (10 restantes)', '', 'ghost')}</div>
+    </div>
+  </div>`;
+
+/* ------------------------------------------------------------
+   11. Máquinas Biobox
+   ------------------------------------------------------------ */
+const maq = (n, id, dir, rc, rn, tags, accP) => `<div class="row con-barra" style="--rc:${rc}"><span class="barra-ruta"></span>
+  <div class="row-top"><div><b style="font-size:14.5px;font-weight:600">#${n}</b> <span class="mono" style="color:var(--faint)">${id}</span><div class="sub2">${dir}</div></div></div>
+  <div class="chips"><span class="tag"><span class="dotc" style="width:7px;height:7px;border-radius:50%;background:${rc}"></span>${rn}</span>${tags}</div>
+  <div class="acciones envuelve">${btn('Revisar', 'check', accP ? '' : 'ghost')}${btn('Ir', 'nav', 'ghost')}${btn('Ver incidencias', 'alert', 'ghost')}${btn('', 'history', 'ghost icono')}</div></div>`;
+S.biobox = () => `
+  ${cab('Máquinas Biobox', 'Revisión de máquinas por ruta, estado del inventario e incidencias abiertas.', btn('Actualizar', 'refresh', 'ghost'))}
+  <div class="toolbar" style="flex-wrap:wrap">${sel(['Unidad: Biobox', 'Unidad: Biobox Perú'], 'Unidad')}${sel(['Medio: Digital e Impreso', 'Digital', 'Impreso'], 'Medio')}</div>
+  ${buscar('Buscar por número, dirección o clave')}
+  <div class="toolbar" style="flex-wrap:wrap">${sel(['Ordenar: más urgente primero', 'Ordenar: secuencia de la ruta', 'Ordenar: número de máquina'], 'Orden')}<button class="fpill" aria-pressed="true" style="height:38px">${ico('check')}Solo las que toca revisar</button></div>
+  ${fpills([fp('Todas (64)', true, ''), fp('Norte (22)', false, '', RC.r1), fp('Sur (18)', false, '', RC.r3), fp('Centro (24)', false, '', RC.r2)])}
+  ${kpis([['64', 'Máquinas', 'gris'], ['5', 'Nunca revisadas', 'rojo'], ['12', '+30 días', 'ambar'], ['9', 'Con anomalías', 'ambar'], ['7', 'Con incidencias abiertas', 'ambar'], ['3', 'Fuera de línea', 'rojo'], ['2', 'Sin coordenadas', 'gris']], 'rej2')}
+  <p class="folio" style="margin:0 2px 12px">Actualizado: 09:44:12</p>
+  ${sec('Por revisar · 17')}
+  <div class="grupo">
+    ${maq(1043, 'BBX-CDMX-031', 'Av. Universidad 1330 · Coyoacán', RC.r3, 'Sur', tag('Digital · Kiosco') + tag('Fuera de línea', 'rojo') + tag('⚠ 1 abierta · 26 h · Op. Bio Box', 'rojo', '', true), true)}
+    ${maq(1017, 'BBX-CDMX-012', 'Insurgentes Sur 2374 · Álvaro Obregón', RC.r3, 'Sur', tag('Impreso · Contenedor') + tag('Revisada hace 34 días', 'ambar') + tag('2 anomalías', 'ambar'), true)}
+    ${maq(1088, 'BBX-EM-007', 'Periférico Norte 410 · Tlalnepantla', RC.r1, 'Norte', tag('Digital · Kiosco') + tag('Nunca revisada', 'rojo') + tag('Sin coordenadas'), true)}
+  </div>`;
+
+/* ------------------------------------------------------------
+   12. Usuarios y roles
+   ------------------------------------------------------------ */
+const rol = (r, d) => `<span class="rol">${r} <em>· ${d}</em><button aria-label="Quitar rol">${ico('x')}</button></span>`;
+const usuario = (ini, nom, mail, tel, roles, abierto = false) => `<div class="row">
+  <div class="persona"><span class="ini">${ini}</span><div style="flex:1;min-width:0"><b style="font-size:14.5px;font-weight:600">${nom}</b><div class="sub2">${mail} · ${tel}</div>
+    <div class="chips">${roles}</div>
+    ${abierto ? `<div class="panel" style="margin:12px 0 0;background:var(--bg)">
+      <div class="dos"><div class="campo"><label>Rol</label><select class="entrada"><option>Validador</option><option>Técnico</option><option>Coordinador</option><option>Monitorista</option></select></div>
+      <div class="campo"><label>Unidad</label><select class="entrada"><option>Ecovallas</option><option>(todas)</option></select></div></div>
+      <div class="dos"><div class="campo"><label>Medio <em>para validador</em></label><select class="entrada"><option>Ambos</option><option>Impreso</option><option>Digital</option></select></div>
+      <div class="campo"><label>Área de pertenencia</label><select class="entrada"><option>Monitoreo</option><option>Operaciones</option><option>MKT</option></select></div></div>
+      <div class="ayuda" style="margin:-4px 0 10px">El validador revisa los reportes de su área antes de que lleguen al área responsable.</div>
+      ${btn('Agregar rol', 'plus')}</div>` : ''}
+    <div class="acciones">${btn(abierto ? 'Cerrar' : 'Asignar rol', abierto ? 'x' : 'plus', 'ghost')}${btn('Dar de baja', 'trash', 'peligro')}</div>
+  </div></div></div>`;
+S.usuarios = () => `
+  ${cab('Usuarios y roles', 'Da de alta usuarios, edita sus datos y asigna roles por unidad de negocio y departamento.')}
+  <details class="plegable"><summary>${ico('userplus')}Nuevo usuario<span class="chev">${ico('chev')}</span></summary>
+    <div style="padding:0 14px 14px">
+      <div class="campo"><label>Nombre</label><input class="entrada"></div>
+      <div class="dos"><div class="campo"><label>Correo</label><input class="entrada" placeholder="correo@gpovallas.com"></div><div class="campo"><label>Teléfono (WhatsApp)</label><input class="entrada" placeholder="+52..."></div></div>
+      <div class="ayuda" style="margin:0 0 10px">Recuerda invitarlo también en Supabase → Authentication para que pueda iniciar sesión.</div>
+      ${btn('Agregar usuario', 'plus')}
+    </div></details>
+  ${buscar('Buscar usuario…')}
+  ${sec('42 usuarios')}
+  <div class="grupo">
+    ${usuario('AR', 'Ana Ramírez', 'ana.r@gpovallas.com', '55 1234 5678', rol('Validador', 'Ecovallas · Digital · Monitoreo') + rol('Coordinador', 'Vía Verde · Digital'), true)}
+    ${usuario('MG', 'Mario García', 'mario.g@gpovallas.com', '55 8765 4321', rol('Monitorista', 'Ecovallas'))}
+    ${usuario('LH', 'Lucía Hernández', 'lucia.h@gpovallas.com', '55 2468 1357', rol('Técnico', 'Biobox · Op. Bio Box') + rol('Reportante', 'Biobox · Operaciones'))}
+    ${usuario('JP', 'Juan Pérez', 'juan.p@gpovallas.com', '55 1357 2468', '<span class="tag">Sin roles</span>')}
+  </div>`;
+
+/* ------------------------------------------------------------
+   Navegación
+   ------------------------------------------------------------ */
+const MODS = [
+  ['Incidencias', [['nueva', 'plus', 'Nueva'], ['bandeja', 'inbox', 'Bandeja', 5], ['incidencias', 'list', 'Incidencias'], ['indicadores', 'chart', 'Indicadores'], ['disponibilidad', 'scan', 'Disponibilidad']]],
+  ['Monitoreo', [['rutas', 'map', 'Rutas de Monitoreo'], ['pauta', 'board', 'Pauta y Monitoreo'], ['misrutas', 'compass', 'Mis rutas'], ['bitacora', 'road', 'Bitácora VV'], ['fijacion', 'clip', 'Fijación Externa'], ['biobox', 'box', 'Máquinas Biobox']]],
+  ['Administración', [['usuarios', 'users', 'Usuarios']]]
+];
+const TODOS = MODS.flatMap(g => g[1]);
+const TABS = [['nueva', 'plus', 'Nueva'], ['bandeja', 'inbox', 'Bandeja', 5], ['incidencias', 'list', 'Incidencias'], ['rutas', 'map', 'Rutas']];
+const EN_TABS = TABS.map(t => t[0]);
+const TEMAS = [['auto', 'monitor', 'Automático'], ['claro', 'sun', 'Claro'], ['oscuro', 'moon', 'Oscuro']];
+
+function shellHTML() {
+  return `
+  <div class="top">
+    <div class="sb"><span>9:41</span><span class="sb-ic"><i></i><i></i><i></i></span></div>
+    <header class="topbar">
+      <div class="brand"><div class="logo">G</div><b>Operaciones</b><small>· GPO VALLAS</small></div>
+      <div class="who">
+        <button class="iconbtn" aria-label="Notificaciones (4)">${ico('bell')}<span class="dot">4</span></button>
+        <button class="avatar" data-accion="menu" aria-haspopup="menu" aria-expanded="false" aria-label="Menú de usuario">EM</button>
+      </div>
+    </header>
+  </div>
+  <div class="cuerpo">
+    <nav class="side" aria-label="Módulos">
+      ${MODS.map(([g, items]) => `<div class="grp">${g}</div>` + items.map(([k, ic, t, b]) =>
+        `<button class="nav" data-ir="${k}">${ico(ic)}<span>${t}</span>${b ? `<span class="badge">${b}</span>` : ''}</button>`).join('')).join('')}
+    </nav>
+    <main class="main"><div class="contenido"></div></main>
+  </div>
+  <nav class="tabbar" aria-label="Módulos">
+    ${TABS.map(([k, ic, t, b]) => `<button class="tab" data-ir="${k}">${ico(ic)}<span>${t}</span>${b ? `<span class="badge">${b}</span>` : ''}</button>`).join('')}
+    <button class="tab" data-accion="mas" aria-haspopup="dialog">${ico('more')}<span>Más</span></button>
+  </nav>
+  <div class="pop" role="menu" aria-label="Menú de usuario">
+    <div class="pop-head"><div class="avatar" style="display:flex;align-items:center;justify-content:center">EM</div><div><b>Erik M.</b><small>Coordinador · Mantenimiento</small></div></div>
+    <div class="pop-sec">
+      <div class="lbl">Apariencia</div>
+      <div class="temas" role="group" aria-label="Apariencia">
+        ${TEMAS.map(([v, ic, l]) => `<button data-tema-op="${v}" aria-pressed="false">${ico(ic)}${l}</button>`).join('')}
+      </div>
+      <div class="ayuda">Automático sigue la configuración del teléfono.</div>
+    </div>
+    <button class="pop-item" role="menuitem">${ico('logout')}Cerrar sesión</button>
+  </div>
+  <div class="scrim" data-accion="cerrar"></div>
+  <div class="hoja" role="dialog" aria-label="Más módulos">
+    <div class="asa"></div>
+    <h3>Más módulos</h3>
+    <div class="grupo">${TODOS.filter(m => !EN_TABS.includes(m[0])).map(([k, ic, t]) => `<button class="fila" data-ir="${k}"><span class="ic">${ico(ic)}</span>${t}<span class="chev">${ico('chev')}</span></button>`).join('')}</div>
+  </div>`;
+}
+
+const apps = [];
+document.querySelectorAll('.screen').forEach(s => {
+  const app = document.createElement('div');
+  app.className = 'app';
+  app.innerHTML = shellHTML();
+  s.appendChild(app);
+  apps.push(app);
+});
+document.getElementById('mods').innerHTML = TODOS.map(([k, , t]) => `<button data-ir="${k}" aria-pressed="false">${t}</button>`).join('');
+
+let actual = '';
+function irA(k) {
+  actual = k;
+  apps.forEach(app => {
+    app.querySelector('.contenido').innerHTML = S[k]();
+    app.querySelector('.main').scrollTop = 0;
+    app.classList.remove('mas-abierto', 'menu-abierto');
+    app.querySelectorAll('.nav, .tab').forEach(b => b.removeAttribute('aria-current'));
+    app.querySelectorAll(`.nav[data-ir="${k}"], .tab[data-ir="${k}"]`).forEach(b => b.setAttribute('aria-current', 'page'));
+    if (!EN_TABS.includes(k)) app.querySelector('[data-accion="mas"]').setAttribute('aria-current', 'page');
+  });
+  document.querySelectorAll('#mods button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ir === k)));
+  try { history.replaceState(null, '', '#' + k); } catch {}
+}
+
+function fijarTema(app, v) {
+  if (v === 'auto') app.removeAttribute('data-tema'); else app.setAttribute('data-tema', v);
+  app.querySelectorAll('[data-tema-op]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.temaOp === v)));
+}
+apps.forEach(a => fijarTema(a, 'auto'));
+
+document.getElementById('tema-global').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  apps.forEach(a => fijarTema(a, b.dataset.g));
+  e.currentTarget.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+});
+
+document.addEventListener('click', e => {
+  const ir = e.target.closest('[data-ir]');
+  if (ir) { irA(ir.dataset.ir); return; }
+  const app = e.target.closest('.app');
+  document.querySelectorAll('.app.menu-abierto').forEach(a => {
+    if (a !== app || !e.target.closest('.pop, [data-accion="menu"]')) {
+      a.classList.remove('menu-abierto');
+      a.querySelector('[data-accion="menu"]').setAttribute('aria-expanded', 'false');
+    }
+  });
+  if (!app) return;
+  const t = e.target.closest('button, .scrim');
+  if (!t) return;
+  if (t.dataset.accion === 'menu') {
+    const abre = !app.classList.contains('menu-abierto');
+    app.classList.toggle('menu-abierto', abre);
+    t.setAttribute('aria-expanded', String(abre));
+  } else if (t.dataset.temaOp) {
+    fijarTema(app, t.dataset.temaOp);
+    // El selector del marco y el global quedan en sintonía.
+    document.querySelectorAll('#tema-global button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.g === t.dataset.temaOp)));
+    apps.forEach(a => fijarTema(a, t.dataset.temaOp));
+  } else if (t.dataset.accion === 'mas') {
+    app.classList.add('mas-abierto');
+  } else if (t.dataset.accion === 'cerrar') {
+    app.classList.remove('mas-abierto');
+  } else if (t.getAttribute('role') === 'tab') {
+    t.parentElement.querySelectorAll('[role=tab]').forEach(b => b.setAttribute('aria-selected', String(b === t)));
+    if (t.dataset.vistaBtn) {
+      const v = t.dataset.vistaBtn;
+      apps.forEach(a => { const h = a.querySelector('.vista-host'); if (h) { h.dataset.vista = v; h.querySelectorAll('[data-vista-btn]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.vistaBtn === v))); } });
+    }
+  } else if (t.classList.contains('fpill') || t.classList.contains('check')) {
+    t.setAttribute('aria-pressed', String(t.getAttribute('aria-pressed') !== 'true'));
+  } else if (t.classList.contains('card') && t.hasAttribute('aria-pressed')) {
+    const on = t.getAttribute('aria-pressed') !== 'true';
+    t.parentElement.querySelectorAll('.card[aria-pressed]').forEach(c => c.setAttribute('aria-pressed', 'false'));
+    t.setAttribute('aria-pressed', String(on));
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  apps.forEach(a => a.classList.remove('menu-abierto', 'mas-abierto'));
+});
+
+irA((location.hash || '').slice(1) in S ? location.hash.slice(1) : 'bandeja');
+</script>
+</body>
+</html>

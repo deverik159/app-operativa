@@ -873,9 +873,9 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                     minHeight: 36,
                     // Apagado = el fondo de .tag, con su pareja clara (tema
                     // claro/oscuro, 24-sep-2026). Encendido: naranja con
-                    // texto oscuro, igual en los dos temas.
+                    // texto --sobre-acento, igual en los dos temas.
                     background: on ? 'var(--accent)' : 'var(--tag-fondo)',
-                    color: on ? '#151515' : 'var(--muted)',
+                    color: on ? 'var(--sobre-acento)' : 'var(--muted)',
                     whiteSpace: 'normal',
                     textAlign: 'left',
                     /* Los nombres de campaña del Excel suelen ser UN token

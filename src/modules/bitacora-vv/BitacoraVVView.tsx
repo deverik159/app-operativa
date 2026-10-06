@@ -233,7 +233,7 @@ function FranjaHoras({
                 cursor: 'pointer',
                 border: '1px solid ' + (activa ? 'var(--accent)' : 'var(--line)'),
                 background: activa ? 'var(--accent)' : 'var(--panel2)',
-                color: activa ? '#151515' : 'var(--txt)',
+                color: activa ? 'var(--sobre-acento)' : 'var(--txt)',
               }}
             >
               {String(h).padStart(2, '0')}
@@ -363,7 +363,7 @@ function SelectorHorario({
                   fontWeight: 700,
                   border: '1px solid ' + (activo ? 'var(--accent)' : 'var(--line)'),
                   background: activo ? 'var(--accent)' : 'transparent',
-                  color: activo ? '#151515' : 'var(--muted)',
+                  color: activo ? 'var(--sobre-acento)' : 'var(--muted)',
                   opacity: activo ? 1 : 0.55,
                 }}
               >
@@ -1220,7 +1220,7 @@ function BitacoraVVView({
           cursor: 'pointer',
           border: '1px solid ' + (activo ? 'var(--accent)' : 'var(--line)'),
           background: activo ? 'var(--accent)' : 'var(--panel2)',
-          color: activo ? '#151515' : 'var(--txt)',
+          color: activo ? 'var(--sobre-acento)' : 'var(--txt)',
         }}
       >
         {nombreEspacio(e)}

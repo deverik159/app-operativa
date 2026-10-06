@@ -1,0 +1,210 @@
+/* ============================================================
+   TOKENS — mismo mecanismo que la app de hoy (lib/tema.ts):
+   oscuro por omisión, claro con @media en Automático, y
+   data-tema="claro"|"oscuro" cuando se fija a mano.
+   SI CAMBIAS EL BLOQUE CLARO, CAMBIA LOS DOS.
+   ============================================================ */
+.app{
+  --bg:#0a0a0c;--surface:#131316;--raised:#1d1d21;--fill:rgba(255,255,255,.06);--fill-on:rgba(255,255,255,.1);
+  --line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.15);
+  --txt:#ededf0;--muted:#9a9da6;--faint:#7c7f88;
+  --accent:#cc4119;--accent-hover:#db4c22;--accent-txt:#ff8a68;--on-accent:#fff;
+  --bar:rgba(10,10,12,.78);--sombra:0 12px 40px rgba(0,0,0,.55);--scrim:rgba(0,0,0,.55);
+  --rojo:#f2555a;--ambar:#f0b232;--verde:#3fcf8e;--azul:#6e9bff;--morado:#a990ff;--gris:#8b8f99;
+  color-scheme:dark}
+@media (prefers-color-scheme: light){
+  .app:not([data-tema="oscuro"]){
+    --bg:#f5f5f7;--surface:#ffffff;--raised:#ececef;--fill:rgba(0,0,0,.045);--fill-on:#ffffff;
+    --line:rgba(0,0,0,.08);--line2:rgba(0,0,0,.14);
+    --txt:#17171a;--muted:#5b5e66;--faint:#6c6f77;
+    --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--on-accent:#fff;
+    --bar:rgba(245,245,247,.8);--sombra:0 12px 40px rgba(0,0,0,.14);--scrim:rgba(0,0,0,.28);
+    --rojo:#c81e1e;--ambar:#a14a02;--verde:#13753a;--azul:#1d4fd8;--morado:#6b2fd1;--gris:#5c6270;
+    color-scheme:light}
+}
+.app[data-tema="claro"]{
+  --bg:#f5f5f7;--surface:#ffffff;--raised:#ececef;--fill:rgba(0,0,0,.045);--fill-on:#ffffff;
+  --line:rgba(0,0,0,.08);--line2:rgba(0,0,0,.14);
+  --txt:#17171a;--muted:#5b5e66;--faint:#6c6f77;
+  --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--on-accent:#fff;
+  --bar:rgba(245,245,247,.8);--sombra:0 12px 40px rgba(0,0,0,.14);--scrim:rgba(0,0,0,.28);
+  --rojo:#c81e1e;--ambar:#a14a02;--verde:#13753a;--azul:#1d4fd8;--morado:#6b2fd1;--gris:#5c6270;
+  color-scheme:light}
+
+/* ============================================================
+   APP: estilo A (Precisión) con el orden de B (Nativo)
+   ============================================================ */
+.app{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;
+  background:var(--bg);color:var(--txt);font-family:Inter,-apple-system,system-ui,sans-serif;font-size:14px;
+  letter-spacing:-.006em;font-feature-settings:"cv11","ss01";transition:background-color .2s,color .2s}
+.app *{box-sizing:border-box}
+.app button{font-family:inherit;color:inherit;cursor:pointer}
+.app button:focus-visible,.app input:focus-visible,.app select:focus-visible{outline:2px solid var(--accent-txt);outline-offset:2px}
+.app svg.i{width:16px;height:16px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* --- Barra superior translúcida --- */
+.app .top{flex-shrink:0;z-index:5;background:var(--bar);backdrop-filter:saturate(160%) blur(16px);-webkit-backdrop-filter:saturate(160%) blur(16px);border-bottom:1px solid var(--line)}
+.app .sb{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 28px 0 34px;font-size:15px;font-weight:600}
+.app .sb-ic{display:flex;gap:5px;align-items:center}
+.app .sb-ic i{display:block;width:17px;height:10px;border-radius:2px;background:currentColor}
+.app .sb-ic i:first-child{width:15px;clip-path:polygon(0 100%,100% 0,100% 100%)}
+.app .sb-ic i:last-child{width:24px;height:11px;border-radius:3px;background:none;box-shadow:inset 0 0 0 1.5px currentColor}
+.app .topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 16px 10px}
+.app .brand{display:flex;align-items:center;gap:9px;min-width:0}
+.app .logo{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.app .brand b{font-size:14px;font-weight:600;white-space:nowrap}
+.app .brand small{color:var(--faint);font-size:12px;font-weight:500;white-space:nowrap;display:none}
+.app .who{display:flex;align-items:center;gap:6px}
+.app .iconbtn{position:relative;width:36px;height:36px;border-radius:9px;border:0;background:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;transition:background .15s,color .15s}
+.app .iconbtn:hover{background:var(--fill);color:var(--txt)}
+.app .iconbtn svg.i{width:19px;height:19px}
+.app .iconbtn .dot{position:absolute;top:4px;right:3px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--bg)}
+.app .avatar{width:30px;height:30px;border-radius:50%;border:0;background:var(--raised);color:var(--txt);font-size:11px;font-weight:600;box-shadow:inset 0 0 0 1px var(--line2);margin-left:2px}
+
+/* --- Cuerpo: menú lateral (escritorio) + contenido --- */
+.app .cuerpo{flex:1;display:flex;min-height:0}
+.app .side{display:none}
+.app .main{flex:1;overflow-y:auto;overflow-x:hidden;padding:18px 16px 112px;scrollbar-width:none}
+.app .main::-webkit-scrollbar{display:none}
+.app .contenido{max-width:960px;margin:0 auto}
+
+/* Título grande (orden B) con tipografía de A */
+.app .page{font-size:30px;font-weight:700;letter-spacing:-.03em;line-height:1.1;margin:0}
+.app .phint{color:var(--muted);font-size:14px;margin:5px 0 18px}
+
+/* Indicadores: carrusel en celular (B), con borde fino (A) */
+.app .cards{display:grid;grid-auto-flow:column;grid-auto-columns:132px;gap:8px;overflow-x:auto;margin:0 -16px 18px;padding:0 16px;scrollbar-width:none;scroll-snap-type:x mandatory}
+.app .cards::-webkit-scrollbar{display:none}
+.app .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 13px;scroll-snap-align:start;text-align:left;transition:border-color .15s}
+.app .card:hover{border-color:var(--line2)}
+.app .card .n{font-size:26px;font-weight:600;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.app .card .l{color:var(--muted);font-size:12.5px;margin-top:3px;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.app .card .l::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--c);flex-shrink:0}
+
+/* Búsqueda + unidad (B) */
+.app .toolbar{display:flex;gap:8px;margin-bottom:10px}
+.app .search{flex:1;min-width:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 11px;background:var(--fill);border-radius:10px;color:var(--faint);border:1px solid transparent;transition:border-color .15s,background .15s}
+.app .search:focus-within{border-color:var(--line2);background:var(--surface)}
+.app .search input{flex:1;min-width:0;border:0;background:none;outline:none;font:inherit;font-size:14px;color:var(--txt);padding:0}
+.app .search input::placeholder{color:var(--faint)}
+.app select{height:38px;padding:0 30px 0 12px;border:0;border-radius:10px;background:var(--fill);color:var(--txt);font:inherit;font-size:14px;font-weight:500;appearance:none;-webkit-appearance:none;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center}
+
+/* Control segmentado (B) */
+.app .seg{display:flex;background:var(--fill);border-radius:10px;padding:3px;margin-bottom:20px}
+.app .seg button{flex:1;height:30px;border:0;background:none;border-radius:7px;font-size:13px;font-weight:500;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:background .18s,color .18s,box-shadow .18s}
+.app .seg button span{color:var(--faint);font-size:12px;font-variant-numeric:tabular-nums}
+.app .seg button[aria-selected="true"]{background:var(--fill-on);color:var(--txt);box-shadow:0 1px 3px rgba(0,0,0,.12),inset 0 0 0 1px var(--line)}
+
+/* Encabezado de sección + lista agrupada (B) con filas de A */
+.app .sec{display:flex;justify-content:space-between;align-items:baseline;margin:0 4px 8px}
+.app .sec h3{margin:0;font-size:13px;font-weight:600;color:var(--muted)}
+.app .sec a{font-size:13px;color:var(--accent-txt);text-decoration:none;font-weight:500}
+.app .grupo{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:22px}
+.app .inc{position:relative;padding:14px 14px 13px;transition:background .12s}
+.app .inc:hover{background:color-mix(in srgb,var(--fill) 60%,transparent)}
+.app .inc+.inc::before{content:'';position:absolute;top:0;left:14px;right:0;height:1px;background:var(--line)}
+.app .inc-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.app .inc-body{min-width:0}
+.app .folio{font-size:12px;color:var(--faint);font-weight:500;font-variant-numeric:tabular-nums}
+.app .titulo{font-size:15px;font-weight:600;margin:2px 0 5px;letter-spacing:-.015em}
+.app .meta{display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:13px}
+.app .meta span{display:flex;align-items:center;gap:5px;min-width:0}
+.app .meta svg.i{width:13px;height:13px;color:var(--faint)}
+.app .clave{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--faint);padding-left:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block!important}
+.app .estado{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500;color:var(--muted);white-space:nowrap;padding-top:1px}
+.app .estado i{width:7px;height:7px;border-radius:50%;background:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 20%,transparent)}
+.app .chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
+.app .tag{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 7px;border:1px solid var(--line2);border-radius:6px;font-size:11.5px;color:var(--muted);font-weight:500;white-space:nowrap}
+.app .tag i{width:6px;height:6px;border-radius:50%;background:var(--c)}
+.app .tag svg.i{width:12px;height:12px;color:var(--c)}
+.app .tag.alerta{color:var(--c);border-color:color-mix(in srgb,var(--c) 40%,transparent);background:color-mix(in srgb,var(--c) 9%,transparent)}
+.app .hace{margin-left:auto;color:var(--faint);font-size:12px}
+.app .acciones{display:flex;gap:8px;margin-top:12px}
+.app .btn{height:32px;padding:0 13px;border:0;border-radius:8px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+  background:var(--accent);color:var(--on-accent);transition:background .15s,transform .1s}
+.app .btn:hover{background:var(--accent-hover)}
+.app .btn:active{transform:scale(.98)}
+.app .btn.ghost{background:transparent;color:var(--txt);box-shadow:inset 0 0 0 1px var(--line2)}
+.app .btn.ghost:hover{background:var(--fill)}
+.app .btn svg.i{width:14px;height:14px}
+
+/* --- Barra de pestañas (celular) --- */
+.app .tabbar{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;justify-content:space-around;padding:7px 6px 26px;
+  background:var(--bar);backdrop-filter:saturate(160%) blur(16px);-webkit-backdrop-filter:saturate(160%) blur(16px);border-top:1px solid var(--line)}
+.app .tab{position:relative;flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 0;font-size:10.5px;font-weight:500;color:var(--faint);transition:color .15s}
+.app .tab svg.i{width:22px;height:22px}
+.app .tab[aria-current="page"]{color:var(--txt)}
+.app .tab[aria-current="page"] svg.i{color:var(--accent-txt)}
+.app .tab .badge{position:absolute;top:0;left:calc(50% + 6px);background:var(--accent);color:#fff;font-size:9.5px;font-weight:700;border-radius:8px;padding:2px 5px;line-height:1;box-shadow:0 0 0 2px var(--bg)}
+
+/* --- Menú del avatar (con Apariencia) --- */
+.app .pop{position:absolute;right:12px;top:96px;width:280px;z-index:20;background:var(--surface);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--sombra);
+  opacity:0;transform:translateY(-6px) scale(.98);transform-origin:top right;pointer-events:none;transition:opacity .16s,transform .16s}
+.app.menu-abierto .pop{opacity:1;transform:none;pointer-events:auto}
+.app .pop-head{display:flex;gap:10px;align-items:center;padding:14px;border-bottom:1px solid var(--line)}
+.app .pop-head .avatar{width:36px;height:36px;margin:0;font-size:12px}
+.app .pop-head b{display:block;font-size:14px;font-weight:600}
+.app .pop-head small{color:var(--muted);font-size:12px}
+.app .pop-sec{padding:12px 14px;border-bottom:1px solid var(--line)}
+.app .pop-sec .lbl{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px}
+.app .temas{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--fill);padding:3px;border-radius:10px}
+.app .temas button{border:0;background:none;border-radius:7px;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11.5px;font-weight:500;color:var(--muted);transition:background .15s,color .15s}
+.app .temas button svg.i{width:17px;height:17px}
+.app .temas button[aria-pressed="true"]{background:var(--fill-on);color:var(--txt);box-shadow:0 1px 3px rgba(0,0,0,.12),inset 0 0 0 1px var(--line)}
+.app .pop-sec .ayuda{font-size:11.5px;color:var(--faint);margin-top:8px}
+.app .pop-item{width:100%;border:0;background:none;display:flex;align-items:center;gap:10px;padding:13px 14px;font-size:14px;color:var(--txt);text-align:left}
+.app .pop-item:hover{background:var(--fill)}
+.app .pop-item svg.i{color:var(--muted)}
+
+/* --- Hoja "Más" (celular) --- */
+.app .scrim{position:absolute;inset:0;z-index:15;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity .2s}
+.app.mas-abierto .scrim{opacity:1;pointer-events:auto}
+.app .hoja{position:absolute;left:0;right:0;bottom:0;z-index:16;background:var(--bg);border-top-left-radius:18px;border-top-right-radius:18px;border-top:1px solid var(--line2);
+  padding:8px 16px 30px;transform:translateY(102%);transition:transform .28s cubic-bezier(.2,.8,.2,1)}
+.app.mas-abierto .hoja{transform:none}
+.app .asa{width:36px;height:5px;border-radius:3px;background:var(--line2);margin:0 auto 12px}
+.app .hoja h3{font-size:17px;font-weight:600;margin:0 4px 12px;letter-spacing:-.015em}
+.app .hoja .grupo{margin-bottom:0}
+.app .fila{position:relative;width:100%;border:0;background:none;display:flex;align-items:center;gap:12px;padding:12px 14px;font-size:14.5px;text-align:left}
+.app .fila+.fila::before{content:'';position:absolute;top:0;left:50px;right:0;height:1px;background:var(--line)}
+.app .fila:hover{background:var(--fill)}
+.app .fila .ic{width:26px;height:26px;border-radius:7px;background:var(--fill);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.app .fila .ic svg.i{width:15px;height:15px}
+.app .fila .chev{margin-left:auto;color:var(--faint)}
+
+/* ============================================================
+   ESCRITORIO (≥ 760px de ancho del contenedor): menú lateral,
+   indicadores en fila, sin pestañas abajo. Mismo HTML.
+   ============================================================ */
+@container (min-width: 760px){
+  .app .sb{display:none}
+  .app .topbar{padding:10px 20px}
+  .app .brand small{display:inline}
+  .app .side{display:flex;flex-direction:column;gap:1px;width:232px;flex-shrink:0;padding:16px 10px;border-right:1px solid var(--line);overflow-y:auto}
+  .app .side .grp{font-size:11.5px;font-weight:600;color:var(--faint);padding:14px 10px 6px}
+  .app .side .grp:first-child{padding-top:2px}
+  .app .nav{border:0;background:none;display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:7px;font-size:13.5px;font-weight:500;color:var(--muted);text-align:left;transition:background .12s,color .12s}
+  .app .nav:hover{background:var(--fill);color:var(--txt)}
+  .app .nav[aria-current="page"]{background:var(--fill);color:var(--txt)}
+  .app .nav[aria-current="page"] svg.i{color:var(--accent-txt)}
+  .app .nav .badge{margin-left:auto;background:var(--accent);color:#fff;font-size:10.5px;font-weight:600;border-radius:9px;padding:1px 6px}
+  .app .main{padding:32px 36px 48px}
+  .app .page{font-size:28px}
+  .app .cards{grid-auto-flow:row;grid-template-columns:repeat(4,1fr);margin:0 0 22px;padding:0;overflow:visible}
+  .app .filtros{display:flex;gap:10px;align-items:center;margin-bottom:22px}
+  .app .filtros .toolbar{flex:1;margin:0}
+  .app .filtros .seg{margin:0;flex:0 0 300px}
+  .app .inc{display:grid;grid-template-columns:1fr auto;column-gap:24px;align-items:start;padding:14px 18px}
+  .app .inc+.inc::before{left:18px}
+  .app .inc .chips{grid-column:1}
+  .app .inc .acciones{grid-column:2;grid-row:1 / span 2;margin:0;align-self:center}
+  .app .tabbar,.app .hoja,.app .scrim{display:none}
+  .app .pop{top:58px;right:16px}
+}
+
+/* Tonos de estatus: cada componente usa --c a su modo. */
+.app .t-rojo{--c:var(--rojo)}.app .t-ambar{--c:var(--ambar)}.app .t-verde{--c:var(--verde)}
+.app .t-azul{--c:var(--azul)}.app .t-morado{--c:var(--morado)}.app .t-gris{--c:var(--gris)}
+
+@media (prefers-reduced-motion: reduce){.app,.app *{transition:none!important}}

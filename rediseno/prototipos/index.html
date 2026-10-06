@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rediseño · Alternativas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   Página contenedora (no es parte de la app)
+   ============================================================ */
+:root{--p-bg:#f4f4f2;--p-txt:#16161a;--p-muted:#5d5f66;--p-line:#dcdcd8;--p-card:#fff;--p-chip:#ececea}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--p-bg:#101012;--p-txt:#ececef;--p-muted:#9a9ca4;--p-line:#26262b;--p-card:#17171a;--p-chip:#222226}
+}
+:root[data-theme="dark"]{--p-bg:#101012;--p-txt:#ececef;--p-muted:#9a9ca4;--p-line:#26262b;--p-card:#17171a;--p-chip:#222226}
+*{box-sizing:border-box}
+body{margin:0;background:var(--p-bg);color:var(--p-txt);font-family:Inter,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1560px;margin:0 auto;padding:40px 16px 80px}
+.intro{max-width:760px;margin:0 0 36px}
+.intro h1{font-size:28px;letter-spacing:-.02em;margin:0 0 8px}
+.intro p{color:var(--p-muted);line-height:1.55;margin:0 0 8px;font-size:15px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:40px 28px;justify-items:center}
+.col{width:100%;max-width:380px}
+.col h2{font-size:17px;margin:0 0 2px;letter-spacing:-.01em}
+.col .tagline{color:var(--p-muted);font-size:13px;margin:0 0 14px}
+.badge-v{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--p-chip);margin-right:6px;vertical-align:1px}
+.notes{font-size:13px;line-height:1.5;color:var(--p-muted);margin-top:16px}
+.notes b{color:var(--p-txt);font-weight:600}
+.notes ul{margin:4px 0 10px;padding-left:18px}
+.phone{width:360px;max-width:100%;height:740px;border-radius:48px;padding:10px;background:#0c0c0d;
+  box-shadow:0 0 0 1px #2a2a2e,0 24px 60px -20px rgba(0,0,0,.45);margin:0 auto}
+.screen{position:relative;height:100%;border-radius:38px;overflow:hidden;isolation:isolate}
+.footer{margin-top:56px;max-width:860px;color:var(--p-muted);font-size:14px;line-height:1.6}
+.footer h3{color:var(--p-txt);font-size:16px;margin:24px 0 6px}
+
+/* ============================================================
+   Estructura común de la app simulada
+   ============================================================ */
+.app{height:100%;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.app .sb{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 28px 0 34px;font-size:15px;font-weight:600;flex-shrink:0}
+.app .sb .sb-ic{display:flex;gap:5px;align-items:center}
+.app .sb .sb-ic i{display:block;width:17px;height:10px;border-radius:2px;background:currentColor;opacity:.9}
+.app .sb .sb-ic i:first-child{width:15px;clip-path:polygon(0 100%,100% 0,100% 100%)}
+.app .sb .sb-ic i:last-child{width:24px;height:11px;border-radius:3px;background:none;box-shadow:inset 0 0 0 1.5px currentColor;position:relative}
+.app .top-wrap{flex-shrink:0;z-index:2}
+.app .topbar{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.app .brand{display:flex;align-items:center;gap:10px;min-width:0}
+.app .brand-txt{display:flex;flex-direction:column;min-width:0}
+.app .brand-txt b,.app .brand-txt small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app .who{display:flex;align-items:center;gap:8px}
+.app .iconbtn{position:relative;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;color:inherit}
+.app .iconbtn .dot{position:absolute;top:-4px;right:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.app .avatar{display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.app .main{flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:110px;scrollbar-width:none}
+.app .main::-webkit-scrollbar{display:none}
+.app .page{margin:0}
+.app .phint{margin:0}
+.app .cards{display:grid}
+.app .card .n{font-variant-numeric:tabular-nums}
+.app .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+.app .search{display:flex;align-items:center;gap:8px;flex:1 1 100%;min-width:0}
+.app .search input{flex:1;min-width:0;border:0;background:transparent;font:inherit;color:inherit;outline:none;padding:0}
+.app .search input::placeholder{color:inherit;opacity:.6}
+.app select{font:inherit;color:inherit;flex:1 1 100%;appearance:none;-webkit-appearance:none;cursor:pointer}
+.app .seg{display:flex}
+.app .seg button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit;flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+.app .inc-list{display:grid}
+.app .inc-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.app .inc-body{min-width:0}
+.app .titulo{margin:0}
+.app .meta{display:flex;flex-direction:column;gap:2px}
+.app .meta span{display:flex;align-items:center;gap:5px;min-width:0}
+.app .clave{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app .chips{display:flex;flex-wrap:wrap;align-items:center}
+.app .pill{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.app .hace{margin-left:auto}
+.app .inc-actions{display:flex;gap:8px}
+.app .btn{font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;white-space:nowrap}
+.app .tabbar{position:absolute;left:0;right:0;bottom:0;display:flex;z-index:3}
+.app .tab{display:flex;flex-direction:column;align-items:center;cursor:pointer;position:relative;flex-shrink:0;border:0;background:none;font-family:inherit;color:inherit}
+.app .tab .badge{position:absolute;font-weight:700;line-height:1}
+.app svg.i{width:16px;height:16px;flex-shrink:0}
+.app .emo{display:none!important}
+.app button:focus-visible{outline:2px solid var(--accent,#4f8cff);outline-offset:2px}
+
+/* ============================================================
+   ORIGINAL (fiel a index.css de hoy, celular, tema oscuro)
+   ============================================================ */
+.v-orig{--bg:#0e1013;--panel:#16191f;--panel2:#1d2129;--line:#2a2f3a;--txt:#eef0f3;--muted:#98a1af;--accent:#ff5a3c;--accent2:#4f8cff;
+  --rojo:#ef4444;--ambar:#f59e0b;--verde:#22c55e;--azul:#4f8cff;--morado:#a78bfa;--gris:#6b7280;
+  background:var(--bg);color:var(--txt);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px}
+.v-orig .emo{display:inline!important}
+.v-orig svg.i{display:none}
+.v-orig .top-wrap{background:var(--panel);border-bottom:1px solid var(--line)}
+.v-orig .topbar{padding:10px 12px}
+.v-orig .brand-txt{display:none}
+.v-orig .logo{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#ff5a3c,#ffb03c);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;color:#101}
+.v-orig .iconbtn{background:transparent;border:1px solid var(--line);border-radius:10px;padding:7px 11px;font-size:14px}
+.v-orig .iconbtn .dot{background:var(--accent);color:#151515}
+.v-orig .avatar{width:34px;height:34px;border-radius:50%;background:var(--accent2);color:#fff;font-weight:700;font-size:13px}
+.v-orig .main{padding:15px 12px 116px}
+.v-orig .page{font-size:20px}
+.v-orig .phint{color:var(--muted);font-size:13px;margin:3px 0 18px}
+.v-orig .cards{grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.v-orig .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px}
+.v-orig .card .n{font-size:26px;font-weight:800}
+.v-orig .card .l{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-top:2px}
+.v-orig .toolbar{margin-bottom:14px}
+.v-orig .search,.v-orig select{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px 11px;font-size:14px}
+.v-orig .seg{gap:8px;margin-bottom:14px;justify-content:flex-start}
+.v-orig .seg button{flex:0 0 auto;background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:7px 12px;font-size:12px;font-weight:700}
+.v-orig .seg button.on{background:#241b17;border-color:var(--accent);color:var(--txt)}
+.v-orig .inc-list{gap:11px}
+.v-orig .inc{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 15px}
+.v-orig .folio{font-size:12px;color:var(--muted);font-weight:800}
+.v-orig .titulo{font-weight:700;font-size:15px;margin:3px 0}
+.v-orig .meta{color:var(--muted);font-size:12px;line-height:1.5;gap:0}
+.v-orig .chips{gap:6px;margin-top:9px}
+.v-orig .pill{padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;color:var(--c);background:color-mix(in srgb,var(--c) 13%,transparent);border:1px solid color-mix(in srgb,var(--c) 33%,transparent)}
+.v-orig .pill i{display:none}
+.v-orig .hace{color:var(--muted);font-size:12px}
+.v-orig .inc-actions{margin-top:12px;border-top:1px solid var(--line);padding-top:11px}
+.v-orig .btn{background:var(--accent);color:#151515;padding:7px 11px;border-radius:10px;font-weight:700;font-size:13px}
+.v-orig .btn.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
+.v-orig .tabbar{background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -2px 12px rgba(0,0,0,.4);padding:8px 10px 24px;gap:8px;overflow-x:auto;scrollbar-width:none}
+.v-orig .tab{padding:8px 14px;gap:3px;font-size:12px;font-weight:600;color:var(--muted);border-radius:10px;min-width:64px;white-space:nowrap}
+.v-orig .tab .emo{font-size:16px}
+.v-orig .tab.active{background:#241b17;color:var(--txt)}
+.v-orig .tab .badge{background:var(--accent);color:#151515;border-radius:20px;font-size:11px;padding:2px 7px;top:2px;right:6px}
+
+/* ============================================================
+   A · "PRECISIÓN" (Linear): oscuro profundo, denso, hairlines
+   ============================================================ */
+.v-a{--bg:#0a0a0c;--surface:#111114;--raised:#1a1a1e;--line:rgba(255,255,255,.075);--line2:rgba(255,255,255,.13);
+  --txt:#ededf0;--muted:#8b8e98;--faint:#5f626b;--accent:#ff6a45;
+  --rojo:#f2555a;--ambar:#f0b232;--verde:#3fcf8e;--azul:#6e9bff;--morado:#a990ff;--gris:#7c808a;
+  background:var(--bg);color:var(--txt);font-family:Inter,-apple-system,sans-serif;font-size:14px;letter-spacing:-.006em;
+  font-feature-settings:"cv11","ss01"}
+.v-a .top-wrap{background:rgba(10,10,12,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.v-a .topbar{padding:8px 16px 12px}
+.v-a .logo{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center}
+.v-a .brand-txt b{font-size:14px;font-weight:600}
+.v-a .brand-txt small{display:none}
+.v-a .iconbtn{width:34px;height:34px;border-radius:8px;background:none;border:0;color:var(--muted)}
+.v-a .iconbtn svg.i{width:19px;height:19px}
+.v-a .iconbtn .dot{background:var(--accent);color:#fff;top:2px;right:1px;min-width:15px;height:15px;font-size:9px}
+.v-a .avatar{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#3a3a42,#24242a);color:var(--txt);font-size:11px;font-weight:600;box-shadow:inset 0 0 0 1px var(--line2)}
+.v-a .main{padding:22px 16px 110px}
+.v-a .page{font-size:22px;font-weight:600;letter-spacing:-.022em}
+.v-a .phint{color:var(--muted);font-size:13px;margin:4px 0 20px}
+.v-a .cards{grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:20px}
+.v-a .card{background:var(--surface);padding:14px 14px 13px}
+.v-a .card .n{font-size:24px;font-weight:600;letter-spacing:-.03em}
+.v-a .card .l{color:var(--muted);font-size:12px;margin-top:2px;display:flex;align-items:center;gap:6px}
+.v-a .card .l::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--c)}
+.v-a .toolbar{margin-bottom:12px;flex-wrap:nowrap}
+.v-a .search{height:36px;padding:0 10px;background:var(--surface);border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:13px;transition:border-color .15s}
+.v-a .search input{color:var(--txt)}
+.v-a .search:focus-within{border-color:var(--line2)}
+.v-a select{flex:0 0 auto;width:auto;height:36px;padding:0 12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;color:var(--muted);font-size:13px}
+.v-a .seg{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:3px;margin-bottom:18px}
+.v-a .seg button{height:28px;border-radius:6px;font-size:13px;font-weight:500;color:var(--muted);transition:background .15s,color .15s}
+.v-a .seg button span{color:var(--faint);font-size:12px;font-variant-numeric:tabular-nums}
+.v-a .seg button.on{background:var(--raised);color:var(--txt);box-shadow:inset 0 0 0 1px var(--line2)}
+.v-a .inc-list{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+.v-a .inc{padding:14px;border-bottom:1px solid var(--line);transition:background .12s}
+.v-a .inc:last-child{border-bottom:0}
+.v-a .inc:hover{background:#151518}
+.v-a .folio{font-size:12px;color:var(--faint);font-weight:500;font-variant-numeric:tabular-nums}
+.v-a .titulo{font-size:14.5px;font-weight:500;margin:3px 0 5px}
+.v-a .meta{color:var(--muted);font-size:12.5px}
+.v-a .meta svg.i{width:13px;height:13px;color:var(--faint)}
+.v-a .clave{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--faint);padding-left:18px}
+.v-a .inc-top .pill{font-size:12px;font-weight:500;color:var(--muted);padding:0}
+.v-a .pill i{width:7px;height:7px;border-radius:50%;background:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 18%,transparent)}
+.v-a .chips{gap:6px;margin-top:10px}
+.v-a .chips .pill{height:22px;padding:0 7px;border:1px solid var(--line2);border-radius:6px;font-size:11.5px;color:var(--muted);font-weight:500}
+.v-a .chips .pill i{width:6px;height:6px;box-shadow:none}
+.v-a .chips .pill svg.i{width:12px;height:12px}
+.v-a .hace{color:var(--faint);font-size:12px}
+.v-a .inc-actions{margin-top:12px}
+.v-a .btn{height:30px;padding:0 12px;border-radius:7px;font-size:13px;font-weight:500;background:var(--accent);color:#fff;transition:filter .15s,transform .1s}
+.v-a .btn:hover{filter:brightness(1.08)}
+.v-a .btn:active{transform:scale(.98)}
+.v-a .btn.ghost{background:transparent;color:var(--txt);box-shadow:inset 0 0 0 1px var(--line2)}
+.v-a .btn svg.i{width:14px;height:14px}
+.v-a .tabbar{background:rgba(10,10,12,.86);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-top:1px solid var(--line);padding:8px 6px 26px;justify-content:space-around}
+.v-a .tab{flex:1;gap:4px;font-size:10.5px;font-weight:500;color:var(--faint);padding:4px 0;transition:color .15s}
+.v-a .tab svg.i{width:21px;height:21px}
+.v-a .tab.active{color:var(--txt)}
+.v-a .tab .badge{background:var(--accent);color:#fff;font-size:9.5px;border-radius:8px;padding:2px 5px;top:0;left:calc(50% + 6px)}
+
+/* ============================================================
+   B · "NATIVO" (Apple): claro, títulos grandes, listas agrupadas
+   ============================================================ */
+.v-b{--bg:#f2f2f7;--surface:#fff;--sep:rgba(60,60,67,.13);--txt:#000;--sec:rgba(60,60,67,.62);--ter:rgba(60,60,67,.4);--fill:rgba(118,118,128,.12);
+  --accent:#c8401f;
+  --rojo:#d70015;--ambar:#b25000;--verde:#248a3d;--azul:#0055d4;--morado:#8944ab;--gris:#6c6c70;
+  background:var(--bg);color:var(--txt);font-family:-apple-system,"SF Pro Text",Inter,system-ui,sans-serif;font-size:15px;letter-spacing:-.01em}
+.v-b .top-wrap{background:rgba(242,242,247,.86);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px)}
+.v-b .topbar{padding:4px 16px 6px}
+.v-b .logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(160deg,#ff7a4d,#d9411e);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center}
+.v-b .brand-txt b{font-size:15px;font-weight:600}
+.v-b .brand-txt small{display:none}
+.v-b .iconbtn{width:34px;height:34px;border-radius:50%;background:var(--fill);border:0;color:var(--accent)}
+.v-b .iconbtn svg.i{width:18px;height:18px}
+.v-b .iconbtn .dot{background:#ff3b30;color:#fff;top:-3px;right:-4px}
+.v-b .avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(180deg,#a5a5ad,#86868e);color:#fff;font-size:13px;font-weight:600}
+.v-b .main{padding:6px 16px 110px}
+.v-b .page{font-size:34px;font-weight:700;letter-spacing:.011em;line-height:1.1}
+.v-b .phint{color:var(--sec);font-size:15px;margin:4px 0 16px}
+.v-b .cards{grid-auto-flow:column;grid-auto-columns:128px;gap:10px;overflow-x:auto;margin:0 -16px 16px;padding:0 16px;scrollbar-width:none;scroll-snap-type:x mandatory}
+.v-b .cards::-webkit-scrollbar{display:none}
+.v-b .card{background:var(--surface);border-radius:16px;padding:12px 14px 14px;scroll-snap-align:start}
+.v-b .card .n{font-size:30px;font-weight:700;letter-spacing:-.01em;color:var(--c)}
+.v-b .card .l{color:var(--sec);font-size:13px;font-weight:500;margin-top:1px}
+.v-b .toolbar{margin-bottom:12px;flex-wrap:nowrap}
+.v-b .search{height:36px;padding:0 8px;background:var(--fill);border-radius:10px;color:var(--sec);font-size:16px}
+.v-b .search input{color:var(--txt)}
+.v-b select{flex:0 0 auto;width:auto;height:36px;padding:0 12px;border:0;background:var(--fill);border-radius:10px;color:var(--accent);font-size:15px;font-weight:500}
+.v-b .seg{background:var(--fill);border-radius:9px;padding:2px;margin-bottom:20px}
+.v-b .seg button{height:28px;border-radius:7px;font-size:13px;font-weight:500;transition:background .2s,box-shadow .2s}
+.v-b .seg button span{color:var(--sec);font-size:12px}
+.v-b .seg button.on{background:#fff;font-weight:600;box-shadow:0 3px 8px rgba(0,0,0,.12),0 0 0 .5px rgba(0,0,0,.04)}
+.v-b .inc-list{gap:0;background:var(--surface);border-radius:14px;overflow:hidden}
+.v-b .inc{padding:13px 16px 14px;position:relative}
+.v-b .inc+.inc::before{content:'';position:absolute;top:0;left:16px;right:0;height:.5px;background:var(--sep)}
+.v-b .folio{font-size:13px;color:var(--sec)}
+.v-b .titulo{font-size:17px;font-weight:600;margin:1px 0 4px;letter-spacing:-.02em}
+.v-b .meta{color:var(--sec);font-size:14px}
+.v-b .meta svg.i{width:14px;height:14px}
+.v-b .clave{font-size:13px;color:var(--ter);padding-left:19px}
+.v-b .pill{height:24px;padding:0 9px;border-radius:12px;font-size:12.5px;font-weight:600;color:var(--c);background:color-mix(in srgb,var(--c) 11%,#fff)}
+.v-b .pill i{display:none}
+.v-b .pill svg.i{width:13px;height:13px}
+.v-b .chips{gap:6px;margin-top:10px}
+.v-b .hace{color:var(--ter);font-size:13px}
+.v-b .inc-actions{margin-top:12px}
+.v-b .btn{height:34px;padding:0 16px;border-radius:17px;font-size:15px;font-weight:600;background:var(--accent);color:#fff;transition:opacity .15s,transform .15s}
+.v-b .btn:active{opacity:.7;transform:scale(.97)}
+.v-b .btn.ghost{background:var(--fill);color:var(--accent)}
+.v-b .btn svg.i{width:16px;height:16px}
+.v-b .tabbar{background:rgba(249,249,249,.88);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);box-shadow:0 -.5px 0 rgba(0,0,0,.18);padding:7px 4px 28px;justify-content:space-around}
+.v-b .tab{flex:1;gap:3px;font-size:10px;font-weight:500;color:#8e8e93}
+.v-b .tab svg.i{width:25px;height:25px;stroke-width:1.8}
+.v-b .tab.active{color:var(--accent)}
+.v-b .tab .badge{background:#ff3b30;color:#fff;font-size:11px;border-radius:9px;padding:2px 6px;top:-2px;left:calc(50% + 6px)}
+
+/* ============================================================
+   C · "CAMPO" (para sol y uso con prisa): claro, alto contraste,
+   objetivos grandes, color de estatus como franja
+   ============================================================ */
+.v-c{--bg:#f5f5f2;--surface:#fff;--line:#d9d9d3;--line2:#b9b9b2;--txt:#111110;--muted:#4a4a46;--accent:#c2410c;--ink:#111110;
+  --rojo:#b91c1c;--ambar:#a14a02;--verde:#15803d;--azul:#1d4ed8;--morado:#6d28d9;--gris:#57534e;
+  background:var(--bg);color:var(--txt);font-family:Inter,-apple-system,sans-serif;font-size:15px;letter-spacing:-.011em}
+.v-c .top-wrap{background:var(--ink);color:#fff}
+.v-c .topbar{padding:6px 16px 14px}
+.v-c .logo{width:32px;height:32px;border-radius:9px;background:#f97316;color:#111;font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center}
+.v-c .brand-txt b{font-size:15px;font-weight:700}
+.v-c .brand-txt small{font-size:11.5px;color:#a8a8a2;font-weight:500}
+.v-c .iconbtn{width:44px;height:44px;border-radius:12px;background:#262624;border:0;color:#fff}
+.v-c .iconbtn svg.i{width:20px;height:20px}
+.v-c .iconbtn .dot{background:#f97316;color:#111;top:3px;right:3px}
+.v-c .avatar{width:44px;height:44px;border-radius:12px;background:#f5f5f2;color:#111;font-size:14px;font-weight:800}
+.v-c .main{padding:20px 16px 120px}
+.v-c .page{font-size:28px;font-weight:800;letter-spacing:-.03em}
+.v-c .phint{color:var(--muted);font-size:15px;margin:2px 0 18px}
+.v-c .cards{grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}
+.v-c .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;border-top:4px solid var(--c)}
+.v-c .card .n{font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1.1}
+.v-c .card .l{color:var(--muted);font-size:13px;font-weight:600}
+.v-c .toolbar{margin-bottom:12px}
+.v-c .search{height:50px;padding:0 14px;background:var(--surface);border:1.5px solid var(--line2);border-radius:12px;font-size:16px;color:var(--muted)}
+.v-c .search svg.i{width:20px;height:20px}
+.v-c .search input{color:var(--txt)}
+.v-c .search:focus-within{border-color:var(--ink);box-shadow:0 0 0 3px rgba(17,17,16,.12)}
+.v-c select{height:50px;padding:0 14px;background:var(--surface);border:1.5px solid var(--line2);border-radius:12px;font-size:16px;font-weight:600}
+.v-c .seg{gap:8px;margin-bottom:18px}
+.v-c .seg button{height:44px;border-radius:22px;font-size:15px;font-weight:700;background:var(--surface);border:1.5px solid var(--line2);transition:background .12s,color .12s}
+.v-c .seg button span{font-weight:600;color:var(--muted)}
+.v-c .seg button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.v-c .seg button.on span{color:#c9c9c3}
+.v-c .inc-list{gap:12px}
+.v-c .inc{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 16px 14px 20px;position:relative;overflow:hidden}
+.v-c .inc::before{content:'';position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--c)}
+.v-c .folio{font-size:13px;color:var(--muted);font-weight:700;letter-spacing:.01em}
+.v-c .titulo{font-size:18px;font-weight:800;margin:2px 0 6px;letter-spacing:-.02em;line-height:1.25}
+.v-c .meta{color:var(--muted);font-size:14px;font-weight:500;gap:3px}
+.v-c .meta svg.i{width:16px;height:16px}
+.v-c .clave{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;padding-left:21px}
+.v-c .inc-top .pill{height:28px;padding:0 10px;border-radius:8px;background:var(--c);color:#fff;font-size:13px;font-weight:800}
+.v-c .pill i{display:none}
+.v-c .chips{gap:8px;margin-top:12px}
+.v-c .chips .pill{height:28px;padding:0 10px;border-radius:8px;font-size:13px;font-weight:700;color:var(--c);background:color-mix(in srgb,var(--c) 9%,#fff);border:1.5px solid color-mix(in srgb,var(--c) 40%,#fff)}
+.v-c .chips .pill svg.i{width:14px;height:14px}
+.v-c .hace{color:var(--muted);font-size:13px;font-weight:600}
+.v-c .inc-actions{margin-top:14px;display:grid;grid-template-columns:1fr auto}
+.v-c .btn{height:48px;padding:0 18px;border-radius:12px;font-size:16px;font-weight:800;background:var(--accent);color:#fff;transition:transform .08s,filter .12s}
+.v-c .btn:active{transform:scale(.98);filter:brightness(.92)}
+.v-c .btn.ghost{background:var(--surface);color:var(--txt);border:1.5px solid var(--line2)}
+.v-c .btn svg.i{width:18px;height:18px}
+.v-c .tabbar{background:var(--surface);border-top:1px solid var(--line);padding:0 4px 26px;justify-content:space-around}
+.v-c .tab{flex:1;gap:4px;padding:10px 0 4px;font-size:12px;font-weight:700;color:var(--muted)}
+.v-c .tab svg.i{width:24px;height:24px;stroke-width:2.2}
+.v-c .tab.active{color:var(--txt)}
+.v-c .tab.active::before{content:'';position:absolute;top:0;left:22%;right:22%;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
+.v-c .tab .badge{background:var(--accent);color:#fff;font-size:11px;border-radius:9px;padding:2px 6px;top:5px;left:calc(50% + 7px)}
+
+/* Tonos de estatus: la variable --c la usa cada variante a su modo. */
+.app .t-rojo{--c:var(--rojo)}.app .t-ambar{--c:var(--ambar)}.app .t-verde{--c:var(--verde)}
+.app .t-azul{--c:var(--azul)}.app .t-morado{--c:var(--morado)}.app .t-gris{--c:var(--gris)}
+
+@media (prefers-reduced-motion: reduce){.app *{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="intro">
+    <h1>Rediseño: 3 alternativas frente al diseño actual</h1>
+    <p>Muestro la misma pantalla (la <b>Bandeja</b> de incidencias en celular) con los mismos datos y las mismas acciones. Solo cambia el diseño. Puedes desplazarte dentro de cada teléfono y tocar los filtros y el menú.</p>
+    <p><b>Elegida:</b> A con el orden de B, con tema claro, oscuro o automático. <a href="precision.html" style="color:inherit">Ver el prototipo →</a> · <a href="modulos.html" style="color:inherit">Todos los módulos →</a></p>
+    <p>La app en producción no se tocó. Esto vive en <code>app-operativa-rediseno/</code>, en la rama <code>rediseno</code>.</p>
+  </header>
+
+  <div class="grid" id="grid"></div>
+
+  <section class="footer">
+    <h3>Lo que tienen en común las tres alternativas</h3>
+    <p>Usan una tipografía moderna y una sola escala de tamaños. Los iconos son SVG en lugar de emojis, que hoy se ven distintos en cada teléfono. El naranja de marca queda <b>solo</b> para la acción principal. Los colores de estatus (rojo, ámbar, verde, azul y morado) se conservan porque son información operativa, no decoración. El menú inferior queda con 4 accesos y un "Más" en vez de la tira desplazable de 7 a 11 módulos.</p>
+    <h3>Lo que no cambia</h3>
+    <p>Cada pantalla, filtro, acción, rol y flujo sigue igual. El rediseño es de piel y de jerarquía visual, no de funciones.</p>
+  </section>
+</div>
+
+<script>
+const P = {
+  bell:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  search:'<circle cx="11" cy="11" r="7.5"/><path d="m20.5 20.5-4.2-4.2"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  list:'<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  map:'<path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/>',
+  more:'<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  clock:'<circle cx="12" cy="12" r="9.5"/><path d="M12 7v5l3 2"/>',
+  msg:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
+};
+const ico = n => `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+
+const KPIS = [['24','Abiertas','rojo'],['9','En proceso','azul'],['5','Por validar','morado'],['3','SLA vencido','ambar']];
+const INCS = [
+  {folio:'INC-2026-0412',un:'Ecovallas',titulo:'Lona rota en cara B',clave:'MX_EM_EV_EVA_01_0009',lugar:'Naucalpan, Edomex',hace:'hace 2 h',
+   est:['Abierta','rojo'],nivel:['Prioridad alta','ambar'],sla:['Vence en 3 h','ambar'],chat:3,cta:'Atender'},
+  {folio:'INC-2026-0409',un:'Vía Verde',titulo:'Pantalla sin señal en pórtico 14',clave:'MX_VV_DG_POR_014',lugar:'Periférico Norte km 22',hace:'hace 5 h',
+   est:['En proceso','azul'],nivel:['Prioridad media','gris'],sla:['A tiempo','verde'],chat:1,cta:'Reparar'},
+  {folio:'INC-2026-0398',un:'Biobox',titulo:'Máquina fuera de línea',clave:'BBX-CDMX-031',lugar:'Coyoacán, CDMX',hace:'ayer',
+   est:['Por validar','morado'],nivel:['Prioridad baja','gris'],sla:['Vencida','rojo'],chat:0,cta:'Validar'},
+  {folio:'INC-2026-0391',un:'Ecovallas',titulo:'Iluminación apagada',clave:'MX_CDMX_EV_EVA_02_0117',lugar:'Insurgentes Sur 1602',hace:'hace 2 d',
+   est:['Abierta','rojo'],nivel:['Prioridad media','gris'],sla:['Vence mañana','verde'],chat:0,cta:'Atender'}
+];
+const NAV_ORIG = [['➕','Nueva'],['📥','Bandeja',5,1],['🗂️','Incidencias'],['📊','Indicadores'],['🗺️','Rutas de Monitoreo'],['📋','Pauta y Monitoreo'],['🧭','Mis rutas']];
+const NAV_NUEVO = [['plus','Nueva'],['inbox','Bandeja',5,1],['list','Incidencias'],['map','Rutas'],['more','Más']];
+
+function app(v){
+  const orig = v === 'orig';
+  const kpis = KPIS.map(([n,l,c]) => `<div class="card t-${c}"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+  const incs = INCS.map(i => `
+    <article class="inc t-${i.est[1]}">
+      <div class="inc-top">
+        <div class="inc-body">
+          <div class="folio">${i.folio} · ${i.un}</div>
+          <h3 class="titulo">${i.titulo}</h3>
+          <div class="meta"><span>${ico('pin')}<span class="emo">📍 </span>${i.lugar}</span><span class="clave">${i.clave}</span></div>
+        </div>
+        <span class="pill t-${i.est[1]}"><i></i>${i.est[0]}</span>
+      </div>
+      <div class="chips">
+        <span class="pill t-${i.nivel[1]}"><i></i>${i.nivel[0]}</span>
+        <span class="pill t-${i.sla[1]}">${ico('clock')}<span class="emo">⏱ </span>${i.sla[0]}</span>
+        <span class="hace">${i.hace}</span>
+      </div>
+      <div class="inc-actions">
+        <button class="btn">${i.cta}</button>
+        <button class="btn ghost">${ico('msg')}<span class="emo">💬 </span>Chat${i.chat ? ' · ' + i.chat : ''}</button>
+      </div>
+    </article>`).join('');
+  const nav = (orig ? NAV_ORIG : NAV_NUEVO).map(([ic,t,b,a]) =>
+    `<button class="tab${a ? ' active' : ''}">${orig ? `<span class="emo">${ic}</span>` : ico(ic)}<span>${t}</span>${b ? `<span class="badge">${b}</span>` : ''}</button>`).join('');
+  return `
+  <div class="app v-${v}">
+    <div class="top-wrap">
+      <div class="sb"><span>9:41</span><span class="sb-ic"><i></i><i></i><i></i></span></div>
+      <header class="topbar">
+        <div class="brand"><div class="logo">G</div><div class="brand-txt"><b>${v==='c' ? 'GPO VALLAS' : 'Operaciones'}</b><small>Central de Operaciones</small></div></div>
+        <div class="who">
+          <button class="iconbtn" aria-label="Notificaciones">${ico('bell')}<span class="emo">🔔</span><span class="dot">4</span></button>
+          <div class="avatar">EM</div>
+        </div>
+      </header>
+    </div>
+    <main class="main">
+      <h2 class="page">Bandeja</h2>
+      <p class="phint">Incidencias asignadas a tu área</p>
+      <section class="cards">${kpis}</section>
+      <div class="toolbar">
+        <label class="search">${ico('search')}<input placeholder="Buscar folio, clave o sitio" aria-label="Buscar"></label>
+        <select aria-label="Unidad"><option>${orig ? 'Todas las unidades' : 'Unidad'}</option></select>
+      </div>
+      <div class="seg" role="tablist">
+        <button class="on" role="tab">Todas <span>18</span></button><button role="tab">Mías <span>6</span></button><button role="tab">Vencidas <span>3</span></button>
+      </div>
+      <div class="inc-list">${incs}</div>
+    </main>
+    <nav class="tabbar">${nav}</nav>
+  </div>`;
+}
+
+const VARIANTES = [
+  {v:'orig',nombre:'Actual',tag:'Hoy',linea:'Tal como está en index.css (celular, tema oscuro).',
+   notas:`<b>Lo que funciona:</b><ul><li>Ya tiene tema claro y oscuro con contrastes medidos.</li><li>Objetivos táctiles cuidados y el iPhone ya resuelto.</li></ul>
+   <b>Lo que lo hace ver "pesado":</b><ul><li>Todo es tarjeta con borde: no hay jerarquía clara.</li><li>El naranja aparece en botones, filtros, globitos y logo, así que nada destaca.</li><li>Emojis como iconos: cambian según el teléfono.</li><li>Menú inferior con 7 a 11 módulos que se desplaza de lado.</li></ul>`},
+  {v:'a',nombre:'A · Precisión',tag:'Linear',linea:'Oscuro profundo, denso, líneas finas, todo en su lugar.',
+   notas:`<b>Para quién:</b> coordinadores y oficina, que revisan muchas incidencias seguidas.<ul><li>Lista continua con separadores en lugar de tarjetas: caben más.</li><li>El estatus va como punto de color con texto, no como píldora llamativa.</li><li>Control segmentado para los filtros rápidos.</li></ul>
+   <b>Riesgo:</b> al sol se lee peor que un tema claro. Necesita su pareja clara (sale fácil con los mismos tokens).`},
+  {v:'b',nombre:'B · Nativo',tag:'Apple',linea:'Claro, títulos grandes, listas agrupadas, se siente como app de iPhone.',
+   notas:`<b>Para quién:</b> el equipo de campo con iPhone; es la que más se parece a "una app de verdad".<ul><li>Título grande, indicadores en carrusel y lista agrupada estilo Ajustes.</li><li>La barra de pestañas y la de arriba son translúcidas.</li><li>La que mejor encaja con la PWA instalada.</li></ul>
+   <b>Riesgo:</b> en Android se ve "ajena". El desenfoque (blur) cuesta en teléfonos baratos y conviene probarlo junto con el arreglo del menú en iOS.`},
+  {v:'c',nombre:'C · Campo',tag:'Alto contraste',linea:'Hecha para el sol, la prisa y los dedos grandes.',
+   notas:`<b>Para quién:</b> monitoristas y cuadrillas en la calle.<ul><li>Barra oscura arriba (combina con la barra de estado translúcida del iPhone) y contenido claro.</li><li>Franja de color por estatus: se distingue de un vistazo.</li><li>Botones de 48px y letra de 15 a 18px.</li></ul>
+   <b>Riesgo:</b> ocupa más espacio y caben menos incidencias por pantalla. En escritorio conviene una versión más compacta.`}
+];
+
+document.getElementById('grid').innerHTML = VARIANTES.map(x => `
+  <div class="col">
+    <h2><span class="badge-v">${x.tag}</span>${x.nombre}</h2>
+    <p class="tagline">${x.linea}</p>
+    <div class="phone"><div class="screen">${app(x.v)}</div></div>
+    <div class="notes">${x.notas}</div>
+  </div>`).join('');
+
+// Interacción mínima: filtros y pestañas se pueden tocar.
+document.addEventListener('click', e => {
+  const b = e.target.closest('.seg button, .tab');
+  if (!b) return;
+  const cls = b.classList.contains('tab') ? 'active' : 'on';
+  b.parentElement.querySelectorAll(':scope > *').forEach(s => s.classList.remove(cls));
+  b.classList.add(cls);
+});
+</script>
+</body>
+</html>

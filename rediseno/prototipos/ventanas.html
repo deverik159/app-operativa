@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ventanas · Prototipo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="piezas.css">
+<style>
+/* ---------- Página contenedora ---------- */
+:root{--p-bg:#ececee;--p-txt:#16161a;--p-muted:#5d5f66;--p-chip:#dcdce0;--p-chip-on:#16161a;--p-chip-on-txt:#fff}
+@media (prefers-color-scheme: dark){:root{--p-bg:#050506;--p-txt:#ececef;--p-muted:#9a9ca4;--p-chip:#1c1c20;--p-chip-on:#ececef;--p-chip-on-txt:#111}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--p-bg);color:var(--p-txt);font-family:Inter,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.pagina{max-width:1640px;margin:0 auto;padding:32px 16px 80px}
+.intro{display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;justify-content:space-between;margin-bottom:18px}
+.intro h1{font-size:26px;letter-spacing:-.025em;margin:0 0 6px}
+.intro p{color:var(--p-muted);line-height:1.5;margin:0;font-size:14px;max-width:780px}
+.ctl{display:flex;gap:4px;background:var(--p-chip);padding:3px;border-radius:10px}
+.ctl button{border:0;background:none;font:inherit;font-size:13px;font-weight:500;color:var(--p-muted);padding:7px 12px;border-radius:7px;cursor:pointer}
+.ctl button[aria-pressed="true"]{background:var(--p-chip-on);color:var(--p-chip-on-txt)}
+.lista-v{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 26px}
+.lista-v button{border:0;font:inherit;font-size:13px;font-weight:500;padding:7px 12px;border-radius:20px;background:var(--p-chip);color:var(--p-txt);cursor:pointer}
+.lista-v button[aria-pressed="true"]{background:var(--p-chip-on);color:var(--p-chip-on-txt)}
+.stage{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap}
+.phone{flex:0 0 360px;height:760px;border-radius:48px;padding:10px;background:#0c0c0d;box-shadow:0 0 0 1px #2a2a2e,0 24px 60px -20px rgba(0,0,0,.45)}
+.phone .screen{border-radius:38px}
+.desk{flex:1 1 820px;min-width:min(820px,100%);height:760px;border-radius:14px;background:#0c0c0d;box-shadow:0 0 0 1px #2a2a2e,0 30px 80px -30px rgba(0,0,0,.5);overflow:hidden}
+.desk .chrome{height:34px;display:flex;align-items:center;gap:7px;padding:0 14px;background:#1b1b1e}
+.desk .chrome i{width:11px;height:11px;border-radius:50%;background:#3a3a3f}
+.desk .screen{height:calc(100% - 34px)}
+.screen{position:relative;height:100%;overflow:hidden;isolation:isolate;container-type:inline-size}
+.nota{margin-top:40px;max-width:900px;color:var(--p-muted);font-size:14px;line-height:1.6}
+.nota h3{color:var(--p-txt);font-size:16px;margin:22px 0 6px}
+
+/* ---------- Pantalla de fondo (atenuada) ---------- */
+.app .fondo{padding:18px 16px}
+.app .esq{height:12px;border-radius:6px;background:var(--fill);margin-bottom:10px}
+
+/* ============================================================
+   VENTANA (modal) — Precisión
+   Celular: hoja desde abajo, alto casi completo, pie fijo.
+   Escritorio: diálogo centrado de 560px (720 para Revisión).
+   Cabecera: título + contexto + cerrar (✕ nuevo: hoy solo se cierra con
+   Cancelar o tocando afuera).
+   ============================================================ */
+.app .velo{position:absolute;inset:0;z-index:30;background:var(--scrim)}
+.app .ventana{position:absolute;left:0;right:0;bottom:0;z-index:31;max-height:calc(100% - 52px);display:flex;flex-direction:column;
+  background:var(--bg);border-top:1px solid var(--line2);border-radius:18px 18px 0 0;box-shadow:var(--sombra);animation:sube .28s cubic-bezier(.2,.8,.2,1)}
+@keyframes sube{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
+.app .ventana .asa{width:36px;height:5px;border-radius:3px;background:var(--line2);margin:8px auto 0;flex-shrink:0}
+.app .v-cab{display:flex;gap:12px;align-items:flex-start;padding:12px 16px 12px;border-bottom:1px solid var(--line);flex-shrink:0}
+.app .v-cab h3{margin:0;font-size:17px;font-weight:650;letter-spacing:-.02em}
+.app .v-cab p{margin:3px 0 0;font-size:13px;color:var(--muted);line-height:1.4}
+.app .v-cerrar{margin-left:auto;flex-shrink:0;width:32px;height:32px;border-radius:50%;border:0;background:var(--fill);color:var(--muted);display:flex;align-items:center;justify-content:center}
+.app .v-cerrar svg.i{width:15px;height:15px}
+.app .v-cuerpo{flex:1;overflow-y:auto;padding:14px 16px 6px;scrollbar-width:none}
+.app .v-cuerpo::-webkit-scrollbar{display:none}
+.app .v-pie{display:flex;gap:8px;padding:12px 16px 28px;border-top:1px solid var(--line);background:var(--bg);flex-shrink:0}
+.app .v-pie .btn{flex:1;justify-content:center;height:44px;font-size:14.5px;font-weight:600}
+.app .v-pie .btn.ghost{flex:0 0 auto;padding:0 18px}
+.app .v-pie .cont{display:flex;flex-direction:column;justify-content:center;font-size:12px;color:var(--muted);margin-right:auto;line-height:1.35}
+.app .v-pie.con-cont{flex-wrap:wrap}
+.app .v-pie.con-cont .cont{flex:1 1 100%;flex-direction:row;gap:10px;margin:0 0 4px}
+.app .v-pie .cont span{white-space:nowrap}
+.app .v-pie.con-cont .cont{flex-wrap:wrap;gap:2px 12px}
+
+/* Caja de contexto (Reporte del reportante, GPS, etc.) */
+.app .contexto{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 13px;margin-bottom:16px;font-size:13px;line-height:1.5}
+.app .contexto .lbl{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.app .contexto .lbl svg.i{width:14px;height:14px}
+.app .contexto .lin{display:flex;gap:7px;align-items:flex-start;color:var(--txt)}
+.app .contexto .lin svg.i{width:14px;height:14px;color:var(--faint);margin-top:3px}
+.app .contexto .lin+.lin{margin-top:4px}
+.app .gps{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.app .gps .p{width:8px;height:8px;border-radius:50%;background:var(--c)}
+.app .ok-txt,.app .campo>label em.ok-txt{color:var(--verde);font-weight:600}
+.app .falta,.app .campo>label em.falta{color:var(--accent-txt);font-weight:600}
+
+/* Chat */
+.app .chat{display:flex;flex-direction:column;gap:6px;padding:4px 0 10px}
+.app .burbuja{max-width:80%;padding:8px 11px 6px;border-radius:14px;font-size:14px;line-height:1.4}
+.app .burbuja.otro{align-self:flex-start;background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:5px}
+.app .burbuja.mio{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
+.app .burbuja .autor{display:block;font-size:11.5px;font-weight:600;color:var(--accent-txt);margin-bottom:2px}
+.app .burbuja .pie{display:flex;gap:6px;justify-content:flex-end;font-size:10.5px;opacity:.7;margin-top:3px}
+.app .burbuja .cita{border-left:3px solid currentColor;padding:2px 8px;margin:0 0 6px;font-size:12.5px;opacity:.85;border-radius:2px}
+.app .burbuja .foto{height:120px;border-radius:10px;margin:2px 0 4px;background:linear-gradient(135deg,color-mix(in srgb,var(--txt) 22%,transparent),color-mix(in srgb,var(--txt) 6%,transparent))}
+.app .burbuja.mio .foto{background:linear-gradient(135deg,rgba(255,255,255,.35),rgba(255,255,255,.1))}
+.app .dia{align-self:center;font-size:11.5px;color:var(--faint);background:var(--fill);padding:3px 10px;border-radius:10px;margin:6px 0}
+.app .escribir{display:flex;gap:8px;align-items:center;padding:10px 12px 28px;border-top:1px solid var(--line);background:var(--bg);flex-shrink:0;flex-wrap:wrap}
+.app .escribir .entrada{flex:1;height:42px;border-radius:21px}
+.app .escribir .redondo{width:42px;height:42px;border-radius:50%;border:0;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.app .escribir .adj{background:var(--fill);color:var(--muted)}
+.app .escribir .env{background:var(--accent);color:#fff}
+.app .escribir .nota-ret{flex:1 1 100%;font-size:11.5px;color:var(--faint);margin-top:2px}
+
+/* Galería */
+.app .gal{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:6px}
+.app .gal .mini{width:auto;height:auto;aspect-ratio:1;border-radius:10px}
+.app .pie-ev{font-size:12px;color:var(--muted);margin-bottom:14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+
+/* Checklist (Revisión) */
+.app .chk-grupo{font-size:12px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;margin:4px 2px 8px}
+.app .chk{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px}
+.app .chk.mal{border-color:color-mix(in srgb,var(--rojo) 40%,transparent);background:color-mix(in srgb,var(--rojo) 5%,var(--surface))}
+.app .chk .q{font-size:14px;font-weight:500;display:flex;gap:8px;align-items:baseline}
+.app .chk .h{font-size:12.5px;color:var(--muted);margin:2px 0 10px}
+.app .tri{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--fill);padding:3px;border-radius:10px}
+.app .tri button{height:36px;border:0;border-radius:7px;background:none;font-size:13px;font-weight:500;color:var(--muted)}
+.app .tri button[aria-pressed="true"].b{background:var(--verde);color:#fff}
+.app .tri button[aria-pressed="true"].a{background:var(--rojo);color:#fff}
+.app .tri button[aria-pressed="true"].n{background:var(--fill-on);color:var(--txt);box-shadow:inset 0 0 0 1px var(--line)}
+.app .anom{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+
+/* Ir aquí */
+.app .opcion{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;padding:13px 14px;text-align:left;position:relative}
+.app .opcion+.opcion::before{content:'';position:absolute;top:0;left:60px;right:0;height:1px;background:var(--line)}
+.app .opcion .ap{width:36px;height:36px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px;flex-shrink:0}
+.app .opcion b{display:block;font-size:15px;font-weight:600}
+.app .opcion span{font-size:12.5px;color:var(--muted)}
+
+/* Escritorio: diálogo centrado */
+@container (min-width: 760px){
+  .app .ventana{left:50%;right:auto;bottom:auto;top:50%;transform:translate(-50%,-50%);width:560px;max-height:calc(100% - 64px);
+    border:1px solid var(--line2);border-radius:16px;animation:aparece .18s ease-out}
+  .app .ventana.ancha{width:720px}
+  .app .ventana .asa{display:none}
+  .app .v-cab{padding:16px 20px 14px}
+  .app .v-cuerpo{padding:16px 20px 8px}
+  .app .v-pie{padding:12px 20px 16px;justify-content:flex-end}
+  .app .v-pie .btn{flex:0 0 auto;height:38px;font-size:14px;padding:0 16px}
+  .app .v-pie.con-cont{flex-wrap:nowrap}
+  .app .v-pie.con-cont .cont{flex:1 1 auto;flex-direction:column;gap:0;margin:0 auto 0 0}
+  .app .escribir{padding:12px 20px 16px}
+  .app .gal{grid-template-columns:repeat(4,1fr)}
+}
+@keyframes aparece{from{opacity:0;transform:translate(-50%,-48%) scale(.98)}to{opacity:1;transform:translate(-50%,-50%)}}
+@media (prefers-reduced-motion: reduce){.app .ventana{animation:none}}
+</style>
+</head>
+<body>
+<div class="pagina">
+  <header class="intro">
+    <div>
+      <h1>Ventanas emergentes · Precisión</h1>
+      <p>Las ventanas de cada módulo con el mismo estilo: en el celular salen desde abajo como hoja, con el botón principal siempre a la vista; en escritorio son un diálogo centrado. Mismos campos, avisos y botones que hoy (tomados del código). <a href="modulos.html" style="color:inherit">← Volver a los módulos</a></p>
+    </div>
+    <div class="ctl" id="tema-global" role="group" aria-label="Tema">
+      <button data-g="auto" aria-pressed="true">Automático</button><button data-g="claro" aria-pressed="false">Claro</button><button data-g="oscuro" aria-pressed="false">Oscuro</button>
+    </div>
+  </header>
+  <nav class="lista-v" id="lista" aria-label="Elegir ventana"></nav>
+  <div class="stage">
+    <div class="phone"><div class="screen"></div></div>
+    <div class="desk"><div class="chrome"><i></i><i></i><i></i></div><div class="screen"></div></div>
+  </div>
+  <section class="nota">
+    <h3>Qué cambia en todas</h3>
+    <p><b>Cabecera fija</b> con título, contexto (folio · incidencia · cara) y un botón <b>✕</b> para cerrar; hoy solo se cierra con Cancelar o tocando afuera. <b>Pie fijo</b> con la acción principal a la vista aunque el formulario sea largo; en el celular el botón ocupa el ancho para atinarle con el pulgar. Los contadores de Revisión van en el pie, junto a Guardar.</p>
+    <h3>Lo que no cambia</h3>
+    <p>Campos, validaciones, textos de ayuda, avisos sin señal y estados de guardado (“Subiendo 2 de 3…”, “Guardando…”) son los mismos. Validar incidencia sigue sin ventana (es un solo toque) y Aprobar reparación conserva su confirmación.</p>
+  </section>
+</div>
+
+<script>
+const P = {
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  clock:'<circle cx="12" cy="12" r="9.5"/><path d="M12 7v5l3 2"/>',
+  file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>',
+  camera:'<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+  wrench:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  clip:'<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  send:'<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
+  search:'<circle cx="11" cy="11" r="7.5"/><path d="m20.5 20.5-4.2-4.2"/>',
+  sat:'<path d="M13 7 9 3 5 7l4 4"/><path d="m17 11 4 4-4 4-4-4"/><path d="m8 12 4 4 6-6-4-4Z"/><path d="m16 8 3-3"/><path d="M9 21a6 6 0 0 0-6-6"/>',
+  locate:'<circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="2"/>',
+  trash:'<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>',
+  nav:'<path d="m3 11 19-9-9 19-2-8-8-2z"/>',
+  eye:'<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  map:'<path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/>',
+  layers:'<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
+  alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>'
+};
+const ico = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
+const btn = (t, ic = '', k = '') => `<button class="btn ${k}">${ic ? ico(ic) : ''}${t}</button>`;
+const tag = (t, c = '', ic = '') => `<span class="tag ${c ? 't-' + c : ''}">${ic ? ico(ic) : (c ? '<i></i>' : '')}${t}</span>`;
+const estado = (t, c) => `<span class="estado t-${c}"><i></i>${t}</span>`;
+const aviso = (c, ic, html) => `<div class="aviso t-${c}">${ico(ic)}<div>${html}</div></div>`;
+
+const ventana = ({ titulo, sub, cuerpo, pie, ancha = false, escribir = '' }) => `
+  <div class="velo"></div>
+  <div class="ventana${ancha ? ' ancha' : ''}" role="dialog" aria-label="${titulo}">
+    <div class="asa"></div>
+    <div class="v-cab"><div><h3>${titulo}</h3><p>${sub}</p></div><button class="v-cerrar" aria-label="Cerrar">${ico('x')}</button></div>
+    <div class="v-cuerpo">${cuerpo}</div>
+    ${escribir || `<div class="v-pie${pie.includes('class="cont"') ? ' con-cont' : ''}">${pie}</div>`}
+  </div>`;
+
+const V = {};
+
+V.reparar = ['Registrar reparación', () => ventana({
+  titulo: 'Registrar reparación',
+  sub: 'INC-2026-0391 · Iluminación apagada · cara A',
+  cuerpo: `
+    <div class="contexto">
+      <div class="lbl">${ico('file')}Reporte del reportante</div>
+      <div class="lin">${ico('pin')}<div>Sitio: <b>MX_CDMX_EV_EVA_02_0117</b><br><span style="color:var(--muted)">Insurgentes Sur 1602, Benito Juárez</span></div></div>
+      <div class="chips" style="margin-top:8px">${tag('Nivel medio', 'ambar')}${tag('🔁 Reasignada: antes era de Mantenimiento')}</div>
+      <div class="sub2" style="font-size:13px;color:var(--muted);margin-top:8px">Obs.: “Las 4 lámparas de la cara A no encienden desde anoche.”</div>
+      <div class="subir" style="margin-top:10px"><div class="mini"></div><div class="mini"></div></div>
+    </div>
+    <div class="campo"><label>Diagnóstico <em>opcional</em></label><textarea class="entrada" placeholder="Qué se encontró en sitio…"></textarea></div>
+    <div class="campo"><label>Detalle de reparación</label><textarea class="entrada" placeholder="Qué se hizo para corregir…">Se cambió el balastro y 2 lámparas fundidas.</textarea></div>
+    <div class="campo"><label>Evidencia de la reparación (foto/video) <em class="ok-txt">✓ 2 adjuntas</em></label>
+      <div class="subir"><div class="mini"></div><div class="mini video"></div><button class="mini agregar">${ico('camera')}Agregar</button></div>
+      <div class="ayuda">Se guardan en el teléfono en cuanto las eliges y se suben al guardar. Toca una para revisarla; quítala con × si salió mal.</div>
+    </div>`,
+  pie: btn('Cancelar', '', 'ghost') + btn('Guardar reparación', 'wrench')
+})];
+
+V.digital = ['Reparación Digital', () => ventana({
+  titulo: 'Registrar reparación',
+  sub: 'INC-2026-0409 · Pantalla sin señal · pórtico 14',
+  cuerpo: `
+    ${aviso('azul', 'sat', 'Sin señal: clasificación Digital de la copia del teléfono.')}
+    <div class="campo"><label>Incidencia técnica de Digital <em>(12)</em></label><select class="entrada"><option>Sin señal de video</option></select><div class="ayuda">Categoría: <b style="color:var(--txt)">Conectividad</b></div></div>
+    <div class="campo"><label>Causa raíz <em>(5)</em></label><select class="entrada"><option>Módem sin servicio</option></select></div>
+    <div class="campo"><label>Diagnóstico <em>(3)</em></label><select class="entrada"><option>— Selecciona —</option></select></div>
+    <div class="campo"><label>Solución <em>(4)</em></label><select class="entrada"><option>— Selecciona —</option></select></div>
+    <div class="campo"><label>Evidencia de la reparación (foto/video) <em class="falta">obligatoria</em></label>
+      <div class="subir"><button class="mini agregar">${ico('camera')}Agregar</button></div></div>`,
+  pie: btn('Cancelar', '', 'ghost') + `<button class="btn" disabled style="opacity:.55"><span class="recarga" style="margin:0;color:inherit"></span>Subiendo 1 de 2…</button>`
+})];
+
+V.chat = ['Chat', () => ventana({
+  titulo: 'Chat de la incidencia',
+  sub: 'INC-2026-0412 · Lona rota en cara B<br><span style="color:var(--faint)">👁 Visto: Ana R. hace 5 min · Mario G. hace 1 h</span>',
+  cuerpo: `
+    <label class="search" style="height:38px;margin-bottom:6px">${ico('search')}<input placeholder="Buscar en el chat…" aria-label="Buscar en el chat"></label>
+    <div class="chat">
+      <span class="dia">Ayer</span>
+      <div class="burbuja otro"><span class="autor">Mario G.</span>Ya estoy en sitio, la lona se desprendió de la esquina superior.<div class="pie">18:02</div></div>
+      <div class="burbuja otro"><span class="autor">Mario G.</span><div class="foto"></div>Así se ve desde la avenida<div class="pie">18:03</div></div>
+      <span class="dia">Hoy</span>
+      <div class="burbuja mio"><div class="cita">Mario G. · Así se ve desde la avenida</div>Gracias. Mantenimiento la atiende hoy antes de las 14:00.<div class="pie">(editado) · 09:12 · ✓✓</div></div>
+      <div class="burbuja otro"><span class="autor">Ana R.</span>Confirmo, va la cuadrilla norte.<div class="pie">09:20</div></div>
+    </div>`,
+  escribir: `<div class="escribir">
+      <button class="redondo adj" aria-label="Adjuntar">${ico('clip')}</button>
+      <input class="entrada" placeholder="Escribe un mensaje…" aria-label="Mensaje">
+      <button class="redondo env" aria-label="Enviar">${ico('send')}</button>
+      <div class="nota-ret">Los archivos del chat se borran al cerrar la incidencia. Para evidencia que deba conservarse, usa Evidencia.</div>
+    </div>`
+})];
+
+V.evidencia = ['Evidencia', () => ventana({
+  titulo: 'Evidencia',
+  sub: 'INC-2026-0412 · Lona rota en cara B · VF-20932',
+  cuerpo: `
+    <div class="dos">
+      <div class="campo"><label>Etapa</label><select class="entrada"><option>Reporte</option><option>Reparación</option></select></div>
+      <div class="campo"><label>Referencia / ubicación</label><input class="entrada" placeholder="Ej. esquina superior, cara norte, poste"></div>
+    </div>
+    <div class="campo"><label>Agregar fotos o video <em>se etiquetan con la referencia</em></label><div class="subir"><button class="mini agregar">${ico('camera')}Agregar</button></div></div>
+    <div class="sec" style="margin-top:6px"><h3>Fotos · 5</h3></div>
+    <div class="gal"><div class="mini"></div><div class="mini"></div><div class="mini"></div><div class="mini"></div><div class="mini"></div></div>
+    <div class="pie-ev">${tag('Reporte')} esquina superior · juan.p ${tag('Reparación', 'verde')} vista general · cuadrilla.norte</div>
+    <div class="sec"><h3>Videos · 1</h3></div>
+    <div class="mini video" style="width:100%;height:150px;border-radius:12px;margin-bottom:6px"></div>
+    <div class="pie-ev">${tag('Reporte')} desde la avenida · juan.p <button class="btn ghost icono" aria-label="Eliminar" style="height:28px;width:28px;margin-left:auto">${ico('trash')}</button></div>`,
+  pie: btn('Cerrar', '', 'ghost')
+})];
+
+V.visita = ['Marcar visita', () => ventana({
+  titulo: 'Marcar visita',
+  sub: 'Ruta 2 · Polanco · parada 9 · <b style="color:var(--txt)">MX_CDMX_EV_DG_08_0051</b>',
+  cuerpo: `
+    <div class="contexto">
+      <div class="lin">${ico('pin')}<span>Ejército Nacional 843, Miguel Hidalgo</span></div>
+      <div class="lin">${ico('clock')}<span>Hora de la visita: <b>10:24</b></span></div>
+      <div class="gps t-verde" style="margin-top:8px"><span class="p"></span>Ubicación lista (±8 m)</div>
+    </div>
+    <div class="campo"><label>Fotos del sitio <em class="ok-txt">✓ 2</em></label>
+      <div class="subir"><div class="mini"></div><div class="mini"></div><button class="mini agregar">${ico('camera')}Agregar</button></div>
+      <div class="ayuda">Toma la foto del sitio tal como está hoy. Puedes agregar varias.</div></div>
+    <div class="campo"><label>Nota <em>opcional</em></label><textarea class="entrada" placeholder="Ej. sitio tapado por un árbol, acceso cerrado…"></textarea></div>
+    ${aviso('ambar', 'sat', 'Si no hay señal, la visita se guarda en el teléfono y se envía sola al volver la red.')}`,
+  pie: btn('Cancelar', '', 'ghost') + btn('Guardar visita', 'check')
+})];
+
+V.revision = ['Revisión de máquina', () => ventana({
+  titulo: 'Revisión de máquina', ancha: true,
+  sub: '#1017 · Insurgentes Sur 2374 · Ruta Sur',
+  cuerpo: `
+    <div class="chips" style="margin:0 0 12px">${tag('BBX-CDMX-012')}${tag('Impreso')}${tag('Contenedor')}${tag('Álvaro Obregón')}</div>
+    ${aviso('gris', 'clock', 'Última revisión: 01 sep por lucia.h · quedó con 2 anomalías.')}
+    <div class="chk-grupo">Exterior</div>
+    <div class="chk"><div class="q">Limpieza del contenedor</div><div class="h">Sin basura alrededor ni grafiti.</div>
+      <div class="tri"><button class="b" aria-pressed="true">✓ Bien</button><button class="a" aria-pressed="false">⚠ Anomalía</button><button class="n" aria-pressed="false">— N/A</button></div></div>
+    <div class="chk mal"><div class="q">Puerta de depósito ${tag('crítico', 'rojo')}</div><div class="h">Abre y cierra sin forzar.</div>
+      <div class="tri"><button class="b" aria-pressed="false">✓ Bien</button><button class="a" aria-pressed="true">⚠ Anomalía</button><button class="n" aria-pressed="false">— N/A</button></div>
+      <div class="anom">
+        <div class="campo"><label>¿Qué tiene?</label><select class="entrada"><option>Bisagra rota → Puerta dañada</option></select>
+          <div class="chips" style="margin-top:8px">${tag('Prioridad alta', 'rojo')}<span class="ayuda" style="margin:0">Se atiende en 24 h.</span></div></div>
+        <div class="campo"><label>Detalle adicional <em>opcional</em></label><input class="entrada"></div>
+        <div class="campo"><label>Foto <em class="falta">obligatoria</em></label><div class="subir"><button class="mini agregar">${ico('camera')}Agregar</button></div></div>
+        <label class="fpill" style="height:38px;cursor:pointer" aria-pressed="true">${ico('check')}Levantar incidencia</label>
+      </div></div>
+    <div class="campo" style="margin-top:14px"><div class="lbl">¿Cómo quedó la máquina?</div>
+      <div class="seg"><button role="tab" aria-selected="false">Operando</button><button role="tab" aria-selected="true">Con falla</button><button role="tab" aria-selected="false">Fuera de línea</button></div></div>
+    <div class="campo"><label>Observaciones <em>opcional</em></label><textarea class="entrada" placeholder="Lo que no cabe en el checklist"></textarea></div>
+    <div class="campo"><label>Ubicación del revisor <em>opcional</em></label>${btn('Capturar mi ubicación', 'locate', 'ghost')}</div>`,
+  pie: `<div class="cont"><span><b style="color:var(--txt)">8/12</b> contestados</span><span>1 anomalía</span><span>1 incidencia por levantar</span></div>` + btn('Cancelar', '', 'ghost') + btn('Guardar revisión', 'check')
+})];
+
+V.ruta = ['Detalle de ruta', () => ventana({
+  titulo: '<span class="dotr" style="--rc:#3e8ef7"></span>Ruta 2 · Polanco',
+  sub: 'Ecovallas · Digital · 12 paradas · orden de visita por secuencia',
+  cuerpo: `
+    <div class="seg" role="tablist"><button role="tab" aria-selected="true">Paradas</button><button role="tab" aria-selected="false">Avance de visitas</button><button role="tab" aria-selected="false">Monitoristas</button></div>
+    <div class="acciones envuelve" style="margin:-6px 0 14px">${btn('Armar / editar paradas', 'layers', 'ghost')}${btn('Abrir en Google Maps', 'map', 'ghost')}</div>
+    <div class="chips" style="margin:0 0 10px">${tag('⚠ 1 sin coordenadas', 'ambar')}</div>
+    <div class="grupo">
+      ${[[1, 'MX_CDMX_EV_DG_08_0031', 'Campos Elíseos 120'], [2, 'MX_CDMX_EV_DG_08_0034', 'Arquímedes 199', 'Inhabilitada', 'ambar'], [3, 'MX_CDMX_EV_DG_08_0039', 'Campos Elíseos 204'], [4, 'MX_CDMX_EV_DG_08_0040', '(sin dirección)', 'Retirada', 'rojo']].map(([n, id, d, e, c]) => `
+      <div class="row" style="display:flex;gap:12px;align-items:center;--rc:#3e8ef7"><span class="num">${n}</span>
+        <div style="flex:1;min-width:0"><div class="mono" style="font-weight:600;${e === 'Retirada' ? 'text-decoration:line-through;color:var(--faint)' : ''}">${id}</div><div class="sub2">${d}</div>${e ? `<div class="chips" style="margin-top:6px">${tag(e, c)}</div>` : ''}</div>
+        ${e === 'Retirada' ? '' : btn('Ir', 'nav', 'ghost')}</div>`).join('')}
+    </div>`,
+  pie: btn('Cerrar', '', 'ghost')
+})];
+
+V.ir = ['¿Cómo te llevo?', () => ventana({
+  titulo: '¿Cómo te llevo?',
+  sub: 'MX_CDMX_EV_DG_08_0051 · Ejército Nacional 843',
+  cuerpo: `<div class="grupo">
+    <button class="opcion"><span class="ap" style="background:#1a73e8">G</span><div><b>Google Maps</b><span>Desde tu ubicación actual</span></div></button>
+    <button class="opcion"><span class="ap" style="background:#33ccff">W</span><div><b>Waze</b><span>Con alertas de tráfico</span></div></button>
+    <button class="opcion"><span class="ap" style="background:#2fb84f">A</span><div><b>Apple Maps</b><span>App de mapas del iPhone</span></div></button>
+  </div>`,
+  pie: btn('Cancelar', '', 'ghost')
+})];
+
+/* ---------- Armado ---------- */
+const fondo = `<div class="top"><div class="sb"><span>9:41</span><span class="sb-ic"><i></i><i></i><i></i></span></div>
+  <header class="topbar"><div class="brand"><div class="logo">G</div><b>Operaciones</b></div><div class="who"><div class="avatar" style="display:flex;align-items:center;justify-content:center">EM</div></div></header></div>
+  <div class="fondo"><h2 class="page" style="margin-bottom:14px">Incidencias</h2>
+  <div class="grupo" style="padding:14px">${'<div class="esq" style="width:40%"></div><div class="esq" style="width:85%"></div><div class="esq" style="width:60%;margin-bottom:22px"></div>'.repeat(4)}</div></div>`;
+const apps = [...document.querySelectorAll('.screen')].map(s => {
+  const a = document.createElement('div'); a.className = 'app'; s.appendChild(a); return a;
+});
+document.getElementById('lista').innerHTML = Object.entries(V).map(([k, [t]]) => `<button data-v="${k}" aria-pressed="false">${t}</button>`).join('');
+function mostrar(k) {
+  apps.forEach(a => { a.innerHTML = fondo + V[k][1](); });
+  document.querySelectorAll('#lista button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === k)));
+  try { history.replaceState(null, '', '#' + k); } catch {}
+}
+function tema(v) {
+  apps.forEach(a => v === 'auto' ? a.removeAttribute('data-tema') : a.setAttribute('data-tema', v));
+  document.querySelectorAll('#tema-global button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.g === v)));
+}
+document.addEventListener('click', e => {
+  const v = e.target.closest('#lista button'); if (v) return mostrar(v.dataset.v);
+  const g = e.target.closest('#tema-global button'); if (g) return tema(g.dataset.g);
+  const t = e.target.closest('.app [role=tab]');
+  if (t) t.parentElement.querySelectorAll('[role=tab]').forEach(b => b.setAttribute('aria-selected', String(b === t)));
+  const tri = e.target.closest('.app .tri button');
+  if (tri) tri.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === tri)));
+});
+const ini = (location.hash || '').slice(1);
+mostrar(ini in V ? ini : 'reparar');
+</script>
+</body>
+</html>

@@ -79,7 +79,7 @@ function CampanaNotifs({
               top: -6,
               right: -6,
               background: 'var(--accent)',
-              color: '#151515',
+              color: 'var(--sobre-acento)',
               borderRadius: 20,
               fontSize: 10,
               fontWeight: 800,
@@ -163,7 +163,7 @@ function CampanaNotifs({
                     style={{
                       marginLeft: 6,
                       background: 'var(--accent)',
-                      color: '#151515',
+                      color: 'var(--sobre-acento)',
                       borderRadius: 20,
                       fontSize: 10,
                       fontWeight: 800,

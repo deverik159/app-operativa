@@ -15,6 +15,8 @@ import ReactDOM from 'react-dom/client';
 // Son ~15 KB sin comprimir (~4 KB por la red): no vale el riesgo.
 import 'leaflet/dist/leaflet.css';
 import './index.css';
+// Rediseño "Precisión": DESPUÉS de index.css (solo cambia la piel; ver el archivo).
+import './estilo/precision.css';
 import App from './App';
 import { registrarSW } from './lib/push';
 import { instalarReporteGlobal } from './lib/reportarError';

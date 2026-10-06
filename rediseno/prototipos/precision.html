@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Precisión · Prototipo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   Página contenedora (no es parte de la app)
+   ============================================================ */
+:root{--p-bg:#ececee;--p-txt:#16161a;--p-muted:#5d5f66;--p-chip:#dcdce0}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--p-bg:#050506;--p-txt:#ececef;--p-muted:#9a9ca4;--p-chip:#1c1c20}
+}
+:root[data-theme="dark"]{--p-bg:#050506;--p-txt:#ececef;--p-muted:#9a9ca4;--p-chip:#1c1c20}
+*{box-sizing:border-box}
+body{margin:0;background:var(--p-bg);color:var(--p-txt);font-family:Inter,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1300px;margin:0 auto;padding:40px 16px 80px}
+.intro{max-width:780px;margin:0 0 32px}
+.intro h1{font-size:28px;letter-spacing:-.025em;margin:0 0 8px}
+.intro p{color:var(--p-muted);line-height:1.55;margin:0 0 8px;font-size:15px}
+.row{display:flex;flex-wrap:wrap;gap:36px 28px;justify-content:center}
+.col{width:360px;max-width:100%}
+.col h2{font-size:16px;margin:0 0 2px;letter-spacing:-.01em}
+.col p{color:var(--p-muted);font-size:13px;margin:0 0 14px;min-height:36px}
+.chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;background:var(--p-chip);margin-right:6px;vertical-align:1px}
+.phone{width:360px;max-width:100%;height:740px;border-radius:48px;padding:10px;background:#0c0c0d;box-shadow:0 0 0 1px #2a2a2e,0 24px 60px -20px rgba(0,0,0,.45)}
+.phone .screen{border-radius:38px}
+.desk-wrap{margin-top:64px}
+.desk-wrap h2{font-size:18px;margin:0 0 4px;letter-spacing:-.015em}
+.desk-wrap > p{color:var(--p-muted);font-size:14px;margin:0 0 16px}
+.desk{height:760px;border-radius:14px;padding:0;background:#0c0c0d;box-shadow:0 0 0 1px #2a2a2e,0 30px 80px -30px rgba(0,0,0,.5);overflow:hidden}
+.desk .chrome{height:34px;display:flex;align-items:center;gap:7px;padding:0 14px;background:#1b1b1e}
+.desk .chrome i{width:11px;height:11px;border-radius:50%;background:#3a3a3f}
+.desk .screen{height:calc(100% - 34px);border-radius:0}
+.screen{position:relative;height:100%;overflow:hidden;isolation:isolate;container-type:inline-size}
+.footer{margin-top:56px;max-width:860px;color:var(--p-muted);font-size:14px;line-height:1.6}
+.footer h3{color:var(--p-txt);font-size:16px;margin:24px 0 6px}
+.footer code{font-size:13px}
+
+/* ============================================================
+   TOKENS — mismo mecanismo que la app de hoy (lib/tema.ts):
+   oscuro por omisión, claro con @media en Automático, y
+   data-tema="claro"|"oscuro" cuando se fija a mano.
+   SI CAMBIAS EL BLOQUE CLARO, CAMBIA LOS DOS.
+   ============================================================ */
+.app{
+  --bg:#0a0a0c;--surface:#131316;--raised:#1d1d21;--fill:rgba(255,255,255,.06);--fill-on:rgba(255,255,255,.1);
+  --line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.15);
+  --txt:#ededf0;--muted:#9a9da6;--faint:#7c7f88;
+  --accent:#cc4119;--accent-hover:#db4c22;--accent-txt:#ff8a68;--on-accent:#fff;
+  --bar:rgba(10,10,12,.78);--sombra:0 12px 40px rgba(0,0,0,.55);--scrim:rgba(0,0,0,.55);
+  --rojo:#f2555a;--ambar:#f0b232;--verde:#3fcf8e;--azul:#6e9bff;--morado:#a990ff;--gris:#8b8f99;
+  color-scheme:dark}
+@media (prefers-color-scheme: light){
+  .app:not([data-tema="oscuro"]){
+    --bg:#f5f5f7;--surface:#ffffff;--raised:#ececef;--fill:rgba(0,0,0,.045);--fill-on:#ffffff;
+    --line:rgba(0,0,0,.08);--line2:rgba(0,0,0,.14);
+    --txt:#17171a;--muted:#5b5e66;--faint:#6c6f77;
+    --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--on-accent:#fff;
+    --bar:rgba(245,245,247,.8);--sombra:0 12px 40px rgba(0,0,0,.14);--scrim:rgba(0,0,0,.28);
+    --rojo:#c81e1e;--ambar:#a14a02;--verde:#13753a;--azul:#1d4fd8;--morado:#6b2fd1;--gris:#5c6270;
+    color-scheme:light}
+}
+.app[data-tema="claro"]{
+  --bg:#f5f5f7;--surface:#ffffff;--raised:#ececef;--fill:rgba(0,0,0,.045);--fill-on:#ffffff;
+  --line:rgba(0,0,0,.08);--line2:rgba(0,0,0,.14);
+  --txt:#17171a;--muted:#5b5e66;--faint:#6c6f77;
+  --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--on-accent:#fff;
+  --bar:rgba(245,245,247,.8);--sombra:0 12px 40px rgba(0,0,0,.14);--scrim:rgba(0,0,0,.28);
+  --rojo:#c81e1e;--ambar:#a14a02;--verde:#13753a;--azul:#1d4fd8;--morado:#6b2fd1;--gris:#5c6270;
+  color-scheme:light}
+
+/* ============================================================
+   APP: estilo A (Precisión) con el orden de B (Nativo)
+   ============================================================ */
+.app{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;
+  background:var(--bg);color:var(--txt);font-family:Inter,-apple-system,system-ui,sans-serif;font-size:14px;
+  letter-spacing:-.006em;font-feature-settings:"cv11","ss01";transition:background-color .2s,color .2s}
+.app *{box-sizing:border-box}
+.app button{font-family:inherit;color:inherit;cursor:pointer}
+.app button:focus-visible,.app input:focus-visible,.app select:focus-visible{outline:2px solid var(--accent-txt);outline-offset:2px}
+.app svg.i{width:16px;height:16px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* --- Barra superior translúcida --- */
+.app .top{flex-shrink:0;z-index:5;background:var(--bar);backdrop-filter:saturate(160%) blur(16px);-webkit-backdrop-filter:saturate(160%) blur(16px);border-bottom:1px solid var(--line)}
+.app .sb{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 28px 0 34px;font-size:15px;font-weight:600}
+.app .sb-ic{display:flex;gap:5px;align-items:center}
+.app .sb-ic i{display:block;width:17px;height:10px;border-radius:2px;background:currentColor}
+.app .sb-ic i:first-child{width:15px;clip-path:polygon(0 100%,100% 0,100% 100%)}
+.app .sb-ic i:last-child{width:24px;height:11px;border-radius:3px;background:none;box-shadow:inset 0 0 0 1.5px currentColor}
+.app .topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 16px 10px}
+.app .brand{display:flex;align-items:center;gap:9px;min-width:0}
+.app .logo{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.app .brand b{font-size:14px;font-weight:600;white-space:nowrap}
+.app .brand small{color:var(--faint);font-size:12px;font-weight:500;white-space:nowrap;display:none}
+.app .who{display:flex;align-items:center;gap:6px}
+.app .iconbtn{position:relative;width:36px;height:36px;border-radius:9px;border:0;background:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;transition:background .15s,color .15s}
+.app .iconbtn:hover{background:var(--fill);color:var(--txt)}
+.app .iconbtn svg.i{width:19px;height:19px}
+.app .iconbtn .dot{position:absolute;top:4px;right:3px;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--bg)}
+.app .avatar{width:30px;height:30px;border-radius:50%;border:0;background:var(--raised);color:var(--txt);font-size:11px;font-weight:600;box-shadow:inset 0 0 0 1px var(--line2);margin-left:2px}
+
+/* --- Cuerpo: menú lateral (escritorio) + contenido --- */
+.app .cuerpo{flex:1;display:flex;min-height:0}
+.app .side{display:none}
+.app .main{flex:1;overflow-y:auto;overflow-x:hidden;padding:18px 16px 112px;scrollbar-width:none}
+.app .main::-webkit-scrollbar{display:none}
+.app .contenido{max-width:960px;margin:0 auto}
+
+/* Título grande (orden B) con tipografía de A */
+.app .page{font-size:30px;font-weight:700;letter-spacing:-.03em;line-height:1.1;margin:0}
+.app .phint{color:var(--muted);font-size:14px;margin:5px 0 18px}
+
+/* Indicadores: carrusel en celular (B), con borde fino (A) */
+.app .cards{display:grid;grid-auto-flow:column;grid-auto-columns:132px;gap:8px;overflow-x:auto;margin:0 -16px 18px;padding:0 16px;scrollbar-width:none;scroll-snap-type:x mandatory}
+.app .cards::-webkit-scrollbar{display:none}
+.app .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 13px;scroll-snap-align:start;text-align:left;transition:border-color .15s}
+.app .card:hover{border-color:var(--line2)}
+.app .card .n{font-size:26px;font-weight:600;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.app .card .l{color:var(--muted);font-size:12.5px;margin-top:3px;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.app .card .l::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--c);flex-shrink:0}
+
+/* Búsqueda + unidad (B) */
+.app .toolbar{display:flex;gap:8px;margin-bottom:10px}
+.app .search{flex:1;min-width:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 11px;background:var(--fill);border-radius:10px;color:var(--faint);border:1px solid transparent;transition:border-color .15s,background .15s}
+.app .search:focus-within{border-color:var(--line2);background:var(--surface)}
+.app .search input{flex:1;min-width:0;border:0;background:none;outline:none;font:inherit;font-size:14px;color:var(--txt);padding:0}
+.app .search input::placeholder{color:var(--faint)}
+.app select{height:38px;padding:0 30px 0 12px;border:0;border-radius:10px;background:var(--fill);color:var(--txt);font:inherit;font-size:14px;font-weight:500;appearance:none;-webkit-appearance:none;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center}
+
+/* Control segmentado (B) */
+.app .seg{display:flex;background:var(--fill);border-radius:10px;padding:3px;margin-bottom:20px}
+.app .seg button{flex:1;height:30px;border:0;background:none;border-radius:7px;font-size:13px;font-weight:500;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;gap:6px;transition:background .18s,color .18s,box-shadow .18s}
+.app .seg button span{color:var(--faint);font-size:12px;font-variant-numeric:tabular-nums}
+.app .seg button[aria-selected="true"]{background:var(--fill-on);color:var(--txt);box-shadow:0 1px 3px rgba(0,0,0,.12),inset 0 0 0 1px var(--line)}
+
+/* Encabezado de sección + lista agrupada (B) con filas de A */
+.app .sec{display:flex;justify-content:space-between;align-items:baseline;margin:0 4px 8px}
+.app .sec h3{margin:0;font-size:13px;font-weight:600;color:var(--muted)}
+.app .sec a{font-size:13px;color:var(--accent-txt);text-decoration:none;font-weight:500}
+.app .grupo{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:22px}
+.app .inc{position:relative;padding:14px 14px 13px;transition:background .12s}
+.app .inc:hover{background:color-mix(in srgb,var(--fill) 60%,transparent)}
+.app .inc+.inc::before{content:'';position:absolute;top:0;left:14px;right:0;height:1px;background:var(--line)}
+.app .inc-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.app .inc-body{min-width:0}
+.app .folio{font-size:12px;color:var(--faint);font-weight:500;font-variant-numeric:tabular-nums}
+.app .titulo{font-size:15px;font-weight:600;margin:2px 0 5px;letter-spacing:-.015em}
+.app .meta{display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:13px}
+.app .meta span{display:flex;align-items:center;gap:5px;min-width:0}
+.app .meta svg.i{width:13px;height:13px;color:var(--faint)}
+.app .clave{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--faint);padding-left:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block!important}
+.app .estado{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500;color:var(--muted);white-space:nowrap;padding-top:1px}
+.app .estado i{width:7px;height:7px;border-radius:50%;background:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 20%,transparent)}
+.app .chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
+.app .tag{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 7px;border:1px solid var(--line2);border-radius:6px;font-size:11.5px;color:var(--muted);font-weight:500;white-space:nowrap}
+.app .tag i{width:6px;height:6px;border-radius:50%;background:var(--c)}
+.app .tag svg.i{width:12px;height:12px;color:var(--c)}
+.app .tag.alerta{color:var(--c);border-color:color-mix(in srgb,var(--c) 40%,transparent);background:color-mix(in srgb,var(--c) 9%,transparent)}
+.app .hace{margin-left:auto;color:var(--faint);font-size:12px}
+.app .acciones{display:flex;gap:8px;margin-top:12px}
+.app .btn{height:32px;padding:0 13px;border:0;border-radius:8px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+  background:var(--accent);color:var(--on-accent);transition:background .15s,transform .1s}
+.app .btn:hover{background:var(--accent-hover)}
+.app .btn:active{transform:scale(.98)}
+.app .btn.ghost{background:transparent;color:var(--txt);box-shadow:inset 0 0 0 1px var(--line2)}
+.app .btn.ghost:hover{background:var(--fill)}
+.app .btn svg.i{width:14px;height:14px}
+
+/* --- Barra de pestañas (celular) --- */
+.app .tabbar{position:absolute;left:0;right:0;bottom:0;z-index:5;display:flex;justify-content:space-around;padding:7px 6px 26px;
+  background:var(--bar);backdrop-filter:saturate(160%) blur(16px);-webkit-backdrop-filter:saturate(160%) blur(16px);border-top:1px solid var(--line)}
+.app .tab{position:relative;flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 0;font-size:10.5px;font-weight:500;color:var(--faint);transition:color .15s}
+.app .tab svg.i{width:22px;height:22px}
+.app .tab[aria-current="page"]{color:var(--txt)}
+.app .tab[aria-current="page"] svg.i{color:var(--accent-txt)}
+.app .tab .badge{position:absolute;top:0;left:calc(50% + 6px);background:var(--accent);color:#fff;font-size:9.5px;font-weight:700;border-radius:8px;padding:2px 5px;line-height:1;box-shadow:0 0 0 2px var(--bg)}
+
+/* --- Menú del avatar (con Apariencia) --- */
+.app .pop{position:absolute;right:12px;top:96px;width:280px;z-index:20;background:var(--surface);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--sombra);
+  opacity:0;transform:translateY(-6px) scale(.98);transform-origin:top right;pointer-events:none;transition:opacity .16s,transform .16s}
+.app.menu-abierto .pop{opacity:1;transform:none;pointer-events:auto}
+.app .pop-head{display:flex;gap:10px;align-items:center;padding:14px;border-bottom:1px solid var(--line)}
+.app .pop-head .avatar{width:36px;height:36px;margin:0;font-size:12px}
+.app .pop-head b{display:block;font-size:14px;font-weight:600}
+.app .pop-head small{color:var(--muted);font-size:12px}
+.app .pop-sec{padding:12px 14px;border-bottom:1px solid var(--line)}
+.app .pop-sec .lbl{font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px}
+.app .temas{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:var(--fill);padding:3px;border-radius:10px}
+.app .temas button{border:0;background:none;border-radius:7px;min-height:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11.5px;font-weight:500;color:var(--muted);transition:background .15s,color .15s}
+.app .temas button svg.i{width:17px;height:17px}
+.app .temas button[aria-pressed="true"]{background:var(--fill-on);color:var(--txt);box-shadow:0 1px 3px rgba(0,0,0,.12),inset 0 0 0 1px var(--line)}
+.app .pop-sec .ayuda{font-size:11.5px;color:var(--faint);margin-top:8px}
+.app .pop-item{width:100%;border:0;background:none;display:flex;align-items:center;gap:10px;padding:13px 14px;font-size:14px;color:var(--txt);text-align:left}
+.app .pop-item:hover{background:var(--fill)}
+.app .pop-item svg.i{color:var(--muted)}
+
+/* --- Hoja "Más" (celular) --- */
+.app .scrim{position:absolute;inset:0;z-index:15;background:var(--scrim);opacity:0;pointer-events:none;transition:opacity .2s}
+.app.mas-abierto .scrim{opacity:1;pointer-events:auto}
+.app .hoja{position:absolute;left:0;right:0;bottom:0;z-index:16;background:var(--bg);border-top-left-radius:18px;border-top-right-radius:18px;border-top:1px solid var(--line2);
+  padding:8px 16px 30px;transform:translateY(102%);transition:transform .28s cubic-bezier(.2,.8,.2,1)}
+.app.mas-abierto .hoja{transform:none}
+.app .asa{width:36px;height:5px;border-radius:3px;background:var(--line2);margin:0 auto 12px}
+.app .hoja h3{font-size:17px;font-weight:600;margin:0 4px 12px;letter-spacing:-.015em}
+.app .hoja .grupo{margin-bottom:0}
+.app .fila{position:relative;width:100%;border:0;background:none;display:flex;align-items:center;gap:12px;padding:12px 14px;font-size:14.5px;text-align:left}
+.app .fila+.fila::before{content:'';position:absolute;top:0;left:50px;right:0;height:1px;background:var(--line)}
+.app .fila:hover{background:var(--fill)}
+.app .fila .ic{width:26px;height:26px;border-radius:7px;background:var(--fill);display:flex;align-items:center;justify-content:center;color:var(--muted)}
+.app .fila .ic svg.i{width:15px;height:15px}
+.app .fila .chev{margin-left:auto;color:var(--faint)}
+
+/* ============================================================
+   ESCRITORIO (≥ 760px de ancho del contenedor): menú lateral,
+   indicadores en fila, sin pestañas abajo. Mismo HTML.
+   ============================================================ */
+@container (min-width: 760px){
+  .app .sb{display:none}
+  .app .topbar{padding:10px 20px}
+  .app .brand small{display:inline}
+  .app .side{display:flex;flex-direction:column;gap:1px;width:232px;flex-shrink:0;padding:16px 10px;border-right:1px solid var(--line);overflow-y:auto}
+  .app .side .grp{font-size:11.5px;font-weight:600;color:var(--faint);padding:14px 10px 6px}
+  .app .side .grp:first-child{padding-top:2px}
+  .app .nav{border:0;background:none;display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:7px;font-size:13.5px;font-weight:500;color:var(--muted);text-align:left;transition:background .12s,color .12s}
+  .app .nav:hover{background:var(--fill);color:var(--txt)}
+  .app .nav[aria-current="page"]{background:var(--fill);color:var(--txt)}
+  .app .nav[aria-current="page"] svg.i{color:var(--accent-txt)}
+  .app .nav .badge{margin-left:auto;background:var(--accent);color:#fff;font-size:10.5px;font-weight:600;border-radius:9px;padding:1px 6px}
+  .app .main{padding:32px 36px 48px}
+  .app .page{font-size:28px}
+  .app .cards{grid-auto-flow:row;grid-template-columns:repeat(4,1fr);margin:0 0 22px;padding:0;overflow:visible}
+  .app .filtros{display:flex;gap:10px;align-items:center;margin-bottom:22px}
+  .app .filtros .toolbar{flex:1;margin:0}
+  .app .filtros .seg{margin:0;flex:0 0 300px}
+  .app .inc{display:grid;grid-template-columns:1fr auto;column-gap:24px;align-items:start;padding:14px 18px}
+  .app .inc+.inc::before{left:18px}
+  .app .inc .chips{grid-column:1}
+  .app .inc .acciones{grid-column:2;grid-row:1 / span 2;margin:0;align-self:center}
+  .app .tabbar,.app .hoja,.app .scrim{display:none}
+  .app .pop{top:58px;right:16px}
+}
+
+/* Tonos de estatus: cada componente usa --c a su modo. */
+.app .t-rojo{--c:var(--rojo)}.app .t-ambar{--c:var(--ambar)}.app .t-verde{--c:var(--verde)}
+.app .t-azul{--c:var(--azul)}.app .t-morado{--c:var(--morado)}.app .t-gris{--c:var(--gris)}
+
+@media (prefers-reduced-motion: reduce){.app,.app *{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="intro">
+    <h1>Precisión con el orden de Nativo</h1>
+    <p>Usa el estilo de A (Inter, líneas finas, un solo acento, estatus como punto de color) con la estructura de B: título grande, indicadores en carrusel, control segmentado y lista agrupada.</p>
+    <p><a href="modulos.html" style="color:inherit"><b>Ver los 12 módulos con este estilo →</b></a></p>
+    <p><b>Tema:</b> toca el avatar (<b>EM</b>) en cualquier teléfono y elige <b>Automático</b>, <b>Claro</b> u <b>Oscuro</b>. Funciona igual que en la app de hoy: Automático sigue al sistema. En el menú de abajo, <b>Más</b> abre el resto de los módulos.</p>
+  </header>
+
+  <div class="row">
+    <div class="col"><h2><span class="chip">Automático</span>Sigue a tu sistema</h2><p>Cambia el modo de tu computadora y este teléfono cambia con él.</p>
+      <div class="phone"><div class="screen" data-ini="auto"></div></div></div>
+    <div class="col"><h2><span class="chip">Claro</span>Para el sol</h2><p>Fijado en claro desde el menú del avatar.</p>
+      <div class="phone"><div class="screen" data-ini="claro"></div></div></div>
+    <div class="col"><h2><span class="chip">Oscuro</span>Para oficina y de noche</h2><p>Fijado en oscuro desde el menú del avatar.</p>
+      <div class="phone"><div class="screen" data-ini="oscuro"></div></div></div>
+  </div>
+
+  <section class="desk-wrap">
+    <h2>Escritorio</h2>
+    <p>Es el mismo HTML: arriba de 760px el menú pasa al costado, los indicadores van en fila y las acciones quedan a la derecha de cada incidencia.</p>
+    <div class="desk"><div class="chrome"><i></i><i></i><i></i></div><div class="screen" data-ini="auto" data-desk="1"></div></div>
+  </section>
+
+  <section class="footer">
+    <h3>Cómo se pasaría a la app real</h3>
+    <p>1. <b>Tokens:</b> se reemplazan las variables de <code>index.css</code> por las de este archivo. El mecanismo de tema (<code>lib/tema.ts</code>, <code>data-tema</code>, el script de <code>index.html</code>) no cambia.<br>
+    2. <b>Inter incluida en la app</b>, no cargada de Google, porque la app se usa sin señal.<br>
+    3. <b>Iconos:</b> <code>lucide-react</code> en lugar de emojis.<br>
+    4. <b>Pantalla por pantalla:</b> se pasan a clases los estilos escritos dentro de los componentes (unos 1,060), empezando por Bandeja/Incidencias, que es lo que más se ve.<br>
+    5. <b>Menú inferior con 4 accesos y "Más":</b> cuáles van en los 4 depende del rol de cada usuario (un monitorista vería Mis rutas y Pauta).</p>
+    <h3>Por revisar en iPhone</h3>
+    <p>Las barras translúcidas (blur) y la hoja "Más" se prueban en el iPhone antes de quedarse, por lo que pasó con el menú de abajo. Si dan problemas, se usa un fondo sólido y se ve casi igual. En tema claro, la barra de estado del iPhone instalado sigue en texto blanco: se resuelve igual que hoy, con la franja oscura detrás del reloj.</p>
+  </section>
+</div>
+
+<script>
+const P = {
+  bell:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  search:'<circle cx="11" cy="11" r="7.5"/><path d="m20.5 20.5-4.2-4.2"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  inbox:'<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  list:'<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  map:'<path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/>',
+  more:'<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  clock:'<circle cx="12" cy="12" r="9.5"/><path d="M12 7v5l3 2"/>',
+  msg:'<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  moon:'<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  monitor:'<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  chev:'<path d="m9 18 6-6-6-6"/>',
+  chart:'<path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/>',
+  scan:'<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
+  road:'<path d="M4 20 8 4M16 4l4 16M12 5v2M12 10.5v3M12 17v2"/>',
+  clip:'<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  board:'<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
+  compass:'<circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>',
+  box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/>'
+};
+const ico = n => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
+
+const KPIS = [['24','Abiertas','rojo'],['9','En proceso','azul'],['5','Por validar','morado'],['3','SLA vencido','ambar']];
+const INCS = [
+  {folio:'INC-2026-0412',un:'Ecovallas',titulo:'Lona rota en cara B',clave:'MX_EM_EV_EVA_01_0009',lugar:'Naucalpan, Edomex',hace:'hace 2 h',
+   est:['Abierta','rojo'],nivel:['Alta','ambar'],sla:['Vence en 3 h','ambar',1],chat:3,cta:'Atender'},
+  {folio:'INC-2026-0409',un:'Vía Verde',titulo:'Pantalla sin señal en pórtico 14',clave:'MX_VV_DG_POR_014',lugar:'Periférico Norte km 22',hace:'hace 5 h',
+   est:['En proceso','azul'],nivel:['Media','gris'],sla:['A tiempo','verde',0],chat:1,cta:'Reparar'},
+  {folio:'INC-2026-0398',un:'Biobox',titulo:'Máquina fuera de línea',clave:'BBX-CDMX-031',lugar:'Coyoacán, CDMX',hace:'ayer',
+   est:['Por validar','morado'],nivel:['Baja','gris'],sla:['Vencida','rojo',1],chat:0,cta:'Validar'},
+  {folio:'INC-2026-0391',un:'Ecovallas',titulo:'Iluminación apagada',clave:'MX_CDMX_EV_EVA_02_0117',lugar:'Insurgentes Sur 1602',hace:'hace 2 d',
+   est:['Abierta','rojo'],nivel:['Media','gris'],sla:['Vence mañana','verde',0],chat:0,cta:'Atender'}
+];
+const TABS = [['plus','Nueva'],['inbox','Bandeja',5],['list','Incidencias'],['map','Rutas']];
+const MAS = [['chart','Indicadores'],['scan','Disponibilidad'],['road','Bitácora VV'],['clip','Fijación Externa'],['board','Pauta y Monitoreo'],['compass','Mis rutas'],['box','Máquinas Biobox'],['users','Usuarios']];
+const SIDE = [
+  ['Incidencias',[['plus','Nueva'],['inbox','Bandeja',5],['list','Incidencias'],['chart','Indicadores'],['scan','Disponibilidad']]],
+  ['Monitoreo',[['map','Rutas de Monitoreo'],['board','Pauta y Monitoreo'],['compass','Mis rutas'],['road','Bitácora VV'],['clip','Fijación Externa'],['box','Máquinas Biobox']]],
+  ['Administración',[['users','Usuarios']]]
+];
+const TEMAS = [['auto','monitor','Automático'],['claro','sun','Claro'],['oscuro','moon','Oscuro']];
+
+function incHTML(i){
+  return `<article class="inc t-${i.est[1]}">
+    <div class="inc-top">
+      <div class="inc-body">
+        <div class="folio">${i.folio} · ${i.un}</div>
+        <h4 class="titulo">${i.titulo}</h4>
+        <div class="meta"><span>${ico('pin')}${i.lugar}</span><span class="clave">${i.clave}</span></div>
+      </div>
+      <span class="estado t-${i.est[1]}"><i></i>${i.est[0]}</span>
+    </div>
+    <div class="chips">
+      <span class="tag t-${i.nivel[1]}"><i></i>Prioridad ${i.nivel[0].toLowerCase()}</span>
+      <span class="tag t-${i.sla[1]}${i.sla[2] ? ' alerta' : ''}">${ico('clock')}${i.sla[0]}</span>
+      <span class="hace">${i.hace}</span>
+    </div>
+    <div class="acciones">
+      <button class="btn">${i.cta}</button>
+      <button class="btn ghost">${ico('msg')}Chat${i.chat ? ' · ' + i.chat : ''}</button>
+    </div>
+  </article>`;
+}
+
+function appHTML(){
+  return `
+  <div class="top">
+    <div class="sb"><span>9:41</span><span class="sb-ic"><i></i><i></i><i></i></span></div>
+    <header class="topbar">
+      <div class="brand"><div class="logo">G</div><b>Operaciones</b><small>· GPO VALLAS</small></div>
+      <div class="who">
+        <button class="iconbtn" aria-label="Notificaciones (4)">${ico('bell')}<span class="dot">4</span></button>
+        <button class="avatar" data-accion="menu" aria-haspopup="menu" aria-expanded="false" aria-label="Menú de usuario">EM</button>
+      </div>
+    </header>
+  </div>
+  <div class="cuerpo">
+    <nav class="side" aria-label="Módulos">
+      ${SIDE.map(([g,items]) => `<div class="grp">${g}</div>` + items.map(([ic,t,b]) =>
+        `<button class="nav"${t==='Bandeja' ? ' aria-current="page"' : ''}>${ico(ic)}<span>${t}</span>${b ? `<span class="badge">${b}</span>` : ''}</button>`).join('')).join('')}
+    </nav>
+    <main class="main"><div class="contenido">
+      <h2 class="page">Bandeja</h2>
+      <p class="phint">Asignadas a Mantenimiento</p>
+      <section class="cards" aria-label="Indicadores">
+        ${KPIS.map(([n,l,c]) => `<button class="card t-${c}"><div class="n">${n}</div><div class="l">${l}</div></button>`).join('')}
+      </section>
+      <div class="filtros">
+        <div class="toolbar">
+          <label class="search">${ico('search')}<input placeholder="Buscar folio o clave" aria-label="Buscar"></label>
+          <select aria-label="Unidad de negocio"><option>Unidad</option><option>Ecovallas</option><option>Vía Verde</option><option>Biobox</option></select>
+        </div>
+        <div class="seg" role="tablist" aria-label="Filtro rápido">
+          <button role="tab" aria-selected="true">Todas <span>18</span></button><button role="tab" aria-selected="false">Mías <span>6</span></button><button role="tab" aria-selected="false">Vencidas <span>3</span></button>
+        </div>
+      </div>
+      <div class="sec"><h3>Requieren atención · 2</h3><a href="#" onclick="return false">Ver todas</a></div>
+      <div class="grupo">${INCS.slice(0,2).map(incHTML).join('')}</div>
+      <div class="sec"><h3>En seguimiento · 2</h3></div>
+      <div class="grupo">${INCS.slice(2).map(incHTML).join('')}</div>
+    </div></main>
+  </div>
+  <nav class="tabbar" aria-label="Módulos">
+    ${TABS.map(([ic,t,b]) => `<button class="tab"${t==='Bandeja' ? ' aria-current="page"' : ''}>${ico(ic)}<span>${t}</span>${b ? `<span class="badge">${b}</span>` : ''}</button>`).join('')}
+    <button class="tab" data-accion="mas" aria-haspopup="dialog">${ico('more')}<span>Más</span></button>
+  </nav>
+  <div class="pop" role="menu" aria-label="Menú de usuario">
+    <div class="pop-head"><div class="avatar" style="display:flex;align-items:center;justify-content:center">EM</div><div><b>Erik M.</b><small>Coordinador · Mantenimiento</small></div></div>
+    <div class="pop-sec">
+      <div class="lbl">Apariencia</div>
+      <div class="temas" role="group" aria-label="Apariencia">
+        ${TEMAS.map(([v,ic,l]) => `<button data-tema-op="${v}" aria-pressed="false">${ico(ic)}${l}</button>`).join('')}
+      </div>
+      <div class="ayuda">Automático sigue la configuración del teléfono.</div>
+    </div>
+    <button class="pop-item" role="menuitem">${ico('logout')}Cerrar sesión</button>
+  </div>
+  <div class="scrim" data-accion="cerrar"></div>
+  <div class="hoja" role="dialog" aria-label="Más módulos">
+    <div class="asa"></div>
+    <h3>Más módulos</h3>
+    <div class="grupo">${MAS.map(([ic,t]) => `<button class="fila"><span class="ic">${ico(ic)}</span>${t}<span class="chev">${ico('chev')}</span></button>`).join('')}</div>
+  </div>`;
+}
+
+function fijarTema(app, v){
+  if (v === 'auto') app.removeAttribute('data-tema'); else app.setAttribute('data-tema', v);
+  app.querySelectorAll('[data-tema-op]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.temaOp === v)));
+}
+
+document.querySelectorAll('.screen').forEach(s => {
+  const app = document.createElement('div');
+  app.className = 'app';
+  app.innerHTML = appHTML();
+  s.appendChild(app);
+  fijarTema(app, s.dataset.ini);
+});
+
+document.addEventListener('click', e => {
+  const app = e.target.closest('.app');
+  // Cerrar menús de otros teléfonos
+  document.querySelectorAll('.app.menu-abierto').forEach(a => {
+    if (a !== app || !e.target.closest('.pop, [data-accion="menu"]')) {
+      a.classList.remove('menu-abierto');
+      a.querySelector('[data-accion="menu"]').setAttribute('aria-expanded','false');
+    }
+  });
+  if (!app) return;
+  const t = e.target.closest('button, .scrim');
+  if (!t) return;
+  if (t.dataset.accion === 'menu') {
+    const abre = !app.classList.contains('menu-abierto');
+    app.classList.toggle('menu-abierto', abre);
+    t.setAttribute('aria-expanded', String(abre));
+  } else if (t.dataset.temaOp) {
+    fijarTema(app, t.dataset.temaOp);
+  } else if (t.dataset.accion === 'mas') {
+    app.classList.add('mas-abierto');
+  } else if (t.dataset.accion === 'cerrar' || t.classList.contains('fila')) {
+    app.classList.remove('mas-abierto');
+  } else if (t.getAttribute('role') === 'tab') {
+    t.parentElement.querySelectorAll('[role=tab]').forEach(b => b.setAttribute('aria-selected', String(b === t)));
+  } else if (t.classList.contains('tab') || t.classList.contains('nav')) {
+    t.parentElement.querySelectorAll('.tab, .nav').forEach(b => b.removeAttribute('aria-current'));
+    t.setAttribute('aria-current', 'page');
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  document.querySelectorAll('.app').forEach(a => a.classList.remove('menu-abierto','mas-abierto'));
+});
+</script>
+</body>
+</html>

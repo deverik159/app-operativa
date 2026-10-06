@@ -1,0 +1,174 @@
+/* ============================================================
+   src/estilo/precision.css
+   Rediseño "Precisión" (oct-2026): estilo A (líneas finas, un solo acento,
+   Inter) con el orden de B (títulos grandes, listas agrupadas).
+   Prototipo aprobado: rediseno/prototipos/ (modulos.html).
+
+   POR QUÉ UN ARCHIVO APARTE: va DESPUÉS de index.css (main.tsx) y solo
+   cambia la PIEL: colores, tipografía, radios, pesos. La estructura de
+   index.css —las posiciones fijas, los safe-area, todo lo que se arregló
+   para el iPhone— no se toca. Aquí NO va position, transform, filter,
+   backdrop-filter ni contain en .topbar, .side, .main ni .overlay: cada
+   uno ya rompió el menú inferior en iOS alguna vez (ver index.css).
+
+   El tema sigue siendo el de lib/tema.ts: oscuro por omisión, claro con el
+   @media en Automático y data-tema cuando se fija a mano. Los bloques de
+   abajo REESCRIBEN los valores de las mismas variables; SI CAMBIAS EL
+   BLOQUE CLARO, CAMBIA LOS DOS (igual que en index.css).
+   ============================================================ */
+
+/* Inter incluida en la app (no de Google): la app se usa sin señal. Solo el
+   juego latino (48 KB): cubre á é í ó ú ñ ü ¿ ¡ y los símbolos comunes. */
+@font-face{
+  font-family:'Inter Variable';
+  font-style:normal;
+  font-display:swap;
+  font-weight:100 900;
+  src:url('../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* ---- Tema OSCURO (por omisión) ----
+   --accent pasa de #ff5a3c a #cc4119: con texto BLANCO da 4.6:1 (el naranja
+   claro de antes solo se leía con texto negro). Por eso el texto sobre el
+   acento es --sobre-acento y no #151515.
+   --line es sólido (no rgba): hay lugares que la usan de FONDO (barras de
+   avance) y con alfa cambiaría según lo de abajo. */
+:root{
+  --bg:#0a0a0c;--panel:#131316;--panel2:#1b1b1f;--line:#26262b;--line2:#35353b;
+  --txt:#ededf0;--muted:#9a9da6;--faint:#7c7f88;--fill:rgba(255,255,255,.06);
+  --accent:#cc4119;--accent-hover:#db4c22;--accent-txt:#ff8a68;--sobre-acento:#fff;
+  --accent2:#3e6fd8;
+  --tag-fondo:#1f1f24;--activo-fondo:rgba(255,255,255,.07);--activo-borde:transparent;
+  --overlay:rgba(0,0,0,.6);--sombra:rgba(0,0,0,.55);--sombra-menu:rgba(0,0,0,.35);
+  --login-brillo:#2a160f;--atrib-fondo:rgba(10,10,12,.72);
+  --fuente:'Inter Variable',Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+
+/* ---- Tema CLARO: Automático con el teléfono en claro ----
+   --line un poco más marcada que el gris del prototipo (1.5:1 sobre blanco):
+   al sol, una línea más tenue desaparece. --muted 7:1 y --faint 4.9:1 sobre
+   blanco; los tonos de estatus no cambian (ya estaban medidos). */
+@media (prefers-color-scheme: light){
+  :root:not([data-tema="oscuro"]){
+    --bg:#f5f5f7;--panel:#ffffff;--panel2:#f0f0f3;--line:#cfd2d8;--line2:#b9bdc6;
+    --txt:#17171a;--muted:#555a64;--faint:#6c6f77;--fill:rgba(0,0,0,.045);
+    --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--sobre-acento:#fff;
+    --accent2:#1d4fd8;
+    --tag-fondo:#ececef;--activo-fondo:#ececef;--activo-borde:transparent;
+    --overlay:rgba(15,17,21,.4);--sombra:rgba(15,17,21,.14);--sombra-menu:rgba(15,17,21,.08);
+    --login-brillo:#ffe6dc;--atrib-fondo:rgba(255,255,255,.85);
+  }
+}
+/* ---- Tema CLARO elegido a mano: los mismos valores ---- */
+:root[data-tema="claro"]{
+  --bg:#f5f5f7;--panel:#ffffff;--panel2:#f0f0f3;--line:#cfd2d8;--line2:#b9bdc6;
+  --txt:#17171a;--muted:#555a64;--faint:#6c6f77;--fill:rgba(0,0,0,.045);
+  --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--sobre-acento:#fff;
+  --accent2:#1d4fd8;
+  --tag-fondo:#ececef;--activo-fondo:#ececef;--activo-borde:transparent;
+  --overlay:rgba(15,17,21,.4);--sombra:rgba(15,17,21,.14);--sombra-menu:rgba(15,17,21,.08);
+  --login-brillo:#ffe6dc;--atrib-fondo:rgba(255,255,255,.85);
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+body{font-family:var(--fuente);letter-spacing:-.006em;font-feature-settings:'cv11','ss01';
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+
+/* Botones: un solo acento, texto blanco. El hover cambia el fondo en vez de
+   aclarar con filter (filter crea capa y en iOS no hace falta arriesgar). */
+.btn{color:var(--sobre-acento);border-radius:9px;font-weight:600;letter-spacing:-.005em;
+  transition:background-color .15s,box-shadow .15s,transform .1s}
+.btn:not(.ghost):not(.ok):not(.warn):not(.hi):hover{filter:none;background-color:var(--accent-hover)}
+.btn:active:not(:disabled){transform:scale(.98)}
+.btn.ghost{border-color:var(--line2)}
+.btn.ghost:hover{filter:none;background-color:var(--fill)}
+
+/* Campos: fondo gris suave, borde fino y anillo al enfocar. El tamaño de
+   letra NO se toca: index.css lo sube a 16px en celular para que iOS no
+   haga zoom al enfocar. */
+select,input,textarea{border-radius:10px;transition:border-color .15s,box-shadow .15s}
+select:focus,input:focus,textarea:focus{outline:none;border-color:var(--line2);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+input[type="checkbox"]:focus,input[type="radio"]:focus{box-shadow:none}
+.field label{font-size:12.5px}
+
+/* Etiquetas y pastillas */
+.tag{border-radius:6px;font-weight:500;font-size:11.5px}
+.pill{border-radius:6px;font-weight:600;font-size:11.5px;letter-spacing:0}
+
+/* ============================================================
+   Barra superior y menú
+   ============================================================ */
+.topbar{background:var(--bg);border-bottom-color:var(--line)}
+.logo{background:var(--accent);color:#fff;font-weight:700}
+.brand .logo{width:30px;height:30px;font-size:15px;border-radius:8px}
+.brand h1{font-size:14.5px;font-weight:600;letter-spacing:-.01em}
+.brand .sub{color:var(--faint)}
+.avatar{background:var(--panel2);color:var(--txt);font-weight:600;box-shadow:inset 0 0 0 1px var(--line2)}
+
+/* Escritorio: menú lateral fino, el activo con fondo suave y el ícono en acento. */
+.side{border-right-color:var(--line)}
+.nav-item{font-weight:500;font-size:13.5px;border-radius:8px;transition:background-color .12s,color .12s}
+.nav-item .nav-ic{flex-shrink:0;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center}
+.nav-item.active{background:var(--activo-fondo);box-shadow:none}
+.nav-item.active .nav-ic{color:var(--accent-txt)}
+.nav-item .badge{color:var(--sobre-acento);font-weight:700}
+
+/* Celular: la barra de abajo conserva TODO lo de index.css (fija, el hueco
+   del gesto de inicio, el scroll lateral); aquí solo la piel. */
+@media(max-width:780px){
+  .side{background:var(--panel);box-shadow:none;border-top-color:var(--line)}
+  .side .nav-item{font-size:11px;font-weight:500;gap:4px;min-width:62px;padding:6px 10px}
+  .side .nav-item .nav-ic{width:22px;height:22px}
+  .side .nav-item.active{background:transparent;color:var(--txt)}
+  .nav-item .badge{box-shadow:0 0 0 2px var(--panel)}
+}
+
+/* ============================================================
+   Encabezados, indicadores y listas
+   ============================================================ */
+h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
+.phint{font-size:14px;line-height:1.45}
+@media(max-width:780px){h2.page{font-size:25px}}
+
+.card{border-radius:12px;transition:border-color .15s}
+.card .n{font-weight:600;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.card .l{text-transform:none;letter-spacing:0;font-size:12.5px}
+@media(max-width:380px){.card .l{font-size:11.5px}}
+
+.inc{border-radius:14px}
+.inc .folio{font-weight:500;color:var(--faint);font-variant-numeric:tabular-nums}
+.inc .titulo{font-weight:600;letter-spacing:-.015em}
+.inc .meta{line-height:1.55}
+
+/* Lista agrupada (orden "B"): las tarjetas se juntan en un solo bloque con
+   separadores finos. Solo donde se pide con .agrupada (hoy Incidencias),
+   porque otras listas meten avisos y botones entre las tarjetas. SIN
+   overflow:hidden: recortaría los menús y el resaltado de cada tarjeta;
+   las esquinas se redondean en la primera y la última. */
+.inc-list.agrupada{gap:0}
+.inc-list.agrupada .inc{border-radius:0;border-bottom-width:0}
+.inc-list.agrupada>:first-child .inc,.inc-list.agrupada>.inc:first-child{border-top-left-radius:14px;border-top-right-radius:14px}
+.inc-list.agrupada>:last-child .inc,.inc-list.agrupada>.inc:last-child{border-bottom-left-radius:14px;border-bottom-right-radius:14px;border-bottom-width:1px}
+
+.empty{border-radius:14px;border-color:var(--line2)}
+.err,.ok-msg,.banner{border-radius:10px}
+
+/* ============================================================
+   Ventanas (modales) y paneles flotantes
+   ============================================================ */
+.modal{border-color:var(--line2);border-radius:16px;box-shadow:0 20px 60px -20px var(--sombra)}
+.modal h2{letter-spacing:-.02em}
+.panel-flotante{border-color:var(--line2);border-radius:14px}
+
+/* Selectores de unidad y medio (Rutas) y fichas */
+.rt-chip{font-weight:600;border-color:var(--line2);background:transparent}
+.rt-chip.on{background:var(--txt);border-color:var(--txt);color:var(--bg)}
+.rt-segmento .rt-chip.on{border-width:1px;padding:8px 14px}
+
+/* Lo que va encima del acento */
+.order-badge,.route-pin{color:var(--sobre-acento)}

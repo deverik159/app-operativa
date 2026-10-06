@@ -1545,7 +1545,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                           // un campo de dos letras.
                           width: enEdicion ? '78%' : undefined,
                           background: mio ? 'var(--accent)' : 'var(--panel)',
-                          color: mio ? '#151515' : 'var(--txt)',
+                          color: mio ? 'var(--sobre-acento)' : 'var(--txt)',
                           border: '1px solid var(--line)',
                           borderRadius: 12,
                           padding: '7px 11px',
@@ -1630,8 +1630,8 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                                 // que se veía igual que activo.
                                 style={{
                                   background: 'transparent',
-                                  color: '#151515',
-                                  border: '1px solid rgba(0,0,0,.35)',
+                                  color: 'var(--sobre-acento)',
+                                  border: '1px solid rgba(255,255,255,.55)',
                                   boxShadow: 'none',
                                   opacity: guardandoEd ? 0.45 : 1,
                                 }}

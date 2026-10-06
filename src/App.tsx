@@ -37,6 +37,7 @@ import BotonPush from './components/BotonPush';
 import MenuUsuario from './components/MenuUsuario';
 import ErrorBoundary from './components/ErrorBoundary';
 import EnviosPendientes from './components/EnviosPendientes';
+import IconoNav from './components/IconoNav';
 import {
   confirmarRecargaConEnvios,
   hayEnviosEnRiesgo,
@@ -464,7 +465,9 @@ function LogoValla() {
       viewBox="0 0 24 24"
       style={{ width: '62%', height: '62%' }}
       fill="none"
-      stroke="#141414"
+      // currentColor: toma el color de .logo (blanco sobre el naranja del
+      // rediseño, ver estilo/precision.css).
+      stroke="currentColor"
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -1920,7 +1923,7 @@ function Main({
               className={'nav-item' + (tab === n.k ? ' active' : '')}
               onClick={() => irANav(n)}
             >
-              <span>{n.ic}</span>
+              <IconoNav k={n.k} emoji={n.ic} />
               <span>{n.t}</span>
               {!!n.badge && n.badge > 0 && (
                 <span className="badge">{n.badge}</span>
