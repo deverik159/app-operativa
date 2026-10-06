@@ -18,6 +18,7 @@
 // datos podría copiarlos a mano. El control real de qué ve cada quien sigue
 // siendo la RLS; esto controla qué tan fácil es llevárselo en bloque.
 // ============================================================
+import { Download } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { EST_COLOR, EST_LABEL } from '../../lib/constants';
 import {
@@ -28,6 +29,7 @@ import {
 } from '../../lib/helpers';
 import { pintar } from '../../lib/tonos';
 import type { Incidencia } from '../../types/db';
+import Ic from '../../components/Ic';
 
 type Props = {
   /** Las filas YA filtradas por IncidenciasView. */
@@ -149,7 +151,7 @@ const COLUMNAS: {
   { titulo: 'Obs.', k: 'obs', valor: (i) => i.observaciones },
   { titulo: 'Nivel', k: 'nivel', valor: (i) => i.nivel },
   { titulo: 'Capturada', k: 'capturada', valor: (i) => i.fecha_reporte },
-  { titulo: '⏳ En proceso', k: 'proceso', valor: (i) => horasEnProceso(i) },
+  { titulo: 'En proceso', k: 'proceso', valor: (i) => horasEnProceso(i) },
   {
     titulo: 'Repara',
     k: 'repara',
@@ -236,7 +238,7 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
             onClick={() => exportar(items)}
             title="Descarga lo filtrado como CSV (abre en Excel)"
           >
-            ⬇️ Exportar ({items.length})
+            <Ic i={Download} />Exportar ({items.length})
           </button>
         )}
       </div>

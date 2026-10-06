@@ -6,9 +6,11 @@
 // cuadro: queda un recuadro oscuro con "🎬 Video", para que se note que SÍ
 // hay algo adjunto — antes la tarjeta salía vacía y parecía que no.
 // ============================================================
+import { Film } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { urlMiniatura } from '../lib/storage';
+import Ic from './Ic';
 
 type Props = {
   url: string;
@@ -74,7 +76,7 @@ export default function PreviaVideo({
             fontWeight: 700,
           }}
         >
-          🎬 Video
+          <Ic i={Film} />Video
         </span>
       )}
       <span

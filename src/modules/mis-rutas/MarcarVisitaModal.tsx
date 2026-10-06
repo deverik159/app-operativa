@@ -14,12 +14,14 @@
 // Guardar NO espera a la red: la visita queda en el teléfono (lib/visitas.ts)
 // y se manda sola; la parada enseña ⏳ mientras tanto.
 // ============================================================
+import { MapPin, Satellite } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import SubirArchivos from '../../components/SubirArchivos';
 import { explicarErrorGps } from '../../lib/plataforma';
 import { vigilarRender } from '../../lib/vigia';
 import { marcarVisita } from '../../lib/visitas';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 export type ParadaVisita = {
   ruta_id: number;
@@ -189,21 +191,21 @@ function MarcarVisitaModal({
             lineHeight: 1.55,
           }}
         >
-          <div>📍 {parada.direccion || '(sin dirección)'}</div>
+          <div><Ic i={MapPin} />{parada.direccion || '(sin dirección)'}</div>
           <div style={{ color: 'var(--muted)' }}>
             🕒 Hora de la visita: <b style={{ color: 'var(--txt)' }}>{horaCorta(visitadoEn)}</b>
           </div>
           <div style={{ color: 'var(--muted)' }}>
-            {gps.estado === 'buscando' && '🛰️ Buscando tu ubicación…'}
+            {gps.estado === 'buscando' && 'Buscando tu ubicación…'}
             {gps.estado === 'listo' && (
               <span style={{ color: 'var(--ok)' }}>
-                🛰️ Ubicación lista{gps.precision != null ? ` (±${gps.precision} m)` : ''}
+                <Ic i={Satellite} />Ubicación lista{gps.precision != null ? ` (±${gps.precision} m)` : ''}
               </span>
             )}
           </div>
           {gps.estado === 'sin' && (
             <div style={{ color: 'var(--warn)', whiteSpace: 'pre-line', marginTop: 4 }}>
-              🛰️ Sin ubicación: {gps.motivo}
+              <Ic i={Satellite} />Sin ubicación: {gps.motivo}
               {'\n'}La visita se guarda sin coordenadas.
               <div style={{ marginTop: 6 }}>
                 <button type="button" className="btn ghost sm" onClick={pedirGps} disabled={guardando}>

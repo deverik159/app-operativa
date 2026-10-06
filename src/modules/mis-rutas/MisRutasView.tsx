@@ -22,6 +22,7 @@
 // objeto o arreglo de estado; dependen de textos (firmas). Todo setState que
 // sigue a una lectura (copia, red, cola) se compara antes con un ref.
 // ============================================================
+import { Camera, Hourglass, Map as MapIcon, Plus, WifiOff } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import { sb } from '../../lib/supabase';
@@ -54,6 +55,7 @@ import IrAqui from '../../components/IrAqui';
 import NuevaInc from '../incidencias/NuevaInc';
 import type { GrupoReporte, PresetNueva } from '../incidencias/NuevaInc';
 import MarcarVisitaModal, { type ParadaVisita } from './MarcarVisitaModal';
+import Ic from '../../components/Ic';
 
 // ------------------------------------------------------------
 // Datos
@@ -714,7 +716,7 @@ function MisRutasView({
       L.marker([x.p.latitud as number, x.p.longitud as number], { icon: icono })
         .bindPopup(
           `<b>${x.n}. ${escHtml(x.p.site_id)}</b><br>${escHtml(x.p.direccion || '(sin dirección)')}` +
-            (x.estado === 'visitada' ? '<br>✓ Visitada' : x.estado === 'cola' ? '<br>⏳ Visita sin enviar' : '')
+            (x.estado === 'visitada' ? '<br>✓ Visitada' : x.estado === 'cola' ? '<br>Visita sin enviar' : '')
         )
         .addTo(grp);
     });
@@ -813,7 +815,7 @@ function MisRutasView({
           la copia se enseña tal cual y se dice "actualizando…". */}
       {deCopiaLocal && (!actualizando || !haySenal()) && (
         <div className="banner" role="status" style={{ marginBottom: 12 }}>
-          📴 Lista guardada {datos.guardado ? fechaHora(datos.guardado) : '—'}: sin señal (o la
+          <Ic i={WifiOff} />Lista guardada {datos.guardado ? fechaHora(datos.guardado) : '—'}: sin señal (o la
           red no contestó) se trabaja con lo guardado en el teléfono.{' '}
           <button
             type="button"
@@ -916,7 +918,7 @@ function MisRutasView({
                         {' '}
                         · <b style={{ color: colorTono('verde') }}>✓ {a.hechas} visitada{a.hechas === 1 ? '' : 's'}</b>
                         {a.cola > 0 && (
-                          <b style={{ color: colorTono('ambar') }}> · ⏳ {a.cola} sin enviar</b>
+                          <b style={{ color: colorTono('ambar') }}> · <Ic i={Hourglass} />{a.cola} sin enviar</b>
                         )}
                       </>
                     )}
@@ -948,7 +950,7 @@ function MisRutasView({
           {tramos.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <button type="button" className="btn ghost sm" onClick={cambiarGuias} aria-expanded={verGuias}>
-                {verGuias ? '▾' : '▸'} 🗺️ Guías de ruta (Google Maps)
+                {verGuias ? '▾' : '▸'} <Ic i={MapIcon} />Guías de ruta (Google Maps)
               </button>
               {verGuias && (
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
@@ -964,7 +966,7 @@ function MisRutasView({
                       rel="noopener noreferrer"
                       style={{ textDecoration: 'none' }}
                     >
-                      🗺️ {tramos.length === 1 ? 'Abrir en Google Maps' : `Paradas ${t.desde}–${t.hasta}`}
+                      <Ic i={MapIcon} />{tramos.length === 1 ? 'Abrir en Google Maps' : `Paradas ${t.desde}–${t.hasta}`}
                     </a>
                   ))}
                   {paradas.length > navegables.length && (
@@ -1024,7 +1026,7 @@ function MisRutasView({
                             >
                               {e.conError
                                 ? `⚠ Visita ${fechaHora(e.en)} no se pudo enviar`
-                                : `⏳ Visita ${fechaHora(e.en)} ${e.enviando ? 'enviándose…' : 'sin enviar'}`}
+                                : `Visita ${fechaHora(e.en)} ${e.enviando ? 'enviándose…' : 'sin enviar'}`}
                             </span>
                           )}
                           {e.tipo === 'pendiente' && (
@@ -1066,7 +1068,7 @@ function MisRutasView({
                           })
                         }
                       >
-                        📸 {e.tipo === 'pendiente' ? 'Marcar visita' : 'Marcar otra visita'}
+                        <Ic i={Camera} />{e.tipo === 'pendiente' ? 'Marcar visita' : 'Marcar otra visita'}
                       </button>
                       <button
                         type="button"
@@ -1079,7 +1081,7 @@ function MisRutasView({
                           })
                         }
                       >
-                        ➕ Levantar incidencia
+                        <Ic i={Plus} />Levantar incidencia
                       </button>
                     </div>
                   </div>

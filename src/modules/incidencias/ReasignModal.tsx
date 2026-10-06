@@ -551,7 +551,7 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
             <div className="empty">
               {/* Con 3G lenta no es "sin señal" (revisión sin señal, 24-sep-2026). */}
               {motivoSinRed() === 'Sin señal'
-                ? '📴 Necesitas señal para revisar esta solicitud.'
+                ? 'Necesitas señal para revisar esta solicitud.'
                 : 'La red tardó demasiado en traer esta solicitud.'}
             </div>
             <div className="modal-actions">

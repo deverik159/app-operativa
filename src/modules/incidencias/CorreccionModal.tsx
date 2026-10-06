@@ -23,6 +23,7 @@
 // tope corto o de la copia del teléfono (lib/datosLocales.ts). GUARDAR sí
 // necesita señal: la corrección no se encola, y sin red se dice claro.
 // ============================================================
+import { Clock, WifiOff, Wrench } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
 import { catalogoLocal, haySenal, motivoSinRed, redOLocal } from '../../lib/datosLocales';
@@ -36,6 +37,7 @@ import { tieneAreaRedirigida } from '../../lib/helpers';
 import { vigilarRender } from '../../lib/vigia';
 import type { CatalogoIncidencia, Incidencia } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 type Props = {
   inc: Incidencia;
@@ -238,7 +240,7 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
     if (count === 0) {
       alert(
         'No se guardó la corrección: tu rol o tu área no permiten cambiar esta ' +
-          'incidencia. Refresca con ↻ y revisa cómo quedó.'
+          'incidencia. Refresca con y revisa cómo quedó.'
       );
       return;
     }
@@ -277,7 +279,7 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
             style={{ fontSize: 12, color: 'var(--muted)', margin: '-4px 0 10px' }}
             role="status"
           >
-            📴 Catálogo de la copia del teléfono. Para guardar necesitas señal.
+            <Ic i={WifiOff} />Catálogo de la copia del teléfono. Para guardar necesitas señal.
           </div>
         )}
 
@@ -364,7 +366,7 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
               <>
                 <br />
                 <br />
-                ⏱ Como ya está <b>en proceso</b>, el reloj del SLA se reinicia:{' '}
+                <Ic i={Clock} />Como ya está <b>en proceso</b>, el reloj del SLA se reinicia:{' '}
                 {areaNueva || 'el área nueva'} empieza con su plazo completo y
                 el retraso acumulado hasta ahora deja de contarse.
               </>
@@ -384,7 +386,7 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
               color: 'var(--muted)',
             }}
           >
-            🛠 La sigue reparando <b>{inc.assigned_area}</b>. Corregir la
+            <Ic i={Wrench} />La sigue reparando <b>{inc.assigned_area}</b>. Corregir la
             clasificación no cambia eso; si ya no le toca, pídele al área que
             solicite la reasignación.
           </div>

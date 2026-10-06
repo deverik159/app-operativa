@@ -15,6 +15,7 @@
 // falso "Sin evidencia todavía."— y se vuelve a pedir sola al regresar la
 // señal. Subir y borrar necesitan señal.
 // ============================================================
+import { Lock, Trash, WifiOff } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { haySenal, redOLocal } from '../../lib/datosLocales';
@@ -31,6 +32,7 @@ import { reportarError } from '../../lib/reportarError';
 import { vigilarRender } from '../../lib/vigia';
 import SubirArchivos from '../../components/SubirArchivos';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 import type {
   Evidencia,
   EtapaEvidencia,
@@ -130,7 +132,7 @@ function PieEvidencia({
           aria-label="Eliminar evidencia"
           title="Eliminar"
         >
-          🗑
+          <Ic i={Trash} className="solo" />
         </button>
       )}
     </div>
@@ -367,7 +369,7 @@ function EvidenciaModal({
 
         {inc.estatus === 'cerrada' && !puedeSubir && (
           <div className="banner" style={{ marginBottom: 12 }}>
-            🔒 Incidencia cerrada — evidencia en solo lectura.
+            <Ic i={Lock} />Incidencia cerrada — evidencia en solo lectura.
           </div>
         )}
 
@@ -427,7 +429,7 @@ function EvidenciaModal({
             role="status"
           >
             <span style={{ flex: '1 1 180px' }}>
-              📴 Sin señal: la evidencia se verá al volver la red.
+              <Ic i={WifiOff} />Sin señal: la evidencia se verá al volver la red.
             </span>
             <button type="button" className="btn ghost sm" onClick={cargar}>
               Reintentar

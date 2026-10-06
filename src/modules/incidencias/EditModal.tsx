@@ -55,6 +55,7 @@
 // (lib/datosLocales.ts), como en el alta. GUARDAR sí necesita señal: esta
 // corrección no se encola, y sin red se dice claro en vez de un error crudo.
 // ============================================================
+import { Paperclip, WifiOff } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import {
@@ -79,6 +80,7 @@ import {
 } from '../../lib/constants';
 import type { Incidencia, InventarioItem } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 type Sitio = { site_id: string; direccion: string | null; nombre?: string | null };
 
@@ -484,7 +486,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     if (!((data as Incidencia[] | null) || []).length) {
       alert(
         'No se guardó ningún cambio. Lo más probable es que el validador ya ' +
-          'haya movido esta incidencia mientras la editabas. Refresca con ↻ y ' +
+          'haya movido esta incidencia mientras la editabas. Refresca con y ' +
           'revisa cómo quedó antes de volver a capturar.'
       );
       return;
@@ -515,7 +517,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
       if (
         confirm(
           'Se están guardando los cambios. Si cierras, el guardado sigue por su cuenta: ' +
-            'revisa la tarjeta con ↻ antes de volver a corregir.\n\n¿Cerrar de todas formas?'
+            'revisa la tarjeta con antes de volver a corregir.\n\n¿Cerrar de todas formas?'
         )
       )
         onClose();
@@ -547,7 +549,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
             style={{ fontSize: 12, color: 'var(--muted)', margin: '-4px 0 10px' }}
             role="status"
           >
-            📴{' '}
+            <Ic i={WifiOff} />
             {fechaInv === null
               ? `${motivoSinRed()}, y este teléfono todavía no tiene copia del inventario.`
               : fechaInv
@@ -818,7 +820,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
             style={{ width: '100%' }}
             onClick={() => onAbrirEvidencia(inc)}
           >
-            📎 Abrir evidencia — agregar o quitar fotos
+            <Ic i={Paperclip} />Abrir evidencia — agregar o quitar fotos
           </button>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
             Puedes quitar solo las que tú subiste, y mientras la incidencia no

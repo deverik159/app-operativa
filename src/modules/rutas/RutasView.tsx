@@ -13,6 +13,7 @@
 //   · El detalle muestra la dirección ELEGIDA, asigna monitoristas y enseña
 //     el avance de visitas por catorcena.
 // ============================================================
+import { ClipboardList, Download, FileSpreadsheet, Map as MapIcon, Pencil, Puzzle } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
@@ -36,6 +37,7 @@ import AvanceVisitas from './AvanceVisitas';
 import { tramosGoogleMaps, esNavegable } from '../../lib/navegacion';
 import { convexHull } from '../../lib/convexHull';
 import type { Pt } from '../../lib/convexHull';
+import Ic from '../../components/Ic';
 import {
   colorSeguro,
   direccionElegida,
@@ -361,7 +363,7 @@ function RutasView({
         if (esSegmentoDePauta(payload.unidad_negocio, payload.tipo_medio)) {
           setResultadoImport(
             `Ruta ${payload.numero} creada. En Ecovallas Impreso las paradas salen de la pauta: ` +
-              've a Pauta y Monitoreo → 🗺️ Sincronizar rutas.'
+              've a Pauta y Monitoreo → Sincronizar rutas.'
           );
         } else {
           setArmando({ ruta: creada, esNueva: true });
@@ -818,7 +820,7 @@ function RutasView({
               {esNueva && segPauta && (
                 <div style={{ marginTop: 4 }}>
                   En Ecovallas Impreso las paradas salen de la pauta: después de crearla, llénala desde Pauta y
-                  Monitoreo → 🗺️ Sincronizar rutas.
+                  Monitoreo → <Ic i={MapIcon} />Sincronizar rutas.
                 </div>
               )}
             </div>
@@ -963,13 +965,13 @@ function RutasView({
               {puedeGestionar && !segPauta && (
                 <div style={{ marginBottom: 10 }}>
                   <button type="button" className="btn sm" onClick={() => abrirArmado(detalle)}>
-                    🧩 Armar / editar paradas
+                    <Ic i={Puzzle} />Armar / editar paradas
                   </button>
                 </div>
               )}
               {segPauta && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-                  En Ecovallas Impreso las paradas y su orden salen de la pauta (Pauta y Monitoreo → 🗺️
+                  En Ecovallas Impreso las paradas y su orden salen de la pauta (Pauta y Monitoreo → <Ic i={MapIcon} />
                   Sincronizar rutas).
                 </div>
               )}
@@ -1004,7 +1006,7 @@ function RutasView({
                       rel="noopener noreferrer"
                       style={{ textDecoration: 'none' }}
                     >
-                      🗺️{' '}
+                      <Ic i={MapIcon} />
                       {tramosDetalle.length === 1
                         ? 'Abrir en Google Maps'
                         : `Paradas ${t.desde}–${t.hasta}`}
@@ -1227,7 +1229,7 @@ function RutasView({
                 style={{ display: 'inline-block', cursor: 'pointer' }}
                 title={`Excel con columnas: Clave Nueva, Ruta, Secuencia, Estatus, VALLAS, Dirección. Importa a ${unidad} ${tipo}.`}
               >
-                {importando ? 'Leyendo archivo…' : `📥 Importar rutas de ${unidad} (Excel)`}
+                {importando ? 'Leyendo archivo…' : `Importar rutas de ${unidad} (Excel)`}
                 <input
                   type="file"
                   accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
@@ -1243,7 +1245,7 @@ function RutasView({
                 onClick={() => setExcelRutasAbierto(true)}
                 title="Una fila por máquina: clave y responsable. Empata por clave exacta — el camino recomendado."
               >
-                🧾 Rutas Biobox: Excel de operación
+                <Ic i={FileSpreadsheet} />Rutas Biobox: Excel de operación
               </button>
             )}
             {puedeGestionar && unidad === 'Biobox' && (
@@ -1252,7 +1254,7 @@ function RutasView({
                 onClick={() => setKmlAbierto(true)}
                 title="Las capas del mapa de My Maps se convierten en rutas. Empata por nombre de máquina, menos preciso que el Excel."
               >
-                🗺️ Rutas Biobox: mapa (KML)
+                <Ic i={MapIcon} />Rutas Biobox: mapa (KML)
               </button>
             )}
           </div>
@@ -1271,7 +1273,7 @@ function RutasView({
               {dePauta ? (
                 <>
                   En <b>Ecovallas Impreso</b> manda la pauta: las paradas y su orden salen de{' '}
-                  <b>🗺️ Sincronizar rutas</b> en Pauta y Monitoreo (no se arman a mano). El 📥 Excel de rutas
+                  <b><Ic i={MapIcon} />Sincronizar rutas</b> en Pauta y Monitoreo (no se arman a mano). El <Ic i={Download} />Excel de rutas
                   sigue disponible; antes de importar te enseña las direcciones que no coinciden con QTM.
                 </>
               ) : (
@@ -1280,12 +1282,12 @@ function RutasView({
                   lista o en el mapa y se ordenan por cercanía.{' '}
                   {unidad === 'Biobox' ? (
                     <>
-                      También por archivo: 🧾 <b>Excel de operación</b> (clave + responsable, el recomendado) o
-                      🗺️ <b>mapa KML</b> (empata por nombre, menos preciso).
+                      También por archivo: <Ic i={FileSpreadsheet} /><b>Excel de operación</b> (clave + responsable, el recomendado) o
+                      <Ic i={MapIcon} /><b>mapa KML</b> (empata por nombre, menos preciso).
                     </>
                   ) : (
                     <>
-                      También por archivo: 📥 <b>Excel de rutas</b> con columnas Clave Nueva, Ruta, Secuencia,
+                      También por archivo: <Ic i={Download} /><b>Excel de rutas</b> con columnas Clave Nueva, Ruta, Secuencia,
                       Estatus, VALLAS y Dirección (antes de importar eliges qué dirección se queda).
                     </>
                   )}
@@ -1330,7 +1332,7 @@ function RutasView({
               Aún no hay rutas de {unidad} {tipo}.{' '}
               {puedeGestionar
                 ? dePauta
-                  ? 'Créalas desde Pauta y Monitoreo → 🗺️ Sincronizar rutas, o impórtalas con el Excel de rutas.'
+                  ? 'Créalas desde Pauta y Monitoreo → Sincronizar rutas, o impórtalas con el Excel de rutas.'
                   : 'Créalas con «+ Nueva ruta» (se arman desde el inventario) o impórtalas desde un archivo.'
                 : 'Pídele a tu coordinador que las cree.'}
             </div>
@@ -1365,7 +1367,7 @@ function RutasView({
                     style={{ cursor: 'pointer' }}
                     onClick={() => setRutaFoco(null)}
                   >
-                    <span>🗺️</span>
+                    <span><Ic i={MapIcon} /></span>
                     <span>Ver todas las rutas</span>
                   </div>
                   {resumen.map((r) => (
@@ -1443,7 +1445,7 @@ function RutasView({
                               }}
                               aria-label={`Armar o editar las paradas de la Ruta ${r.numero}`}
                             >
-                              🧩 Paradas
+                              <Ic i={Puzzle} />Paradas
                             </button>
                           )}
                           <button
@@ -1455,7 +1457,7 @@ function RutasView({
                             title="Ver ubicaciones, avance y monitoristas"
                             aria-label={`Ver detalle de la Ruta ${r.numero}`}
                           >
-                            📋
+                            <Ic i={ClipboardList} className="solo" />
                           </button>
                           {puedeGestionar && (
                             <button
@@ -1466,7 +1468,7 @@ function RutasView({
                               }}
                               aria-label={`Editar nombre y color de la Ruta ${r.numero}`}
                             >
-                              ✏️
+                              <Ic i={Pencil} className="solo" />
                             </button>
                           )}
                         </div>

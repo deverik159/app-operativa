@@ -4,6 +4,7 @@
 // vw_fijacion_externa), muestra registros del grupo, permite marcar fijado
 // con fotos, y escribe de vuelta con la RPC marcar_fijacion_externa.
 // ============================================================
+import { Ban, Brush, Camera, Compass, Hourglass, MapPin, Paperclip, Target, Users, Wrench } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import { sb } from '../../lib/supabase';
@@ -26,6 +27,7 @@ import { haySenal, haySesionReal } from '../../lib/datosLocales';
 import type { Incidencia } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
 import { subirYLuego } from '../../lib/subirAntes';
+import Ic from '../../components/Ic';
 
 /**
  * ÁREA de este módulo. Las incidencias que aparecen como órdenes de trabajo
@@ -1042,14 +1044,14 @@ function FijacionExternaView({
                   <span className="tag">{catorcenaCorta(r.catorcena)}</span>
                 )}
                 {r.blanqueo_limpieza && (
-                  <span className="tag">🧽 {r.blanqueo_limpieza}</span>
+                  <span className="tag"><Ic i={Brush} />{r.blanqueo_limpieza}</span>
                 )}
                 {r.supervisor && (
-                  <span className="tag">🧭 {r.supervisor}</span>
+                  <span className="tag"><Ic i={Compass} />{r.supervisor}</span>
                 )}
                 {(r.responsable_de_cuadrilla || r.operadores_cuadrilla) && (
                   <span className="tag">
-                    👥 {r.responsable_de_cuadrilla || r.operadores_cuadrilla}
+                    <Ic i={Users} />{r.responsable_de_cuadrilla || r.operadores_cuadrilla}
                   </span>
                 )}
               </div>
@@ -1065,7 +1067,7 @@ function FijacionExternaView({
                     marginTop: 8,
                   }}
                 >
-                  ⏳ Límite: {r.fecha_limite}
+                  <Ic i={Hourglass} />Límite: {r.fecha_limite}
                 </div>
               )}
               {r.notas_observa && <div className="obs">“{r.notas_observa}”</div>}
@@ -1080,7 +1082,7 @@ function FijacionExternaView({
                     marginTop: 6,
                   }}
                 >
-                  🚫 Bloqueo: {r.notas_motivo_bloqueo}
+                  <Ic i={Ban} />Bloqueo: {r.notas_motivo_bloqueo}
                 </div>
               )}
               <div
@@ -1100,7 +1102,7 @@ function FijacionExternaView({
                     target="_blank"
                     rel="noreferrer"
                   >
-                    📍 Maps
+                    <Ic i={MapPin} />Maps
                   </a>
                 )}
                 {r.estado === 'PENDIENTE' && (
@@ -1119,7 +1121,7 @@ function FijacionExternaView({
                     target="_blank"
                     rel="noreferrer"
                   >
-                    📎 Evidencia{todas.length > 1 ? ` ${i + 1}` : ''}
+                    <Ic i={Paperclip} />Evidencia{todas.length > 1 ? ` ${i + 1}` : ''}
                   </a>
                 ))}
                 {r.fecha_fijacion_real && (
@@ -1198,7 +1200,7 @@ function FijacionExternaView({
 
                           {(inc.campania || r.campana) && (
                             <div className="meta" style={{ color: 'var(--txt)', margin: 0 }}>
-                              🎯 Campaña: {inc.campania || r.campana}
+                              <Ic i={Target} />Campaña: {inc.campania || r.campana}
                             </div>
                           )}
                         </div>
@@ -1249,7 +1251,7 @@ function FijacionExternaView({
                       className="btn warn sm"
                       onClick={() => abrirReparacion(inc)}
                     >
-                      🔧 Registrar reparación
+                      <Ic i={Wrench} />Registrar reparación
                     </button>
                   )}
                   {inc.estatus === 'en_proceso' &&
@@ -1377,7 +1379,7 @@ function FijacionExternaView({
                     marginBottom: 10,
                   }}
                 >
-                  📷 Agregar foto o video
+                  <Ic i={Camera} />Agregar foto o video
                   <input
                     type="file"
                     accept="image/*,video/*"

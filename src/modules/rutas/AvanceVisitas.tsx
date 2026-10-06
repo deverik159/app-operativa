@@ -13,6 +13,7 @@
 // El periodo se mide con `visitado_en` (la hora en que se tocó en campo),
 // no con `registrado_en` (la hora en que llegó, que sin señal es después).
 // ============================================================
+import { CircleCheck, MapPin } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { sb } from '../../lib/supabase';
 import { tope } from '../../lib/envios';
@@ -22,6 +23,7 @@ import { nombreDesdeCorreo } from '../../lib/nombres';
 import { metros } from '../../lib/haversine';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import { vigilarRender } from '../../lib/vigia';
+import Ic from '../../components/Ic';
 import {
   catorcenaActual,
   direccionElegida,
@@ -197,7 +199,7 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
   return (
     <div className="rt-seccion">
       <div className="rt-seccion-tit" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={{ flex: '1 1 auto' }}>✅ Avance de visitas</span>
+        <span style={{ flex: '1 1 auto' }}><Ic i={CircleCheck} />Avance de visitas</span>
         {cats.length > 0 && (
           <select
             value={catSel ?? ''}
@@ -282,7 +284,7 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
                               externo: la posición del monitorista no sale de
                               la app en una URL. */}
                           <span>
-                            📍{' '}
+                            <Ic i={MapPin} />
                             {dist != null
                               ? `a ${dist >= 1000 ? (dist / 1000).toFixed(1) + ' km' : dist + ' m'} del sitio`
                               : 'con GPS'}

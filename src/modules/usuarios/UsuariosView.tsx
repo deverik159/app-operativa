@@ -10,6 +10,7 @@
 //   - departamento vacío    → todas las áreas
 //   - medio (solo validador) vacío → Impreso y Digital
 // ============================================================
+import { Plus, Trash } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import {
@@ -20,6 +21,7 @@ import {
 } from '../../lib/constants';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import type { AppRole, Usuario, UsuarioRol } from '../../types/db';
+import Ic from '../../components/Ic';
 
 /** Borrador del alta de usuario. */
 type NuevoUsuario = { nombre: string; email: string; telefono: string };
@@ -226,7 +228,7 @@ function UsuariosView({ email = '' }: { email?: string }) {
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
-          ➕ Nuevo usuario
+          <Ic i={Plus} />Nuevo usuario
         </div>
         <div className="row2">
           <div className="field">
@@ -372,12 +374,12 @@ function UsuariosView({ email = '' }: { email?: string }) {
                     if (abriendo) setNr(ROL_VACIO);
                   }}
                 >
-                  {rolesFor === u.email ? 'Cerrar' : '➕ Asignar rol'}
+                  {rolesFor === u.email ? 'Cerrar' : 'Asignar rol'}
                 </button>
                 {/* A uno mismo no se le ofrece: la base también lo impide. */}
                 {u.email.toLowerCase() !== email.toLowerCase() && (
                   <button className="btn ghost sm" onClick={() => delUser(u.email)}>
-                    🗑 Dar de baja
+                    <Ic i={Trash} />Dar de baja
                   </button>
                 )}
               </div>

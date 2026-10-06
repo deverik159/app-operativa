@@ -12,6 +12,7 @@
 // RepararModal: así quedan guardadas aunque el usuario abandone el modal —
 // importante en campo, donde la señal se cae.
 // ============================================================
+import { Camera, ClipboardList, Trash } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { caraLabel } from '../../lib/helpers';
@@ -22,6 +23,7 @@ import SubirArchivos from '../../components/SubirArchivos';
 import type { PautaRuta, TipoEvidencia } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 /** Fila de `pauta_evidencias`. */
 type EvidenciaPauta = {
@@ -273,7 +275,7 @@ function RegistrarTomaModal({
           }}
         >
           <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>
-            📋 Qué se está monitoreando
+            <Ic i={ClipboardList} />Qué se está monitoreando
           </div>
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
             {fila.direccion || '(sin dirección)'}
@@ -321,7 +323,7 @@ function RegistrarTomaModal({
                 overflowWrap: 'anywhere',
               }}
             >
-              📸 {fila.espec_toma?.trim() || 'Sin especificación de toma'}
+              <Ic i={Camera} />{fila.espec_toma?.trim() || 'Sin especificación de toma'}
             </span>
             <div style={{ color: 'var(--muted)', marginTop: 4 }}>
               Requiere <b style={{ color: tonoRegla?.color ?? regla.color }}>{regla.fotos} fotos</b>{' '}
@@ -459,7 +461,7 @@ function RegistrarTomaModal({
                           aria-label="Eliminar evidencia"
                           title="Eliminar"
                         >
-                          🗑
+                          <Ic i={Trash} className="solo" />
                         </button>
                       </div>
                     </div>
@@ -513,7 +515,7 @@ function RegistrarTomaModal({
               onClick={confirmar}
               disabled={guardando || subiendo || cargando}
             >
-              {guardando ? 'Registrando…' : '📷 Registrar toma'}
+              {guardando ? 'Registrando…' : 'Registrar toma'}
             </button>
           )}
           {revisando && !regresando && (

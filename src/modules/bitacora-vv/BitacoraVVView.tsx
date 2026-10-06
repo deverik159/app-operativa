@@ -14,6 +14,7 @@
 //     lista, pero se deja continuar — comercial revisa disponibilidad entre
 //     ellos y hay bonus legítimos encimados (Erik, 22-sep-2026).
 // ============================================================
+import { Camera, Clock, Download, Palette, Pencil, Plus, Repeat, RotateCw, Trash } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { sb } from '../../lib/supabase';
@@ -27,6 +28,7 @@ import {
 import { vigilarRender } from '../../lib/vigia';
 import { fondoTono } from '../../lib/tonos';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 type Espacio = {
   clave: string;
@@ -1264,7 +1266,7 @@ function BitacoraVVView({
         </p>
         {campana.espec_tomas && (
           <p className="phint" style={{ marginTop: -6 }}>
-            📸 {campana.espec_tomas}
+            <Ic i={Camera} />{campana.espec_tomas}
           </p>
         )}
 
@@ -1277,7 +1279,7 @@ function BitacoraVVView({
         <div className="toolbar">
           {puedeCapturar && campana.estatus === 'activa' && (
             <button className="btn" onClick={abrirAddPauta}>
-              ➕ Agregar pauta
+              <Ic i={Plus} />Agregar pauta
             </button>
           )}
           {puedeCapturar && campana.estatus === 'activa' && (
@@ -1286,7 +1288,7 @@ function BitacoraVVView({
               title="Para campañas donde cada id lleva sus propias fechas y horarios"
               onClick={abrirPorEspacio}
             >
-              ⏱ Pauta por espacio
+              <Ic i={Clock} />Pauta por espacio
             </button>
           )}
           {puedeCapturar && campana.estatus === 'activa' && (
@@ -1295,7 +1297,7 @@ function BitacoraVVView({
               title="Todas las columnas, cada una con su versión en rotación"
               onClick={abrirFull}
             >
-              🎠 FULL (rotación)
+              <Ic i={RotateCw} />FULL (rotación)
             </button>
           )}
           <button
@@ -1303,7 +1305,7 @@ function BitacoraVVView({
             title="El mismo archivo de siempre, pero generado"
             onClick={() => exportarExcel(campana)}
           >
-            ⬇️ Exportar Excel
+            <Ic i={Download} />Exportar Excel
           </button>
           {puedeCapturar && (
             <button
@@ -1323,11 +1325,11 @@ function BitacoraVVView({
                 });
               }}
             >
-              ✏️ Editar datos
+              <Ic i={Pencil} />Editar datos
             </button>
           )}
           <button className="btn ghost" onClick={abrirHistorial}>
-            {histAbierto ? 'Ocultar historial' : '🕓 Historial'}
+            {histAbierto ? 'Ocultar historial' : 'Historial'}
           </button>
           {puedeCapturar && campana.estatus === 'activa' && (
             <button className="btn ghost" onClick={() => cerrarCampana(campana)}>
@@ -1378,13 +1380,13 @@ function BitacoraVVView({
           return (
             <div className="inc" style={{ marginBottom: 14 }}>
               <div className="inc-top">
-                <div className="folio">🎨 ARTES POR VERSIÓN</div>
+                <div className="folio"><Ic i={Palette} />ARTES POR VERSIÓN</div>
                 {puedeCapturar && campana.estatus === 'activa' && (
                   <button
                     className="btn ghost sm"
                     onClick={() => setSa({ version: '', fotos: [] })}
                   >
-                    ➕ Subir artes
+                    <Ic i={Plus} />Subir artes
                   </button>
                 )}
               </div>
@@ -1447,7 +1449,7 @@ function BitacoraVVView({
 
         {grupos.length === 0 ? (
           <div className="empty">
-            Sin pautas todavía. {puedeCapturar ? 'Agrega la primera con "➕ Agregar pauta".' : ''}
+            Sin pautas todavía. {puedeCapturar ? 'Agrega la primera con "Agregar pauta".' : ''}
           </div>
         ) : (
           <div className="inc-list">
@@ -1526,7 +1528,7 @@ function BitacoraVVView({
                     <div className="inc-actions">
                       {puedeCambiar && (
                         <button className="btn sm" onClick={() => abrirSiguienteVersion(g)}>
-                          ➕ Siguiente versión
+                          <Ic i={Plus} />Siguiente versión
                         </button>
                       )}
                       {puedeCambiar && (
@@ -1538,7 +1540,7 @@ function BitacoraVVView({
                             setCv({ version: '', desde: '' });
                           }}
                         >
-                          🔁 Cambiar versión
+                          <Ic i={Repeat} />Cambiar versión
                         </button>
                       )}
                       {puedeProgramar && g.estatus === 'por_programar' && (
@@ -1548,7 +1550,7 @@ function BitacoraVVView({
                       )}
                       {puedeCambiar && (
                         <button className="btn ghost sm" onClick={() => quitarGrupo(g)}>
-                          🗑 Quitar
+                          <Ic i={Trash} />Quitar
                         </button>
                       )}
                     </div>
@@ -1729,7 +1731,7 @@ function BitacoraVVView({
           <div className="overlay" onClick={() => !guardando && setFull(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <CerrarModal onClick={() => setFull(null)} disabled={guardando} />
-              <h3 style={{ marginTop: 0 }}>🎠 FULL con rotación — {campana.nombre}</h3>
+              <h3 style={{ marginTop: 0 }}><Ic i={RotateCw} />FULL con rotación — {campana.nombre}</h3>
               <p className="phint">
                 Todas las columnas, cada una con su versión: escribe las
                 versiones en el orden del layout (una por renglón) y se
@@ -1922,7 +1924,7 @@ function BitacoraVVView({
           <div className="overlay" onClick={() => !guardando && setPpe(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <CerrarModal onClick={() => setPpe(null)} disabled={guardando} />
-              <h3 style={{ marginTop: 0 }}>⏱ Pauta por espacio — {campana.nombre}</h3>
+              <h3 style={{ marginTop: 0 }}><Ic i={Clock} />Pauta por espacio — {campana.nombre}</h3>
               <p className="phint">
                 Para campañas donde cada id lleva sus propias fechas y horarios:
                 elige el espacio, captura un periodo y guarda — el modal queda
@@ -2008,7 +2010,7 @@ function BitacoraVVView({
                               title="Quitar este periodo"
                               onClick={() => quitarPeriodo(p)}
                             >
-                              🗑
+                              <Ic i={Trash} className="solo" />
                             </button>
                           </div>
                         ))}
@@ -2090,7 +2092,7 @@ function BitacoraVVView({
           <div className="overlay" onClick={() => setCambioDe(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <CerrarModal onClick={() => setCambioDe(null)} />
-              <h3 style={{ marginTop: 0 }}>🔁 Cambio de versión</h3>
+              <h3 style={{ marginTop: 0 }}><Ic i={Repeat} />Cambio de versión</h3>
               <p className="phint">
                 Hoy: <b>{cambioDe.version}</b> en {cambioDe.filas.length} espacio
                 {cambioDe.filas.length === 1 ? '' : 's'}, vigente{' '}
@@ -2134,7 +2136,7 @@ function BitacoraVVView({
           <div className="overlay" onClick={() => !subiendoArtes && cerrarSubirArtes()}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <CerrarModal onClick={cerrarSubirArtes} disabled={subiendoArtes} />
-              <h3 style={{ marginTop: 0 }}>🎨 Subir artes — {campana.nombre}</h3>
+              <h3 style={{ marginTop: 0 }}><Ic i={Palette} />Subir artes — {campana.nombre}</h3>
               <div className="field">
                 <label>Versión a la que pertenecen</label>
                 <input
@@ -2253,7 +2255,7 @@ function BitacoraVVView({
                       quitarArte(verArte);
                     }}
                   >
-                    🗑 Quitar arte
+                    <Ic i={Trash} />Quitar arte
                   </button>
                 )}
                 <button className="btn sm" onClick={() => setVerArte(null)}>
@@ -2431,7 +2433,7 @@ function BitacoraVVView({
               setFormCamp({ ...CAMP_VACIA });
             }}
           >
-            ➕ Nueva campaña
+            <Ic i={Plus} />Nueva campaña
           </button>
         )}
       </div>
@@ -2570,7 +2572,7 @@ function BitacoraVVView({
       ) : visibles.length === 0 ? (
         <div className="empty">
           {campanas.length === 0
-            ? 'Todavía no hay campañas. Crea la primera con "➕ Nueva campaña".'
+            ? 'Todavía no hay campañas. Crea la primera con "Nueva campaña".'
             : 'Nada coincide con ese filtro.'}
         </div>
       ) : (

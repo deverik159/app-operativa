@@ -1,4 +1,5 @@
 // Máquinas por ruta, estado del inventario e incidencias abiertas.
+import { CircleCheck, Compass } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
@@ -16,6 +17,7 @@ import EstadoMaquinaPanel from './EstadoMaquinaPanel';
 import RevisionModal from './RevisionModal';
 import HistorialModal from './HistorialModal';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 type Orden = 'abandono' | 'secuencia' | 'nombre';
 
@@ -194,7 +196,7 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
               📖 Historial
             </button>
             <button className="btn sm" onClick={() => { setDetalle(null); setRevisando(u); }}>
-              ✅ Revisar
+              <Ic i={CircleCheck} />Revisar
             </button>
           </div>
         </div>
@@ -222,7 +224,7 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
           <option value="Digital">Digital</option><option value="Impreso">Impreso</option>
         </select>
         <button className="btn sm ghost" onClick={() => void cargar()} disabled={cargando}>
-          {cargando ? 'Actualizando…' : '↻ Actualizar'}
+          {cargando ? 'Actualizando…' : 'Actualizar'}
         </button>
       </div>
       <div role="status" style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
@@ -264,7 +266,7 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
           </button>)}
         </div>
         {rutaFoco != null && !!tramos.length && <div className="card" style={{ marginBottom: 12 }}>
-          <b>🧭 Recorrido de la ruta</b>
+          <b><Ic i={Compass} />Recorrido de la ruta</b>
           <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 8 }}>
             {tramos.map((t, i) => <a key={i} className="btn sm ghost" href={t.url} target="_blank" rel="noopener noreferrer">Tramo {i + 1} ({t.paradas.length})</a>)}
           </div>

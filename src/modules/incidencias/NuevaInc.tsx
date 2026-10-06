@@ -20,6 +20,7 @@
 // lib/datosLocales.ts guarda en el teléfono. El buscador enseña lo local al
 // instante y suma lo de la red si llega. Guardar ya iba a la cola.
 // ============================================================
+import { MapPin, Paperclip, Pencil, Trash, WifiOff } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import {
@@ -77,6 +78,7 @@ import { vigilarRender } from '../../lib/vigia';
 // claro/oscuro, 24-sep-2026).
 import { colorTono, fondoTono, pintar } from '../../lib/tonos';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 import type {
   CatalogoIncidencia,
   IncidenciaNueva,
@@ -1486,7 +1488,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       // debe colarse una sin ella.
       alert(
         'Hay incidencias en el reporte que se quedaron sin foto al recuperarlo.\n\n' +
-          'Edítalas con ✏️ y vuelve a adjuntar su evidencia.'
+          'Edítalas con y vuelve a adjuntar su evidencia.'
       );
       return;
     }
@@ -1835,7 +1837,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             style={{ fontSize: 12, color: 'var(--muted)', margin: '-4px 0 10px' }}
             role="status"
           >
-            📴{' '}
+            <Ic i={WifiOff} />
             {fechaInv === null
               ? SIN_COPIA_INVENTARIO
               : fechaInv
@@ -1891,7 +1893,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               onClick={buscarCerca}
               disabled={geoBusy}
             >
-              {geoBusy ? '📍 Ubicando…' : '📍 Sitios cerca de mí'}
+              {geoBusy ? 'Ubicando…' : 'Sitios cerca de mí'}
             </button>
           )}
           {/* Solo MKT: le reportan fallas que el usuario no sabe ubicar y la
@@ -1989,7 +1991,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
 
         {nearOpts.length > 0 && !site && (
           <div className="field">
-            <label>📍 Sitios cerca de ti ({nearOpts.length})</label>
+            <label><Ic i={MapPin} />Sitios cerca de ti ({nearOpts.length})</label>
             <div style={{ display: 'grid', gap: 6, maxHeight: 220, overflow: 'auto' }}>
               {nearOpts.map((o) => (
                 <div
@@ -2045,7 +2047,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         )}
         {site && !sinMaquina && (
           <div className="banner" style={{ marginBottom: 12 }}>
-            📍 {direccionSitio || '(sin dirección)'}
+            <Ic i={MapPin} />{direccionSitio || '(sin dirección)'}
             <br />
             Municipio: {site.municipio || '—'} · Plaza: {site.estado || '—'} ·{' '}
             {caras.length} medio{caras.length === 1 ? '' : 's'} en este sitio
@@ -2169,7 +2171,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                       caras: {l.caras.map(caraLabel).join(', ')}
                       <br />
                       <span style={{ color: 'var(--ok)' }}>
-                        📎 {l.files.length} archivo
+                        <Ic i={Paperclip} />{l.files.length} archivo
                         {l.files.length > 1 ? 's' : ''} para{' '}
                         {l.caras.length > 1 ? 'estas caras' : 'esta cara'}
                       </span>
@@ -2190,7 +2192,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                       title="Editar esta incidencia"
                       onClick={() => editarLinea(l)}
                     >
-                      ✏️
+                      <Ic i={Pencil} className="solo" />
                     </button>
                     <button
                       type="button"
@@ -2198,7 +2200,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                       title="Quitar del reporte"
                       onClick={() => quitarLinea(l.id)}
                     >
-                      🗑
+                      <Ic i={Trash} className="solo" />
                     </button>
                   </div>
                 </div>
@@ -2218,8 +2220,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           >
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
               {editandoId != null
-                ? '✏️ Editando una incidencia del reporte'
-                : '➕ Agregar una incidencia'}
+                ? 'Editando una incidencia del reporte'
+                : 'Agregar una incidencia'}
             </div>
 
             <div className="field">
@@ -2268,7 +2270,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                       señal, 24-sep-2026). */}
                   {haySenal()
                     ? `La red tardó demasiado, y este teléfono no tiene copia del catálogo de ${un}.`
-                    : `📴 Sin señal, y este teléfono no tiene copia del catálogo de ${un}. Abre la app una vez con señal.`}{' '}
+                    : `Sin señal, y este teléfono no tiene copia del catálogo de ${un}. Abre la app una vez con señal.`}{' '}
                   <button
                     type="button"
                     className="btn ghost sm"
@@ -2605,8 +2607,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                   onClick={guardarPartida}
                 >
                   {editandoId != null
-                    ? '💾 Guardar cambios'
-                    : '➕ Agregar esta incidencia al reporte'}
+                    ? 'Guardar cambios'
+                    : 'Agregar esta incidencia al reporte'}
                 </button>
                 {editandoId != null && (
                   <button

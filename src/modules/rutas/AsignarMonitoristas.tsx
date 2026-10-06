@@ -24,6 +24,7 @@
 //
 // Toda escritura se cuenta con .select(): la RLS niega en silencio.
 // ============================================================
+import { User } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { sb } from '../../lib/supabase';
 import { tope } from '../../lib/envios';
@@ -33,6 +34,7 @@ import { sinAcentos } from '../../lib/helpers';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import { vigilarRender } from '../../lib/vigia';
 import { correoDeSesion, esSegmentoDePauta, TOPE_LECTURA_MS, type Resumen } from './rutasComun';
+import Ic from '../../components/Ic';
 
 type Asig = { id: number; ruta_id: number; usuario_email: string };
 type Persona = { email: string; nombre: string };
@@ -278,7 +280,7 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
 
   return (
     <div className="rt-seccion">
-      <div className="rt-seccion-tit">👤 Monitoristas asignados</div>
+      <div className="rt-seccion-tit"><Ic i={User} />Monitoristas asignados</div>
       {cargando && (
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
           <span className="spinner" />

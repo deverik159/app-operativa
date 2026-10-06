@@ -11,6 +11,14 @@
 // alguien más ya lo vio (chat_lecturas) y un hilo largo abre compacto:
 // solo lo reciente a la vista.
 // ============================================================
+import {
+  Camera,
+  Film,
+  Lock,
+  Paperclip,
+  Pencil,
+  WifiOff,
+} from 'lucide-react';
 import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import { caraIncidencia, sinAcentos } from '../../lib/helpers';
@@ -33,6 +41,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { vigilarRender } from '../../lib/vigia';
 import PreviaVideo from '../../components/PreviaVideo';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 type Props = {
   inc: Incidencia;
@@ -54,7 +63,7 @@ const PEGADO_PX = 80;
 
 /** El aviso de envío sin red: dice qué pasó y qué hacer, sin jerga. */
 const SIN_SENAL_ENVIO =
-  '📴 Sin señal: el mensaje no se envió. Quedó escrito abajo — mándalo cuando regrese la señal.';
+  'Sin señal: el mensaje no se envió. Quedó escrito abajo — mándalo cuando regrese la señal.';
 
 type TrasVentana =
   | { tipo: 'ancla'; alto: number; top: number }
@@ -1214,7 +1223,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
           .filter(Boolean)
           .join(' y ');
         if (que)
-          setErrAdj(`${sinRed ? '📴 ' : ''}No se pudo enviar ${que}: ${m.replace(/\.$/, '')}.`);
+          setErrAdj(`${sinRed ? '' : ''}No se pudo enviar ${que}: ${m.replace(/\.$/, '')}.`);
         if (archivo && !otroDestino) setPendiente(archivo);
       } else {
         setTexto(t);
@@ -1395,7 +1404,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
             o se avisa que para enviar hace falta señal. */}
         {copiaDe ? (
           <div className="banner" style={{ marginBottom: 8, flexShrink: 0 }}>
-            📴 {enLinea ? motivoSinRed() : 'Sin señal'}: ves la copia guardada
+            <Ic i={WifiOff} />{enLinea ? motivoSinRed() : 'Sin señal'}: ves la copia guardada
             en este teléfono ({cuando(copiaDe)}). Lo nuevo llega cuando
             vuelva la red.
           </div>
@@ -1403,7 +1412,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
           !enLinea &&
           copiaDe === null && (
             <div className="banner" style={{ marginBottom: 8, flexShrink: 0 }}>
-              📴 Sin señal: puedes leer el chat; para enviar hace falta señal.
+              <Ic i={WifiOff} />Sin señal: puedes leer el chat; para enviar hace falta señal.
             </div>
           )
         )}
@@ -1416,7 +1425,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
               ref={buscadorRef}
               value={buscar}
               onChange={(e) => setBuscar(e.target.value)}
-              placeholder="🔍 Buscar en el chat…"
+              placeholder="Buscar en el chat…"
               style={{ flex: '1 1 auto', minWidth: 0, width: 'auto' }}
             />
             {puedeCompactar && (
@@ -1472,7 +1481,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 {copiaDe === ''
                   ? // Sin red y sin copia: "Sin mensajes" mentía si el hilo
                     // tenía conversación.
-                    `📴 ${enLinea ? motivoSinRed() : 'Sin señal'}: este chat todavía no se ha abierto en este teléfono. Se verá cuando la red conteste.`
+                    `${enLinea ? motivoSinRed() : 'Sin señal'}: este chat todavía no se ha abierto en este teléfono. Se verá cuando la red conteste.`
                   : 'Sin mensajes. Escribe el primero.'}
               </div>
             ) : msgsVisibles.length === 0 ? (
@@ -1684,7 +1693,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                                 fontStyle: 'italic',
                               }}
                             >
-                              📎 {a.tipo === 'video' ? 'Video' : 'Foto'} eliminado
+                              <Ic i={Paperclip} />{a.tipo === 'video' ? 'Video' : 'Foto'} eliminado
                               al cerrar la incidencia
                             </div>
                           ) : a.tipo === 'video' ? (
@@ -1732,8 +1741,8 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                               }}
                             >
                               {enLinea
-                                ? '📷 No se pudo cargar la foto: tócala para abrirla'
-                                : '📷 La foto se verá cuando vuelva la señal'}
+                                ? 'No se pudo cargar la foto: tócala para abrirla'
+                                : 'La foto se verá cuando vuelva la señal'}
                             </a>
                           ) : (
                             <a
@@ -1831,7 +1840,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                               aria-label="Editar mensaje"
                               title="Editar (15 min)"
                             >
-                              ✏️
+                              <Ic i={Pencil} className="solo" />
                             </button>
                           )}
                         </div>
@@ -1901,7 +1910,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
 
         {inc.estatus === 'cerrada' ? (
           <div className="banner">
-            🔒 Incidencia cerrada — el chat es de solo lectura.
+            <Ic i={Lock} />Incidencia cerrada — el chat es de solo lectura.
           </div>
         ) : (
           <>
@@ -1930,7 +1939,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 }}
               >
                 <span>
-                  {pendiente.type.startsWith('video') ? '🎬' : '📷'}
+                  {pendiente.type.startsWith('video') ? <Ic i={Film} /> : <Ic i={Camera} />}
                 </span>
                 <span
                   style={{
@@ -2006,7 +2015,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 style={{ flexShrink: 0 }}
                 title={`Foto o video de máximo ${MAX_VIDEO_SEG} s`}
               >
-                📎
+                <Ic i={Paperclip} className="solo" />
               </button>
               <input
                 ref={inputRef}
@@ -2033,7 +2042,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
 
             <p className="phint" style={{ marginTop: 6, fontSize: 11 }}>
               Los archivos del chat se borran al cerrar la incidencia. Para
-              evidencia que deba conservarse, usa 📎 Evidencia.
+              evidencia que deba conservarse, usa <Ic i={Paperclip} />Evidencia.
             </p>
           </>
         )}

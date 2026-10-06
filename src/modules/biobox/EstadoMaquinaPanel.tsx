@@ -17,6 +17,7 @@
 // para saber e ir a preguntar, no para meterse al trabajo de otra área. Por
 // eso no trae botones de reparar ni de cambiar estatus.
 // ============================================================
+import { Hourglass } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import {
   detalleMaquina,
@@ -26,6 +27,7 @@ import {
 import { fmtHoras, caraLabel } from '../../lib/helpers';
 import { EST_LABEL, EST_TONO } from '../../lib/constants';
 import { bordeTono, colorTono, fondoTono } from '../../lib/tonos';
+import Ic from '../../components/Ic';
 
 type Props = {
   siteId: string;
@@ -205,7 +207,7 @@ function EstadoMaquinaPanel({ siteId, onCargado }: Props) {
                     }}
                     title="Lleva en este estatus"
                   >
-                    ⏳ {fmtHoras(f.horas_en_estatus)}
+                    <Ic i={Hourglass} />{fmtHoras(f.horas_en_estatus)}
                   </span>
                 </div>
 

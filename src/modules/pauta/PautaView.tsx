@@ -12,6 +12,14 @@
 // vez, y ahí se necesita saber qué anuncio va en cada cara. Dos de cada tres
 // sitios tienen más de una campaña.
 // ============================================================
+import {
+  Camera,
+  Download,
+  Map as MapIcon,
+  Plus,
+  Search,
+  User,
+} from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import IrAqui from '../../components/IrAqui';
@@ -35,6 +43,7 @@ import { vigilarRender } from '../../lib/vigia';
 import { tope } from '../../lib/envios';
 import { subirYLuego, subirYRegresar } from '../../lib/subirAntes';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 /**
  * La pauta es de Ecovallas Impreso (decisión de sep-2026): los reportes
@@ -747,7 +756,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
           {puedeImportar ? (
             <div style={{ marginTop: 14 }}>
               <button className="btn" onClick={() => setImportar(true)}>
-                📥 Importar pauta
+                <Ic i={Download} />Importar pauta
               </button>
             </div>
           ) : (
@@ -836,7 +845,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
         />
         {puedeImportar && (
           <button className="btn ghost sm" onClick={() => setImportar(true)}>
-            📥 Importar
+            <Ic i={Download} />Importar
           </button>
         )}
         {puedeImportar && (
@@ -847,7 +856,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
             title="Crea/actualiza las rutas de monitoreo con los sitios y secuencias de esta catorcena"
           >
             {sincronizando && <span className="spinner" />}
-            🗺️ Sincronizar rutas
+            <Ic i={MapIcon} />Sincronizar rutas
           </button>
         )}
       </div>
@@ -1047,7 +1056,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
               }}
             >
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
-                👤 {/^\d+$/.test(fRuta) ? `Ruta ${fRuta}` : fRuta} asignada a
+                <Ic i={User} />{/^\d+$/.test(fRuta) ? `Ruta ${fRuta}` : fRuta} asignada a
               </div>
               <div
                 style={{
@@ -1124,7 +1133,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
             onClick={toggleGuias}
             aria-expanded={verGuias}
           >
-            {verGuias ? '▾' : '▸'} 🗺️ Guías de ruta (Google Maps)
+            {verGuias ? '▾' : '▸'} <Ic i={MapIcon} />Guías de ruta (Google Maps)
           </button>
           {verGuias && (
             <div
@@ -1150,7 +1159,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                   rel="noopener noreferrer"
                   style={{ textDecoration: 'none' }}
                 >
-                  🗺️{' '}
+                  <Ic i={MapIcon} />
                   {tramos.length === 1
                     ? 'Abrir en Google Maps'
                     : `Paradas ${t.desde}–${t.hasta}`}
@@ -1344,7 +1353,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                             }
                             onClick={() => setTomaDe(f)}
                           >
-                            {revisa ? '🔎' : '📷'}{' '}
+                            {revisa ? <Ic i={Search} /> : <Ic i={Camera} />}
                             {revisa
                               ? `Revisar y comprobar${f.fotos ? ` (${f.fotos})` : ''}`
                               : f.fecha_toma
@@ -1514,7 +1523,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
                   setOfrecerIncEn(null);
                 }}
               >
-                ➕ Levantar incidencia
+                <Ic i={Plus} />Levantar incidencia
               </button>
             </div>
           </div>

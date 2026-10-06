@@ -17,6 +17,7 @@
 // Son las dos lecturas del mismo dato y cambiar entre ellas no debería costar
 // una pantalla nueva.
 // ============================================================
+import { Clock, Hourglass, MapPin, Wrench } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { EST_COLOR, EST_LABEL } from '../../lib/constants';
 import {
@@ -28,6 +29,7 @@ import {
 import { colorTono, fondoTono, pintar } from '../../lib/tonos';
 import type { Incidencia } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 /** Cuántos grupos se listan antes de cortar. */
 const TOPE_GRUPOS = 40;
@@ -162,7 +164,7 @@ function KpiDetalleModal({
               setAbierto('');
             }}
           >
-            📍 Por sitio ({new Set(items.map((i) => i.clave_sitio)).size})
+            <Ic i={MapPin} />Por sitio ({new Set(items.map((i) => i.clave_sitio)).size})
           </button>
           <button
             className={'btn sm ' + (corte === 'incidencia' ? '' : 'ghost')}
@@ -171,7 +173,7 @@ function KpiDetalleModal({
               setAbierto('');
             }}
           >
-            🔧 Por incidencia (
+            <Ic i={Wrench} />Por incidencia (
             {new Set(items.map((i) => i.nombre_incidencia)).size})
           </button>
         </div>
@@ -243,7 +245,7 @@ function KpiDetalleModal({
                             color: g.peorHoras > 72 ? colorTono('rojo') : 'var(--muted)',
                           }}
                         >
-                          ⏳ {fmtHoras(g.peorHoras)}
+                          <Ic i={Hourglass} />{fmtHoras(g.peorHoras)}
                         </span>
                       )}
                       <span
@@ -327,7 +329,7 @@ function KpiDetalleModal({
                               }}
                               title="Lleva en proceso"
                             >
-                              ⏳ {fmtHoras(horasEnProceso(i))}
+                              <Ic i={Hourglass} />{fmtHoras(horasEnProceso(i))}
                             </span>
                           )}
                           {horasValidacionReparacion(i) != null && (
@@ -339,7 +341,7 @@ function KpiDetalleModal({
                               }}
                               title="De que se validó a que se reparó"
                             >
-                              ⏱ {fmtHoras(horasValidacionReparacion(i))}
+                              <Ic i={Clock} />{fmtHoras(horasValidacionReparacion(i))}
                             </span>
                           )}
                         </div>

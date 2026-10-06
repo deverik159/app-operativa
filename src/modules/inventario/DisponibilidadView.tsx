@@ -451,7 +451,7 @@ function DisponibilidadView() {
                               onClick={() => abrir(c.vendor_face_id)}
                               title="Ver cómo ha cambiado su estatus"
                             >
-                              {open ? 'Ocultar' : '🕓 Historial'}
+                              {open ? 'Ocultar' : 'Historial'}
                             </button>
                           </div>
 

@@ -33,6 +33,7 @@
 //   - El árbol Digital sale de la red o, si no hay, de la copia del teléfono
 //     (lib/datosLocales.ts).
 // ============================================================
+import { ClipboardList, Repeat, RotateCcw, Trash, WifiOff } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import { caraIncidencia } from '../../lib/helpers';
@@ -69,6 +70,7 @@ import SubirArchivos from '../../components/SubirArchivos';
 import PreviaVideo from '../../components/PreviaVideo';
 import type { ArbolDigital, Evidencia, Incidencia, InventarioItem } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 /**
  * Lo que el modal usa de cada fila de arbol_digital. Sirve igual para la
@@ -210,7 +212,7 @@ function Miniatura({
         aria-label="Eliminar evidencia"
         title="Eliminar"
       >
-        🗑
+        <Ic i={Trash} className="solo" />
       </button>
     </div>
   );
@@ -947,7 +949,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
           }}
         >
           <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>
-            📋 Reporte del reportante
+            <Ic i={ClipboardList} />Reporte del reportante
           </div>
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
             Sitio: <b>{inc.clave_sitio}</b>
@@ -964,7 +966,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                 {/* Morado legible en los dos temas (tema claro/oscuro,
                     24-sep-2026). */}
                 <span style={{ color: colorTono('morado') }}>
-                  🔁 Reasignada: antes pertenecía a {inc.reasignada_de}
+                  <Ic i={Repeat} />Reasignada: antes pertenecía a {inc.reasignada_de}
                 </span>
               </>
             )}
@@ -987,7 +989,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                 {/* Sin señal NO se sabe si hay: decir "no adjuntó" sería
                     falso (modo sin señal, 24-sep-2026). */}
                 {evSinRed
-                  ? '📴 Sin señal: las fotos ya subidas se verán al volver la red.'
+                  ? 'Sin señal: las fotos ya subidas se verán al volver la red.'
                   : 'El reportante no adjuntó evidencia.'}
               </div>
             )
@@ -1104,14 +1106,14 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
             }
           >
             {errArbol
-              ? `📴 ${errArbol}`
+              ? `${errArbol}`
               : `“${inc.nombre_incidencia || 'Esta incidencia'}” no tiene clasificación en arbol_digital${arbolDeCopia ? ' (según la copia del teléfono; sin señal)' : ''}. La reparación quedará como Sin clasificar.`}
           </div>
         )}
 
         {usarArbol && arbolDeCopia && (
           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
-            📴 Sin señal: clasificación Digital de la copia del teléfono.
+            <Ic i={WifiOff} />Sin señal: clasificación Digital de la copia del teléfono.
           </div>
         )}
 
@@ -1187,14 +1189,14 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                   style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}
                 >
                   Ya cuentas con evidencia de reparación subida. Puedes agregar
-                  más, o quitar con 🗑 las tuyas (con señal).
+                  más, o quitar con <Ic i={Trash} />las tuyas (con señal).
                 </div>
               )}
             </>
           )}
           {recuperado && (
             <div className="banner" style={{ marginBottom: 8 }} role="status">
-              ♻️{' '}
+              <Ic i={RotateCcw} />
               {recuperado.fotos > 0
                 ? `Recuperamos ${recuperado.fotos} ${recuperado.fotos === 1 ? 'foto que no se había enviado' : 'fotos que no se habían enviado'}${recuperado.textos ? ', y lo que habías escrito' : ''}. ${recuperado.fotos === 1 ? 'Revísala' : 'Revísalas'} antes de guardar.`
                 : recuperado.textos
@@ -1340,7 +1342,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                 ? 'Preparando la foto…'
                 : recuperando
                   ? 'Buscando fotos sin enviar…'
-                  : '🔧 Guardar reparación'}
+                  : 'Guardar reparación'}
           </button>
         </div>
       </div>

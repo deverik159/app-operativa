@@ -13,12 +13,14 @@
 // Antes de mandar nada se muestra una vista previa con lo que se detectó.
 // Importar reemplaza la catorcena completa: conviene ver qué se va a cargar.
 // ============================================================
+import { Search } from 'lucide-react';
 import { useState, useRef } from 'react';
 import type { WorkBook } from 'xlsx';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 /** Fila ya normalizada, lista para la RPC. */
 type FilaPauta = Record<string, string | null>;
@@ -347,7 +349,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
               }}
             >
               <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>
-                🔎 Lo que se detectó
+                <Ic i={Search} />Lo que se detectó
               </div>
               <div style={{ color: 'var(--muted)' }}>
                 <b style={{ color: 'var(--txt)' }}>{analisis.filas.length}</b>{' '}

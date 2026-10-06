@@ -340,3 +340,4 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
 /* Donde el contenedor ya separa con gap (botones de la tarjeta, flex), sin margen extra. */
 .inc-actions .btn .ic,.segmento .ic{margin-right:0}
 .segmento button .ic{margin-right:.3em}
+.ic.solo{margin-right:0}

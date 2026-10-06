@@ -21,6 +21,11 @@
 //     solas. Mientras tanto se SUPERPONEN a la lista (ver `superponer`)
 //     para que la tarjeta no regrese a su estatus viejo tras un ↻.
 // ============================================================
+import {
+  Clock,
+  List,
+  Table,
+} from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import {
@@ -70,6 +75,7 @@ import EditModal from './EditModal';
 import CorreccionModal from './CorreccionModal';
 import TablaIncidencias from './TablaIncidencias';
 import MotivoModal from './MotivoModal';
+import Ic from '../../components/Ic';
 import type {
   CanInc,
   Incidencia,
@@ -1821,7 +1827,7 @@ function IncidenciasView({
         // disponible") no se puede saber: se dice eso (modo sin señal,
         // 24-sep-2026).
         const avisoSinRed =
-          '📴 Sin señal: la incidencia de la notificación no está en la ' +
+          'Sin señal: la incidencia de la notificación no está en la ' +
           'lista guardada. Ábrela de nuevo al volver la red.';
         if (!haySenal() || !(await haySesionReal())) {
           if (cancelado) return;
@@ -2656,16 +2662,16 @@ function IncidenciasView({
               servidor: no se dice "Sin señal" en falso (revisión sin señal,
               24-sep-2026); se reintenta sola (ver el reloj de arriba). */}
           {sinRed.lenta
-            ? `⏳ La lista sigue cargando; mientras, ves la guardada el ${fechaHoraCorta(sinRed.desde || '')}.`
+            ? `La lista sigue cargando; mientras, ves la guardada el ${fechaHoraCorta(sinRed.desde || '')}.`
             : !sinRed.desde
               ? sinRed.conSenal && !sinRed.error
                 ? 'No se pudo cargar la lista; se reintenta sola.'
-                : '📴 Sin señal: este teléfono aún no guarda una lista. Se cargará sola al volver la red.'
+                : 'Sin señal: este teléfono aún no guarda una lista. Se cargará sola al volver la red.'
               : sinRed.error
                 ? `Se muestra la lista guardada el ${fechaHoraCorta(sinRed.desde)}.`
                 : sinRed.conSenal
                   ? `No se pudo actualizar la lista; se reintenta sola. Se muestra la del ${fechaHoraCorta(sinRed.desde)}.`
-                  : `📴 Sin señal: lista guardada el ${fechaHoraCorta(sinRed.desde)}.`}
+                  : `Sin señal: lista guardada el ${fechaHoraCorta(sinRed.desde)}.`}
         </div>
       )}
       {avisoFoco && (
@@ -2714,7 +2720,7 @@ function IncidenciasView({
           <p className="phint" style={{ marginTop: -12 }}>
             {modo === 'todas' ? (
               <>
-                🗂 Historial: se muestran las {historial.n.toLocaleString('es-MX')}{' '}
+                <Ic i={List} />Historial: se muestran las {historial.n.toLocaleString('es-MX')}{' '}
                 cerradas o no reparadas más recientes (desde el{' '}
                 {diaCorto(historial.frontera)}).{' '}
                 {historial.tope
@@ -2723,7 +2729,7 @@ function IncidenciasView({
               </>
             ) : (
               <>
-                🗂 Las cerradas o no reparadas anteriores al{' '}
+                <Ic i={List} />Las cerradas o no reparadas anteriores al{' '}
                 {diaCorto(historial.frontera)} no están cargadas.{' '}
                 {historial.tope
                   ? 'Es el tope de carga de esta pantalla.'
@@ -2759,7 +2765,7 @@ function IncidenciasView({
               color: alertasValidacion.vencidas > 0 ? 'var(--err-txt)' : 'var(--warn)',
             }}
           >
-            ⏱ Validaciones: {alertasValidacion.vencidas > 0 && (
+            <Ic i={Clock} />Validaciones: {alertasValidacion.vencidas > 0 && (
               <b>{alertasValidacion.vencidas} vencida{alertasValidacion.vencidas === 1 ? '' : 's'}</b>
             )}
             {alertasValidacion.vencidas > 0 && alertasValidacion.porVencer > 0 && ' · '}
@@ -2871,7 +2877,17 @@ function IncidenciasView({
             }
             title="Cambiar entre tarjetas y tabla de trazabilidad"
           >
-            {vista === 'tarjetas' ? '▦ Ver tabla' : '🗂 Ver tarjetas'}
+            {vista === 'tarjetas' ? (
+              <>
+                <Ic i={Table} />
+                Ver tabla
+              </>
+            ) : (
+              <>
+                <Ic i={List} />
+                Ver tarjetas
+              </>
+            )}
           </button>
         )}
       </div>

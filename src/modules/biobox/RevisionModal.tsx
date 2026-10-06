@@ -22,6 +22,7 @@
 //    hereda gratis el folio, el SLA por área, las notificaciones y todo el
 //    flujo de validación que ya está probado.
 // ============================================================
+import { MapPin } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
 import {
@@ -49,6 +50,7 @@ import type {
 import { vigilarRender } from '../../lib/vigia';
 import { colorTono, fondoTono, type Tono } from '../../lib/tonos';
 import CerrarModal from '../../components/CerrarModal';
+import Ic from '../../components/Ic';
 
 /** Subcarpeta en el bucket, para no mezclar con incidencias ni pauta. */
 const CARPETA = 'revisiones';
@@ -1091,7 +1093,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
                 </div>
               ) : (
                 <button className="btn ghost sm" type="button" onClick={pedirGps}>
-                  📍 Capturar mi ubicación
+                  <Ic i={MapPin} />Capturar mi ubicación
                 </button>
               )}
               {gpsMsg && (
@@ -1153,7 +1155,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
               {!guardado && (
                 <button className="btn" onClick={guardar} disabled={guardando}>
                   {guardando && <span className="spinner" />}
-                  {guardando ? paso || 'Guardando…' : '💾 Guardar revisión'}
+                  {guardando ? paso || 'Guardando…' : 'Guardar revisión'}
                 </button>
               )}
             </div>

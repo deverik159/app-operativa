@@ -19,6 +19,7 @@
 // claves de texto (nunca del arreglo que reconstruye un updater); el
 // dibujo del mapa lee lo último por refs; toda lectura lleva tope.
 // ============================================================
+import { Compass } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import { sb } from '../../lib/supabase';
@@ -30,6 +31,7 @@ import { escHtml, sinAcentos } from '../../lib/helpers';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import { vigilarRender } from '../../lib/vigia';
 import { haversine, ordenarPorCercania, type Punto } from '../../lib/haversine';
+import Ic from '../../components/Ic';
 import {
   colorSeguro,
   esSegmentoDePauta,
@@ -971,7 +973,7 @@ export default function ArmarRutaModal({
                     onClick={ordenarCercania}
                     disabled={elegidos.length < 2 || cargando}
                   >
-                    🧭 Ordenar por cercanía
+                    <Ic i={Compass} />Ordenar por cercanía
                   </button>
                   {elegidos.length > 0 && (
                     <button type="button" className="btn sm ghost" onClick={quitarTodas}>
