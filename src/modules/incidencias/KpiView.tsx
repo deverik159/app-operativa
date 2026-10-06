@@ -535,8 +535,10 @@ function KpiView({
       </p>
       {encabezado}
 
-      <div className="toolbar">
-        <select aria-label="Unidad de negocio" value={fUN} onChange={(e) => setFUN(e.target.value)}>
+      {/* Píldoras (rediseño, oct-2026): en celular una fila deslizable en vez
+          de 7 selects apilados a todo lo ancho; el que filtra se resalta. */}
+      <div className="toolbar filtros-pildora">
+        <select aria-label="Unidad de negocio" className={fUN !== 'Todas' ? 'on' : undefined} value={fUN} onChange={(e) => setFUN(e.target.value)}>
           <option value="Todas">Unidad: todas</option>
           {UNIDADES.map((u) => (
             <option key={u}>{u}</option>
@@ -549,7 +551,7 @@ function KpiView({
             enseñaba "todas" mientras seguía filtrando por él y el panel salía
             en ceros sin explicación. Por eso se conserva la opción elegida
             (auditoría primer mes, 24-sep-2026). */}
-        <select aria-label="Área responsable" value={fArea} onChange={(e) => setFArea(e.target.value)}>
+        <select aria-label="Área responsable" className={fArea !== 'Todas' ? 'on' : undefined} value={fArea} onChange={(e) => setFArea(e.target.value)}>
           <option value="Todas">Área: todas</option>
           {areas.map((a) => (
             <option key={a}>{a}</option>
@@ -560,6 +562,7 @@ function KpiView({
         </select>
         <select
           aria-label="Área que reporta"
+          className={fReporta !== 'Todas' ? 'on' : undefined}
           value={fReporta}
           onChange={(e) => setFReporta(e.target.value)}
         >
@@ -571,7 +574,7 @@ function KpiView({
             <option value={fReporta}>{fReporta}</option>
           )}
         </select>
-        <select aria-label="Estatus" value={fEst} onChange={(e) => setFEst(e.target.value)}>
+        <select aria-label="Estatus" className={fEst !== 'Todos' ? 'on' : undefined} value={fEst} onChange={(e) => setFEst(e.target.value)}>
           <option value="Todos">Estatus: todos</option>
           {Object.entries(EST_LABEL).map(([k, v]) => (
             <option key={k} value={k}>
@@ -579,7 +582,7 @@ function KpiView({
             </option>
           ))}
         </select>
-        <select value={fNivel} onChange={(e) => setFNivel(e.target.value)}>
+        <select aria-label="Nivel" className={fNivel !== 'Todos' ? 'on' : undefined} value={fNivel} onChange={(e) => setFNivel(e.target.value)}>
           <option value="Todos">Nivel: todos</option>
           {Object.keys(NIVEL_COLOR).map((x) => (
             <option key={x} value={x}>
@@ -587,7 +590,7 @@ function KpiView({
             </option>
           ))}
         </select>
-        <select value={fCat} onChange={(e) => setFCat(e.target.value)}>
+        <select aria-label="Catorcena" className={fCat !== 'Todas' ? 'on' : undefined} value={fCat} onChange={(e) => setFCat(e.target.value)}>
           <option value="Todas">Catorcena: todas</option>
           {cats.map((c) => (
             <option key={c} value={c}>
@@ -600,7 +603,7 @@ function KpiView({
         </select>
         {/* Semana de lunes a domingo. La etiqueta trae el rango de fechas
             porque "Sem 27" a secas no le dice nada a nadie en una junta. */}
-        <select value={fSem} onChange={(e) => setFSem(e.target.value)}>
+        <select aria-label="Semana" className={fSem !== 'Todas' ? 'on' : undefined} value={fSem} onChange={(e) => setFSem(e.target.value)}>
           <option value="Todas">Semana: todas</option>
           {semanas.map((n) => (
             <option key={n} value={n}>

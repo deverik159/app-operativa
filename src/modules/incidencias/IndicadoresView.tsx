@@ -373,17 +373,20 @@ function IndicadoresView({
   const encabezado = (
     <div style={{ marginBottom: 14 }}>
       <div className="toolbar" style={{ marginBottom: 6, alignItems: 'center' }}>
-        <select
-          aria-label="Periodo"
-          value={periodo}
-          onChange={(e) => setPeriodo(e.target.value as Periodo)}
-        >
+        {/* Segmento y no <select> (rediseño, oct-2026): son 4 opciones y se
+            ven todas de un vistazo. "Últimos" se omite: el título lo dice. */}
+        <div className="segmento" role="group" aria-label="Periodo">
           {PERIODOS.map((p) => (
-            <option key={p.valor} value={p.valor}>
-              {p.etiqueta}
-            </option>
+            <button
+              key={p.valor}
+              type="button"
+              aria-pressed={periodo === p.valor}
+              onClick={() => setPeriodo(p.valor)}
+            >
+              {p.etiqueta.replace(/^Últimos /, '')}
+            </button>
           ))}
-        </select>
+        </div>
         {recargando && (
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>
             <span className="spinner" />

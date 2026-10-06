@@ -36,7 +36,7 @@
    avance) y con alfa cambiaría según lo de abajo. */
 :root{
   --bg:#0a0a0c;--panel:#131316;--panel2:#1b1b1f;--line:#26262b;--line2:#35353b;
-  --txt:#ededf0;--muted:#9a9da6;--faint:#7c7f88;--fill:rgba(255,255,255,.06);
+  --txt:#ededf0;--muted:#9a9da6;--faint:#7c7f88;--fill:rgba(255,255,255,.06);--seg-on:#27272d;
   --accent:#cc4119;--accent-hover:#db4c22;--accent-txt:#ff8a68;--sobre-acento:#fff;
   --accent2:#3e6fd8;
   --tag-fondo:#1f1f24;--activo-fondo:rgba(255,255,255,.07);--activo-borde:transparent;
@@ -53,7 +53,7 @@
 @media (prefers-color-scheme: light){
   :root:not([data-tema="oscuro"]){
     --bg:#f5f5f7;--panel:#ffffff;--panel2:#f0f0f3;--line:#cfd2d8;--line2:#b9bdc6;
-    --txt:#17171a;--muted:#555a64;--faint:#6c6f77;--fill:rgba(0,0,0,.045);
+    --txt:#17171a;--muted:#555a64;--faint:#6c6f77;--fill:rgba(0,0,0,.045);--seg-on:#ffffff;
     --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--sobre-acento:#fff;
     --accent2:#1d4fd8;
     --tag-fondo:#ececef;--activo-fondo:#ececef;--activo-borde:transparent;
@@ -64,7 +64,7 @@
 /* ---- Tema CLARO elegido a mano: los mismos valores ---- */
 :root[data-tema="claro"]{
   --bg:#f5f5f7;--panel:#ffffff;--panel2:#f0f0f3;--line:#cfd2d8;--line2:#b9bdc6;
-  --txt:#17171a;--muted:#555a64;--faint:#6c6f77;--fill:rgba(0,0,0,.045);
+  --txt:#17171a;--muted:#555a64;--faint:#6c6f77;--fill:rgba(0,0,0,.045);--seg-on:#ffffff;
   --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--sobre-acento:#fff;
   --accent2:#1d4fd8;
   --tag-fondo:#ececef;--activo-fondo:#ececef;--activo-borde:transparent;
@@ -294,3 +294,34 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
    aparecer y descarte el clic repetido del toque que la abrió. */
 @keyframes tf-aparece{from{outline-color:transparent}to{outline-color:transparent}}
 .overlay,.panel-flotante{animation:tf-aparece .01s}
+
+/* ============================================================
+   Controles de filtro (rediseño, oct-2026)
+   ============================================================ */
+/* Segmento: pocas opciones excluyentes, todas a la vista (botones con
+   aria-pressed). Ej.: periodo de Indicadores. */
+.segmento{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--fill)}
+.segmento button{flex:1 1 auto;min-height:34px;padding:0 12px;border:0;border-radius:7px;background:none;
+  font:inherit;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;white-space:nowrap;
+  transition:background-color .15s,color .15s,box-shadow .15s}
+.segmento button[aria-pressed="true"]{background:var(--seg-on);color:var(--txt);
+  box-shadow:0 1px 3px rgba(0,0,0,.12),inset 0 0 0 1px var(--line)}
+
+/* Píldoras: los <select> de filtro se quedan NATIVOS (en iPhone abren su
+   rueda) pero se ven como píldoras; el que filtra lleva .on. */
+.toolbar.filtros-pildora{gap:6px;flex-wrap:wrap}
+.toolbar.filtros-pildora select{width:auto;flex:0 0 auto;height:34px;padding:0 30px 0 13px;border-radius:17px;
+  border:1px solid var(--line2);background-color:transparent;color:var(--muted);font-size:13px;font-weight:500;
+  -webkit-appearance:none;appearance:none;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 11px center}
+.toolbar.filtros-pildora select.on{background-color:var(--txt);color:var(--bg);border-color:var(--txt)}
+@media(max-width:780px){
+  /* Una fila que se desliza de lado (antes: un select por renglón). 16px de
+     letra: con menos, iOS hace zoom al tocar el select. */
+  .toolbar.filtros-pildora{flex-wrap:nowrap;overflow-x:auto;margin-left:-12px;margin-right:-12px;
+    padding:0 12px 2px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .toolbar.filtros-pildora::-webkit-scrollbar{display:none}
+  .toolbar.filtros-pildora select{width:auto;flex:0 0 auto;height:38px;border-radius:19px;font-size:16px}
+  .segmento{width:100%}
+}
