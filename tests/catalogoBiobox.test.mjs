@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+import { fileURLToPath } from 'node:url';
 
 // catalogo.ts importa constants/helpers: se empaqueta en memoria.
 const { outputFiles } = await build({
-  entryPoints: [new URL('../src/lib/catalogo.ts', import.meta.url).pathname],
+  entryPoints: [fileURLToPath(new URL('../src/lib/catalogo.ts', import.meta.url))],
   bundle: true,
   write: false,
   format: 'esm',

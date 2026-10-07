@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+import { fileURLToPath } from 'node:url';
 
 const { outputFiles } = await build({
-  entryPoints: [new URL('../src/lib/helpers.ts', import.meta.url).pathname],
+  entryPoints: [fileURLToPath(new URL('../src/lib/helpers.ts', import.meta.url))],
   bundle: true,
   write: false,
   format: 'esm',

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+import { fileURLToPath } from 'node:url';
 
 // Entorno mínimo de navegador: ventana, documento, reloj, temporizadores,
 // service worker y fetch simulados.
@@ -42,7 +43,7 @@ globalThis.fetch = async () => {
 const correrTimeouts = () => { const fns = [...timeouts.values()]; timeouts.clear(); fns.forEach((f) => f()); };
 
 const { outputFiles } = await build({
-  entryPoints: [new URL('../src/lib/versionApp.ts', import.meta.url).pathname],
+  entryPoints: [fileURLToPath(new URL('../src/lib/versionApp.ts', import.meta.url))],
   bundle: true, write: false, format: 'esm', platform: 'neutral',
   define: { __APP_BUILD_ID__: '"build-viejo"', 'import.meta.env.PROD': 'true' },
 });

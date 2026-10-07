@@ -9,6 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+import { fileURLToPath } from 'node:url';
 
 const SB = `
 class Q {
@@ -26,7 +27,7 @@ export const sb = { from: (t) => new Q(t) };`;
 const MAQUINA = `export async function detalleMaquina() { return { filas: globalThis.__filasMaquina }; }`;
 
 const { outputFiles } = await build({
-  entryPoints: [new URL('../src/lib/duplicados.ts', import.meta.url).pathname],
+  entryPoints: [fileURLToPath(new URL('../src/lib/duplicados.ts', import.meta.url))],
   bundle: true,
   write: false,
   format: 'esm',
