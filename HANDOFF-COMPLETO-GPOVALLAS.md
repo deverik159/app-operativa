@@ -744,16 +744,16 @@ Biobox.
 | `limpiar_indices_duplicados.sql` | ✅ aplicado (24-sep) — quitó 3 duplicados exactos (inc_estatus_idx, evid_record_idx, msg_record_idx); quedan los heredados equivalentes. prelanzamiento_300.sql ya no los recrea |
 | `primer_mes.sql` | ✅ aplicado y verificado (24-sep) — RPC `fotos_tarjetas(p_ids)` (SECURITY INVOKER, stable, un jsonb por lote) para las fotos de tarjeta; EXECUTE solo authenticated y service_role (anon no). La prueba con 5 incidencias recientes devolvió sus fotos de reporte y la de reparación |
 | `diagnostico_rutas.sql` | referencia, solo lectura (5-oct) — código de las funciones y vistas de rutas que no estaban en el repo + reparto real del inventario (pantallas, Biobox, columnas, pórticos) |
-| `supabase/migrations/20261005155712_rutas_armado_visitas.sql` | ✅ aplicada y verificada (5-oct) — dirección elegida por parada, armado desde inventario (`guardar_paradas_ruta`, `siguiente_numero_ruta`), Excel que respeta la elección y no mueve entre segmentos, KML que respeta lo armado en la app, asignar solo con la unidad (trigger + `usuarios_asignables_ruta`), `ruta_visitas` + historial de asignaciones. La primera corrida falló por una tabla temporal (el SQL Editor no garantiza la misma conexión entre sentencias): no usar tablas temporales entre sentencias |
+| `supabase/migrations/20261005155712_rutas_armado_visitas.sql` | ✅ aplicada y verificada (5-oct; registrada 6-oct) — dirección elegida por parada, armado desde inventario (`guardar_paradas_ruta`, `siguiente_numero_ruta`), Excel que respeta la elección y no mueve entre segmentos, KML que respeta lo armado en la app, asignar solo con la unidad (trigger + `usuarios_asignables_ruta`), `ruta_visitas` + historial de asignaciones. La primera corrida falló por una tabla temporal (el SQL Editor no garantiza la misma conexión entre sentencias): no usar tablas temporales entre sentencias |
 
 | Archivo (23-sep → 6-oct) | Estado |
 |---|---|
-| `supabase/migrations/20260925065305_chat_respuestas_lecturas.sql` | ✅ aplicada (25-sep, SQL Editor; falta `migration repair`) — `mensajes.responde_a`, edición protegida, `chat_lecturas` + RPC `marcar_chat_leido`, `chat_adjuntos.ancho/alto` |
-| `supabase/migrations/20260925165706_fotos_tarjetas_video.sql` | ✅ aplicada (25-sep, SQL Editor; falta `migration repair`) — `fotos_tarjetas` con el video cuando la etapa no tiene foto |
-| `supabase/migrations/20260928001429_area_reportante_mkt.sql` | ✅ aplicada (27-sep, SQL Editor; falta `migration repair`) — solo datos: lo capturado con el formulario de MKT queda con área MKT |
+| `supabase/migrations/20260925065305_chat_respuestas_lecturas.sql` | ✅ aplicada (25-sep, SQL Editor; registrada 6-oct) — `mensajes.responde_a`, edición protegida, `chat_lecturas` + RPC `marcar_chat_leido`, `chat_adjuntos.ancho/alto` |
+| `supabase/migrations/20260925165706_fotos_tarjetas_video.sql` | ✅ aplicada (25-sep, SQL Editor; registrada 6-oct) — `fotos_tarjetas` con el video cuando la etapa no tiene foto |
+| `supabase/migrations/20260928001429_area_reportante_mkt.sql` | ✅ aplicada (27-sep, SQL Editor; registrada 6-oct) — solo datos: lo capturado con el formulario de MKT queda con área MKT |
 | `diagnostico_catalogo_biobox.sql` | referencia, solo lectura — ✅ corrido (27-sep): 16 nombres en el árbol; 5 Digital de Biobox fuera del árbol (§9.1) |
 | `limpiar_todo.sql` + `revisar_tras_limpieza.sql` | herramienta — **NO correr** salvo la víspera del piloto (§12.15) |
-| `supabase/migrations/20261006195659_lado_adicional_puerta.sql` | ⏳ correr en el SQL Editor ANTES del push del 6-oct (luego `migration repair`) — el CHECK de `incidencias.lado` acepta también `Adicional` y `Puerta` (§12.15) |
+| `supabase/migrations/20261006195659_lado_adicional_puerta.sql` | ✅ aplicada (6-oct, SQL Editor; registrada 6-oct) — el CHECK de `incidencias.lado` acepta también `Adicional` y `Puerta` (§12.15) |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
@@ -850,10 +850,16 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
     solución de SRD; hoy no salen en Nueva incidencia de Biobox. Ojo: el
     árbol es global (también saldrían en Ecovallas digital) y "Falta arte"
     existe en Biobox como Admin Comercial Y Digital: decidir el área antes.
-  - Registrar con `npx supabase migration repair <versión> --status applied`
-    las migraciones corridas a mano en el SQL Editor: `20260925065305`,
-    `20260925165706`, `20260928001429`, `20261006195659` y, si fue por SQL
-    Editor, `20261005155712`.
+  - Las 5 migraciones de la carpeta quedaron registradas en producción el
+    6-oct (`supabase_migrations.schema_migrations`, verificado). Cada
+    migración que se corra a mano en el SQL Editor se registra igual, desde
+    la raíz del repo en la Mac: `npx supabase login` (una vez),
+    `npx supabase link --project-ref qztxpcfbbbmvgmtjnlxg`, `npx supabase
+    migration repair <versión> --status applied`, `npx supabase migration
+    list` y al final `npx supabase unlink` (la guía de staging pide no dejar
+    la carpeta enlazada a producción). No pide la contraseña de la base: el
+    CLI entra con la sesión ("Initialising login role"). La línea base
+    `20260924000000` de la guía de staging sigue sin sacarse.
   - Con la primera incidencia "Sin máquina", confirmar que el técnico puede
     guardar la máquina al reparar (depende de que la RLS de reparación deje
     actualizar `clave_sitio` y `clave_medio`).
