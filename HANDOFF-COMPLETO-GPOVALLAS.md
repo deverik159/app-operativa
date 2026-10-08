@@ -1562,6 +1562,14 @@ Apple lo pasó a un componente del sistema). Chrome no lo reproduce.
   usuario, usar `subirYLuego` (o hacerlo en un contenedor propio). En
   pantallas con mapa, preferir botones a `<select>` cuando son pocas
   opciones.
+- **Menú que se movía con el contenido en TODOS los módulos** (visto el
+  5-oct-2026 en un video desde el iPhone de Erik): **resuelto**. Lo arregló
+  una sesión de Claude en la Mac pocos días después y Erik lo confirmó el
+  8-oct-2026. Esa sesión no dejó nota propia aquí; lo más cercano es el
+  rediseño "Precisión" del 6-oct-2026 (§12.0: menú 4 + Más, ventanas
+  centradas y `lib/toqueFantasma.ts`). Ya no hace falta provocarlo. El
+  diagnóstico escondido sigue disponible. El armazón sigue apagado y se puede
+  quitar si no hizo falta (propuesta: hacia el 19-oct-2026).
 
 ### 12.15. Incidencias, chat, MKT y Biobox (23-sep → 6-oct-2026)
 
