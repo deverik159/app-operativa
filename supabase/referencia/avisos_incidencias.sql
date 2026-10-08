@@ -1,6 +1,7 @@
 -- ============================================================
 -- avisos_incidencias.sql — FOTO de los avisos de Incidencias tal como
--- están en producción al 8-oct-2026 (leídos con pg_get_functiondef).
+-- están en producción al 8-oct-2026 (leídos con pg_get_functiondef),
+-- actualizada con la migración 20261008224848_avisos_medio_y_area.
 --
 -- QUÉ ES: la copia en el repo de las funciones y triggers que llenan la
 -- tabla `notificaciones` (la campana) y mandan el push. Hasta hoy, cuatro
@@ -33,32 +34,45 @@
 --   mensajes INSERT ....................... chat → participantes (ver notificar_chat)
 --   notificaciones INSERT ................. push al teléfono (función enviar-push)
 --
--- Cascada de destinatarios_notif: el rol que toca → si no hay nadie, los
--- coordinadores de la unidad → si tampoco, los managers. Ojo: los tres
--- avisos de área (asignada, reasignación aprobada) NO usan esa cascada:
--- si nadie tiene el área, avisan a TODOS los técnicos de la unidad.
+-- Cascada de destinatarios_notif: el rol que toca (con su unidad, área y,
+-- para el validador, su medio) → si no hay nadie, los coordinadores de la
+-- unidad → si tampoco, los managers. Todos los avisos a validadores y a
+-- técnicos de un área pasan por ella. Un técnico SIN área cuenta como de
+-- todas las áreas: recibe los avisos de áreas que nadie más tiene.
 -- ============================================================
 
 
 -- ── destinatarios_notif: a quién avisar (con respaldo) ──────────────────
-CREATE OR REPLACE FUNCTION public.destinatarios_notif(p_rol app_role, p_unidad text, p_area text)
- RETURNS SETOF text
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+-- Desde el 9-oct-2026 (UTC) lleva p_medio; la firma vieja de 3 parámetros se quitó.
+DROP FUNCTION IF EXISTS public.destinatarios_notif(app_role, text, text);
+create or replace function public.destinatarios_notif(
+  p_rol app_role,
+  p_unidad text,
+  p_area text,
+  p_medio text default null
+)
+returns setof text
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
 declare
   v text[];
 begin
   -- 1) A quien le toca. `unidad_negocio is null` = todas las unidades;
-  --    `departamento is null` = todas las áreas.
+  --    `departamento is null` = todas las áreas; `medio is null` (en el rol
+  --    o en la incidencia) = ambos medios. El medio solo existe en el rol
+  --    de validador; en los demás roles viene null y no filtra.
   select array_agg(distinct lower(ur.usuario_email)) into v
   from usuario_roles ur
   where ur.rol = p_rol
     and (ur.unidad_negocio is null or ur.unidad_negocio ilike p_unidad)
     and (p_area is null
          or ur.departamento is null
-         or ur.departamento ilike p_area);
+         or ur.departamento ilike p_area)
+    and (p_medio is null
+         or ur.medio is null
+         or ur.medio ilike p_medio);
 
   -- 2) Respaldo: coordinadores de la unidad.
   if v is null or array_length(v, 1) is null then
@@ -80,12 +94,12 @@ end $function$;
 
 
 -- ── notificar_incidencia: captura, asignación, reparado, cierre, rechazo ─
-CREATE OR REPLACE FUNCTION public.notificar_incidencia()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+create or replace function public.notificar_incidencia()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
 declare msg text;
 begin
   if TG_OP = 'INSERT' then
@@ -93,7 +107,7 @@ begin
       msg := 'Nueva incidencia por validar: '||coalesce(new.folio,'')||' · '||coalesce(new.nombre_incidencia,'')||' ('||coalesce(new.unidad_negocio,'')||')';
       insert into notificaciones(record_id,para_email,evento,mensaje,unidad_negocio)
         select new.record_id, d, 'captura', msg, new.unidad_negocio
-        from destinatarios_notif('validador'::app_role, new.unidad_negocio, null) d;
+        from destinatarios_notif('validador'::app_role, new.unidad_negocio, null, new.medio) d;
 
     elsif new.estatus = 'en_proceso' then
       msg := 'Incidencia directa a tu área ('||coalesce(new.area_responsable,'')||') para prevalidar y reparar: '||coalesce(new.folio,'');
@@ -123,7 +137,7 @@ begin
       msg := 'Reparación por aprobar: '||coalesce(new.folio,'')||' · '||coalesce(new.nombre_incidencia,'');
       insert into notificaciones(record_id,para_email,evento,mensaje,unidad_negocio)
         select new.record_id, d, 'reparado', msg, new.unidad_negocio
-        from destinatarios_notif('validador'::app_role, new.unidad_negocio, null) d;
+        from destinatarios_notif('validador'::app_role, new.unidad_negocio, null, new.medio) d;
 
       -- avisar al reportante que su incidencia fue reparada (en revisión)
       if new.captured_by is not null then
@@ -140,9 +154,8 @@ begin
           values (new.record_id, lower(new.captured_by), 'cierre', msg, new.unidad_negocio);
       end if;
 
-    -- ══════ NUEVO 1: el rechazo del validador ══════
-    -- El reportante es el único que puede arreglarlo, así que es el único a
-    -- quien tiene sentido avisarle.
+    -- El rechazo del validador: el reportante es el único que puede
+    -- arreglarlo, así que es el único a quien tiene sentido avisarle.
     elsif new.estatus = 'rechazada' then
       if new.captured_by is not null then
         msg := 'Tu incidencia fue rechazada: '||coalesce(new.folio,'')||' · '||coalesce(new.nombre_incidencia,'')
@@ -151,16 +164,14 @@ begin
           values (new.record_id, lower(new.captured_by), 'rechazada', msg, new.unidad_negocio);
       end if;
 
-    -- ══════ NUEVO 2: el reenvío tras corregir ══════
-    -- Solo cuando VIENE de 'rechazada'. Si llegara a `por_validar` desde otro
-    -- lado sería una corrección administrativa, y avisar ahí solo sumaría
-    -- ruido a la campana — que es la forma más rápida de que la gente deje de
-    -- mirarla.
+    -- El reenvío tras corregir. Solo cuando VIENE de 'rechazada': si llegara
+    -- a `por_validar` desde otro lado sería una corrección administrativa, y
+    -- avisar ahí solo sumaría ruido a la campana.
     elsif new.estatus = 'por_validar' and old.estatus = 'rechazada' then
       msg := 'Incidencia corregida y reenviada a validar: '||coalesce(new.folio,'')||' · '||coalesce(new.nombre_incidencia,'')||' ('||coalesce(new.unidad_negocio,'')||')';
       insert into notificaciones(record_id,para_email,evento,mensaje,unidad_negocio)
         select new.record_id, d, 'captura', msg, new.unidad_negocio
-        from destinatarios_notif('validador'::app_role, new.unidad_negocio, null) d;
+        from destinatarios_notif('validador'::app_role, new.unidad_negocio, null, new.medio) d;
     end if;
   end if;
   return new;
@@ -193,14 +204,14 @@ CREATE TRIGGER trg_notificar_tecnico AFTER UPDATE ON public.incidencias FOR EACH
 
 
 -- ── notificar_area_asignada: la incidencia se dirige a otra área ────────
-CREATE OR REPLACE FUNCTION public.notificar_area_asignada()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
+create or replace function public.notificar_area_asignada()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
 declare
   msg text;
-  n_insertadas int;
 begin
   if new.assigned_area is distinct from old.assigned_area
      and new.assigned_area is not null then
@@ -209,32 +220,12 @@ begin
            ') para reparar: ' || coalesce(new.folio, '') || ' · ' ||
            coalesce(new.nombre_incidencia, '');
 
+    -- Técnicos del área; si no hay, coordinadores de la unidad y después
+    -- managers (antes: todos los técnicos de la unidad, que no la pueden
+    -- abrir porque la RLS filtra por área).
     insert into notificaciones(record_id, para_email, evento, mensaje, unidad_negocio)
-      select new.record_id, u.email, 'asignacion_area', msg, new.unidad_negocio
-      from (
-        select distinct lower(usuario_email) as email
-        from usuario_roles
-        where rol = 'reparacion'
-          and (unidad_negocio is null
-               or new.unidad_negocio is null
-               or unidad_negocio ilike new.unidad_negocio)
-          and (departamento is null or departamento ilike new.assigned_area)
-      ) u;
-
-    get diagnostics n_insertadas = row_count;
-
-    if n_insertadas = 0 then
-      insert into notificaciones(record_id, para_email, evento, mensaje, unidad_negocio)
-        select new.record_id, u.email, 'asignacion_area', msg, new.unidad_negocio
-        from (
-          select distinct lower(usuario_email) as email
-          from usuario_roles
-          where rol = 'reparacion'
-            and (unidad_negocio is null
-                 or new.unidad_negocio is null
-                 or unidad_negocio ilike new.unidad_negocio)
-        ) u;
-    end if;
+      select new.record_id, d, 'asignacion_area', msg, new.unidad_negocio
+      from destinatarios_notif('reparacion'::app_role, new.unidad_negocio, new.assigned_area) d;
 
     if new.asignado_tecnico_email is not null then
       insert into notificaciones(record_id, para_email, evento, mensaje, unidad_negocio)
@@ -254,14 +245,14 @@ CREATE TRIGGER trg_notificar_area_asignada AFTER UPDATE ON public.incidencias FO
 
 -- ── notificar_reasignacion_aprobada: el área nueva recibe la incidencia ──
 -- Es BEFORE UPDATE porque además rellena `reasignada_de`.
-CREATE OR REPLACE FUNCTION public.notificar_reasignacion_aprobada()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
+create or replace function public.notificar_reasignacion_aprobada()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
 declare
   msg text;
-  n_insertadas int;
 begin
   if coalesce(old.reasignacion_pendiente, false)
      and not coalesce(new.reasignacion_pendiente, false)
@@ -277,33 +268,10 @@ begin
            coalesce(new.folio, '') || ' · ' ||
            coalesce(new.nombre_incidencia, '');
 
+    -- Técnicos del área nueva; si no hay, coordinadores y después managers.
     insert into notificaciones(record_id, para_email, evento, mensaje, unidad_negocio)
-      select new.record_id, u.email, 'reasignacion', msg, new.unidad_negocio
-      from (
-        select distinct lower(usuario_email) as email
-        from usuario_roles
-        where rol = 'reparacion'
-          -- NULL en cualquiera de los dos lados = comodín.
-          and (unidad_negocio is null
-               or new.unidad_negocio is null
-               or unidad_negocio ilike new.unidad_negocio)
-          and (departamento is null or departamento ilike new.area_responsable)
-      ) u;
-
-    get diagnostics n_insertadas = row_count;
-
-    if n_insertadas = 0 then
-      insert into notificaciones(record_id, para_email, evento, mensaje, unidad_negocio)
-        select new.record_id, u.email, 'reasignacion', msg, new.unidad_negocio
-        from (
-          select distinct lower(usuario_email) as email
-          from usuario_roles
-          where rol = 'reparacion'
-            and (unidad_negocio is null
-                 or new.unidad_negocio is null
-                 or unidad_negocio ilike new.unidad_negocio)
-        ) u;
-    end if;
+      select new.record_id, d, 'reasignacion', msg, new.unidad_negocio
+      from destinatarios_notif('reparacion'::app_role, new.unidad_negocio, new.area_responsable) d;
 
   end if;
   return new;
@@ -315,22 +283,24 @@ CREATE TRIGGER trg_notificar_reasignacion_aprobada BEFORE UPDATE ON public.incid
 
 
 -- ── notificar_reasignacion: solicitud y resolución ──────────────────────
-CREATE OR REPLACE FUNCTION public.notificar_reasignacion()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-declare msg text;
+create or replace function public.notificar_reasignacion()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare msg text; v_medio text;
 begin
-  -- ── Solicitud nueva → validadores de la unidad ──
+  -- ── Solicitud nueva → validadores de la unidad (y del medio) ──
   if TG_OP = 'INSERT' and new.estado = 'Solicitada' then
+    -- La solicitud no guarda el medio: se toma de su incidencia.
+    select i.medio into v_medio from incidencias i where i.record_id = new.record_id;
     msg := 'Solicitud de reasignación: '||coalesce(new.folio, new.record_id)
          ||' · '||coalesce(new.area_origen, '—')||' → '||coalesce(new.area_destino, '—')
          ||coalesce(' · Motivo: '||nullif(btrim(new.motivo), ''), '');
     insert into notificaciones(record_id, para_email, evento, mensaje, unidad_negocio)
       select new.record_id, d, 'reasignacion', msg, new.unidad_negocio
-      from destinatarios_notif('validador'::app_role, new.unidad_negocio, null) d
+      from destinatarios_notif('validador'::app_role, new.unidad_negocio, null, v_medio) d
       -- Que el propio solicitante no reciba el aviso de su solicitud: pasa
       -- cuando quien pide es manager y la cascada lo alcanza.
       where lower(d) is distinct from lower(coalesce(new.solicitado_por, ''));
@@ -366,6 +336,7 @@ CREATE OR REPLACE FUNCTION public.notificar_chat()
  RETURNS trigger
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 declare inc record; msg text;
 begin
@@ -421,6 +392,7 @@ CREATE OR REPLACE FUNCTION public.notificar_push()
  RETURNS trigger
  LANGUAGE plpgsql
  SECURITY DEFINER
+ SET search_path TO 'public'
 AS $function$
 declare
   v_url    text := 'https://qztxpcfbbbmvgmtjnlxg.supabase.co/functions/v1/enviar-push';
