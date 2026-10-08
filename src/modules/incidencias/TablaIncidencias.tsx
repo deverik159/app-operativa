@@ -29,6 +29,7 @@ import {
 } from '../../lib/helpers';
 import { pintar } from '../../lib/tonos';
 import type { Incidencia } from '../../types/db';
+import { diaCdmx, fechaHoraCdmx } from '../../lib/fechasCdmx';
 import Ic from '../../components/Ic';
 
 type Props = {
@@ -82,8 +83,11 @@ function exportar(items: Incidencia[]) {
       i.nivel, i.tipo, i.origen, i.area_responsable,
       i.assigned_area || i.area_responsable, i.clave_sitio, i.clave_medio,
       i.lado || caraLabel(i.clave_medio), i.lado, i.direccion, i.municipio, i.plaza,
-      i.campania, i.observaciones, i.captured_by, i.fecha_reporte,
-      i.validator_email, i.validator_at, i.repaired_by_email, i.repaired_at,
+      i.campania, i.observaciones, i.captured_by, fechaHoraCdmx(i.fecha_reporte),
+      // En hora de CDMX: el ISO en UTC hacía ver en Excel las 19:00 como
+      // la 01:00 del día siguiente (8-oct-2026).
+      i.validator_email, fechaHoraCdmx(i.validator_at), i.repaired_by_email,
+      fechaHoraCdmx(i.repaired_at),
       i.diagnostico, i.causa_raiz, i.solucion, i.detalle_reparacion,
       i.rechazos_reparacion || 0,
       horasValidacionReparacion(i)?.toFixed(1) ?? '',
@@ -102,7 +106,7 @@ function exportar(items: Incidencia[]) {
   const a = document.createElement('a');
   const url = URL.createObjectURL(blob);
   a.href = url;
-  a.download = `incidencias_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `incidencias_${diaCdmx(new Date())}.csv`;
   a.click();
   // NO revocar en seguida: Safari (iPhone/iPad/Mac) resuelve la descarga
   // de forma asíncrona y revocar el blob al instante podía abortarla — el

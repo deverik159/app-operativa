@@ -22,6 +22,7 @@ import {
   areaEfectiva,
 } from '../../lib/helpers';
 import { nombreDe } from '../../lib/nombres';
+import { diaCdmx } from '../../lib/fechasCdmx';
 import type { MapaNombres } from '../../lib/nombres';
 import { colorTono, pintarTexto } from '../../lib/tonos';
 import KpiDetalleModal from './KpiDetalleModal';
@@ -267,13 +268,14 @@ function KpiView({
    * Se calculan de `fecha_reporte` con la misma fórmula del trigger, y NO se
    * leen de la columna `semana`: esa columna es texto, viene null en las
    * filas migradas y el trigger solo la rellena al insertar. Calcularla aquí
-   * da el mismo número para todas las filas, incluidas las viejas.
+   * da el mismo número para todas las filas, incluidas las viejas. El día es
+   * el de CDMX, como el trigger desde el 8-oct-2026.
    */
   const semanas = useMemo(
     () =>
       [
         ...new Set(
-          items.map((i) => semanaDe(i.fecha_reporte)).filter((x) => x != null)
+          items.map((i) => semanaDe(i.fecha_reporte && diaCdmx(i.fecha_reporte))).filter((x) => x != null)
         ),
       ].sort((a, b) => (b as number) - (a as number)) as number[],
     [items]
@@ -290,7 +292,7 @@ function KpiView({
         if (fNivel !== 'Todos' && i.nivel !== fNivel) return false;
         if (fCat !== 'Todas' && String(i.catorcena) !== String(fCat))
           return false;
-        if (fSem !== 'Todas' && String(semanaDe(i.fecha_reporte)) !== fSem)
+        if (fSem !== 'Todas' && String(semanaDe(i.fecha_reporte && diaCdmx(i.fecha_reporte))) !== fSem)
           return false;
         return true;
       }),

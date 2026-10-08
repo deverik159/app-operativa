@@ -75,6 +75,7 @@ import EditModal from './EditModal';
 import CorreccionModal from './CorreccionModal';
 import TablaIncidencias from './TablaIncidencias';
 import MotivoModal from './MotivoModal';
+import { diaCdmx, inicioDiaCdmx } from '../../lib/fechasCdmx';
 import Ic from '../../components/Ic';
 import type {
   CanInc,
@@ -426,25 +427,19 @@ function porFechaDesc(a: Incidencia, b: Incidencia): number {
 }
 
 /**
- * dd/mm/aaaa del DÍA UTC de una marca ISO. Se toma el día igual que el
- * filtro de fechas de la vista (primeros 10 caracteres), para que la fecha
- * que dice el aviso sea la misma que hay que poner en "Desde".
+ * dd/mm/aaaa del día en CDMX de una marca ISO. Se toma el día igual que el
+ * filtro de fechas de la vista (diaCdmx), para que la fecha que dice el
+ * aviso sea la misma que hay que poner en "Desde".
  */
 function diaCorto(iso: string): string {
-  const [a, m, d] = iso.slice(0, 10).split('-');
+  const [a, m, d] = diaCdmx(iso).split('-');
   return `${d}/${m}/${a}`;
 }
 
-/**
- * Inicio (00:00 UTC, en ms) de un 'YYYY-MM-DD' del input date, o null si
- * todavía no es una fecha completa y creíble. En escritorio el input emite
- * el año a medio teclear (0002, 0020, 0202…): esos no cuentan.
- */
-function inicioDiaUtc(dia: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia) || Number(dia.slice(0, 4)) < 2000)
-    return null;
-  const ms = Date.parse(dia + 'T00:00:00Z');
-  return Number.isNaN(ms) ? null : ms;
+/** ISO del inicio en CDMX de un 'YYYY-MM-DD' ya validado, para la consulta. */
+function isoInicioDia(dia: string): string {
+  const ms = inicioDiaCdmx(dia);
+  return ms == null ? dia + 'T00:00:00Z' : new Date(ms).toISOString();
 }
 
 type MapasFotos = {
@@ -1467,7 +1462,7 @@ function IncidenciasView({
             // por fecha las sacaba de la lista para siempre.
             if (desdeHist)
               consulta = consulta.or(
-                `fecha_reporte.gte."${desdeHist}T00:00:00Z",fecha_reporte.is.null`
+                `fecha_reporte.gte."${isoInicioDia(desdeHist)}",fecha_reporte.is.null`
               );
             return consulta
               .order('fecha_reporte', { ascending: false })
@@ -1556,7 +1551,7 @@ function IncidenciasView({
         frontera: terminales.topado
           ? masVieja
           : desdeHist
-            ? desdeHist + 'T00:00:00Z'
+            ? isoInicioDia(desdeHist)
             : null,
         n: terminales.filas.length,
         tope: !!desdeHist && terminales.topado,
@@ -1748,7 +1743,7 @@ function IncidenciasView({
    * (0002, 0020, 0202…) y cada uno habría sido una recarga.
    */
   useEffect(() => {
-    const ms = inicioDiaUtc(fDesde);
+    const ms = inicioDiaCdmx(fDesde);
     const ligera = fronteraLigera.current;
     // ¿Pide cerradas más viejas que las que trae la carga ligera? Si la
     // ligera vino completa (ligera = null), nunca.
@@ -2053,15 +2048,15 @@ function IncidenciasView({
       // Quién reporta = el área de pertenencia con la que nació el reporte.
       if (fReporta !== 'Todas' && (i.area_reportante || '') !== fReporta)
         return false;
-      // Rango de fechas de captura. `fecha_reporte` es un timestamp ISO en
-      // UTC; los inputs date dan 'YYYY-MM-DD'. Comparar los primeros 10
-      // caracteres evita convertir zonas horarias y que un reporte de las
-      // 11 p.m. se cuente como del día siguiente.
-      if (i.fecha_reporte) {
-        const dia = i.fecha_reporte.slice(0, 10);
+      // Rango de fechas de captura. `fecha_reporte` es un timestamp en UTC;
+      // los inputs date dan 'YYYY-MM-DD'. Se compara el día de CDMX: con los
+      // primeros 10 caracteres (día UTC) lo reportado después de las 18:00
+      // contaba como del día siguiente (8-oct-2026).
+      if (i.fecha_reporte && (fDesde || fHasta)) {
+        const dia = diaCdmx(i.fecha_reporte);
         if (fDesde && dia < fDesde) return false;
         if (fHasta && dia > fHasta) return false;
-      } else if (fDesde || fHasta) {
+      } else if (!i.fecha_reporte && (fDesde || fHasta)) {
         // Sin fecha no se puede afirmar que caiga en el rango.
         return false;
       }
@@ -2731,7 +2726,7 @@ function IncidenciasView({
           viejas desaparecían de "Mi bandeja" sin decir nada. */}
       {vistaVeTerminales &&
         historial.frontera &&
-        (inicioDiaUtc(fDesde) ?? -Infinity) < Date.parse(historial.frontera) && (
+        (inicioDiaCdmx(fDesde) ?? -Infinity) < Date.parse(historial.frontera) && (
           <p className="phint" style={{ marginTop: -12 }}>
             {modo === 'todas' ? (
               <>
