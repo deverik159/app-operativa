@@ -105,40 +105,22 @@ export async function duplicadasEnProceso<T extends FilaDuplicable>(
   ] as string[];
   if ((!caras.length && !sitios.length) || !nombres.length) return [];
 
-  const columnas = 'folio,nombre_incidencia,clave_medio,clave_sitio,lado,unidad_negocio,medio';
-  let porCara = caras.length
-    ? sb
-        .from('incidencias')
-        .select(columnas)
-        .eq('estatus', 'en_proceso')
-        .in('clave_medio', caras)
-        .in('nombre_incidencia', nombres)
-    : null;
-  let porSitio = sitios.length
-    ? sb
-        .from('incidencias')
-        .select(columnas)
-        .eq('estatus', 'en_proceso')
-        .in('clave_sitio', sitios)
-        .in('nombre_incidencia', nombres)
-    : null;
-  if (op?.signal) {
-    porCara = porCara && porCara.abortSignal(op.signal);
-    porSitio = porSitio && porSitio.abortSignal(op.signal);
-  }
-  if (op?.lanzarSiFalla) {
-    porCara = porCara && porCara.retry(false);
-    porSitio = porSitio && porSitio.retry(false);
-  }
-  const respuestas = await Promise.all([porCara, porSitio]);
+  // Por la RPC y no consultando `incidencias` directo (8-oct-2026): la RLS
+  // le esconde al monitorista y al reportante lo que capturaron otros, y la
+  // regla contestaba "sin choques" con el duplicado en la base. La RPC ve
+  // todo lo que está en proceso y devuelve solo estas columnas.
+  let consulta = sb.rpc('incidencias_en_proceso_iguales', {
+    p_caras: caras,
+    p_sitios: sitios,
+    p_nombres: nombres,
+  });
+  if (op?.signal) consulta = consulta.abortSignal(op.signal);
+  if (op?.lanzarSiFalla) consulta = consulta.retry(false);
+  const r = await consulta;
+  if (r.error && op?.lanzarSiFalla)
+    throw new ErrorConsultaDuplicados(r.error.message, r.status, r.error.code);
   type Abierta = FilaDuplicable & { folio: string | null };
-  const abiertas: Abierta[] = [];
-  for (const r of respuestas) {
-    if (!r) continue;
-    if (r.error && op?.lanzarSiFalla)
-      throw new ErrorConsultaDuplicados(r.error.message, r.status, r.error.code);
-    abiertas.push(...((r.data as Abierta[] | null) || []));
-  }
+  const abiertas: Abierta[] = (r.data as Abierta[] | null) || [];
 
   return filas
     .map((f) => {
@@ -171,8 +153,8 @@ export async function duplicadasEnProceso<T extends FilaDuplicable>(
  * La MISMA regla, pero para un sitio/máquina y a través de la RPC
  * `estado_maquina` (security definer).
  *
- * POR QUÉ NO BASTA duplicadasEnProceso() AQUÍ: esa consulta `incidencias`
- * directo, y la RLS le enseña al operador de campo solo lo de SU área. La
+ * POR QUÉ NO BASTABA duplicadasEnProceso() AQUÍ (antes del 8-oct-2026 esa
+ * consultaba `incidencias` directo): la RLS le enseña al operador de campo solo lo de SU área. La
  * incidencia de Digital que lleva semanas en proceso en esta máquina era
  * INVISIBLE para la consulta del monitorista → la regla nunca bloqueaba y
  * cada revisión volvía a levantarla (Erik, 30-ago-2026). La RPC ve todo lo

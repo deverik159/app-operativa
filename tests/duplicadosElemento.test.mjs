@@ -23,7 +23,27 @@ class Q {
     return Promise.resolve({ data: rs, error: null, status: 200 }).then(ok, ko);
   }
 }
-export const sb = { from: (t) => new Q(t) };`;
+// La RPC incidencias_en_proceso_iguales: todo lo en proceso con esas caras
+// o sitios y esos nombres, SIN la RLS de quien llama (es security definer).
+class Rpc {
+  constructor(a) { this.a = a; }
+  abortSignal() { return this; } retry() { return this; }
+  then(ok, ko) {
+    globalThis.__rpcLlamadas = (globalThis.__rpcLlamadas || 0) + 1;
+    const { p_caras, p_sitios, p_nombres } = this.a;
+    const rs = (globalThis.__tablas.incidencias || []).filter(
+      (r) =>
+        r.estatus === 'en_proceso' &&
+        p_nombres.includes(r.nombre_incidencia) &&
+        (p_caras.includes(r.clave_medio) || p_sitios.includes(r.clave_sitio))
+    );
+    return Promise.resolve({ data: rs, error: null, status: 200 }).then(ok, ko);
+  }
+}
+export const sb = {
+  from: () => { throw new Error('la regla no debe consultar incidencias directo (RLS)'); },
+  rpc: (n, a) => new Rpc(a),
+};`;
 const MAQUINA = `export async function detalleMaquina() { return { filas: globalThis.__filasMaquina }; }`;
 
 const { outputFiles } = await build({
@@ -100,6 +120,30 @@ test('Las de cara siguen comparándose por cara', async () => {
   const fila = { clave_sitio: 'EV1', lado: 'Norte', nombre_incidencia: 'Arte con grafiti', unidad_negocio: 'Ecovallas', medio: 'Impreso' };
   assert.equal((await duplicadasEnProceso([{ ...fila, clave_medio: 'EV1-A' }])).length, 1);
   assert.equal((await duplicadasEnProceso([{ ...fila, clave_medio: 'EV1-B' }])).length, 0);
+});
+
+test('El monitorista choca con la que capturó otra persona (8-oct-2026)', async () => {
+  // Con la consulta directa, la RLS le escondía esta fila al monitorista y
+  // el duplicado entraba. La RPC la ve.
+  globalThis.__tablas = {
+    incidencias: [
+      abierta({ clave_sitio: 'EV1', clave_medio: 'EV1-A', lado: 'Norte', nombre_incidencia: 'Lona rota', unidad_negocio: 'Ecovallas', medio: 'Impreso', captured_by: 'otra@persona' }),
+    ],
+  };
+  const r = await duplicadasEnProceso([
+    { clave_sitio: 'EV1', clave_medio: 'EV1-A', lado: 'Norte', nombre_incidencia: 'Lona rota', unidad_negocio: 'Ecovallas', medio: 'Impreso' },
+  ]);
+  assert.deepEqual(r.map((x) => x.folio), ['F-Lona rota']);
+});
+
+test('Una sola llamada aunque haya filas por cara y por sitio', async () => {
+  globalThis.__tablas = { incidencias: [] };
+  globalThis.__rpcLlamadas = 0;
+  await duplicadasEnProceso([
+    { clave_sitio: 'EV1', clave_medio: 'EV1-A', lado: 'Norte', nombre_incidencia: 'Lona rota', unidad_negocio: 'Ecovallas', medio: 'Impreso' },
+    { clave_sitio: 'EV1', clave_medio: null, lado: 'Adicional', nombre_incidencia: 'Adicional dañado', unidad_negocio: 'Ecovallas', medio: 'Impreso' },
+  ]);
+  assert.equal(globalThis.__rpcLlamadas, 1);
 });
 
 test('Revisión de Biobox: la Puerta sin cara del sitio también bloquea', async () => {
