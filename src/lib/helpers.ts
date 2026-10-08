@@ -573,3 +573,32 @@ export function departamentosDelUsuario(
   };
   return [...new Set(filas.map((f) => f.d))].sort((a, b) => rango(a) - rango(b));
 }
+
+/** Roles que abren Fijación Externa (la fijación es de los técnicos). */
+export const ROLES_FIJACION_EXTERNA: readonly string[] = ['reparacion'];
+/** Roles que abren Pauta y Monitoreo (gestión y trabajo de campo). */
+export const ROLES_PAUTA: readonly string[] = ['coordinador', 'monitorista', 'fijador'];
+
+/**
+ * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas IMPRESO
+ * (Erik, 31-ago-2026): los abre quien tiene el ROL del módulo EN una fila
+ * de Ecovallas cuyo medio no lo excluya. Fila sin unidad = todas, sin
+ * medio = ambos; el manager pasa.
+ *
+ * Rol, unidad y medio se leen de la MISMA fila. Antes bastaba tener el rol
+ * en cualquier fila y Ecovallas en otra, y el medio ni se pedía: un
+ * monitorista de Vía Verde que además era técnico en Ecovallas abría Pauta,
+ * y un validador de Ecovallas Digital contaba como Impreso (8-oct-2026).
+ */
+export function abreModuloEcovallasImpreso(
+  roles: { rol: string; unidad_negocio: string | null; medio?: string | null }[],
+  rolesDelModulo: readonly string[]
+): boolean {
+  return roles.some(
+    (r) =>
+      r.rol === 'manager' ||
+      (rolesDelModulo.includes(r.rol) &&
+        (!r.unidad_negocio || /^ecovallas$/i.test(r.unidad_negocio.trim())) &&
+        (!r.medio || /^impreso$/i.test(r.medio.trim())))
+  );
+}

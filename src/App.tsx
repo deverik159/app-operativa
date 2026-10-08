@@ -30,7 +30,13 @@ import { Lock, RefreshCw, WifiOff } from 'lucide-react';
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES } from './lib/constants';
-import { departamentosDelUsuario, initials } from './lib/helpers';
+import {
+  abreModuloEcovallasImpreso,
+  departamentosDelUsuario,
+  initials,
+  ROLES_FIJACION_EXTERNA,
+  ROLES_PAUTA,
+} from './lib/helpers';
 import { useNotificaciones } from './lib/useNotificaciones';
 import { vigilarNuevaVersion, traerVersionNueva, revisarVersionAhora } from './lib/versionApp';
 import CampanaNotifs from './components/CampanaNotifs';
@@ -438,7 +444,8 @@ function mismosRoles(a: UsuarioRol[] | null, b: UsuarioRol[]): boolean {
     (r, i) =>
       r.rol === b[i].rol &&
       (r.unidad_negocio ?? null) === (b[i].unidad_negocio ?? null) &&
-      (r.departamento ?? null) === (b[i].departamento ?? null)
+      (r.departamento ?? null) === (b[i].departamento ?? null) &&
+      (r.medio ?? null) === (b[i].medio ?? null)
   );
 }
 
@@ -946,9 +953,11 @@ function Main({
    * A dónde lleva un aviso de pauta. "Se te asignó la ruta" (evento 'ruta')
    * va a Mis rutas si el usuario la tiene y no tiene Pauta: sus rutas no son
    * de Ecovallas Impreso (rutas, 5-oct-2026). Lo demás, a Pauta como antes.
+   * null = no navegar: el aviso no tiene a dónde llevarlo en su menú.
    */
-  const destinoAvisoPauta = (evento?: string | null, mensaje?: string | null): string => {
-    const menu = menuConRutaRef.current.split('|');
+  const destinoAvisoPauta = (evento?: string | null, mensaje?: string | null): string | null => {
+    const claves = menuConRutaRef.current;
+    const menu = claves.split('|');
     const tieneMis = menu.includes('mis_rutas');
     const tienePauta = menu.includes('pauta');
     // (rutas, 5-oct-2026, revisión) Quien tiene Pauta Y Mis rutas: el texto
@@ -958,14 +967,19 @@ function Main({
       if (tieneMis && mensaje.includes('Mis rutas')) return 'mis_rutas';
       if (tienePauta && mensaje.includes('Pauta')) return 'pauta';
     }
-    // Sin evento = "?ir=pauta" de un push con la app cerrada: a quien no
-    // tiene Pauta no se le manda a una pestaña que no existe en su menú.
-    return (evento === 'ruta' || !evento) && tieneMis && !tienePauta ? 'mis_rutas' : 'pauta';
+    // Sin Pauta en el menú, a Pauta no se le manda con NINGÚN aviso: antes
+    // solo se revisaba con 'ruta' o sin evento, y una toma regresada abría
+    // Pauta a un técnico o a un monitorista de otra unidad (revisión,
+    // 8-oct-2026). Con el menú aún vacío (push con la app cerrada y roles
+    // sin cargar) va a Pauta y el efecto de clavesConRuta lo corrige.
+    if (claves && !tienePauta) return tieneMis ? 'mis_rutas' : null;
+    return 'pauta';
   };
 
   /** Abre Pauta RECARGADA: una lista ya abierta enseñaría la toma vieja. */
   const irAPauta = useCallback((evento?: string | null) => {
-    setTab(destinoAvisoPauta(evento));
+    const destino = destinoAvisoPauta(evento);
+    if (destino) setTab(destino);
     setRecargarSignal((n) => n + 1);
     notifs.recargar();
     // destinoAvisoPauta solo lee un ref.
@@ -1098,11 +1112,11 @@ function Main({
       // Con copia no hace falta insistir: sin reintentos y con tope corto.
       // Sin copia, los reintentos de siempre, pero con un tope para que una
       // señal colgada no deje "Cargando tu perfil…" para siempre.
-      // (No se pide `medio`: agregarlo cambia quién ve Fijación/Pauta; lo
-      // decide Erik — ver enEcovallasImpreso.)
+      // `medio` va porque acota Fijación y Pauta a Impreso (Erik, 8-oct-2026;
+      // ver abreModuloEcovallasImpreso).
       const q = sb
         .from('usuario_roles')
-        .select('rol,unidad_negocio,departamento')
+        .select('rol,unidad_negocio,departamento,medio')
         .ilike('usuario_email', email);
       const { data, error, status } =
         hayCopia || !enLineaAhora()
@@ -1246,20 +1260,13 @@ function Main({
 
   /**
    * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas
-   * IMPRESO (Erik, ago-2026): los ve quien tenga alguna fila en esa unidad
-   * cuyo medio no lo excluya. `medio` solo existe en filas de validador
-   * (null = ambos medios), así que a los demás roles solo se les pide la
-   * unidad. Fila sin unidad = todas; manager pasa.
+   * IMPRESO: los abre quien tiene el rol del módulo en una fila de esa
+   * unidad cuyo medio no lo excluya (ver abreModuloEcovallasImpreso).
    * (Subió de lugar con Mis rutas, 5-oct-2026: la pestaña de inicio del
-   * monitorista depende de ella.)
+   * monitorista depende de vePauta.)
    */
-  const enEcovallasImpreso =
-    misRoles.includes('manager') ||
-    (roles || []).some(
-      (r) =>
-        (!r.unidad_negocio || /^ecovallas$/i.test(r.unidad_negocio.trim())) &&
-        (!r.medio || /^impreso$/i.test(r.medio.trim()))
-    );
+  const veFijacionExterna = abreModuloEcovallasImpreso(rolesDetalle, ROLES_FIJACION_EXTERNA);
+  const vePauta = abreModuloEcovallasImpreso(rolesDetalle, ROLES_PAUTA);
 
   /**
    * Su pestaña de inicio es la suya, no un dashboard que no ve. También es
@@ -1275,7 +1282,7 @@ function Main({
   // Monitorista puro: Pauta sigue siendo su inicio; si no tiene Ecovallas
   // Impreso (Pauta no está en su menú), Mis rutas (rutas, 5-oct-2026).
   const tabDeSiempre = esMonitoristaPuro
-    ? enEcovallasImpreso
+    ? vePauta
       ? 'pauta'
       : 'mis_rutas'
     : esBitacoraPuro
@@ -1522,13 +1529,13 @@ function Main({
     },
     // Fijación Externa es operación de Ecovallas Impreso. El coordinador
     // ya no la ve: gestiona pauta y rutas, la fijación es de los técnicos
-    // (Erik, 21-sep-2026).
-    (has('manager') || has('reparacion')) &&
-      enEcovallasImpreso && {
-        k: 'fijacion_externa',
-        ic: '📎',
-        t: 'Fijación Externa',
-      },
+    // (Erik, 21-sep-2026). El rol tiene que ser de Ecovallas Impreso, no
+    // de otra unidad (veFijacionExterna, 8-oct-2026).
+    veFijacionExterna && {
+      k: 'fijacion_externa',
+      ic: '📎',
+      t: 'Fijación Externa',
+    },
     (has('manager') || has('coordinador')) && {
       k: 'rutas',
       ic: '🗺️',
@@ -1538,16 +1545,14 @@ function Main({
     // el 21-sep-2026) y del fijador, que recorre las mismas rutas. El
     // técnico de reparación YA NO la ve: su trabajo es otro y mezclarlos
     // empalmaba funciones (antes se le daba 'reparacion' al monitorista
-    // por no existir su rol). Pauta y Monitoreo es de Ecovallas Impreso.
-    (has('manager') ||
-      has('coordinador') ||
-      has('monitorista') ||
-      has('fijador')) &&
-      enEcovallasImpreso && {
-        k: 'pauta',
-        ic: '📋',
-        t: 'Pauta y Monitoreo',
-      },
+    // por no existir su rol). Pauta y Monitoreo es de Ecovallas Impreso: un
+    // monitorista o coordinador de otra unidad no la ve aunque tenga otro
+    // rol en Ecovallas (vePauta, 8-oct-2026).
+    vePauta && {
+      k: 'pauta',
+      ic: '📋',
+      t: 'Pauta y Monitoreo',
+    },
     // Mis rutas (rutas, 5-oct-2026): las rutas asignadas al monitorista que
     // NO son de Ecovallas Impreso (Biobox, Vía Verde, pantallas…), con mapa,
     // "Marcar visita" sin señal y "Levantar incidencia". El manager la ve
@@ -1632,14 +1637,17 @@ function Main({
    * teléfono sí tenía (le cambiaron el rol mientras tanto): si la que está
    * a la vista ya no es de su menú, a la de siempre. Incidencias no se toca:
    * "Nueva" lleva al reportante puro a 'todas' aunque no esté en su menú.
+   * También al cambiar de pestaña: un aviso no debe dejar montado un módulo
+   * que el menú no ofrece (revisión, 8-oct-2026). Los demás caminos (menú,
+   * URL, Atrás) ya llegan validados, así que esto no los toca.
    */
   useEffect(() => {
     if (!rutaResuelta || !rutasActivas) return;
     if (tab === 'bandeja' || tab === 'todas' || !RUTA_DE_TAB[tab]) return;
     if (!clavesConRuta.split('|').includes(tab)) setTab(tabDeSiempre);
-    // Solo cuando cambia el menú, no en cada cambio de pestaña.
+    // tabDeSiempre se deriva de los mismos roles que clavesConRuta.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clavesConRuta]);
+  }, [clavesConRuta, tab]);
 
   /**
    * Primera respuesta buena de usuario_roles: la ruta que la copia no tenía
@@ -1833,7 +1841,8 @@ function Main({
                 // destino es Pauta, RECARGADA — una lista ya abierta
                 // seguía enseñando la toma vieja. La ruta asignada fuera
                 // de Ecovallas Impreso, a Mis rutas (rutas, 5-oct-2026).
-                setTab(destinoAvisoPauta(n.evento, n.mensaje));
+                const destino = destinoAvisoPauta(n.evento, n.mensaje);
+                if (destino) setTab(destino);
                 setRecargarSignal((x) => x + 1);
               } else if (esEventoBitacora(n.evento)) {
                 // Versión por programar / programada: a la Bitácora VV,

@@ -1072,6 +1072,13 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 
 - Biobox solo se muestra a personas de esa unidad; Fijación Externa y Pauta se
   tratan como Ecovallas Impreso; Rutas se acota por unidad.
+- Desde el 8-oct-2026, Fijación Externa y Pauta leen rol, unidad y medio de la
+  MISMA fila de `usuario_roles` (`abreModuloEcovallasImpreso`): Fijación pide
+  `reparacion` y Pauta `coordinador`, `monitorista` o `fijador` en una fila de
+  Ecovallas (o sin unidad) cuyo medio sea Impreso o vacío; el manager pasa.
+  Antes bastaba tener el rol en una fila y Ecovallas en otra, y `medio` ni se
+  pedía. Al aplicarlo, solo un usuario real cambió: monitorista de Vía Verde
+  con técnico y validador en Ecovallas, que deja de ver Pauta.
 - La tarjeta de Biobox muestra el número de máquina y la clave completa en
   renglones separados.
 - Fijación Externa usa la vista v2 y opera como lista de órdenes de cuadrilla;
@@ -1399,9 +1406,10 @@ correcciones con verificador por grupo. **No hay SQL.**
 - **Regla IndexedDB**: `gpo-capturas` se queda en **v1** y no se le agregan
   almacenes (así, revertir en Vercel a un build anterior no deja sin cola de
   reportes ni borrador). Lo nuevo va en `gpo-datos` y `gpo-acciones`.
-- **Decisión pendiente de Erik**: `usuario_roles` se consulta sin `medio`,
-  así que el filtro "Ecovallas Impreso" de Fijación Externa y Pauta nunca
-  aplica; pedirlo cambiaría quién ve esos módulos.
+- **Resuelto el 8-oct-2026** (Erik: "arregla lo de Fijación Externa y
+  Pauta"): `usuario_roles` ya se consulta con `medio`, y el rol del módulo
+  tiene que estar en una fila de Ecovallas Impreso
+  (`abreModuloEcovallasImpreso` en `lib/helpers.ts`, ver §12.4).
 - **Queda abierto**: una acción que termina en segundo plano con Incidencias
   cerrada no actualiza la lista guardada hasta la siguiente carga con red;
   con el árbol Digital en copia pero sin filas para esa incidencia, Guardar
