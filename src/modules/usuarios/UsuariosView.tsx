@@ -57,6 +57,18 @@ function UsuariosView({ email = '' }: { email?: string }) {
   const [rolesFor, setRolesFor] = useState<string | null>(null);
   const [nr, setNr] = useState<NuevoRol>(ROL_VACIO);
   const [q, setQ] = useState('');
+  /** Unidad y área de cada entrada del catálogo: de ahí salen las áreas técnicas. */
+  const [areasCat, setAreasCat] = useState<
+    { unidad_negocio: string | null; area: string | null }[]
+  >([]);
+
+  useEffect(() => {
+    // Si no llega, el menú se queda con la lista fija, como antes.
+    sb.from('catalogo_incidencias')
+      .select('unidad_negocio, area')
+      .limit(5000)
+      .then(({ data }) => setAreasCat(data || []));
+  }, []);
 
   const cargar = async () => {
     setLoading(true);
@@ -215,7 +227,7 @@ function UsuariosView({ email = '' }: { email?: string }) {
   const opcionesDepto = esPersonalUsuario
     ? AREAS_USUARIOS
     : esPersonalTecnico
-      ? getAreasReparacionPorUnidad(nr.unidad)
+      ? getAreasReparacionPorUnidad(nr.unidad, areasCat)
       : [];
 
   return (

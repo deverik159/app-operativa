@@ -139,10 +139,30 @@ export const AREAS_REPARACION_POR_UNIDAD: Record<string, string[]> = {
   'BIOBOX PERÚ': ['Op. Bio Box', 'TI', 'Implementaciones', 'Digital', 'Iluminación'],
 };
 
-/** Áreas técnicas válidas para la unidad elegida. */
-export function getAreasReparacionPorUnidad(unidadNegocio?: string | null): string[] {
-  if (!unidadNegocio) return [...AREAS_RESP];
-  return AREAS_REPARACION_POR_UNIDAD[unidadNegocio.toUpperCase()] || [...AREAS_RESP];
+/**
+ * Áreas técnicas válidas para la unidad elegida (vacía = todas). La lista
+ * fija va primero; después, en orden alfabético, las que el catálogo asigna
+ * en esa unidad y no estaban en ella (Admin Comercial, Urban, Legal…). Sin
+ * las del catálogo, un técnico de esas áreas no se podía dar de alta y sus
+ * incidencias no las reparaba nadie (8-oct-2026).
+ */
+export function getAreasReparacionPorUnidad(
+  unidadNegocio?: string | null,
+  catalogo: { unidad_negocio: string | null; area: string | null }[] = []
+): string[] {
+  const fijas = unidadNegocio
+    ? AREAS_REPARACION_POR_UNIDAD[unidadNegocio.toUpperCase()] || AREAS_RESP
+    : AREAS_RESP;
+  const u = (unidadNegocio || '').toLowerCase();
+  const extra = new Set<string>();
+  for (const c of catalogo) {
+    const area = (c.area || '').trim();
+    if (!area || fijas.includes(area)) continue;
+    // En el catálogo conviven 'Biobox' y 'BioBox': sin mayúsculas.
+    if (u && (c.unidad_negocio || '').trim().toLowerCase() !== u) continue;
+    extra.add(area);
+  }
+  return [...fijas, ...[...extra].sort((a, b) => a.localeCompare(b, 'es'))];
 }
 
 // AREAS_ASIGNABLES se retiró en ago-2026 junto con la asignación a técnico.
