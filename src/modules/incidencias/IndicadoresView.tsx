@@ -81,6 +81,8 @@ const COLUMNAS_KPI = [
   'clave_medio', // caraIncidencia
   'direccion',
   'municipio',
+  'nombre_biobox', // "Sitios con más incidencias": nombre de la máquina o pantalla
+  'plaza', // "Por plaza"
 ].join(',');
 
 /** Lista de estatus terminales, en la sintaxis de `.not('estatus','in',…)`. */

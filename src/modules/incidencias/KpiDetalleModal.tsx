@@ -138,6 +138,16 @@ function KpiDetalleModal({
     setAutoAbierto(true);
   }, [orden, autoAbierto, grupos]);
 
+  /**
+   * Todo es de UN sitio (se abrió desde "Sitios con más incidencias"): el
+   * sitio ya va en el título, así que no se repite en cada renglón ni se
+   * ofrece el corte por sitio, que tendría un solo grupo (Erik, 8-oct-2026).
+   */
+  const unSoloSitio = useMemo(
+    () => items.length > 0 && new Set(items.map((i) => i.clave_sitio)).size === 1,
+    [items]
+  );
+
   const recortados = grupos.slice(0, TOPE_GRUPOS);
   const omitidos = grupos.length - recortados.length;
 
@@ -157,15 +167,17 @@ function KpiDetalleModal({
         </p>
 
         <div className="toolbar" style={{ marginBottom: 12 }}>
-          <button
-            className={'btn sm ' + (corte === 'sitio' ? '' : 'ghost')}
-            onClick={() => {
-              setCorte('sitio');
-              setAbierto('');
-            }}
-          >
-            <Ic i={MapPin} />Por sitio ({new Set(items.map((i) => i.clave_sitio)).size})
-          </button>
+          {!unSoloSitio && (
+            <button
+              className={'btn sm ' + (corte === 'sitio' ? '' : 'ghost')}
+              onClick={() => {
+                setCorte('sitio');
+                setAbierto('');
+              }}
+            >
+              <Ic i={MapPin} />Por sitio ({new Set(items.map((i) => i.clave_sitio)).size})
+            </button>
+          )}
           <button
             className={'btn sm ' + (corte === 'incidencia' ? '' : 'ghost')}
             onClick={() => {
@@ -285,12 +297,16 @@ function KpiDetalleModal({
                             {EST_LABEL[i.estatus] || i.estatus}
                           </span>
                           <span style={{ color: 'var(--muted)' }}>
-                            {corte === 'sitio'
-                              ? i.nombre_incidencia
-                              : i.clave_sitio}
-                            {i.lado || i.clave_medio
-                              ? ` · cara ${caraIncidencia(i)}`
-                              : ''}
+                            {[
+                              corte === 'sitio'
+                                ? i.nombre_incidencia
+                                : unSoloSitio
+                                  ? null
+                                  : i.clave_sitio,
+                              i.lado || i.clave_medio ? `cara ${caraIncidencia(i)}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
                           </span>
                           {/* La fecha iba suelta y no decía de qué era. Es la
                               de REPORTE, y ahora lo dice: en una lista donde

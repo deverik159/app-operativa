@@ -12,6 +12,7 @@ import {
   EST_LABEL,
   EST_COLOR,
   NIVEL_COLOR,
+  CLAVE_SIN_MAQUINA,
 } from '../../lib/constants';
 import {
   horasValidacionReparacion,
@@ -23,6 +24,7 @@ import {
 } from '../../lib/helpers';
 import { nombreDe } from '../../lib/nombres';
 import { diaCdmx } from '../../lib/fechasCdmx';
+import { nombreSitio, nombrePlaza } from '../../lib/claveSitio';
 import type { MapaNombres } from '../../lib/nombres';
 import { colorTono, pintarTexto } from '../../lib/tonos';
 import KpiDetalleModal from './KpiDetalleModal';
@@ -449,6 +451,37 @@ function KpiView({
     (i.unidad_negocio || '').trim().toLowerCase() === 'biobox'
       ? 'Máquina'
       : i.tipo_medio || i.medio
+  );
+
+  // Por plaza (Erik, 8-oct-2026): CM/EM de la clave, ya derivada por el
+  // trigger en la columna `plaza`.
+  const porPlaza = top((i) => nombrePlaza(i.plaza));
+
+  // Sitios con más incidencias (propuesta de Codex, 10-sep-2026; hecha el
+  // 8-oct-2026): la ubicación que necesita un arreglo de fondo y no otra
+  // reparación suelta. Se agrupa por CLAVE (es única) y se muestra como la
+  // conoce la operación (nombreSitio: la máquina o la pantalla por su
+  // nombre, el impreso como EV_3244, Vía Verde como COL/POR), con cuántas
+  // siguen abiertas. "Sin máquina" (MKT) no es un sitio y queda fuera.
+  const porSitio = useMemo(
+    () =>
+      top((i) =>
+        i.clave_sitio && i.clave_sitio !== CLAVE_SIN_MAQUINA ? i.clave_sitio : null
+      ).map((x) => {
+        const nombre = nombreSitio(
+          x.etiqueta,
+          x.filas.find((i) => i.nombre_biobox)?.nombre_biobox
+        );
+        const abiertasSitio = x.filas.filter(
+          (i) => !['cerrada', 'no_reparado'].includes(i.estatus)
+        ).length;
+        return {
+          ...x,
+          etiqueta: nombre + (abiertasSitio ? ` · ${abiertasSitio} abiertas` : ''),
+        };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [f]
   );
 
   // Quién repara más. La agrupación sigue siendo por CORREO —es la identidad
@@ -887,6 +920,44 @@ function KpiView({
           />
         </div>
       </div>
+
+      {porPlaza.length > 0 && (
+        <div className="row2" style={{ gap: 16, marginTop: 16 }}>
+          <div className="card">
+            <div className="l" style={{ marginBottom: 12 }}>
+              Por plaza
+            </div>
+            <Bars
+              data={porPlaza}
+              color="var(--accent2)"
+              etiquetaAncha
+              onAbrir={(x) => abrir(`Plaza: ${x.etiqueta}`, x.filas)}
+            />
+          </div>
+        </div>
+      )}
+
+      {porSitio.length > 0 && (
+        // A lo ancho: clave + nombre + abiertas no caben en media tarjeta.
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="l" style={{ marginBottom: 12 }}>
+            Sitios con más incidencias
+          </div>
+          <Bars
+            data={porSitio}
+            color="var(--hi)"
+            etiquetaAncha
+            onAbrir={(x) =>
+              // Por incidencia: en un sitio la pregunta es "qué le pasa".
+              abrir(
+                `Sitio: ${nombreSitio(x.clave, x.filas.find((i) => i.nombre_biobox)?.nombre_biobox)}`,
+                x.filas,
+                'incidencia'
+              )
+            }
+          />
+        </div>
+      )}
 
       <div style={{ color: 'var(--muted)', fontSize: 11, marginTop: 14 }}>
         Las semanas van de lunes a domingo, con la misma numeración que la
