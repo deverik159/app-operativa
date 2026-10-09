@@ -11,6 +11,10 @@
 // intervalo de refresco exista UNA sola vez, aunque lo consuman varios
 // componentes.
 //
+// EN VIVO (8-oct-2026): además del sondeo, un canal de Realtime sobre los
+// avisos del usuario recarga en cuanto llega uno; con el canal vivo el
+// sondeo baja a cada 5 min (ver INTERVALO_CON_REALTIME_MS).
+//
 // IMPORTANTE: los errores NO se tragan. Una consulta bloqueada por RLS
 // devuelve una lista vacía, que es indistinguible de "no hay nada nuevo".
 // Guardar el error y mostrarlo es la diferencia entre un bug diagnosticable
@@ -26,6 +30,7 @@
 // los tomaba por NUEVOS y recargaba las listas.
 // ============================================================
 import { useState, useEffect, useCallback } from 'react';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { sb } from './supabase';
 import { enLineaAhora, pareceSinRed } from './enLinea';
 import type { Notificacion } from '../types/db';
@@ -56,6 +61,16 @@ async function haySesionReal(): Promise<boolean> {
  * instantáneo lo sigue dando el push.
  */
 const INTERVALO_MS = 60000;
+
+/**
+ * Con el canal de Realtime vivo (8-oct-2026) cada aviso nuevo llega solo,
+ * así que el sondeo queda como red de seguridad. Si el canal se cae, se
+ * vuelve a INTERVALO_MS.
+ */
+const INTERVALO_CON_REALTIME_MS = 5 * 60000;
+
+/** Los avisos que llegan juntos (una captura de varias caras) se leen en UNA consulta. */
+const PAUSA_REALTIME_MS = 400;
 
 /** Cuántas notificaciones pendientes se traen para la campana. */
 const LIMITE = 60;
@@ -162,14 +177,75 @@ export function useNotificaciones(): UseNotificaciones {
 
   useEffect(() => {
     let t: ReturnType<typeof setInterval> | null = null;
+    let activo = false;
+    // Realtime: el canal de los avisos de ESTE usuario (filtro por correo en
+    // el servidor; la RLS además lo acota). Un aviso nuevo o marcado leído
+    // en otro dispositivo dispara la misma recarga del sondeo.
+    let canal: RealtimeChannel | null = null;
+    let abriendo = false;
+    let enVivo = false;
+    let pausa: ReturnType<typeof setTimeout> | null = null;
+
+    const programar = () => {
+      if (t) clearInterval(t);
+      t = setInterval(recargar, enVivo ? INTERVALO_CON_REALTIME_MS : INTERVALO_MS);
+    };
+    const alCambio = () => {
+      if (import.meta.env.DEV) console.debug('[notificaciones] realtime: llegó un cambio');
+      if (pausa) clearTimeout(pausa);
+      pausa = setTimeout(recargar, PAUSA_REALTIME_MS);
+    };
+    const abrirCanal = async () => {
+      if (canal || abriendo) return;
+      abriendo = true;
+      let em = '';
+      try {
+        em = ((await sb.auth.getSession()).data.session?.user?.email || '').toLowerCase();
+      } catch {
+        em = '';
+      }
+      abriendo = false;
+      // Sin sesión, o ya se ocultó la app mientras tanto: sigue el sondeo.
+      if (!em || !activo || canal) return;
+      const filtro = {
+        schema: 'public',
+        table: 'notificaciones',
+        filter: 'para_email=eq.' + em,
+      };
+      canal = sb
+        .channel('notifs-' + em)
+        .on('postgres_changes', { event: 'INSERT', ...filtro }, alCambio)
+        .on('postgres_changes', { event: 'UPDATE', ...filtro }, alCambio)
+        .subscribe((estado) => {
+          if (import.meta.env.DEV) console.debug('[notificaciones] realtime:', estado);
+          const antes = enVivo;
+          enVivo = estado === 'SUBSCRIBED';
+          if (!activo || enVivo === antes) return;
+          programar();
+          // Lo que haya llegado entre la primera consulta y la suscripción.
+          if (enVivo) recargar();
+        });
+    };
+    const cerrarCanal = () => {
+      if (canal) sb.removeChannel(canal);
+      canal = null;
+      enVivo = false;
+      if (pausa) clearTimeout(pausa);
+      pausa = null;
+    };
+
     const arrancar = () => {
-      if (t) return;
+      if (activo) return;
+      activo = true;
       recargar();
-      t = setInterval(recargar, INTERVALO_MS);
+      programar();
+      abrirCanal();
     };
     const detener = () => {
+      activo = false;
       if (t) clearInterval(t);
       t = null;
+      cerrarCanal();
     };
     // Se sondea solo a la vista Y con señal; al volver cualquiera de las
     // dos se consulta de inmediato (modo sin señal, 24-sep-2026).
