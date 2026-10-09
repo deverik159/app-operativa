@@ -23,6 +23,7 @@ import {
   useEffect,
   useCallback,
   useRef,
+  Fragment,
   Suspense,
   type ComponentType,
 } from 'react';
@@ -780,7 +781,33 @@ type NavItem = {
   t: string;
   badge?: number;
   action?: () => void;
+  /** Sección del menú lateral (Erik, 8-oct-2026). Ver TITULOS_GRUPO. */
+  grupo?: GrupoNav;
 };
+
+/**
+ * Secciones del menú lateral (Erik, 8-oct-2026; nace de los prototipos del
+ * rediseño Precisión). `nav` ya va en este orden, así que agrupar no mueve
+ * nada: en el celular los 4 botones de abajo siguen siendo los mismos.
+ */
+type GrupoNav = 'incidencias' | 'indicadores' | 'comercial' | 'campo' | 'admin';
+const TITULOS_GRUPO: Record<GrupoNav, string> = {
+  incidencias: 'Incidencias',
+  indicadores: 'Indicadores',
+  comercial: 'Comercial',
+  campo: 'Campo',
+  admin: 'Administración',
+};
+
+/**
+ * ¿Se pintan los títulos de sección? Solo si la persona ve 2 o más
+ * secciones Y un menú de 5 o más entradas: a un reportante (Nueva, Mi
+ * bandeja, Indicadores) los títulos le estorbarían más de lo que ordenan.
+ */
+function conTitulosDeGrupo(nav: NavItem[]): boolean {
+  const grupos = new Set(nav.map((n) => n.grupo).filter(Boolean));
+  return grupos.size >= 2 && nav.length >= 5;
+}
 
 // --- App principal (con sesión activa) ---
 function Main({
@@ -1461,6 +1488,7 @@ function Main({
       k: 'nueva',
       ic: '➕',
       t: 'Nueva',
+      grupo: 'incidencias',
       action: () => {
         // Si no estamos en una pestaña de incidencias hay que ir a una:
         // el modal lo renderiza IncidenciasView (es quien sabe insertar).
@@ -1494,6 +1522,7 @@ function Main({
           ? 'Mis pendientes'
           : 'Mi bandeja',
       badge: bandejaCount,
+      grupo: 'incidencias',
     },
     // El técnico también entra a Incidencias: ahí vive su HISTORIAL — las
     // reparadas y cerradas de sus áreas, que la bandeja de pendientes ya no
@@ -1507,10 +1536,12 @@ function Main({
       k: 'todas',
       ic: '🗂️',
       t: 'Incidencias',
+      grupo: 'incidencias',
     },
     // Indicadores no es del monitorista puro ni de comercial/pautas puros:
     // mide reparación y carga de áreas, trabajo que no es el suyo.
-    !esMonitoristaPuro && !esBitacoraPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores' },
+    !esMonitoristaPuro &&
+      !esBitacoraPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores', grupo: 'indicadores' },
     // Disponibilidad nació para comercial cuando aún no tenía rol propio;
     // desde el 22-sep-2026 el rol `comercial` existe (Bitácora VV) y entra
     // por derecho propio. Viewer sigue: es el rol de quien solo consulta.
@@ -1518,6 +1549,7 @@ function Main({
       k: 'disponibilidad',
       ic: '🔎',
       t: 'Disponibilidad',
+      grupo: 'comercial',
     },
     // Bitácora de Vía Verde: comercial captura campañas y cambios de
     // versión; pautas los programa. Sustituye el Excel "BITACORA <MES>"
@@ -1526,6 +1558,7 @@ function Main({
       k: 'bitacora_vv',
       ic: '🛣️',
       t: 'Bitácora VV',
+      grupo: 'comercial',
     },
     // Fijación Externa es operación de Ecovallas Impreso. El coordinador
     // ya no la ve: gestiona pauta y rutas, la fijación es de los técnicos
@@ -1535,11 +1568,13 @@ function Main({
       k: 'fijacion_externa',
       ic: '📎',
       t: 'Fijación Externa',
+      grupo: 'campo',
     },
     (has('manager') || has('coordinador')) && {
       k: 'rutas',
       ic: '🗺️',
       t: 'Rutas de Monitoreo',
+      grupo: 'campo',
     },
     // Trabajo de campo sobre la pauta: del MONITORISTA (rol propio desde
     // el 21-sep-2026) y del fijador, que recorre las mismas rutas. El
@@ -1552,6 +1587,7 @@ function Main({
       k: 'pauta',
       ic: '📋',
       t: 'Pauta y Monitoreo',
+      grupo: 'campo',
     },
     // Mis rutas (rutas, 5-oct-2026): las rutas asignadas al monitorista que
     // NO son de Ecovallas Impreso (Biobox, Vía Verde, pantallas…), con mapa,
@@ -1561,6 +1597,7 @@ function Main({
       k: 'mis_rutas',
       ic: '🧭',
       t: 'Mis rutas',
+      grupo: 'campo',
     },
     // Revisión de máquinas Biobox. La lista es a propósito más amplia que la
     // de Pauta: además de quien administra y quien repara, revisa el
@@ -1575,10 +1612,11 @@ function Main({
         k: 'biobox',
         ic: '♻️',
         t: 'Máquinas Biobox',
+        grupo: 'campo',
       },
     // Usuarios NO usa has(): solo el manager real, no por comodín.
     // La RLS (ur_manager_all / usr_write) exige manager de todos modos.
-    misRoles.includes('manager') && { k: 'usuarios', ic: '👥', t: 'Usuarios' },
+    misRoles.includes('manager') && { k: 'usuarios', ic: '👥', t: 'Usuarios', grupo: 'admin' },
   ].filter(Boolean) as NavItem[];
 
   // ---- Rutas por URL (auditoría primer mes, 24-sep-2026) ----------------
@@ -1787,6 +1825,7 @@ function Main({
    * Con 5 o menos caben todos; con más, los 4 primeros y el resto en "Más".
    */
   const enBarra = nav.length > 5 ? 4 : nav.length;
+  const titulosGrupo = conTitulosDeGrupo(nav);
 
   const recargarTodo = () => {
     // Primero la sesión: las recargas de abajo esperan su getSession y, con
@@ -1936,24 +1975,32 @@ function Main({
       <div className="layout">
         <div className="side">
           {nav.map((n, i) => (
-            <div
-              key={n.k}
-              className={
-                'nav-item' +
-                (tab === n.k ? ' active' : '') +
-                // En celular, lo que no cabe en la barra se va a "Más"
-                // (MenuMas). En escritorio .nav-extra no cambia nada.
-                (i >= enBarra ? ' nav-extra' : '')
-              }
-              onClick={() => irANav(n)}
-            >
-              <IconoNav k={n.k} emoji={n.ic} />
-              <span className="nav-t">{n.t}</span>
-              <span className="nav-t-corto">{tituloCorto(n.k, n.t)}</span>
-              {!!n.badge && n.badge > 0 && (
-                <span className="badge">{n.badge}</span>
+            <Fragment key={n.k}>
+              {/* Título de sección al empezar un grupo. Solo en escritorio:
+                  en el celular la barra de abajo no lleva títulos (CSS). */}
+              {titulosGrupo && n.grupo && n.grupo !== nav[i - 1]?.grupo && (
+                <div className={'nav-grupo' + (i === 0 ? ' primero' : '')}>
+                  {TITULOS_GRUPO[n.grupo]}
+                </div>
               )}
-            </div>
+              <div
+                className={
+                  'nav-item' +
+                  (tab === n.k ? ' active' : '') +
+                  // En celular, lo que no cabe en la barra se va a "Más"
+                  // (MenuMas). En escritorio .nav-extra no cambia nada.
+                  (i >= enBarra ? ' nav-extra' : '')
+                }
+                onClick={() => irANav(n)}
+              >
+                <IconoNav k={n.k} emoji={n.ic} />
+                <span className="nav-t">{n.t}</span>
+                <span className="nav-t-corto">{tituloCorto(n.k, n.t)}</span>
+                {!!n.badge && n.badge > 0 && (
+                  <span className="badge">{n.badge}</span>
+                )}
+              </div>
+            </Fragment>
           ))}
           {enBarra < nav.length && (
             <MenuMas

@@ -120,6 +120,10 @@ input[type="checkbox"]:focus,input[type="radio"]:focus{box-shadow:none}
 .nav-item.active{background:var(--activo-fondo);box-shadow:none}
 .nav-item.active .nav-ic{color:var(--accent-txt)}
 .nav-item .badge{color:var(--sobre-acento);font-weight:700}
+/* Títulos de sección del menú (Erik, 8-oct-2026; App.tsx TITULOS_GRUPO). */
+.nav-grupo{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);padding:16px 12px 4px}
+.nav-grupo.primero{padding-top:2px}
 
 /* Celular: la barra de abajo conserva TODO lo de index.css (fija, el hueco
    del gesto de inicio, el scroll lateral); aquí solo la piel. */
@@ -139,6 +143,8 @@ input[type="checkbox"]:focus,input[type="radio"]:focus{box-shadow:none}
   .side .nav-t-corto{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .side .nav-extra{display:none}
   .side .nav-mas{display:flex}
+  /* La barra de abajo no lleva títulos de sección. */
+  .side .nav-grupo{display:none}
   /* El globito, centrado sobre el ícono sin importar el ancho del botón. */
   .side .nav-item .badge{left:50%;transform:translate(4px,-4px);top:2px}
   .nav-item .badge{box-shadow:0 0 0 2px var(--panel)}
