@@ -1398,6 +1398,19 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     );
   }, [catCrudo, arbolNombres, caras, selCaras, un]);
 
+  /**
+   * El árbol no cargó y la lista lo necesitaba (Biobox, o alguna cara
+   * digital marcada): la de arriba cae al catálogo tradicional y lo
+   * capturado no sale del árbol. Antes pasaba sin aviso (8-oct-2026).
+   */
+  const sinArbolDigital = useMemo(() => {
+    if (arbolEnVuelo || arbolNombres.length > 0) return false;
+    if (esUnidadBiobox(un)) return true;
+    const marcadas = caras.filter((c) => selCaras.includes(c.vendor_face_id));
+    const base = marcadas.length ? marcadas : caras;
+    return base.some((c) => (c.tipo_medio || '').trim().toLowerCase() === 'digital');
+  }, [arbolEnVuelo, arbolNombres, caras, selCaras, un]);
+
   const catOpts = cat.opciones;
 
   /** Lo que se ve en el desplegable tras aplicar el buscador. */
@@ -2323,6 +2336,24 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                     disabled={catEnVuelo}
                   >
                     {catEnVuelo ? 'Cargando…' : 'Reintentar'}
+                  </button>
+                </div>
+              )}
+              {sinArbolDigital && (
+                <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
+                  ⚠️{' '}
+                  {haySenal()
+                    ? 'No se pudo cargar el árbol de Digital'
+                    : 'Sin señal, y este teléfono no tiene copia del árbol de Digital'}
+                  : la lista es el catálogo general, y el técnico tendrá que
+                  clasificar la falla al reparar.{' '}
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    onClick={() => setReintentoArbol((n) => n + 1)}
+                    disabled={arbolEnVuelo}
+                  >
+                    {arbolEnVuelo ? 'Cargando…' : 'Reintentar'}
                   </button>
                 </div>
               )}
