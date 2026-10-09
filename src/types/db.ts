@@ -171,6 +171,8 @@ export interface Incidencia {
   fecha_reparacion: string | null;
   repaired_by_email: string | null;
   repaired_at: string | null;
+  /** Cuándo pasó a 'cerrada'. Lo pone el trigger inc_marca_cierre (8-oct-2026). */
+  cerrada_en?: string | null;
   diagnostico: string | null;
   detalle_reparacion: string | null;
   /** Clasificación técnica elegida por Digital; no sustituye nombre_incidencia. */

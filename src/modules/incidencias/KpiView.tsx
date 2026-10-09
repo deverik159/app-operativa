@@ -40,6 +40,21 @@ const TOP_N = 8;
  */
 const MAX_HORAS_REPARACION = 24 * 120;
 
+/** Tramos de "Abiertas por antigüedad": etiqueta y hasta cuántas horas. */
+const TRAMOS_ANTIGUEDAD: [string, number][] = [
+  ['Menos de 1 día', 24],
+  ['1 a 3 días', 72],
+  ['3 a 7 días', 168],
+  ['7 a 30 días', 720],
+  ['Más de 30 días', Infinity],
+];
+
+/** Cuántas semanas enseña la tendencia (las más recientes del periodo). */
+const SEMANAS_TENDENCIA = 12;
+
+/** Una falla que vuelve antes de esto cuenta como reincidencia. */
+const VENTANA_REINCIDENCIA_MS = 30 * 24 * 3600000;
+
 /** Umbrales de color del % de cumplimiento de SLA. */
 const SLA_BIEN = 80;
 const SLA_REGULAR = 50;
@@ -108,11 +123,13 @@ function Bars({
               : 'minmax(0, clamp(110px, 38%, 150px)) 1fr auto',
             alignItems: 'center',
             gap: 10,
-            fontSize: 13,
             background: 'none',
             border: 'none',
             color: 'inherit',
             font: 'inherit',
+            // DESPUÉS de `font`: el atajo `font: inherit` reponía el tamaño
+            // heredado (16 px) y el 13 de antes no se aplicaba (8-oct-2026).
+            fontSize: 13,
             padding: 0,
             textAlign: 'left',
             cursor: onAbrir ? 'pointer' : 'default',
@@ -136,15 +153,15 @@ function Bars({
           <div
             style={{
               background: 'var(--panel2)',
-              borderRadius: 8,
-              height: 15,
+              borderRadius: 4,
+              height: 9,
               overflow: 'hidden',
             }}
           >
             <div
               style={{
                 height: '100%',
-                borderRadius: 8,
+                borderRadius: 4,
                 background: color,
                 width: (f.n / max) * 100 + '%',
               }}
@@ -152,6 +169,188 @@ function Bars({
           </div>
           <span style={{ textAlign: 'right' }}>{f.n}</span>
         </button>
+      ))}
+    </div>
+  );
+}
+
+/** Tarjeta con título para un ranking o gráfica del panel. */
+function TarjetaBarras({
+  titulo,
+  style,
+  children,
+}: {
+  titulo: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="card" style={style}>
+      <div className="l" style={{ marginBottom: 12 }}>
+        {titulo}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Acomoda tarjetas de media pantalla de dos en dos, en el orden dado. La que
+ * se queda sin pareja (porque otra no tiene datos y no se pinta) va a lo
+ * ancho: media tarjeta sola dejaba un hueco al lado (Erik, 8-oct-2026).
+ */
+function Rejilla({ tarjetas }: { tarjetas: (React.ReactElement | false)[] }) {
+  const visibles = tarjetas.filter(Boolean) as React.ReactElement[];
+  const pares: React.ReactElement[][] = [];
+  for (let i = 0; i < visibles.length; i += 2) pares.push(visibles.slice(i, i + 2));
+  return (
+    <>
+      {pares.map((par, i) =>
+        par.length === 2 ? (
+          <div key={String(par[0].key)} className="row2" style={{ gap: 16, marginTop: i ? 16 : 0 }}>
+            {par}
+          </div>
+        ) : (
+          <div key={String(par[0].key)} style={{ marginTop: i ? 16 : 0 }}>
+            {par}
+          </div>
+        )
+      )}
+    </>
+  );
+}
+
+/** Una semana de la tendencia: lo que se reportó y lo que se reparó en ella. */
+type SemanaTendencia = { sem: number; rep: Incidencia[]; arr: Incidencia[] };
+
+/**
+ * Tendencia por semana (Erik, 8-oct-2026): reportadas contra reparadas, dos
+ * barras finas por semana en la MISMA escala (un solo eje). Colores
+ * --accent2 y --serie2, validados con la guía de visualización en los dos
+ * temas; la leyenda y el número de cada barra hacen que no dependa solo
+ * del color. Cada barra abre sus incidencias.
+ */
+function BarsSemanas({
+  data,
+  onAbrir,
+}: {
+  data: SemanaTendencia[];
+  onAbrir: (titulo: string, filas: Incidencia[]) => void;
+}) {
+  if (data.length === 0)
+    return <div style={{ color: 'var(--muted)', fontSize: 12 }}>Sin datos.</div>;
+  const max = Math.max(...data.map((d) => Math.max(d.rep.length, d.arr.length)), 1);
+  const serie = (
+    filas: Incidencia[],
+    color: string,
+    titulo: string
+  ) => (
+    <button
+      onClick={() => onAbrir(titulo, filas)}
+      title={`${titulo}: ${filas.length}`}
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr auto',
+        alignItems: 'center',
+        gap: 8,
+        background: 'none',
+        border: 'none',
+        padding: 0,
+        color: 'inherit',
+        font: 'inherit',
+        cursor: 'pointer',
+      }}
+    >
+      <div style={{ background: 'var(--panel2)', borderRadius: 4, height: 9, overflow: 'hidden' }}>
+        <div
+          style={{
+            height: '100%',
+            borderRadius: 4,
+            background: color,
+            width: (filas.length / max) * 100 + '%',
+          }}
+        />
+      </div>
+      <span style={{ fontSize: 13, minWidth: 18, textAlign: 'right' }}>{filas.length}</span>
+    </button>
+  );
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: 'var(--accent2)' }} />
+          Reportadas
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: 'var(--serie2)' }} />
+          Reparadas
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {data.map((d) => (
+          <div
+            key={d.sem}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, clamp(120px, 34%, 180px)) 1fr',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 13,
+            }}
+          >
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {etiquetaSemana(d.sem)}
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {serie(d.rep, 'var(--accent2)', `Reportadas · Sem ${d.sem}`)}
+              {serie(d.arr, 'var(--serie2)', `Reparadas · Sem ${d.sem}`)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Una etapa del ciclo con su promedio en horas y cuántas se midieron. */
+type Etapa = { etiqueta: string; h: number | null; n: number };
+
+/**
+ * Tiempo por etapa (Erik, 8-oct-2026): promedio de cada tramo del ciclo,
+ * en la misma escala para ver dónde se va el tiempo. No se abre: detrás de
+ * un promedio no hay un conjunto (ver Card).
+ */
+function Etapas({ data }: { data: Etapa[] }) {
+  const max = Math.max(...data.map((e) => e.h ?? 0), 1);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {data.map((e) => (
+        <div
+          key={e.etiqueta}
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, clamp(130px, 45%, 190px)) 1fr auto',
+            alignItems: 'center',
+            gap: 10,
+            fontSize: 13,
+          }}
+        >
+          <span>{e.etiqueta}</span>
+          <div style={{ background: 'var(--panel2)', borderRadius: 4, height: 9, overflow: 'hidden' }}>
+            <div
+              style={{
+                height: '100%',
+                borderRadius: 4,
+                background: 'var(--accent2)',
+                width: ((e.h ?? 0) / max) * 100 + '%',
+              }}
+            />
+          </div>
+          <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+            {e.h == null ? '—' : fmtH(e.h)}
+            <span style={{ color: 'var(--muted)' }}> ({e.n})</span>
+          </span>
+        </div>
       ))}
     </div>
   );
@@ -453,6 +652,110 @@ function KpiView({
       : i.tipo_medio || i.medio
   );
 
+  // Abiertas por antigüedad (Erik, 8-oct-2026): qué tan viejo es lo que
+  // sigue pendiente, desde el reporte. Mismas "abiertas" que la tarjeta de
+  // arriba. Los tramos van en su orden natural, no por cantidad.
+  const porAntiguedad = useMemo((): Fila[] => {
+    const grupos = TRAMOS_ANTIGUEDAD.map(([etiqueta]) => ({
+      etiqueta,
+      n: 0,
+      filas: [] as Incidencia[],
+      clave: etiqueta,
+    }));
+    const ahora = Date.now();
+    f.forEach((i) => {
+      if (['cerrada', 'no_reparado'].includes(i.estatus) || !i.fecha_reporte) return;
+      const h = (ahora - Date.parse(i.fecha_reporte)) / 3600000;
+      const k = TRAMOS_ANTIGUEDAD.findIndex(([, hasta]) => h < hasta);
+      grupos[k < 0 ? grupos.length - 1 : k].filas.push(i);
+    });
+    grupos.forEach((g) => (g.n = g.filas.length));
+    return grupos.some((g) => g.n) ? grupos : [];
+  }, [f]);
+
+  // Tendencia por semana (Erik, 8-oct-2026): reportadas por la semana de su
+  // reporte y reparadas por la de su reparación, las dos con el día de CDMX.
+  // Son las del periodo y filtros de arriba; se muestran las últimas.
+  const tendencia = useMemo((): SemanaTendencia[] => {
+    const m = new Map<number, SemanaTendencia>();
+    const de = (sem: number) => {
+      let x = m.get(sem);
+      if (!x) m.set(sem, (x = { sem, rep: [], arr: [] }));
+      return x;
+    };
+    f.forEach((i) => {
+      const sr = i.fecha_reporte ? semanaDe(diaCdmx(i.fecha_reporte)) : null;
+      if (sr != null) de(sr).rep.push(i);
+      const sa = i.repaired_at ? semanaDe(diaCdmx(i.repaired_at)) : null;
+      if (sa != null) de(sa).arr.push(i);
+    });
+    return [...m.values()].sort((a, b) => a.sem - b.sem).slice(-SEMANAS_TENDENCIA);
+  }, [f]);
+
+  // Reincidencias (Erik, 8-oct-2026): la misma falla en el mismo sitio y la
+  // misma cara (o lado) que vuelve a reportarse antes de 30 días de la
+  // anterior. Cuenta las incidencias de esa cadena; la etiqueta es como se
+  // conoce el sitio (nombreSitio) más la falla.
+  const reincidencias = useMemo((): Fila[] => {
+    const porLlave = new Map<string, Incidencia[]>();
+    f.forEach((i) => {
+      if (
+        !i.clave_sitio ||
+        i.clave_sitio === CLAVE_SIN_MAQUINA ||
+        !i.nombre_incidencia ||
+        !i.fecha_reporte
+      )
+        return;
+      const k = [i.clave_sitio, i.clave_medio || i.lado || '', i.nombre_incidencia].join('|');
+      const lista = porLlave.get(k);
+      if (lista) lista.push(i);
+      else porLlave.set(k, [i]);
+    });
+    const out: Fila[] = [];
+    porLlave.forEach((lista, k) => {
+      if (lista.length < 2) return;
+      lista.sort((a, b) => Date.parse(a.fecha_reporte!) - Date.parse(b.fecha_reporte!));
+      const enCadena = new Set<Incidencia>();
+      for (let j = 1; j < lista.length; j++) {
+        const dif = Date.parse(lista[j].fecha_reporte!) - Date.parse(lista[j - 1].fecha_reporte!);
+        if (dif <= VENTANA_REINCIDENCIA_MS) {
+          enCadena.add(lista[j - 1]);
+          enCadena.add(lista[j]);
+        }
+      }
+      if (!enCadena.size) return;
+      const una = lista[0];
+      const sitio = nombreSitio(una.clave_sitio, lista.find((i) => i.nombre_biobox)?.nombre_biobox);
+      out.push({
+        etiqueta: `${sitio} · ${una.nombre_incidencia}`,
+        n: enCadena.size,
+        filas: [...enCadena],
+        clave: k,
+      });
+    });
+    return out.sort((a, b) => b.n - a.n).slice(0, TOP_N);
+  }, [f]);
+
+  // Tiempo por etapa (Erik, 8-oct-2026). Cada tramo se promedia con las que
+  // lo tienen completo; "reparación → cierre" usa cerrada_en, que la base
+  // guarda desde el 8-oct-2026 (las cerradas antes se rellenaron con la hora
+  // de su aviso de cierre).
+  const etapas = useMemo((): Etapa[] => {
+    const horas = (a?: string | null, b?: string | null) =>
+      a && b ? (Date.parse(b) - Date.parse(a)) / 3600000 : null;
+    const valida = (h: number | null): h is number =>
+      h != null && h >= 0 && h < MAX_HORAS_REPARACION;
+    const prom = (hs: number[]) => (hs.length ? hs.reduce((x, y) => x + y, 0) / hs.length : null);
+    const aValidar = f.map((i) => horas(i.fecha_reporte, i.validator_at)).filter(valida);
+    const aReparar = f.map(horasValidacionReparacion).filter(valida);
+    const aCerrar = f.map((i) => horas(i.repaired_at, i.cerrada_en)).filter(valida);
+    return [
+      { etiqueta: 'Reporte → validación', h: prom(aValidar), n: aValidar.length },
+      { etiqueta: 'Validación → reparación', h: prom(aReparar), n: aReparar.length },
+      { etiqueta: 'Reparación → cierre', h: prom(aCerrar), n: aCerrar.length },
+    ];
+  }, [f]);
+
   // Por plaza (Erik, 8-oct-2026): CM/EM de la clave, ya derivada por el
   // trigger en la columna `plaza`.
   const porPlaza = top((i) => nombrePlaza(i.plaza));
@@ -651,7 +954,9 @@ function KpiView({
         </select>
       </div>
 
-      <div className="cards">
+      {/* 10 tarjetas: 5 columnas en escritorio y 2 en el celular, para que
+          ninguna fila quede a medias (con 4 columnas sobraban 2 huecos). */}
+      <div className="cards cinco">
         <Card
           n={total}
           l="Incidencias"
@@ -781,168 +1086,143 @@ function KpiView({
         />
       </div>
 
-      <div className="row2" style={{ gap: 16 }}>
-        <div className="card">
-          <div className="l" style={{ marginBottom: 12 }}>
-            Por unidad de negocio
-          </div>
-          <Bars
-            data={porUN}
-            color="var(--accent2)"
-            onAbrir={(x) => abrir(`Unidad: ${x.etiqueta}`, x.filas)}
-          />
-        </div>
-        <div className="card">
-          <div className="l" style={{ marginBottom: 12 }}>
-            Top incidencias
-          </div>
-          <Bars
-            data={topInc}
-            color="var(--hi)"
-            onAbrir={(x) => abrir(x.etiqueta, x.filas)}
-          />
-        </div>
-      </div>
-
-      <div className="row2" style={{ gap: 16, marginTop: 16 }}>
-        <div className="card">
-          <div className="l" style={{ marginBottom: 12 }}>
-            Carga por área responsable
-          </div>
-          <Bars
-            data={porArea}
-            color="var(--warn)"
-            onAbrir={(x) =>
-              // Abre en el corte POR INCIDENCIA: la pregunta al hacer clic
-              // en un área es "qué me está llegando", no "de qué sitio".
-              abrir(`Área: ${x.etiqueta}`, x.filas, 'incidencia')
-            }
-          />
-        </div>
-        {incidenciasDigital.length > 0 && (
-          <div className="card">
-            <div className="l" style={{ marginBottom: 12 }}>
-              Clasificación técnica Digital
-            </div>
+      {/* Tarjetas de media pantalla, de dos en dos y en parejas de altura
+          parecida (Erik, 8-oct-2026: las de 3 renglones junto a las de 8
+          dejaban huecos). Reemplaza el orden del 10-sep-2026 solo en eso:
+          unidad y plaza; top incidencias y carga por área; Digital y
+          mueble; quién repara y lado; quién reporta (app y MKT); vía y tipo
+          de medio; tiempos y antigüedad. La que se queda sin pareja va a lo
+          ancho (ver Rejilla). */}
+      <Rejilla
+        tarjetas={[
+          <TarjetaBarras key="unidad" titulo="Por unidad de negocio">
             <Bars
-              data={topIncDigital}
+              data={porUN}
               color="var(--accent2)"
+              onAbrir={(x) => abrir(`Unidad: ${x.etiqueta}`, x.filas)}
+            />
+          </TarjetaBarras>,
+          porPlaza.length > 0 && (
+            <TarjetaBarras key="plaza" titulo="Por plaza">
+              <Bars
+                data={porPlaza}
+                color="var(--accent2)"
+                etiquetaAncha
+                onAbrir={(x) => abrir(`Plaza: ${x.etiqueta}`, x.filas)}
+              />
+            </TarjetaBarras>
+          ),
+          <TarjetaBarras key="top" titulo="Top incidencias">
+            <Bars data={topInc} color="var(--hi)" onAbrir={(x) => abrir(x.etiqueta, x.filas)} />
+          </TarjetaBarras>,
+          <TarjetaBarras key="area" titulo="Carga por área responsable">
+            <Bars
+              data={porArea}
+              color="var(--warn)"
               onAbrir={(x) =>
-                abrir(`Digital: ${x.etiqueta}`, x.filas, 'incidencia')
+                // Abre en el corte POR INCIDENCIA: la pregunta al hacer clic
+                // en un área es "qué me está llegando", no "de qué sitio".
+                abrir(`Área: ${x.etiqueta}`, x.filas, 'incidencia')
               }
             />
-          </div>
-        )}
-      </div>
-
-      <div className="row2" style={{ gap: 16, marginTop: 16 }}>
-        <div className="card">
-          <div className="l" style={{ marginBottom: 12 }}>
-            Quién repara más
-          </div>
-          <Bars
-            data={porTecnico}
-            color="var(--ok)"
-            onAbrir={(x) => abrir(`Reparadas por ${x.etiqueta}`, x.filas)}
-          />
-        </div>
-        <div className="card">
-          <div className="l" style={{ marginBottom: 12 }}>
-            Mueble más afectado
-          </div>
-          <Bars
-            data={porMueble}
-            color="var(--purple)"
-            onAbrir={(x) => abrir(`Mueble: ${x.etiqueta}`, x.filas)}
-          />
-        </div>
-      </div>
-
-      <div className="row2" style={{ gap: 16, marginTop: 16 }}>
-        <div className="card">
-          <div className="l" style={{ marginBottom: 12 }}>
-            Usuarios que reportan
-          </div>
-          <Bars
-            data={porReportante}
-            color="var(--accent2)"
-            onAbrir={(x) => abrir(`Reportadas por ${x.etiqueta}`, x.filas)}
-          />
-        </div>
-        {porSolicitante.length > 0 && (
-          <div className="card">
-            <div className="l" style={{ marginBottom: 12 }}>
-              Usuarios que más reportan (correo, MKT)
-            </div>
+          </TarjetaBarras>,
+          incidenciasDigital.length > 0 && (
+            <TarjetaBarras key="digital" titulo="Clasificación técnica Digital">
+              <Bars
+                data={topIncDigital}
+                color="var(--accent2)"
+                onAbrir={(x) => abrir(`Digital: ${x.etiqueta}`, x.filas, 'incidencia')}
+              />
+            </TarjetaBarras>
+          ),
+          <TarjetaBarras key="mueble" titulo="Mueble más afectado">
             <Bars
-              data={porSolicitante}
-              color="var(--warn)"
-              etiquetaAncha
-              onAbrir={(x) => abrir(`Solicitadas por ${x.etiqueta}`, x.filas)}
-            />
-          </div>
-        )}
-        {porVia.length > 0 && (
-          <div className="card">
-            <div className="l" style={{ marginBottom: 12 }}>
-              Vía de reporte (MKT)
-            </div>
-            <Bars
-              data={porVia}
+              data={porMueble}
               color="var(--purple)"
-              onAbrir={(x) => abrir(`Vía de reporte: ${x.etiqueta}`, x.filas)}
+              onAbrir={(x) => abrir(`Mueble: ${x.etiqueta}`, x.filas)}
             />
-          </div>
-        )}
-      </div>
-
-      <div className="row2" style={{ gap: 16, marginTop: 16 }}>
-        {porLado.length > 0 && (
-          <div className="card">
-            <div className="l" style={{ marginBottom: 12 }}>
-              Lado de la cara
-            </div>
+          </TarjetaBarras>,
+          <TarjetaBarras key="tecnico" titulo="Quién repara más">
             <Bars
-              data={porLado}
-              color="var(--purple)"
-              onAbrir={(x) => abrir(`Lado ${x.etiqueta}`, x.filas)}
+              data={porTecnico}
+              color="var(--ok)"
+              onAbrir={(x) => abrir(`Reparadas por ${x.etiqueta}`, x.filas)}
             />
-          </div>
-        )}
-        <div className="card">
-          <div className="l" style={{ marginBottom: 12 }}>
-            Tipo de medio más afectado
-          </div>
-          <Bars
-            data={porTipoMedio}
-            color="var(--accent2)"
-            onAbrir={(x) => abrir(`Tipo de medio: ${x.etiqueta}`, x.filas)}
-          />
-        </div>
-      </div>
-
-      {porPlaza.length > 0 && (
-        <div className="row2" style={{ gap: 16, marginTop: 16 }}>
-          <div className="card">
-            <div className="l" style={{ marginBottom: 12 }}>
-              Por plaza
-            </div>
+          </TarjetaBarras>,
+          porLado.length > 0 && (
+            <TarjetaBarras key="lado" titulo="Lado de la cara">
+              <Bars
+                data={porLado}
+                color="var(--purple)"
+                onAbrir={(x) => abrir(`Lado ${x.etiqueta}`, x.filas)}
+              />
+            </TarjetaBarras>
+          ),
+          <TarjetaBarras key="reportante" titulo="Usuarios que reportan">
             <Bars
-              data={porPlaza}
+              data={porReportante}
               color="var(--accent2)"
-              etiquetaAncha
-              onAbrir={(x) => abrir(`Plaza: ${x.etiqueta}`, x.filas)}
+              onAbrir={(x) => abrir(`Reportadas por ${x.etiqueta}`, x.filas)}
             />
-          </div>
-        </div>
-      )}
+          </TarjetaBarras>,
+          porSolicitante.length > 0 && (
+            <TarjetaBarras key="solicitante" titulo="Usuarios que más reportan (correo, MKT)">
+              <Bars
+                data={porSolicitante}
+                color="var(--warn)"
+                etiquetaAncha
+                onAbrir={(x) => abrir(`Solicitadas por ${x.etiqueta}`, x.filas)}
+              />
+            </TarjetaBarras>
+          ),
+          porVia.length > 0 && (
+            <TarjetaBarras key="via" titulo="Vía de reporte (MKT)">
+              <Bars
+                data={porVia}
+                color="var(--purple)"
+                onAbrir={(x) => abrir(`Vía de reporte: ${x.etiqueta}`, x.filas)}
+              />
+            </TarjetaBarras>
+          ),
+          <TarjetaBarras key="tipo-medio" titulo="Tipo de medio más afectado">
+            <Bars
+              data={porTipoMedio}
+              color="var(--accent2)"
+              onAbrir={(x) => abrir(`Tipo de medio: ${x.etiqueta}`, x.filas)}
+            />
+          </TarjetaBarras>,
+          <TarjetaBarras key="etapas" titulo="Tiempo por etapa (promedio)">
+            <Etapas data={etapas} />
+          </TarjetaBarras>,
+          <TarjetaBarras key="antiguedad" titulo="Abiertas por antigüedad">
+            <Bars
+              data={porAntiguedad}
+              color="var(--accent2)"
+              onAbrir={(x) => abrir(`Abiertas: ${x.etiqueta.toLowerCase()}`, x.filas, 'incidencia')}
+            />
+          </TarjetaBarras>,
+        ]}
+      />
+
+      {/* A lo ancho: semanas, y etiquetas de sitio + falla que no caben en media tarjeta. */}
+      <TarjetaBarras titulo="Tendencia por semana" style={{ marginTop: 16 }}>
+        <BarsSemanas data={tendencia} onAbrir={(t, filas) => abrir(t, filas, 'incidencia')} />
+      </TarjetaBarras>
+
+      <TarjetaBarras
+        titulo="Reincidencias (misma falla, sitio y cara en menos de 30 días)"
+        style={{ marginTop: 16 }}
+      >
+        <Bars
+          data={reincidencias}
+          color="var(--hi)"
+          etiquetaAncha
+          onAbrir={(x) => abrir(`Reincidencia: ${x.etiqueta}`, x.filas, 'incidencia')}
+        />
+      </TarjetaBarras>
 
       {porSitio.length > 0 && (
-        // A lo ancho: clave + nombre + abiertas no caben en media tarjeta.
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="l" style={{ marginBottom: 12 }}>
-            Sitios con más incidencias
-          </div>
+        <TarjetaBarras titulo="Sitios con más incidencias" style={{ marginTop: 16 }}>
           <Bars
             data={porSitio}
             color="var(--hi)"
@@ -956,7 +1236,7 @@ function KpiView({
               )
             }
           />
-        </div>
+        </TarjetaBarras>
       )}
 
       <div style={{ color: 'var(--muted)', fontSize: 11, marginTop: 14 }}>

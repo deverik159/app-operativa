@@ -83,6 +83,7 @@ const COLUMNAS_KPI = [
   'municipio',
   'nombre_biobox', // "Sitios con más incidencias": nombre de la máquina o pantalla
   'plaza', // "Por plaza"
+  'cerrada_en', // "Tiempo por etapa": reparación → cierre (trigger inc_marca_cierre)
 ].join(',');
 
 /** Lista de estatus terminales, en la sintaxis de `.not('estatus','in',…)`. */

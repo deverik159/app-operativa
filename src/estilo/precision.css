@@ -39,6 +39,9 @@
   --txt:#ededf0;--muted:#9a9da6;--faint:#7c7f88;--fill:rgba(255,255,255,.06);--seg-on:#27272d;
   --accent:#cc4119;--accent-hover:#db4c22;--accent-txt:#ff8a68;--sobre-acento:#fff;
   --accent2:#3e6fd8;
+  /* Segunda serie de las gráficas, junto a --accent2 (validada con la guía
+     de visualización en los dos temas: se distingue también con daltonismo). */
+  --serie2:#0d9488;
   --tag-fondo:#1f1f24;--activo-fondo:rgba(255,255,255,.07);--activo-borde:transparent;
   --overlay:rgba(0,0,0,.6);--sombra:rgba(0,0,0,.55);--sombra-menu:rgba(0,0,0,.35);
   --login-brillo:#2a160f;--atrib-fondo:rgba(10,10,12,.72);
@@ -56,6 +59,7 @@
     --txt:#17171a;--muted:#555a64;--faint:#6c6f77;--fill:rgba(0,0,0,.045);--seg-on:#ffffff;
     --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--sobre-acento:#fff;
     --accent2:#1d4fd8;
+    --serie2:#0d9488;
     --tag-fondo:#ececef;--activo-fondo:#ececef;--activo-borde:transparent;
     --overlay:rgba(15,17,21,.4);--sombra:rgba(15,17,21,.14);--sombra-menu:rgba(15,17,21,.08);
     --login-brillo:#ffe6dc;--atrib-fondo:rgba(255,255,255,.85);
@@ -67,6 +71,7 @@
   --txt:#17171a;--muted:#555a64;--faint:#6c6f77;--fill:rgba(0,0,0,.045);--seg-on:#ffffff;
   --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--sobre-acento:#fff;
   --accent2:#1d4fd8;
+  --serie2:#0d9488;
   --tag-fondo:#ececef;--activo-fondo:#ececef;--activo-borde:transparent;
   --overlay:rgba(15,17,21,.4);--sombra:rgba(15,17,21,.14);--sombra-menu:rgba(15,17,21,.08);
   --login-brillo:#ffe6dc;--atrib-fondo:rgba(255,255,255,.85);
@@ -120,6 +125,11 @@ input[type="checkbox"]:focus,input[type="radio"]:focus{box-shadow:none}
 .nav-item.active{background:var(--activo-fondo);box-shadow:none}
 .nav-item.active .nav-ic{color:var(--accent-txt)}
 .nav-item .badge{color:var(--sobre-acento);font-weight:700}
+/* Tarjetas de número de Indicadores: 10 en dos filas de 5 (KpiView). */
+@media(min-width:781px){.cards.cinco{grid-template-columns:repeat(5,minmax(0,1fr))}}
+/* Pantalla intermedia: con 5 columnas angostas "21 d 13 h" se partía; el
+   número baja al tamaño que ya usa el celular. */
+@media(min-width:781px) and (max-width:1199px){.cards.cinco .card .n{font-size:22px}}
 /* Títulos de sección del menú (Erik, 8-oct-2026; App.tsx TITULOS_GRUPO). */
 .nav-grupo{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
   color:var(--muted);padding:16px 12px 4px}
