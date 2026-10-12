@@ -1140,6 +1140,90 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
           </>
         )}
 
+        {/* En Digital el árbol va ANTES de la evidencia, como el diagnóstico
+            y el detalle en las demás áreas: primero qué se encontró y qué se
+            hizo, al final la foto (Erik, 12-oct-2026). */}
+        {usarArbol && (
+          <>
+            <div className="field">
+              <label>Incidencia técnica de Digital ({tecnicasDig.length})</label>
+              <select
+                value={srdSel}
+                onChange={(e) => {
+                  setSrdSel(e.target.value);
+                  setCausaSel('');
+                  setDiagnosticoSel('');
+                  setSolSel('');
+                }}
+              >
+                <option value="">— Selecciona —</option>
+                {tecnicasDig.map((srd) => (
+                  <option key={srd} value={srd}>
+                    {srd}
+                  </option>
+                ))}
+              </select>
+              {categoriaDig && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                  Categoría: <b>{categoriaDig}</b>
+                </div>
+              )}
+            </div>
+            {srdSel && (
+              <div className="field">
+                <label>Causa raíz ({causasDig.length})</label>
+                <select
+                  value={causaSel}
+                  onChange={(e) => {
+                    setCausaSel(e.target.value);
+                    setDiagnosticoSel('');
+                    setSolSel('');
+                  }}
+                >
+                  <option value="">— Selecciona —</option>
+                  {causasDig.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {causaSel && diagnosticosDig.length > 0 && (
+              <div className="field">
+                <label>Diagnóstico ({diagnosticosDig.length})</label>
+                <select
+                  value={diagnosticoSel}
+                  onChange={(e) => {
+                    setDiagnosticoSel(e.target.value);
+                    setSolSel('');
+                  }}
+                >
+                  <option value="">— Selecciona —</option>
+                  {diagnosticosDig.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {causaSel && (diagnosticosDig.length === 0 || diagnosticoSel) && (
+              <div className="field">
+                <label>Solución ({solsDig.length})</label>
+                <select value={solSel} onChange={(e) => setSolSel(e.target.value)}>
+                  <option value="">— Selecciona —</option>
+                  {solsDig.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </>
+        )}
+
         <div className="field">
           <label>
             Evidencia de la reparación (foto/video) —{' '}
@@ -1229,87 +1313,6 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
             </div>
           )}
         </div>
-
-        {usarArbol && (
-          <>
-            <div className="field">
-              <label>Incidencia técnica de Digital ({tecnicasDig.length})</label>
-              <select
-                value={srdSel}
-                onChange={(e) => {
-                  setSrdSel(e.target.value);
-                  setCausaSel('');
-                  setDiagnosticoSel('');
-                  setSolSel('');
-                }}
-              >
-                <option value="">— Selecciona —</option>
-                {tecnicasDig.map((srd) => (
-                  <option key={srd} value={srd}>
-                    {srd}
-                  </option>
-                ))}
-              </select>
-              {categoriaDig && (
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                  Categoría: <b>{categoriaDig}</b>
-                </div>
-              )}
-            </div>
-            {srdSel && (
-              <div className="field">
-                <label>Causa raíz ({causasDig.length})</label>
-                <select
-                  value={causaSel}
-                  onChange={(e) => {
-                    setCausaSel(e.target.value);
-                    setDiagnosticoSel('');
-                    setSolSel('');
-                  }}
-                >
-                  <option value="">— Selecciona —</option>
-                  {causasDig.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {causaSel && diagnosticosDig.length > 0 && (
-              <div className="field">
-                <label>Diagnóstico ({diagnosticosDig.length})</label>
-                <select
-                  value={diagnosticoSel}
-                  onChange={(e) => {
-                    setDiagnosticoSel(e.target.value);
-                    setSolSel('');
-                  }}
-                >
-                  <option value="">— Selecciona —</option>
-                  {diagnosticosDig.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {causaSel && (diagnosticosDig.length === 0 || diagnosticoSel) && (
-              <div className="field">
-                <label>Solución ({solsDig.length})</label>
-                <select value={solSel} onChange={(e) => setSolSel(e.target.value)}>
-                  <option value="">— Selecciona —</option>
-                  {solsDig.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </>
-        )}
 
         <div className="modal-actions pie-fijo">
           {/* Nunca apagado (app pasmada sin señal, 24-sep-2026): mientras
