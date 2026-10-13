@@ -22,23 +22,21 @@
 // SIN SEÑAL (modo sin señal, 24-sep-2026): el catálogo sale de la red con
 // tope corto o de la copia del teléfono (lib/datosLocales.ts). GUARDAR sí
 // necesita señal: la corrección no se encola, y sin red se dice claro.
+//
+// La elección del catálogo vive en SelectorFalla, que comparte con la
+// corrección del reportante (EditModal, 13-oct-2026).
 // ============================================================
-import { Clock, WifiOff, Wrench } from 'lucide-react';
-import { useState, useEffect, useMemo } from 'react';
+import { Clock, Wrench } from 'lucide-react';
+import { useState } from 'react';
 import { sb } from '../../lib/supabase';
-import { catalogoLocal, haySenal, motivoSinRed, redOLocal } from '../../lib/datosLocales';
-import {
-  catalogoParaMuebles,
-  ladoAlReclasificar,
-  llaveCatalogo,
-  filtrarCatalogo,
-} from '../../lib/catalogo';
-import type { OpcionesCatalogo } from '../../lib/catalogo';
+import { haySenal } from '../../lib/datosLocales';
+import { ladoAlReclasificar } from '../../lib/catalogo';
 import { tieneAreaRedirigida } from '../../lib/helpers';
 import { vigilarRender } from '../../lib/vigia';
 import type { CatalogoIncidencia, Incidencia } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
+import SelectorFalla, { Derivado } from './SelectorFalla';
 
 type Props = {
   inc: Incidencia;
@@ -64,119 +62,14 @@ function haySesionReal(): Promise<boolean> {
   ]);
 }
 
-/** Fila de solo lectura: lo que el catálogo decide y aquí no se discute. */
-function Derivado({ label, valor }: { label: string; valor: string }) {
-  return (
-    <div className="field">
-      <label>{label}</label>
-      <div
-        style={{
-          background: 'var(--panel2)',
-          border: '1px solid var(--line)',
-          borderRadius: 10,
-          padding: '10px 12px',
-          fontSize: 14,
-          color: valor ? 'var(--txt)' : 'var(--muted)',
-        }}
-      >
-        {valor || '—'}
-      </div>
-    </div>
-  );
-}
-
 function CorreccionModal({ inc, onClose, onDone }: Props) {
   // Ciclo de renders que no suelta el hilo → error del módulo (app pasmada
   // sin señal, 24-sep-2026; ver lib/vigia.ts).
   vigilarRender('CorreccionModal');
-  const [cat, setCat] = useState<OpcionesCatalogo>({
-    opciones: [],
-    restringido: false,
-    sinCatalogo: [],
-  });
-  const [loading, setLoading] = useState(true);
-  const [errCat, setErrCat] = useState('');
-  /** El catálogo salió de la copia del teléfono (modo sin señal, 24-sep-2026). */
-  const [deCopia, setDeCopia] = useState(false);
-  /** Sube con "Reintentar" cuando no llegó el catálogo (revisión sin señal, 24-sep-2026). */
-  const [reintento, setReintento] = useState(0);
-  const [llave, setLlave] = useState('');
-  const [busca, setBusca] = useState('');
+  /** La entrada del catálogo elegida (SelectorFalla). */
+  const [sel, setSel] = useState<CatalogoIncidencia | null>(null);
   const [observaciones, setObservaciones] = useState(inc.observaciones || '');
   const [busy, setBusy] = useState(false);
-
-  // El catálogo se filtra por unidad, igual que en el alta. `ilike` porque la
-  // unidad viene escrita distinto entre tablas ('Biobox' vs 'BIOBOX').
-  useEffect(() => {
-    let vivo = true;
-    setLoading(true);
-    setErrCat('');
-    (async () => {
-      // `select('*')` y no la lista de columnas: si el catálogo tiene
-      // `tipo_medio`, viene; y si no la tiene, no truena. Pedirla por nombre
-      // daría 400 y el modal se quedaría vacío sin decir por qué.
-      //
-      // Sin señal o si la red falla, el de la copia del teléfono (modo sin
-      // señal, 24-sep-2026). OJO con la copia: el filtro de la red es
-      // IGUALDAD sin mayúsculas (`ilike` sin comodín); el '%' solo entra si
-      // la incidencia no trae unidad. Con prefijo, 'Biobox' se traería
-      // también el catálogo de 'Biobox Perú'.
-      const unidad = inc.unidad_negocio || '';
-      const r = await redOLocal<CatalogoIncidencia[]>(
-        (senal) =>
-          sb
-            .from('catalogo_incidencias')
-            .select('*')
-            .ilike('unidad_negocio', inc.unidad_negocio || '%')
-            .limit(1000)
-            .retry(false)
-            .abortSignal(senal),
-        () => catalogoLocal(unidad, { prefijo: !unidad })
-      ).catch(() => ({ datos: [] as CatalogoIncidencia[], origen: 'local' as const }));
-      if (!vivo) return;
-      setDeCopia(r.origen === 'local');
-      // Sin señal no es lo mismo que una red que tardó (revisión sin señal,
-      // 24-sep-2026): con 3G lenta lo que sirve es Reintentar.
-      if (r.origen === 'local' && r.datos.length === 0)
-        setErrCat(
-          motivoSinRed() === 'Sin señal'
-            ? 'Sin señal, y este teléfono no tiene copia del catálogo. Abre la app una vez con señal.'
-            : 'La red tardó demasiado, y este teléfono no tiene copia del catálogo.'
-        );
-      // Se RESTRINGE al mueble de esta cara. Ahí cada incidencia existe una
-      // sola vez y el área ya viene decidida: es lo que evita que "Adicional
-      // dañado" en una cara impresa salga dirigida a Digital.
-      setCat(catalogoParaMuebles(r.datos, [inc.tipo_mueble]));
-      setLoading(false);
-    })();
-    return () => {
-      vivo = false;
-    };
-  }, [inc.unidad_negocio, inc.tipo_mueble, reintento]);
-
-  // Preselección: si el nombre actual existe en el catálogo, se marca solo.
-  // Si no existe (incidencia vieja, o texto capturado a mano), se deja en
-  // blanco a propósito — eso ES el motivo por el que hay que corregirla.
-  useEffect(() => {
-    if (!cat.opciones.length || llave) return;
-    const actual = cat.opciones.find((c) => c.detalle === inc.nombre_incidencia);
-    if (actual) setLlave(llaveCatalogo(actual));
-  }, [cat, inc.nombre_incidencia, llave]);
-
-  const sel = useMemo(
-    () => cat.opciones.find((c) => llaveCatalogo(c) === llave) || null,
-    [cat, llave]
-  );
-
-  // La opción elegida se conserva siempre en la lista, aunque el texto del
-  // buscador ya no la encuentre. Si no, escribir después de elegir la haría
-  // desaparecer del `select` y el navegador mostraría otra cosa como
-  // seleccionada — se guardaría una incidencia distinta de la que se ve.
-  const visibles = useMemo(() => {
-    const base = filtrarCatalogo(cat.opciones, busca);
-    if (sel && !base.some((c) => llaveCatalogo(c) === llave)) return [sel, ...base];
-    return base;
-  }, [cat, busca, sel, llave]);
 
   // `impacto` en el catálogo viene con espacios de sobra; `nivel` no.
   const nivelNuevo = (sel?.impacto || '').trim();
@@ -266,82 +159,18 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
           {inc.folio} · {inc.clave_sitio}
         </p>
 
-        {errCat && (
-          <div className="err">
-            {errCat}{' '}
-            <button
-              type="button"
-              className="btn ghost sm"
-              onClick={() => setReintento((n) => n + 1)}
-              disabled={loading}
-            >
-              Reintentar
-            </button>
-          </div>
-        )}
-        {deCopia && !errCat && (
-          <div
-            style={{ fontSize: 12, color: 'var(--muted)', margin: '-4px 0 10px' }}
-            role="status"
-          >
-            <Ic i={WifiOff} />Catálogo de la copia del teléfono. Para guardar necesitas señal.
-          </div>
-        )}
-
         <div className="banner" style={{ marginBottom: 14 }}>
           Aquí se corrige <b>qué incidencia es</b>. El nivel y el área
           responsable los pone el catálogo — por eso salen de solo lectura y
           cambian solos al elegir otra entrada.
         </div>
 
-        <div className="field">
-          <label>
-            Incidencia (del catálogo · {visibles.length} de{' '}
-            {cat.opciones.length}
-            {cat.restringido ? ` · ${inc.tipo_mueble}` : ''})
-          </label>
-          {loading ? (
-            <div className="loading">Cargando catálogo…</div>
-          ) : (
-            <>
-              <input
-                placeholder="Buscar por incidencia o por área…"
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                style={{ marginBottom: 8 }}
-              />
-              <select value={llave} onChange={(e) => setLlave(e.target.value)}>
-                <option value="">— Selecciona —</option>
-                {visibles.map((c) => (
-                  <option key={llaveCatalogo(c)} value={llaveCatalogo(c)}>
-                    {c.detalle}
-                    {c.area ? ` (${c.area})` : ''}
-                  </option>
-                ))}
-              </select>
-              {cat.sinCatalogo.length > 0 && (
-                <div
-                  style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}
-                >
-                  ⚠️ El catálogo no tiene entradas para el mueble{' '}
-                  <b>{cat.sinCatalogo.join(', ')}</b>: salen todas las
-                  incidencias y el área no viene decidida. Fíjate en el área
-                  entre paréntesis.
-                </div>
-              )}
-              {busca && visibles.length === 0 && (
-                <div
-                  style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}
-                >
-                  Nada coincide con “{busca}”.
-                </div>
-              )}
-            </>
-          )}
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-            Ahora dice: “{inc.nombre_incidencia || '—'}”
-          </div>
-        </div>
+        <SelectorFalla
+          unidad={inc.unidad_negocio}
+          mueble={inc.tipo_mueble}
+          actual={inc.nombre_incidencia}
+          onElegir={setSel}
+        />
 
         {/* Origen y tipo se siguen recalculando y guardando con el patch;
             solo dejaron de mostrarse (Erik, 30-ago-2026). */}

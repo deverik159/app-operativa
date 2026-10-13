@@ -10,10 +10,12 @@
 //
 //   Validador   → CorreccionModal. Corrige QUÉ incidencia es, y los campos
 //                 derivados los pone el catálogo. Ver ese archivo.
-//   Reportante  → este modal. Corrige lo que él capturó y solo puede haber
-//                 equivocado él: la observación, y sobre todo el SITIO y la
-//                 CARA. Un reporte con la clave equivocada manda al técnico a
-//                 la valla de junto.
+//   Reportante  → este modal. Corrige lo que él capturó: la observación,
+//                 el SITIO y la CARA (un reporte con la clave equivocada
+//                 manda al técnico a la valla de junto) y, desde el
+//                 13-oct-2026, QUÉ falla es, con el mismo selector del
+//                 catálogo que el validador (SelectorFalla): elige la entrada
+//                 y nivel, origen, tipo y área los pone el catálogo.
 //
 // LA EVIDENCIA NO SE EDITA AQUÍ, a propósito. `EvidenciaModal` ya deja al
 // reportante subir y borrar LO SUYO mientras la incidencia esté en
@@ -71,7 +73,7 @@ import {
   type SitioLocal,
 } from '../../lib/datosLocales';
 import { caraLabel, ladoFijoDePortico } from '../../lib/helpers';
-import { ubicacionSinCara } from '../../lib/catalogo';
+import { ladoAlReclasificar, ubicacionSinCara } from '../../lib/catalogo';
 import { vigilarRender } from '../../lib/vigia';
 import {
   UNIDADES_BIOBOX,
@@ -80,9 +82,10 @@ import {
   UNIDADES_CON_LADO,
   CLAVE_SIN_MAQUINA,
 } from '../../lib/constants';
-import type { Incidencia, InventarioItem } from '../../types/db';
+import type { CatalogoIncidencia, Incidencia, InventarioItem } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
+import SelectorFalla, { Derivado } from './SelectorFalla';
 
 type Sitio = { site_id: string; direccion: string | null; nombre?: string | null };
 
@@ -391,6 +394,26 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
   const cambioSitio = sitio !== (inc.clave_sitio || '');
   const cambioCara = cara !== (inc.clave_medio || '');
 
+  // --- Falla (13-oct-2026) ---
+  /** La entrada del catálogo elegida (SelectorFalla); null = sin elegir. */
+  const [falla, setFalla] = useState<CatalogoIncidencia | null>(null);
+  /** El catálogo sigue al mueble de la cara elegida (si cambió de cara). */
+  const muebleFalla =
+    caras.find((c) => c.vendor_face_id === cara)?.tipo_mueble || inc.tipo_mueble;
+  const areaFalla = (falla?.area || '').trim();
+  const cambioFalla =
+    !!falla &&
+    (falla.detalle !== (inc.nombre_incidencia || '') ||
+      areaFalla !== (inc.area_responsable || ''));
+  /**
+   * Si la falla nueva entra o sale del Adicional o la Puerta, su cara
+   * afectada la sigue (como en la corrección del validador). Desde aquí,
+   * todo lo que antes miraba `elementoInc` mira `elemento`.
+   */
+  const ladoNuevo = cambioFalla && falla ? ladoAlReclasificar(inc.lado, falla.detalle) : undefined;
+  const elemento: string | null = ladoNuevo !== undefined ? ladoNuevo : elementoInc;
+  const cambioElemento = (elemento || null) !== (elementoInc || null);
+
   /**
    * Los campos de ubicación que se copian de `inventario`, exactamente los
    * mismos que NuevaInc escribe al capturar.
@@ -410,7 +433,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     // Adicional o Puerta en un sitio de varias caras: sin cara de la cual
     // copiar medio y mueble, se sacan como en el alta (ubicacionSinCara).
     const sinCara =
-      elementoInc && caras.length > 1 ? ubicacionSinCara(inc.tipo_mueble, caras) : null;
+      elemento && caras.length > 1 ? ubicacionSinCara(inc.tipo_mueble, caras) : null;
     return {
       // La ELEGIDA en la ruta del sitio, si la hay (rutas, 5-oct-2026).
       direccion: elegidaDelSitio ?? laCara?.direccion ?? delSitio?.direccion ?? direccion,
@@ -440,7 +463,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
       alert('Espera a que carguen las caras del sitio.');
       return;
     }
-    if (caras.length > 1 && !cara && !elementoInc) {
+    if (caras.length > 1 && !cara && !elemento) {
       alert('Este sitio tiene varias caras: elige a cuál corresponde.');
       return;
     }
@@ -471,16 +494,32 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
       clave_sitio: sitio,
       // Del Adicional o de la Puerta: con varias caras va sin ninguna; con
       // una sola conserva la suya, igual que en el alta.
-      clave_medio: elementoInc && caras.length > 1 ? null : cara || null,
+      clave_medio: elemento && caras.length > 1 ? null : cara || null,
       // Se manda solo donde aplica. En las demás unidades siempre null: si se
-      // mandara la cadena vacía, el CHECK de la base la rechazaría.
-      lado: elementoInc ? elementoInc : pideLado ? lado || null : null,
+      // mandara la cadena vacía, el CHECK de la base la rechazaría. Si la
+      // falla dejó de ser del Adicional o la Puerta, ese valor ya no aplica.
+      lado: elemento
+        ? elemento
+        : pideLado && !(ELEMENTOS_SIN_CARA as readonly string[]).includes(lado)
+          ? lado || null
+          : null,
       // Vuelve a la cola del validador. Si ya estaba ahí, no cambia nada.
       estatus: 'por_validar',
     };
     // Si se movió el sitio o la cara, se rederiva la ubicación completa. Ver
     // la nota de la cabecera: aquí no hay trigger que lo haga por nosotros.
-    if (cambioSitio || cambioCara) Object.assign(patch, derivarUbicacion());
+    if (cambioSitio || cambioCara || cambioElemento) Object.assign(patch, derivarUbicacion());
+    // Otra falla: solo se manda la entrada del catálogo y lo que ella deriva,
+    // igual que la corrección del validador. `assigned_area` no se toca.
+    if (cambioFalla && falla) {
+      Object.assign(patch, {
+        nombre_incidencia: falla.detalle,
+        nivel: (falla.impacto || '').trim() || null,
+        origen: (falla.origen || '').trim() || null,
+        tipo: (falla.tipo || '').trim() || null,
+        area_responsable: areaFalla || null,
+      });
+    }
 
     const { data, error, status } = await sb
       .from('incidencias')
@@ -515,7 +554,8 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     observaciones !== (inc.observaciones || '') ||
     lado !== (inc.lado || '') ||
     sitio !== (inc.clave_sitio || '') ||
-    cara !== (inc.clave_medio || '');
+    cara !== (inc.clave_medio || '') ||
+    cambioFalla;
 
   /**
    * En celular quedan franjas de overlay a los lados del modal: un roce ahí
@@ -595,6 +635,9 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
               borderRadius: 9,
               padding: '9px 11px',
               marginBottom: 12,
+              // 13 px como las demás cajas de aviso: con la clase .obs fuera
+              // de una tarjeta salía en 16 (13-oct-2026).
+              fontSize: 13,
               color: 'var(--err-txt)',
             }}
           >
@@ -716,20 +759,20 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
         {/* Si las caras no cargaron (sin red y sin copia) sí se enseña: si
             no, el aviso y su Reintentar quedaban escondidos (revisión sin
             señal, 24-sep-2026). */}
-        {elementoInc && (
+        {elemento && (
           <div className="field">
             <label>Cara afectada</label>
             <div className="tag" style={{ display: 'inline-block', padding: '6px 10px' }}>
-              {elementoInc}
+              {elemento}
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-              Incidencia {elementoInc === 'Puerta' ? 'de la puerta' : 'del adicional'}: no lleva cara.
+              Incidencia {elemento === 'Puerta' ? 'de la puerta' : 'del adicional'}: no lleva cara.
             </div>
           </div>
         )}
         {/* Del Adicional o la Puerta solo se enseña si las caras no cargaron:
             es donde vive el Reintentar. */}
-        {((!elementoInc && !(pideLado && caras.length <= 1)) ||
+        {((!elemento && !(pideLado && caras.length <= 1)) ||
           (caras.length === 0 && !!deCopia.caras)) && (
         <div className="field">
           <label>Cara</label>
@@ -796,7 +839,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
           </div>
         )}
 
-        {pideLado && !elementoInc && (
+        {pideLado && !elemento && (
           <div className="field">
             {/* "Cara afectada" y no "Lado": es como lo nombra quien captura,
                 y es el mismo texto que usa el alta (NuevaInc). */}
@@ -822,6 +865,29 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
               </select>
             )}
           </div>
+        )}
+
+        {/* --- Falla (13-oct-2026): la misma elección que el validador --- */}
+        <SelectorFalla
+          unidad={inc.unidad_negocio}
+          mueble={muebleFalla}
+          actual={inc.nombre_incidencia}
+          onElegir={setFalla}
+          etiqueta="Falla"
+        />
+        {cambioFalla && (
+          <>
+            <div className="row2">
+              <Derivado label="Nivel" valor={(falla?.impacto || '').trim()} />
+              <Derivado label="Área responsable" valor={areaFalla} />
+            </div>
+            {areaFalla !== (inc.area_responsable || '') && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', margin: '-4px 0 12px' }}>
+                Antes iba a <b>{inc.area_responsable || '—'}</b>. El área la pone
+                el catálogo según la falla.
+              </div>
+            )}
+          </>
         )}
 
         {/* --- Observaciones --- */}
