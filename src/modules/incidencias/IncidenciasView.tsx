@@ -202,6 +202,7 @@ const NOMBRE_ACCION: Record<ClaseAccion, string> = {
   rechazar_reparacion: 'El rechazo de la reparación',
   prevalidar: 'La prevalidación',
   descartar_prevalidacion: 'El descarte',
+  devolver_captura: 'La devolución al reportante',
   reparacion: 'La reparación',
 };
 
@@ -566,7 +567,7 @@ async function traerFotosTarjetas(
 type ModoVista = 'bandeja' | 'todas';
 
 /** Motivo pendiente de capturar: rechazar una reparación o descartar. */
-type MotivoPend = { inc: Incidencia; kind: 'rechazo_rep' | 'descartar' };
+type MotivoPend = { inc: Incidencia; kind: 'rechazo_rep' | 'descartar' | 'devolver' };
 
 type Props = {
   email: string;
@@ -2331,6 +2332,9 @@ function IncidenciasView({
         validatorAtVisto: actual.validator_at ?? null,
         patch: {
           estatus: 'en_proceso',
+          // El motivo de una devolución anterior ya se atendió (ver
+          // normalizarPatch en lib/acciones.ts).
+          motivo_rechazo_reparacion: null,
           validator_approved: true,
           validator_email: email,
           validator_at: new Date().toISOString(),
@@ -2547,6 +2551,45 @@ function IncidenciasView({
   };
 
   /**
+   * ↩ Devolver al reportante (13-oct-2026): el validador regresa un reporte
+   * mal hecho (sitio equivocado, duplicado, prueba) en vez de aprobarlo y
+   * cargarle trabajo a un área. Queda 'rechazada' con el motivo; la base
+   * avisa al reportante (notificar_incidencia), él la corrige con ✏️ y al
+   * guardar vuelve a 'por_validar' (EditModal). Va por la cola como las
+   * demás acciones: sin señal se manda sola al volver.
+   */
+  const devolverCaptura = async (inc: Incidencia, motivo: string) => {
+    const patch: Partial<Incidencia> = {
+      estatus: 'rechazada',
+      motivo_rechazo_reparacion: motivo,
+    };
+    const r = await correrAccion({
+      clase: 'devolver_captura',
+      record_id: inc.record_id,
+      folio: inc.folio,
+      resumen: resumenDe('Devolver', inc),
+      esperado: inc.estatus,
+      // Misma vuelta del ciclo que se ve (M7, ver cambiarEstatus): si otro
+      // validador ya la aprobó, no se devuelve encima.
+      validatorAtVisto: inc.validator_at ?? null,
+      patch,
+    });
+    if (!r) return;
+    if (r.tipo === 'hecha') {
+      patchInc(inc.record_id, { ...patch, ...(r.fila ?? {}) });
+      setMotivoOf(null);
+      onNotifAtendida(inc.record_id);
+      if (r.aviso) avisar(r.aviso);
+    } else if (
+      r.tipo === 'enCola' ||
+      r.tipo === 'conflicto' ||
+      quedoEnCola(inc.record_id, 'devolver_captura')
+    ) {
+      setMotivoOf(null);
+    }
+  };
+
+  /**
    * Inserta el reporte y liga la evidencia POR GRUPO.
    *
    * La lógica vive en lib/crearReporte.ts, COMPARTIDA con Pauta y
@@ -2611,6 +2654,10 @@ function IncidenciasView({
   );
   const alDescartar = useCallback(
     (inc: Incidencia) => setMotivoOf({ inc, kind: 'descartar' }),
+    []
+  );
+  const alDevolver = useCallback(
+    (inc: Incidencia) => setMotivoOf({ inc, kind: 'devolver' }),
     []
   );
   /**
@@ -2954,6 +3001,7 @@ function IncidenciasView({
               onRechazarRep={alRechazarRep}
               onPrevalidar={alPrevalidar}
               onDescartar={alDescartar}
+              onDevolver={alDevolver}
               minuto={minuto}
               slaMap={slaMap}
               slaValidacion={slaValidacion}
@@ -3076,19 +3124,31 @@ function IncidenciasView({
           titulo={
             motivoOf.kind === 'descartar'
               ? 'Descartar incidencia'
-              : 'Rechazar reparación'
+              : motivoOf.kind === 'devolver'
+                ? `Devolver ${motivoOf.inc.folio || 'la incidencia'} al reportante`
+                : 'Rechazar reparación'
           }
           label={
             motivoOf.kind === 'descartar'
               ? 'Motivo (se regresa al reportante como no válida)'
-              : 'Motivo del rechazo (regresa al área para volver a reparar)'
+              : motivoOf.kind === 'devolver'
+                ? 'Qué debe corregir (sitio equivocado, duplicada, foto que no sirve…). Le llega al reportante, la corrige y vuelve a validación.'
+                : 'Motivo del rechazo (regresa al área para volver a reparar)'
           }
-          boton={motivoOf.kind === 'descartar' ? 'Descartar' : 'Rechazar'}
+          boton={
+            motivoOf.kind === 'descartar'
+              ? 'Descartar'
+              : motivoOf.kind === 'devolver'
+                ? 'Devolver'
+                : 'Rechazar'
+          }
           onClose={() => setMotivoOf(null)}
           onSubmit={(t) =>
             motivoOf.kind === 'descartar'
               ? descartarPrevalidacion(motivoOf.inc, t)
-              : rechazarReparacion(motivoOf.inc, t)
+              : motivoOf.kind === 'devolver'
+                ? devolverCaptura(motivoOf.inc, t)
+                : rechazarReparacion(motivoOf.inc, t)
           }
         />
       )}

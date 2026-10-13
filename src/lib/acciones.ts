@@ -101,6 +101,8 @@ export type ClaseAccion =
   | 'rechazar_reparacion'
   | 'prevalidar'
   | 'descartar_prevalidacion'
+  /** El validador regresa al reportante un reporte mal hecho (13-oct-2026). */
+  | 'devolver_captura'
   | 'reparacion';
 
 export type AccionNueva = {
@@ -366,6 +368,7 @@ const ETIQUETA: Record<ClaseAccion, string> = {
   rechazar_reparacion: 'El rechazo de la reparación',
   prevalidar: 'La prevalidación',
   descartar_prevalidacion: 'El descarte',
+  devolver_captura: 'La devolución al reportante',
   reparacion: 'La reparación',
 };
 
@@ -412,6 +415,10 @@ function normalizarPatch(
   switch (clase) {
     case 'validar':
       x.estatus = 'en_proceso';
+      // El motivo de una devolución o un descarte anterior ya se atendió (el
+      // reportante corrigió). Si se quedaba, la tarjeta en proceso lo pintaba
+      // como "Reparación rechazada por el validador" (13-oct-2026).
+      x.motivo_rechazo_reparacion = null;
       x.validator_approved = true;
       x.validator_email = x.validator_email || email;
       x.validator_at = x.validator_at || ahora;
@@ -428,6 +435,9 @@ function normalizarPatch(
     case 'descartar_prevalidacion':
       x.estatus = 'rechazada';
       x.prevalidada = false;
+      break;
+    case 'devolver_captura':
+      x.estatus = 'rechazada';
       break;
     case 'reparacion':
       x.estatus = 'reparado';
@@ -830,6 +840,7 @@ function yaAplicada(a: Accion, x: Incidencia): boolean {
       // (la reparación pudo registrarse detrás).
       return x.prevalidada === true;
     case 'descartar_prevalidacion':
+    case 'devolver_captura':
       return x.estatus === 'rechazada' && mismoMotivo;
     case 'reparacion':
       return (

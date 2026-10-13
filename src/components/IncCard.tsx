@@ -74,6 +74,8 @@ type IncCardProps = {
   foto?: string | null;
   onPrevalidar: (i: Incidencia) => void;
   onDescartar: (i: Incidencia) => void;
+  /** ↩ Devolver al reportante un reporte mal hecho (abre el motivo). */
+  onDevolver: (i: Incidencia) => void;
   slaMap: SlaMap;
   /** Minutos configurados para validar captura y reparación. */
   slaValidacion: { reporte: number; reparacion: number };
@@ -121,6 +123,7 @@ function IncCard({
   foto,
   onPrevalidar,
   onDescartar,
+  onDevolver,
   slaMap,
   slaValidacion,
   nChat,
@@ -408,6 +411,14 @@ function IncCard({
           )}
         </div>
       )}
+      {i.estatus === 'rechazada' && i.motivo_rechazo_reparacion && (
+        // Devuelta (o descartada): el reportante ve en la tarjeta qué debe
+        // corregir, sin abrir ✏️ Editar (13-oct-2026).
+        <div className="obs inc-rechazo">
+          ↩ Devuelta al reportante: “{i.motivo_rechazo_reparacion}”
+          {puedeEditar && ' Corrígela con Editar y vuelve a validación.'}
+        </div>
+      )}
       {i.estatus === 'en_proceso' && i.motivo_rechazo_reparacion && (
         // Los colores de la caja .err, con su pareja del tema claro
         // (tema claro/oscuro, 24-sep-2026). Ver .inc-rechazo.
@@ -425,11 +436,10 @@ function IncCard({
       )}
       {can.validar && i.estatus === 'por_validar' && (
         <div className="inc-actions">
-          {/* UN SOLO BOTÓN. Estuvo partido en "Validar" y "Validar y asignar"
-              mientras existió la asignación de técnico; al quitarse ésta, la
-              segunda mitad se quedó sin nada que hacer.
-
-              El rechazo tampoco está aquí: ver la nota del final. */}
+          {/* Validar es UN botón (estuvo partido en "Validar" y "Validar y
+              asignar" mientras existió la asignación de técnico). Devolver
+              regresa al reportante un reporte mal hecho, con su motivo: ver
+              la nota del final (13-oct-2026). */}
           <button
             className="btn sm"
             onClick={() => onEstatus(i.record_id, 'en_proceso')}
@@ -437,6 +447,14 @@ function IncCard({
           >
             <Check {...IC} />
             Validar incidencia
+          </button>
+          <button
+            className="btn ghost sm peligro"
+            onClick={() => onDevolver(i)}
+            disabled={bloqueada}
+          >
+            <Undo2 {...IC} />
+            Devolver al reportante
           </button>
         </div>
       )}
@@ -592,32 +610,30 @@ function IncCard({
 export default memo(IncCard);
 
 // ============================================================
-// NOTA — POR QUÉ YA NO HAY "RECHAZAR" EN LA VALIDACIÓN DE CAPTURA
+// NOTA — "DEVOLVER AL REPORTANTE" EN LA VALIDACIÓN DE CAPTURA
 // ============================================================
-// Se quitó a petición de Erik el 26-ago-2026, con el argumento de que ya
-// existe un rechazo en la etapa de reparación. Son dos cosas distintas y vale
-// la pena que quede escrito, porque la diferencia se nota hasta que estorba:
+// El 26-ago-2026 se quitó el "Rechazar" de la captura (Erik), con el
+// argumento de que ya existía el rechazo de la reparación. Son dos cosas
+// distintas:
 //
-//   Rechazar reparación (sigue ahí)  El trabajo se hizo mal. Regresa al ÁREA
-//                                    para que lo rehaga. Estado: en_proceso.
+//   Rechazar reparación   El trabajo se hizo mal. Regresa al ÁREA para que
+//                         lo rehaga. Estado: en_proceso.
 //
-//   Rechazar captura (se quitó)      El reporte está mal: sitio equivocado,
-//                                    duplicado, o no es una incidencia.
-//                                    Regresaba al REPORTANTE. Estado:
-//                                    rechazada.
+//   Devolver captura      El reporte está mal: sitio equivocado, duplicado,
+//                         o no es una incidencia. Regresa al REPORTANTE.
+//                         Estado: rechazada.
 //
-// CONSECUENCIA: `rechazada` ya no se puede alcanzar desde la app. Con eso
-// quedan sin uso el botón ✏️ Editar del reportante en ese estado, y la rama
-// de aviso `rechazada` que se agregó en `ajustes_incidencias_base.sql`.
-// Ninguna de las dos estorba —hay filas viejas en ese estado y la RLS lo
-// sigue permitiendo— pero tampoco se van a ejercitar.
+// Sin el segundo, el validador solo podía aprobar un reporte mal hecho (y
+// cargarle trabajo a un área, que además contaba en indicadores) o dejarlo
+// en `por_validar` para siempre. En una prueba de Biobox (BBMM00017) se
+// aprobó uno sin querer y hubo que rechazarlo a mano en la base.
 //
-// Y queda una pregunta abierta: qué hace el validador con un reporte que está
-// mal. Hoy sus únicas salidas son aprobarlo —y meterle carga a un área por
-// algo que no existe, que además le cuenta en los indicadores— o dejarlo en
-// `por_validar` para siempre. Si eso empieza a doler, la vuelta es traer este
-// botón con otro nombre ("↩ Devolver al reportante"), no inventar un estado
-// nuevo: el flujo completo ya existe del otro lado.
+// Volvió el 13-oct-2026 como "↩ Devolver al reportante", sin estado nuevo:
+// el flujo ya existía del otro lado. La acción `devolver_captura` (cola de
+// lib/acciones.ts) la pone `rechazada` con el motivo; la base avisa al
+// reportante (rama `rechazada` de notificar_incidencia), la tarjeta enseña el
+// motivo, el reportante corrige con ✏️ Editar y EditModal la regresa a
+// `por_validar`. Al validarla de nuevo, el motivo se borra.
 
 // ============================================================
 // NOTA — SE QUITÓ TODO LO DE ASIGNAR TÉCNICO (ago-2026)
