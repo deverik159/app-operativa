@@ -25,6 +25,7 @@ import {
   Clock,
   List,
   Table,
+  X,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { sb } from '../../lib/supabase';
@@ -858,6 +859,11 @@ function IncidenciasView({
   /** Rango de fechas de captura. Vacío = sin límite por ese lado. */
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
+  /**
+   * Filtro del aviso de validaciones (Erik, 13-oct-2026): al tocar
+   * "N vencidas" o "M por vencer", Mis pendientes enseña solo esas.
+   */
+  const [fSla, setFSla] = useState<'vencidas' | 'porVencer' | null>(null);
 
   /**
    * Cambiar de sección (Mis pendientes ↔ Incidencias) limpia el buscador:
@@ -1975,12 +1981,19 @@ function IncidenciasView({
     });
   }, [itemsVista, misRoles, email, reparaEn]);
 
-  /** Aviso sutil para el validador: solo pendientes con reloj naranja o rojo. */
+  /**
+   * Aviso sutil para el validador: solo pendientes con reloj naranja o rojo.
+   * Mezcla DOS relojes, y por eso se cuentan aparte (13-oct-2026): validar
+   * el reporte ('por_validar', desde fecha_reporte) y validar la reparación
+   * ('reparado', desde sla_validacion_inicio). Guarda los record_id para que
+   * el aviso filtre la lista al tocarlo.
+   */
   const alertasValidacion = useMemo(() => {
-    if (!can.validar) return { porVencer: 0, vencidas: 0 };
-    let porVencer = 0;
-    let vencidas = 0;
+    const vacio = () => ({ reporte: new Set<string>(), reparacion: new Set<string>() });
+    const r = { vencidas: vacio(), porVencer: vacio() };
+    if (!can.validar) return r;
     bandeja.forEach((i) => {
+      const etapa = i.estatus === 'por_validar' ? 'reporte' : 'reparacion';
       const reloj =
         i.estatus === 'por_validar' && i.fecha_reporte
           ? slaInfoValidador(i.fecha_reporte, slaValidacion.reporte)
@@ -1988,11 +2001,21 @@ function IncidenciasView({
             ? slaInfoValidador(i.sla_validacion_inicio, slaValidacion.reparacion)
             : null;
       if (!reloj) return;
-      if (reloj.color === '#ef4444') vencidas += 1;
-      else if (reloj.color === '#f59e0b') porVencer += 1;
+      if (reloj.color === '#ef4444') r.vencidas[etapa].add(i.record_id);
+      else if (reloj.color === '#f59e0b') r.porVencer[etapa].add(i.record_id);
     });
-    return { porVencer, vencidas };
+    return r;
   }, [bandeja, can.validar, slaValidacion]);
+  const nAlerta = (k: 'vencidas' | 'porVencer') =>
+    alertasValidacion[k].reporte.size + alertasValidacion[k].reparacion.size;
+
+  // Si ya no queda ninguna (las validó) o se salió de Mis pendientes, el
+  // filtro del aviso se quita solo: una lista vacía por un filtro que ya no
+  // se ve confundiría.
+  const sinAlertaFiltrada = fSla != null && (modo !== 'bandeja' || nAlerta(fSla) === 0);
+  useEffect(() => {
+    if (sinAlertaFiltrada) setFSla(null);
+  }, [sinAlertaFiltrada]);
 
   // El badge de "Mi bandeja" cuenta solo lo ACCIONABLE, no lo visible. La
   // bandeja del reportante ahora enseña todas sus capturas; si el badge las
@@ -2034,7 +2057,16 @@ function IncidenciasView({
 
   const visibles = useMemo(() => {
     const base = modo === 'bandeja' ? bandeja : itemsVista;
-    return base.filter((i) => {
+    // Filtro del aviso de validaciones: primero los reportes por validar y
+    // luego las reparaciones por aprobar, cada grupo en su orden de siempre.
+    const sla = modo === 'bandeja' && fSla ? alertasValidacion[fSla] : null;
+    const conSla = sla
+      ? [
+          ...base.filter((i) => sla.reporte.has(i.record_id)),
+          ...base.filter((i) => sla.reparacion.has(i.record_id)),
+        ]
+      : base;
+    return conSla.filter((i) => {
       if (fUN !== 'Todas' && i.unidad_negocio !== fUN) return false;
       // El filtro de área acepta las dos: las que le tocan por catálogo y
       // las que le redirigieron. Si no, el técnico filtra por su área y no
@@ -2087,6 +2119,8 @@ function IncidenciasView({
     fEstado,
     fDesde,
     fHasta,
+    fSla,
+    alertasValidacion,
   ]);
 
   /**
@@ -2102,6 +2136,7 @@ function IncidenciasView({
     fReporta !== 'Todas' ||
     !!fDesde ||
     !!fHasta ||
+    (modo === 'bandeja' && fSla != null) ||
     !!q.trim();
 
   /**
@@ -2809,28 +2844,58 @@ function IncidenciasView({
         </div>
       )}
 
-      {modo === 'bandeja' &&
-        (alertasValidacion.vencidas > 0 || alertasValidacion.porVencer > 0) && (
-          <div
-            className="banner"
-            style={{
-              marginBottom: 12,
-              borderColor:
-                alertasValidacion.vencidas > 0 ? 'var(--hi)' : 'var(--warn)',
-              // El rojo de .err, con su pareja en el tema claro (tema
-              // claro/oscuro, 24-sep-2026).
-              color: alertasValidacion.vencidas > 0 ? 'var(--err-txt)' : 'var(--warn)',
-            }}
-          >
-            <Ic i={Clock} />Validaciones: {alertasValidacion.vencidas > 0 && (
-              <b>{alertasValidacion.vencidas} vencida{alertasValidacion.vencidas === 1 ? '' : 's'}</b>
-            )}
-            {alertasValidacion.vencidas > 0 && alertasValidacion.porVencer > 0 && ' · '}
-            {alertasValidacion.porVencer > 0 && (
-              <b>{alertasValidacion.porVencer} por vencer</b>
-            )}
-          </div>
-        )}
+      {modo === 'bandeja' && (nAlerta('vencidas') > 0 || nAlerta('porVencer') > 0) && (
+        <div
+          className="banner aviso-sla"
+          style={{
+            marginBottom: 12,
+            borderColor: nAlerta('vencidas') > 0 ? 'var(--hi)' : 'var(--warn)',
+            // El rojo de .err, con su pareja en el tema claro (tema
+            // claro/oscuro, 24-sep-2026).
+            color: nAlerta('vencidas') > 0 ? 'var(--err-txt)' : 'var(--warn)',
+          }}
+        >
+          <Ic i={Clock} />Validaciones:
+          {/* Cada parte filtra la lista (13-oct-2026). El desglose dice qué
+              reloj es: el mismo nombre que trae el reloj de cada tarjeta. */}
+          {(['vencidas', 'porVencer'] as const)
+            .filter((k) => nAlerta(k) > 0)
+            .map((k) => {
+              const n = nAlerta(k);
+              const { reporte, reparacion } = alertasValidacion[k];
+              const desglose = [
+                reporte.size &&
+                  `${reporte.size} ${reporte.size === 1 ? 'reporte' : 'reportes'} por validar`,
+                reparacion.size &&
+                  `${reparacion.size} ${reparacion.size === 1 ? 'reparación' : 'reparaciones'} por validar`,
+              ]
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  className={'btn ghost sm' + (fSla === k ? ' on' : '')}
+                  aria-pressed={fSla === k}
+                  onClick={() => setFSla(fSla === k ? null : k)}
+                  title={fSla === k ? 'Quitar este filtro' : 'Ver solo estas'}
+                >
+                  <b>
+                    {k === 'vencidas'
+                      ? `${n} vencida${n === 1 ? '' : 's'}`
+                      : `${n} por vencer`}
+                  </b>
+                  <span className="aviso-sla-desglose"> · {desglose}</span>
+                </button>
+              );
+            })}
+          {fSla && (
+            <button type="button" className="btn ghost sm" onClick={() => setFSla(null)}>
+              <Ic i={X} />Ver todas
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="toolbar">
         <input

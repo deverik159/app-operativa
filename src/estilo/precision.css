@@ -42,6 +42,10 @@
   /* Segunda serie de las gráficas, junto a --accent2 (validada con la guía
      de visualización en los dos temas: se distingue también con daltonismo). */
   --serie2:#0d9488;
+  /* Píldora activa (filtros, segmentos, aviso de validaciones): gris como el
+     selector de iOS, no el blanco/negro puro del texto, que al sol y con el
+     brillo alto deslumbraba (Erik, 13-oct-2026). Texto 6:1. */
+  --pildora-on:#636366;--pildora-on-borde:#636366;--pildora-on-txt:#ffffff;
   --tag-fondo:#1f1f24;--activo-fondo:rgba(255,255,255,.07);--activo-borde:transparent;
   --overlay:rgba(0,0,0,.6);--sombra:rgba(0,0,0,.55);--sombra-menu:rgba(0,0,0,.35);
   --login-brillo:#2a160f;--atrib-fondo:rgba(10,10,12,.72);
@@ -60,6 +64,9 @@
     --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--sobre-acento:#fff;
     --accent2:#1d4fd8;
     --serie2:#0d9488;
+    /* Claro: gris de iOS con texto 11.8:1; el borde marca la activa, que
+       sobre blanco el relleno casi no se distingue. */
+    --pildora-on:#d1d1d6;--pildora-on-borde:#8e8e93;--pildora-on-txt:#17171a;
     --tag-fondo:#ececef;--activo-fondo:#ececef;--activo-borde:transparent;
     --overlay:rgba(15,17,21,.4);--sombra:rgba(15,17,21,.14);--sombra-menu:rgba(15,17,21,.08);
     --login-brillo:#ffe6dc;--atrib-fondo:rgba(255,255,255,.85);
@@ -72,6 +79,7 @@
   --accent:#cc4119;--accent-hover:#b53812;--accent-txt:#b43c0b;--sobre-acento:#fff;
   --accent2:#1d4fd8;
   --serie2:#0d9488;
+  --pildora-on:#d1d1d6;--pildora-on-borde:#8e8e93;--pildora-on-txt:#17171a;
   --tag-fondo:#ececef;--activo-fondo:#ececef;--activo-borde:transparent;
   --overlay:rgba(15,17,21,.4);--sombra:rgba(15,17,21,.14);--sombra-menu:rgba(15,17,21,.08);
   --login-brillo:#ffe6dc;--atrib-fondo:rgba(255,255,255,.85);
@@ -125,6 +133,13 @@ input[type="checkbox"]:focus,input[type="radio"]:focus{box-shadow:none}
 .nav-item.active{background:var(--activo-fondo);box-shadow:none}
 .nav-item.active .nav-ic{color:var(--accent-txt)}
 .nav-item .badge{color:var(--sobre-acento);font-weight:700}
+/* Aviso de validaciones de Mis pendientes: cada parte es una píldora que
+   filtra la lista (IncidenciasView, 13-oct-2026). Con el color del aviso y
+   la activa como las píldoras de filtros. */
+.aviso-sla{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.aviso-sla .btn{border-radius:17px;color:inherit;border-color:currentColor;gap:6px}
+.aviso-sla .btn.on{background:var(--pildora-on);color:var(--pildora-on-txt);border-color:var(--pildora-on-borde)}
+.aviso-sla-desglose{font-weight:400;opacity:.85}
 /* Tarjetas de número de Indicadores: 10 en dos filas de 5 (KpiView). */
 @media(min-width:781px){.cards.cinco{grid-template-columns:repeat(5,minmax(0,1fr))}}
 /* Pantalla intermedia: con 5 columnas angostas "21 d 13 h" se partía; el
@@ -300,7 +315,7 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
 
 /* Selectores de unidad y medio (Rutas) y fichas */
 .rt-chip{font-weight:600;border-color:var(--line2);background:transparent}
-.rt-chip.on{background:var(--txt);border-color:var(--txt);color:var(--bg)}
+.rt-chip.on{background:var(--pildora-on);color:var(--pildora-on-txt);border-color:var(--pildora-on-borde)}
 .rt-segmento .rt-chip.on{border-width:1px;padding:8px 14px}
 
 /* Lo que va encima del acento */
@@ -333,14 +348,14 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
   -webkit-appearance:none;appearance:none;cursor:pointer;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat:no-repeat;background-position:right 11px center}
-.toolbar.filtros-pildora select.on{background-color:var(--txt);color:var(--bg);border-color:var(--txt)}
+.toolbar.filtros-pildora select.on{background-color:var(--pildora-on);color:var(--pildora-on-txt);border-color:var(--pildora-on-borde)}
 /* Casilla dentro de una píldora (p. ej. "Solo las que toca revisar"). */
 .pildora-check{display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;height:34px;padding:0 13px;border-radius:17px;
   border:1px solid var(--line2);font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;white-space:nowrap}
 .pildora-check input{width:auto;margin:0;accent-color:var(--accent)}
-.pildora-check:has(input:checked){background:var(--txt);color:var(--bg);border-color:var(--txt)}
+.pildora-check:has(input:checked){background:var(--pildora-on);color:var(--pildora-on-txt);border-color:var(--pildora-on-borde)}
 .toolbar.filtros-pildora .btn{flex:0 0 auto;border-radius:17px}
-.toolbar.filtros-pildora .btn.on{background:var(--txt);color:var(--bg);border-color:var(--txt)}
+.toolbar.filtros-pildora .btn.on{background:var(--pildora-on);color:var(--pildora-on-txt);border-color:var(--pildora-on-borde)}
 .toolbar.filtros-pildora .segmento{flex:0 0 auto;width:auto}
 @media(max-width:780px){
   /* Una fila que se desliza de lado (antes: un select por renglón). 16px de
