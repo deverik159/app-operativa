@@ -619,7 +619,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
           {inc.estatus === 'rechazada' && (
             <>
               <br />
-              Está <b>rechazada</b>: con esto se corrige y se manda de nuevo.
+              Está <b>devuelta</b>: con esto se corrige y se manda de nuevo.
             </>
           )}
         </div>
@@ -641,7 +641,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
               color: 'var(--err-txt)',
             }}
           >
-            Motivo del rechazo: “{inc.motivo_rechazo_reparacion}”
+            Motivo de la devolución: “{inc.motivo_rechazo_reparacion}”
           </div>
         )}
 

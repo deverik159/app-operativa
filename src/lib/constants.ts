@@ -8,7 +8,10 @@ import { tonoDe, type Tono } from './tonos';
 export const EST_LABEL: Record<string, string> = {
   reportado: 'Reportado',
   por_validar: 'Por validar',
-  rechazada: 'Rechazada',
+  // "Devuelta" y no "Rechazada" (Erik, 13-oct-2026): el validador la
+  // regresa al reportante para corregirla. El estatus en la base sigue
+  // siendo 'rechazada'.
+  rechazada: 'Devuelta',
   en_proceso: 'En proceso',
   reparado: 'Reparado',
   cerrada: 'Cerrada',

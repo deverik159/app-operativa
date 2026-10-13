@@ -1,7 +1,8 @@
 -- ============================================================
 -- avisos_incidencias.sql — FOTO de los avisos de Incidencias tal como
 -- están en producción al 8-oct-2026 (leídos con pg_get_functiondef),
--- actualizada con la migración 20261008224848_avisos_medio_y_area.
+-- actualizada con las migraciones 20261008224848_avisos_medio_y_area y
+-- 20261013225529_aviso_devuelta.
 --
 -- QUÉ ES: la copia en el repo de las funciones y triggers que llenan la
 -- tabla `notificaciones` (la campana) y mandan el push. Hasta hoy, cuatro
@@ -24,7 +25,7 @@
 --   reparado → en_proceso ................. reabierta → quien capturó
 --   estatus → reparado .................... reparado → validadores; reparado_reportante → quien capturó
 --   estatus → cerrada ..................... cierre → quien capturó
---   estatus → rechazada ................... rechazada → quien capturó
+--   estatus → rechazada ................... rechazada ("devuelta para corregir") → quien capturó
 --   rechazada → por_validar ............... captura → validadores (reenvío)
 --   asignado_tecnico_email cambia ......... asignacion_tecnico → ese técnico
 --   assigned_area cambia .................. asignacion_area → técnicos de esa área
@@ -154,11 +155,13 @@ begin
           values (new.record_id, lower(new.captured_by), 'cierre', msg, new.unidad_negocio);
       end if;
 
-    -- El rechazo del validador: el reportante es el único que puede
-    -- arreglarlo, así que es el único a quien tiene sentido avisarle.
+    -- La devolución del validador (↩ Devolver al reportante, o Descartar de
+    -- Digital): el reportante es el único que puede arreglarlo, así que es
+    -- el único a quien tiene sentido avisarle. Dice "devuelta" y no
+    -- "rechazada" (Erik, 13-oct-2026): se le pide corregir, no se descarta.
     elsif new.estatus = 'rechazada' then
       if new.captured_by is not null then
-        msg := 'Tu incidencia fue rechazada: '||coalesce(new.folio,'')||' · '||coalesce(new.nombre_incidencia,'')
+        msg := 'Tu incidencia fue devuelta para corregir: '||coalesce(new.folio,'')||' · '||coalesce(new.nombre_incidencia,'')
                ||coalesce(' · Motivo: '||nullif(btrim(new.motivo_rechazo_reparacion),''), '');
         insert into notificaciones(record_id,para_email,evento,mensaje,unidad_negocio)
           values (new.record_id, lower(new.captured_by), 'rechazada', msg, new.unidad_negocio);
