@@ -29,6 +29,7 @@ import {
 } from '../lib/constants';
 import { slaInfo, slaInfoValidador, caraIncidencia, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
 import { alFallarMiniatura, esUrlVideo, urlMiniatura } from '../lib/storage';
+import { etiquetaCatorcena } from '../lib/catorcena';
 import PreviaVideo from './PreviaVideo';
 import { colorTono, fondoTono, tonoDe, type Tono } from '../lib/tonos';
 import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
@@ -383,7 +384,7 @@ function IncCard({
               timeStyle: 'short',
             })
           : '—'}
-        {i.catorcena ? ` · Cat-${i.catorcena}` : ''}
+        {i.catorcena ? ` · ${etiquetaCatorcena(i.catorcena, i.anio)}` : ''}
         {i.semana ? ` · Sem ${i.semana}` : ''}
         {i.captured_by ? ` · por ${String(i.captured_by).split('@')[0]}` : ''}
       </div>

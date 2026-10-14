@@ -244,7 +244,20 @@ export function textoFalla(error: string | null, sinRed: boolean): string {
 // Catorcenas
 // ------------------------------------------------------------
 
-export type Catorcena = { numero: number; fecha_inicio: string | null; fecha_fin: string | null };
+export type Catorcena = {
+  numero: number;
+  /** Año del calendario oficial (14-oct-2026): la catorcena es número + año. */
+  anio?: number | null;
+  fecha_inicio: string | null;
+  fecha_fin: string | null;
+};
+
+/** Más reciente primero, por fecha de inicio (no por número: hay dos años). */
+function porInicioDesc(a: Catorcena, b: Catorcena): number {
+  const fa = a.fecha_inicio || '';
+  const fb = b.fecha_inicio || '';
+  return fa === fb ? (b.anio ?? 0) - (a.anio ?? 0) || b.numero - a.numero : fa < fb ? 1 : -1;
+}
 
 /** 'yyyy-mm-dd' (fecha local de la catorcena) → Date a las 00:00 locales. */
 export function inicioDelDia(fecha: string): Date | null {
@@ -254,7 +267,8 @@ export function inicioDelDia(fecha: string): Date | null {
 }
 
 /** La catorcena que contiene hoy; si ninguna, la más reciente que ya empezó;
- *  si tampoco, la de número más alto. */
+ *  si tampoco, la última del calendario. Por FECHA, no por número
+ *  (14-oct-2026): por número, la Cat-26 de 2026 ganaba a la Cat-1 de 2027. */
 export function catorcenaActual(cats: Catorcena[], hoy = new Date()): Catorcena | null {
   const t = hoy.getTime();
   const con = cats.filter((c) => c.fecha_inicio && c.fecha_fin);
@@ -266,9 +280,9 @@ export function catorcenaActual(cats: Catorcena[], hoy = new Date()): Catorcena 
   if (dentro) return dentro;
   const empezadas = con
     .filter((c) => (inicioDelDia(c.fecha_inicio!)?.getTime() ?? Infinity) <= t)
-    .sort((a, b) => b.numero - a.numero);
+    .sort(porInicioDesc);
   if (empezadas[0]) return empezadas[0];
-  return cats.slice().sort((a, b) => b.numero - a.numero)[0] || null;
+  return cats.slice().sort(porInicioDesc)[0] || null;
 }
 
 /** "12 sep – 25 sep" para el selector. */

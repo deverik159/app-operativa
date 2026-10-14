@@ -20,6 +20,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { sb } from '../../lib/supabase';
 import { fondoTono } from '../../lib/tonos';
+import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib/catorcena';
 
 /** Fila de `inventario` con las columnas de estatus. */
 type Cara = {
@@ -41,6 +42,8 @@ type Cara = {
 
 type Catorcena = {
   numero: number;
+  /** Año del calendario oficial (14-oct-2026): la catorcena es número + año. */
+  anio: number;
   fecha_inicio: string;
   fecha_fin: string;
   cat_texto: string | null;
@@ -156,7 +159,8 @@ function DisponibilidadView() {
   const [q, setQ] = useState('');
   const [caras, setCaras] = useState<Cara[]>([]);
   const [cats, setCats] = useState<Catorcena[]>([]);
-  const [catSel, setCatSel] = useState<number | ''>('');
+  /** Llave "2026-21" (lib/catorcena.ts), o '' sin elegir. */
+  const [catSel, setCatSel] = useState<string>('');
   const [pautas, setPautas] = useState<PautaLigera[]>([]);
   const [historial, setHistorial] = useState<Record<string, Movimiento[]>>({});
   const [abierta, setAbierta] = useState<string>('');
@@ -170,9 +174,11 @@ function DisponibilidadView() {
       const hoy = new Date().toISOString().slice(0, 10);
       const { data, error } = await sb
         .from('catorcenas')
-        .select('numero,fecha_inicio,fecha_fin,cat_texto')
+        .select('numero,anio,fecha_inicio,fecha_fin,cat_texto')
         .gte('fecha_fin', hoy)
-        .order('numero')
+        // Por fecha (14-oct-2026): por número, con 2027 cargado, la primera
+        // opción en octubre habría sido la Cat-1 de 2027.
+        .order('fecha_inicio')
         .limit(12);
       if (error) {
         setErr('No se pudieron cargar las catorcenas: ' + error.message);
@@ -181,12 +187,12 @@ function DisponibilidadView() {
       const lista = (data as Catorcena[]) || [];
       setCats(lista);
       // La primera que sigue viva es la opción por defecto.
-      if (lista.length) setCatSel(lista[0].numero);
+      if (lista.length) setCatSel(claveCatorcena(lista[0].anio, lista[0].numero));
     })();
   }, []);
 
   const catActual = useMemo(
-    () => cats.find((c) => c.numero === catSel) || null,
+    () => cats.find((c) => claveCatorcena(c.anio, c.numero) === catSel) || null,
     [cats, catSel]
   );
 
@@ -227,13 +233,15 @@ function DisponibilidadView() {
     setBuscado(true);
 
     // Pautas de esas caras, solo de la catorcena elegida.
-    if (filas.length && catSel !== '') {
+    const sel = leerClaveCatorcena(catSel);
+    if (filas.length && sel) {
       const ids = filas.map((f) => f.vendor_face_id);
       const { data: pd } = await sb
         .from('pautas')
         .select('vendor_face_id,catorcena,campana')
         .in('vendor_face_id', ids)
-        .eq('catorcena', catSel);
+        .eq('anio', sel.anio)
+        .eq('catorcena', sel.numero);
       setPautas((pd as PautaLigera[]) || []);
     } else {
       setPautas([]);
@@ -319,14 +327,12 @@ function DisponibilidadView() {
         />
         <select
           value={catSel}
-          onChange={(e) =>
-            setCatSel(e.target.value === '' ? '' : Number(e.target.value))
-          }
+          onChange={(e) => setCatSel(e.target.value)}
           title="Catorcena que se quiere vender"
         >
           {cats.map((c) => (
-            <option key={c.numero} value={c.numero}>
-              Cat {c.numero} · {fechaCorta(c.fecha_inicio)} a{' '}
+            <option key={claveCatorcena(c.anio, c.numero)} value={claveCatorcena(c.anio, c.numero)}>
+              {etiquetaCatorcena(c.numero, c.anio)} · {fechaCorta(c.fecha_inicio)} a{' '}
               {fechaCorta(c.fecha_fin)}
             </option>
           ))}

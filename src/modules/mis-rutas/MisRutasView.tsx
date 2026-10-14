@@ -29,6 +29,7 @@ import { sb } from '../../lib/supabase';
 import { vigilarRender } from '../../lib/vigia';
 import { candadoTactil } from '../../lib/mapaTactil';
 import { escHtml } from '../../lib/helpers';
+import { anioDe, etiquetaCatorcena } from '../../lib/catorcena';
 import { colorSeguro } from '../rutas/rutasComun';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import { esNavegable, tramosGoogleMaps } from '../../lib/navegacion';
@@ -283,7 +284,7 @@ async function traerDeRed(email: string): Promise<ResultadoRed> {
   const c = await pedir<CatorcenaLocal[]>((s) =>
     sb
       .from('catorcenas')
-      .select('numero,fecha_inicio,fecha_fin,cat_texto')
+      .select('numero,anio,fecha_inicio,fecha_fin,cat_texto')
       .lte('fecha_inicio', hoy)
       .gte('fecha_fin', hoy)
       .order('fecha_inicio', { ascending: false })
@@ -852,7 +853,7 @@ function MisRutasView({
       <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
         {catorcena ? (
           <>
-            Catorcena <b style={{ color: 'var(--txt)' }}>{catorcena.numero}</b> ·{' '}
+            <b style={{ color: 'var(--txt)' }}>{etiquetaCatorcena(catorcena.numero, anioDe(catorcena))}</b> ·{' '}
             {fechaCorta(catorcena.fecha_inicio)} – {fechaCorta(catorcena.fecha_fin)}
           </>
         ) : (

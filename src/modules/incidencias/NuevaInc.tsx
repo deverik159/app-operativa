@@ -63,6 +63,7 @@ import {
   type ElementoSinCara,
 } from '../../lib/constants';
 import { caraLabel, distKm, ladoFijoDePortico } from '../../lib/helpers';
+import { anioDe, etiquetaCatorcena } from '../../lib/catorcena';
 import { explicarErrorGps } from '../../lib/plataforma';
 import {
   catalogoParaMuebles,
@@ -150,6 +151,7 @@ type Linea = {
 /** Catorcena del calendario (la actual y sus vecinas). */
 type CatVentana = {
   numero: number;
+  anio?: number | null;
   fecha_inicio: string;
   fecha_fin: string;
   cat_texto: string | null;
@@ -873,16 +875,18 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         (senal) =>
           sb
             .from('catorcenas')
-            .select('numero,fecha_inicio,fecha_fin,cat_texto')
+            .select('numero,anio,fecha_inicio,fecha_fin,cat_texto')
             .gte('fecha_fin', desde)
-            .order('numero')
+            // Por FECHA, no por número (14-oct-2026): con 2027 cargado, por
+            // número salían la Cat-1, 2 y 3 de 2027 en pleno octubre.
+            .order('fecha_inicio')
             .limit(3)
             .retry(false)
             .abortSignal(senal),
         async () =>
           (await catorcenasLocal())
             .filter((c) => c.fecha_fin >= desde)
-            .sort((a, b) => a.numero - b.numero)
+            .sort((a, b) => (a.fecha_inicio < b.fecha_inicio ? -1 : a.fecha_inicio > b.fecha_inicio ? 1 : 0))
             .slice(0, 3)
       ).catch(() => ({ datos: [] as CatVentana[], origen: 'local' as const }));
       if (!active) return;
@@ -958,7 +962,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           (p.fecha_inicio || '') <= c.fecha_fin &&
           (p.fecha_fin || '') >= c.fecha_inicio
         )
-          cats.add(c.cat_texto || `Cat-${c.numero}`);
+          cats.add(etiquetaCatorcena(c.numero, anioDe(c)));
       });
       camps.set(nombre, cats);
       porCara.set(p.vendor_face_id, camps);

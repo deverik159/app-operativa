@@ -116,7 +116,7 @@ const FOTOS_EN_PARALELO = 3;
  */
 const COLUMNAS_KPI = [
   'record_id', 'folio', 'estatus', 'fecha_reporte', 'unidad_negocio',
-  'area_responsable', 'assigned_area', 'area_reportante', 'nivel', 'catorcena',
+  'area_responsable', 'assigned_area', 'area_reportante', 'nivel', 'catorcena', 'anio',
   'nombre_incidencia', 'incidencia_srd', 'tipo_mueble', 'tipo_medio', 'medio',
   'lado', 'repaired_by_email', 'rechazos_reparacion', 'repaired_at',
   'validator_at', 'sla_reparacion_inicio', 'clave_sitio', 'clave_medio',
@@ -746,15 +746,17 @@ function inicioPeriodo90() {
 function cargarPauta() {
   const rs = lote([
     armar('GET', '/rest/v1/ruta_asignaciones?select=id,ruta_id,usuario_email', null, { nombre: 'pauta_asignaciones' }),
-    armar('GET', '/rest/v1/pautas?select=catorcena&order=catorcena.desc', null, { nombre: 'pauta_catorcenas' }),
+    // Catorcena = año + número (14-oct-2026): la más reciente, como PautaView.
+    armar('GET', '/rest/v1/pautas?select=anio,catorcena&order=anio.desc,catorcena.desc&limit=1', null, { nombre: 'pauta_catorcenas' }),
   ]);
   if (!exito(rs[1])) return;
   const m = /"catorcena"\s*:\s*(\d+)/.exec(rs[1].body || '');
-  if (!m) return; // staging sin pautas importadas: no hay más que pedir
+  const a = /"anio"\s*:\s*(\d+)/.exec(rs[1].body || '');
+  if (!m || !a) return; // staging sin pautas importadas: no hay más que pedir
   let n = PAGINA;
   for (let p = 0; n === PAGINA && p < TOPE_PAGINAS_PAUTA; p++) {
     const r = pedir('GET',
-      '/rest/v1/vw_pauta_ruta?select=*&catorcena=eq.' + m[1] +
+      '/rest/v1/vw_pauta_ruta?select=*&anio=eq.' + a[1] + '&catorcena=eq.' + m[1] +
         '&order=ruta_numero.asc.nullslast,secuencia.asc' + rango(p * PAGINA),
       null, { nombre: 'pauta_ruta' });
     if (!exito(r)) return;

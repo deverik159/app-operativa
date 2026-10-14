@@ -114,6 +114,8 @@ export interface Incidencia {
   // Periodo (derivados por trigger)
   semana: string | null;
   catorcena: number | null;
+  /** Año de la catorcena (calendario oficial; 14-oct-2026). */
+  anio?: number | null;
 
   // Reporte
   fecha_reporte: string | null;
@@ -731,6 +733,8 @@ export interface RutaAsignacionHistorial {
 /** tabla `catorcenas` (periodos de 14 días de la pauta). */
 export interface Catorcena {
   numero: number;
+  /** Año del calendario oficial: la llave es (anio, numero) desde el 14-oct-2026. */
+  anio: number;
   fecha_inicio: string | null;
   fecha_fin: string | null;
   mes: string | null;
@@ -780,6 +784,8 @@ export type AvancePauta = 'PENDIENTE' | 'TOMADA' | 'COMPROBADA';
 export interface PautaRuta {
   id: number;
   catorcena: number;
+  /** Año de la catorcena (14-oct-2026). */
+  anio: number;
   etiqueta: string | null;
 
   site_id: string;
@@ -844,6 +850,7 @@ export interface PautaRuta {
 /** Fila de `vw_pauta_resumen`: totales por ruta y campaña. */
 export interface PautaResumen {
   catorcena: number;
+  anio: number;
   ruta_clave: string | null;
   campana: string | null;
   caras: number;

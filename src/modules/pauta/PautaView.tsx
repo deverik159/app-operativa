@@ -42,6 +42,7 @@ import type { PautaRuta } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
 import { tope } from '../../lib/envios';
 import { subirYLuego, subirYRegresar } from '../../lib/subirAntes';
+import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib/catorcena';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 
@@ -101,8 +102,14 @@ type Props = {
 function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   vigilarRender('PautaView');
   const [filas, setFilas] = useState<PautaRuta[]>([]);
-  const [catorcenas, setCatorcenas] = useState<number[]>([]);
-  const [catSel, setCatSel] = useState<number | null>(null);
+  /**
+   * Catorcenas con pauta cargada, la más reciente primero. Desde el
+   * 14-oct-2026 son número + AÑO: `catSel` es la llave "2026-16" (ver
+   * lib/catorcena.ts), así la Cat-1 de 2027 no se junta con la de 2026.
+   */
+  const [catorcenas, setCatorcenas] = useState<{ anio: number; numero: number }[]>([]);
+  const [catSel, setCatSel] = useState<string | null>(null);
+  const catSelLeida = leerClaveCatorcena(catSel);
   const [loading, setLoading] = useState(true);
   /** Ya terminó la primera carga: cambiar de catorcena ya NO cambia la
    *  pantalla por "Cargando pauta…". Desmontaba el selector con la rueda de
@@ -302,18 +309,19 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
    */
   const [sincronizando, setSincronizando] = useState(false);
   const sincronizarRutas = async () => {
-    if (catSel == null) return;
+    if (catSel == null || !catSelLeida) return;
     if (
       !confirm(
         `Se crearán/actualizarán las rutas de monitoreo con los sitios y ` +
-          `secuencias de la catorcena ${catSel} (las foráneas PLAZA/EDOMEX ` +
+          `secuencias de la ${etiquetaCatorcena(catSelLeida.numero, catSelLeida.anio)} (las foráneas PLAZA/EDOMEX ` +
           `no aplican). ¿Continuar?`
       )
     )
       return;
     setSincronizando(true);
     const { data, error } = await sb.rpc('sincronizar_rutas_desde_pauta', {
-      p_catorcena: catSel,
+      p_catorcena: catSelLeida.numero,
+      p_anio: catSelLeida.anio,
     });
     setSincronizando(false);
     if (error) {
@@ -374,29 +382,53 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
     cargarAsignaciones();
   };
 
-  /** Catorcenas disponibles. Se abre en la más reciente. */
+  /**
+   * Catorcenas disponibles. Se abre en la más reciente.
+   *
+   * Una consulta POR CATORCENA, cada una pidiendo solo la siguiente más
+   * vieja (año, número) que la anterior (14-oct-2026). Antes se leía la
+   * columna de TODAS las filas de pautas: Supabase corta en 1000 y una
+   * catorcena trae ~1,200, así que una segunda catorcena podía no salir en
+   * el selector. Así cada viaje trae una fila y usa el índice (anio,
+   * catorcena).
+   */
   const cargarCatorcenas = useCallback(async () => {
-    const { data, error } = await sb
-      .from('pautas')
-      .select('catorcena')
-      .order('catorcena', { ascending: false });
-    if (error) {
-      setErr('catorcenas: ' + error.message);
-      setLoading(false);
-      return;
+    const cats: { anio: number; numero: number }[] = [];
+    for (let i = 0; i < 120; i++) {
+      const ult = cats[cats.length - 1];
+      let q = sb
+        .from('pautas')
+        .select('anio,catorcena')
+        .order('anio', { ascending: false })
+        .order('catorcena', { ascending: false })
+        .limit(1);
+      if (ult)
+        q = q.or(`anio.lt.${ult.anio},and(anio.eq.${ult.anio},catorcena.lt.${ult.numero})`);
+      const { data, error } = await q;
+      if (error) {
+        setErr('catorcenas: ' + error.message);
+        // Lo que ya llegó (la más reciente primero) sí sirve: una falla a
+        // media lista no deja el selector vacío.
+        if (cats.length === 0) {
+          setLoading(false);
+          return;
+        }
+        break;
+      }
+      const r = (data as { anio: number; catorcena: number }[] | null)?.[0];
+      if (!r) break;
+      cats.push({ anio: Number(r.anio), numero: Number(r.catorcena) });
     }
-    const cats = [
-      ...new Set(((data as { catorcena: number }[]) || []).map((r) => r.catorcena)),
-    ];
     setCatorcenas(cats);
-    setCatSel((prev) => prev ?? cats[0] ?? null);
+    const primera = cats[0] ? claveCatorcena(cats[0].anio, cats[0].numero) : null;
+    setCatSel((prev) => prev ?? primera);
     if (cats.length === 0) setLoading(false);
   }, []);
 
   /** Número de carga: la respuesta de una carga superada se descarta. */
   const cargaSeq = useRef(0);
   /** Catorcena de las filas que están en pantalla. */
-  const catEnPantalla = useRef<number | null>(null);
+  const catEnPantalla = useRef<string | null>(null);
   /**
    * Datos de OTRA catorcena: la lista cambia mucho de alto y se aplica con
    * la página arriba (lib/subirAntes.ts: en iPhone, un cambio grande de alto
@@ -405,7 +437,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
    * refs y el helper, así que la copia que guarda `cargar` (useCallback sin
    * dependencias) siempre sirve.
    */
-  const aplicarDeCatorcena = (cat: number, miCarga: number, fn: () => void) => {
+  const aplicarDeCatorcena = (cat: string, miCarga: number, fn: () => void) => {
     if (catEnPantalla.current === cat) fn();
     else
       subirYLuego(() => {
@@ -426,8 +458,11 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
    * (mismo bug que Incidencias, auditoría 24-sep-2026). Y si falla la red,
    * se conserva lo que ya estaba en pantalla.
    */
-  const cargar = useCallback(async (cat: number, silenciosa = false) => {
+  const cargar = useCallback(async (cat: string, silenciosa = false) => {
     const miCarga = ++cargaSeq.current;
+    // `cat` es la llave "2026-16": la catorcena es número + año.
+    const leida = leerClaveCatorcena(cat);
+    if (!leida) return;
     const marca = cambiosLocales.current;
     if (!silenciosa) setLoading(true);
     setErr('');
@@ -438,7 +473,8 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       const { data, error } = await sb
         .from('vw_pauta_ruta')
         .select('*')
-        .eq('catorcena', cat)
+        .eq('anio', leida.anio)
+        .eq('catorcena', leida.numero)
         .order('ruta_numero', { ascending: true, nullsFirst: false })
         .order('secuencia', { ascending: true })
         .range(desde, desde + PAGINA - 1);
@@ -649,6 +685,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
     const { error } = await sb.rpc('registrar_comprobacion', {
       p_catorcena: fila.catorcena,
       p_vendor_face_id: fila.vendor_face_id,
+      p_anio: fila.anio,
     });
     if (error) {
       alert('No se pudo registrar: ' + error.message);
@@ -805,15 +842,18 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
           aria-label="Catorcena"
           value={catSel ?? ''}
           onChange={(e) => {
-            const v = Number(e.target.value);
+            const v = e.target.value;
             subirYLuego(() => setCatSel(v), 'pauta-catorcena');
           }}
         >
-          {catorcenas.map((c) => (
-            <option key={c} value={c}>
-              Catorcena {c}
-            </option>
-          ))}
+          {catorcenas.map((c) => {
+            const clave = claveCatorcena(c.anio, c.numero);
+            return (
+              <option key={clave} value={clave}>
+                {etiquetaCatorcena(c.numero, c.anio)}
+              </option>
+            );
+          })}
         </select>
         <select
           aria-label="Ruta"

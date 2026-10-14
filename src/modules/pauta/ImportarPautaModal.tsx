@@ -7,18 +7,25 @@
 //   1. El nombre de la hoja: 'CAT 16(15) 21JUL-03AGO'. Se ofrece un selector
 //      con las hojas del libro y se preselecciona la que empiece con CAT.
 //   2. El nombre de las columnas de campaña: 'Campaign Version CAT 16 (15)'
-//      lleva el número de catorcena dentro. Se detectan por patrón y la de
-//      número mayor es la campaña actual; la menor, la anterior.
+//      lleva el número de catorcena dentro. Se detectan por patrón y la más
+//      reciente es la campaña actual; la otra, la anterior. En el cambio de
+//      año la más reciente es la de número CHICO (Cat-1 contra Cat-26).
+//
+// La catorcena es número + AÑO (14-oct-2026) y el archivo no trae el año:
+// se propone el de la catorcena con ese número más cercana a las fechas de
+// fijación del archivo (o a hoy), y solo se ofrecen años que existan en el
+// calendario.
 //
 // Antes de mandar nada se muestra una vista previa con lo que se detectó.
 // Importar reemplaza la catorcena completa: conviene ver qué se va a cargar.
 // ============================================================
 import { Search } from 'lucide-react';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { WorkBook } from 'xlsx';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
+import { anioMasCercano, esMasReciente, etiquetaCatorcena, type CatConAnio } from '../../lib/catorcena';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 
@@ -41,6 +48,7 @@ type Analisis = {
 };
 
 type Resultado = {
+  anio?: number;
   recibidas: number;
   insertadas: number;
   borradas: number;
@@ -87,10 +95,58 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
   const [hojaSel, setHojaSel] = useState('');
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
   const [catorcena, setCatorcena] = useState('');
+  const [anio, setAnio] = useState('');
+  /** El calendario, para proponer el año y validar que la catorcena exista. */
+  const [calendario, setCalendario] = useState<CatConAnio[] | null>(null);
+  /** Fecha de referencia del archivo (fijación del medio), para el año. */
+  const [fechaRef, setFechaRef] = useState<string | null>(null);
   const [err, setErr] = useState('');
   const [leyendo, setLeyendo] = useState(false);
   const [importando, setImportando] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    sb.from('catorcenas')
+      .select('numero,anio,fecha_inicio,fecha_fin')
+      .order('fecha_inicio')
+      .then(({ data, error }) => {
+        if (!vivo) return;
+        if (error) setErr('No se pudo leer el calendario de catorcenas: ' + error.message);
+        setCalendario((data as CatConAnio[]) || []);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  /** Años del calendario que tienen la catorcena escrita. */
+  const aniosDeCat = (calendario || [])
+    .filter((c) => Number(c.numero) === Number(catorcena))
+    .map((c) => Number(c.anio));
+
+  /**
+   * ¿Las fechas del archivo caen lejos de la catorcena elegida? Pasa si se
+   * importa la Cat-1 de un año cuyo calendario todavía no está cargado: el
+   * único año disponible sería el anterior y se REEMPLAZARÍA su pauta
+   * (revisión, 14-oct-2026). El archivo de pauta trae fijaciones de la
+   * catorcena previa, así que se tolera un desfase de hasta ~2 meses.
+   */
+  const fueraDeFechas = (() => {
+    const elegida = (calendario || []).find(
+      (c) => Number(c.numero) === Number(catorcena) && Number(c.anio) === Number(anio)
+    );
+    if (!elegida?.fecha_inicio || !fechaRef) return null;
+    const dias = Math.abs(Date.parse(elegida.fecha_inicio) - Date.parse(fechaRef)) / 86400000;
+    return dias > 60 ? elegida.fecha_inicio : null;
+  })();
+
+  // Propone el año cuando cambian la catorcena, el archivo o el calendario.
+  useEffect(() => {
+    if (!calendario || !catorcena) return;
+    const propuesto = anioMasCercano(calendario, Number(catorcena), fechaRef);
+    setAnio(propuesto != null ? String(propuesto) : '');
+  }, [calendario, catorcena, fechaRef]);
 
   const abrirArchivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -158,7 +214,8 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
         return m ? { col: c, num: Number(m[1]) } : null;
       })
       .filter(Boolean) as { col: string; num: number }[];
-    campCols.sort((a, b) => b.num - a.num);
+    // La más reciente primero (en el cambio de año, la de número chico).
+    campCols.sort((a, b) => (esMasReciente(a.num, b.num) ? -1 : esMasReciente(b.num, a.num) ? 1 : 0));
     const colCampana = campCols[0]?.col || null;
     const colCampanaAnterior = campCols[1]?.col || null;
 
@@ -206,6 +263,13 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
       ...new Set(filas.map((f) => f.ruta_clave).filter(Boolean)),
     ] as string[];
 
+    // La fecha de fijación del medio (la mediana) ubica el año.
+    const fechas = filas
+      .map((f) => f.fecha_fijacion)
+      .filter((x): x is string => !!x)
+      .sort();
+    setFechaRef(fechas.length ? fechas[Math.floor(fechas.length / 2)] : null);
+
     setAnalisis({
       hoja,
       catorcena: cat,
@@ -229,9 +293,22 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
       setErr('Indica el número de catorcena.');
       return;
     }
+    const an = Number(anio);
+    if (!an || !aniosDeCat.includes(an)) {
+      setErr(`La Cat-${cat} no está en el calendario${an ? ` de ${an}` : ''}. Revisa el número y el año.`);
+      return;
+    }
+    if (fueraDeFechas) {
+      setErr(
+        `Las fechas del archivo (alrededor del ${fechaRef}) no corresponden a la ` +
+          `${etiquetaCatorcena(cat, an)}, que empieza el ${fueraDeFechas}. ` +
+          `Revisa el número y el año; si es de un año nuevo, primero hay que cargar ese año en el calendario.`
+      );
+      return;
+    }
     if (
       !confirm(
-        `Se va a REEMPLAZAR toda la pauta de la catorcena ${cat}.\n\n` +
+        `Se va a REEMPLAZAR toda la pauta de la ${etiquetaCatorcena(cat, an)}.\n\n` +
           `Se cargarán ${analisis.filas.length} filas.\n` +
           `El avance de campo ya registrado (tomas y comprobaciones) se conserva.\n\n` +
           '¿Continuar?'
@@ -245,6 +322,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
       p_catorcena: cat,
       p_etiqueta: analisis.etiqueta,
       p_filas: analisis.filas,
+      p_anio: an,
     });
     setImportando(false);
     if (error) {
@@ -322,18 +400,48 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
               </div>
             )}
 
-            <div className="field">
-              <label>Catorcena</label>
-              <input
-                type="number"
-                value={catorcena}
-                onChange={(e) => setCatorcena(e.target.value)}
-                disabled={importando}
-              />
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                {analisis.catorcena != null
-                  ? `Detectada del archivo. Corrígela si no es la correcta.`
-                  : 'No se pudo detectar: escríbela a mano.'}
+            <div className="row2">
+              <div className="field">
+                <label>Catorcena</label>
+                <input
+                  type="number"
+                  value={catorcena}
+                  onChange={(e) => setCatorcena(e.target.value)}
+                  disabled={importando}
+                />
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  {analisis.catorcena != null
+                    ? `Detectada del archivo. Corrígela si no es la correcta.`
+                    : 'No se pudo detectar: escríbela a mano.'}
+                </div>
+              </div>
+              <div className="field">
+                <label>Año</label>
+                <select
+                  value={anio}
+                  onChange={(e) => setAnio(e.target.value)}
+                  disabled={importando || aniosDeCat.length === 0}
+                >
+                  {aniosDeCat.length === 0 && <option value="">—</option>}
+                  {aniosDeCat.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  {calendario == null ? (
+                    'Leyendo el calendario…'
+                  ) : aniosDeCat.length === 0 ? (
+                    'Esa catorcena no está en el calendario.'
+                  ) : fueraDeFechas ? (
+                    <span style={{ color: 'var(--warn)' }}>
+                      ⚠ Las fechas del archivo no corresponden a esta catorcena (empieza el {fueraDeFechas}).
+                    </span>
+                  ) : (
+                    'El archivo no trae el año: se propone el más cercano a sus fechas.'
+                  )}
+                </div>
               </div>
             </div>
 
@@ -385,7 +493,10 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
 
         {resultado && (
           <div className="ok-msg" style={{ lineHeight: 1.7 }}>
-            <b>Importación completa.</b>
+            <b>
+              Importación completa
+              {resultado.anio ? ` · ${etiquetaCatorcena(catorcena, resultado.anio)}` : ''}.
+            </b>
             <br />
             {resultado.insertadas} filas cargadas · {resultado.borradas}{' '}
             reemplazadas · {resultado.sitios} sitios · {resultado.campanas}{' '}
@@ -424,7 +535,9 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
                 importando ||
                 !analisis ||
                 analisis.filas.length === 0 ||
-                analisis.faltantes.length > 0
+                analisis.faltantes.length > 0 ||
+                !anio ||
+                !!fueraDeFechas
               }
             >
               {importando

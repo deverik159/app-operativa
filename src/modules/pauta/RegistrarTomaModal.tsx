@@ -102,6 +102,7 @@ function RegistrarTomaModal({
       p_catorcena: fila.catorcena,
       p_vendor_face_id: fila.vendor_face_id,
       p_motivo: motivoRegreso.trim(),
+      p_anio: fila.anio,
     });
     setResolviendo(false);
     if (error) {
@@ -129,6 +130,9 @@ function RegistrarTomaModal({
     const { data, error } = await sb
       .from('pauta_evidencias')
       .select('*')
+      // Número + año (14-oct-2026): la misma cara puede tener la Cat-1 de
+      // dos años distintos.
+      .eq('anio', fila.anio)
       .eq('catorcena', fila.catorcena)
       .eq('vendor_face_id', fila.vendor_face_id)
       .order('creado_en');
@@ -153,14 +157,16 @@ function RegistrarTomaModal({
         f.name.split('.').pop() || (tipo === 'video' ? 'mp4' : 'jpg')
       ).toLowerCase();
       const fecha = new Date().toISOString().slice(0, 10);
-      // La cara y la catorcena van en el nombre: así el archivo se identifica
-      // en Storage sin abrir la app.
+      // La cara y la catorcena (año-número, 14-oct-2026) van en el nombre:
+      // así el archivo se identifica en Storage sin abrir la app. Las de
+      // antes quedaron en la carpeta con solo el número.
+      const cat = `${fila.anio}-${fila.catorcena}`;
       const nombre =
-        `${fila.vendor_face_id}_cat${fila.catorcena}_${fecha}_${Date.now()}.${ext}`.replace(
+        `${fila.vendor_face_id}_cat${cat}_${fecha}_${Date.now()}.${ext}`.replace(
           /[^\w.\-]/g,
           '_'
         );
-      const path = `${CARPETA}/${fila.catorcena}/${nombre}`;
+      const path = `${CARPETA}/${cat}/${nombre}`;
 
       const { error: up } = await sb.storage
         .from(BUCKET_EVIDENCIAS)
@@ -174,6 +180,7 @@ function RegistrarTomaModal({
       const { data, error } = await sb
         .from('pauta_evidencias')
         .insert({
+          anio: fila.anio,
           catorcena: fila.catorcena,
           vendor_face_id: fila.vendor_face_id,
           tipo,
@@ -228,6 +235,7 @@ function RegistrarTomaModal({
     const { error } = await sb.rpc('registrar_toma', {
       p_catorcena: fila.catorcena,
       p_vendor_face_id: fila.vendor_face_id,
+      p_anio: fila.anio,
     });
     setGuardando(false);
     if (error) {

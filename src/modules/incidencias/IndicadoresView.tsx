@@ -60,6 +60,7 @@ const COLUMNAS_KPI = [
   'area_reportante',
   'nivel',
   'catorcena',
+  'anio', // año de la catorcena (14-oct-2026)
   // rankings
   'nombre_incidencia',
   'incidencia_srd',

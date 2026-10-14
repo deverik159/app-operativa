@@ -23,6 +23,7 @@ import { nombreDesdeCorreo } from '../../lib/nombres';
 import { metros } from '../../lib/haversine';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import { vigilarRender } from '../../lib/vigia';
+import { anioDe, claveCatorcena, etiquetaCatorcena } from '../../lib/catorcena';
 import Ic from '../../components/Ic';
 import {
   catorcenaActual,
@@ -64,10 +65,14 @@ const fmtCuando = (iso: string) => {
   });
 };
 
+/** Llave del selector: año-número. */
+const claveDe = (c: Catorcena) => claveCatorcena(anioDe(c) ?? 0, c.numero);
+
 export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; paradas: Ubic[] }) {
   vigilarRender('AvanceVisitas');
   const [cats, setCats] = useState<Catorcena[]>([]);
-  const [catSel, setCatSel] = useState<number | null>(null);
+  /** Llave "2026-21" (lib/catorcena.ts): la catorcena es número + año. */
+  const [catSel, setCatSel] = useState<string | null>(null);
   const [errCats, setErrCats] = useState('');
   const [visitas, setVisitas] = useState<Visita[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -91,8 +96,9 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
       const [c, p] = await Promise.all([
         sb
           .from('catorcenas')
-          .select('numero,fecha_inicio,fecha_fin')
-          .order('numero', { ascending: false })
+          .select('numero,anio,fecha_inicio,fecha_fin')
+          // Por fecha (14-oct-2026): por número se intercalaban los años.
+          .order('fecha_inicio', { ascending: false })
           .limit(60)
           .abortSignal(tope(TOPE_LECTURA_MS)),
         sb.rpc('usuarios_asignables').abortSignal(tope(TOPE_LECTURA_MS)),
@@ -112,7 +118,8 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
       setCats(lista);
       if (!catsListas.current) {
         catsListas.current = true;
-        setCatSel(catorcenaActual(lista)?.numero ?? null);
+        const actual = catorcenaActual(lista);
+        setCatSel(actual ? claveDe(actual) : null);
       }
       if (lista.length === 0) setCargando(false);
     })();
@@ -121,7 +128,7 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
     };
   }, [intento]);
 
-  const cat = cats.find((c) => c.numero === catSel) || null;
+  const cat = cats.find((c) => claveDe(c) === catSel) || null;
   const desdeIso = cat?.fecha_inicio ? inicioDelDia(cat.fecha_inicio)?.toISOString() ?? null : null;
   const hastaIso = (() => {
     const d = cat?.fecha_fin ? inicioDelDia(cat.fecha_fin) : null;
@@ -203,13 +210,13 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
         {cats.length > 0 && (
           <select
             value={catSel ?? ''}
-            onChange={(e) => setCatSel(e.target.value === '' ? null : Number(e.target.value))}
+            onChange={(e) => setCatSel(e.target.value === '' ? null : e.target.value)}
             style={{ width: 'auto', fontSize: 13, padding: '6px 8px' }}
             aria-label="Catorcena"
           >
             {cats.map((c) => (
-              <option key={c.numero} value={c.numero}>
-                Catorcena {c.numero} · {rangoCorto(c)}
+              <option key={claveDe(c)} value={claveDe(c)}>
+                {etiquetaCatorcena(c.numero, anioDe(c))} · {rangoCorto(c)}
               </option>
             ))}
           </select>
@@ -234,7 +241,7 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
             <b style={{ fontSize: 18 }}>
               {cargando ? '…' : visitadas} de {vigentes.length}
             </b>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>paradas visitadas en la catorcena {cat.numero}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>paradas visitadas en la {etiquetaCatorcena(cat.numero, anioDe(cat))}</span>
           </div>
           <div className="rt-barra" aria-hidden="true">
             <div style={{ width: `${cargando ? 0 : pct}%` }} />
@@ -253,7 +260,7 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
 
       {cat && (!desdeIso || !hastaIso) && (
         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-          La catorcena {cat.numero} no tiene fechas de inicio y fin: no se puede medir su avance.
+          La {etiquetaCatorcena(cat.numero, anioDe(cat))} no tiene fechas de inicio y fin: no se puede medir su avance.
         </div>
       )}
 

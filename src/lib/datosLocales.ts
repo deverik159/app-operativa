@@ -67,6 +67,11 @@ export type ArbolDigitalLocal = Pick<
 
 export type CatorcenaLocal = {
   numero: number;
+  /**
+   * Año del calendario oficial (14-oct-2026). Las copias guardadas antes no
+   * lo traen: leerlo con anioDe() de lib/catorcena.
+   */
+  anio?: number | null;
   fecha_inicio: string;
   fecha_fin: string;
   cat_texto: string | null;
@@ -276,7 +281,9 @@ const COLUMNAS: Record<TablaLocal, string> = {
   arbol_digital:
     'id,incidencia,categoria_principal,incidencia_srd,causa_raiz,diagnostico,solucion,sla_min,sla,sla_fuera',
   nombres_pantallas: 'vendor_face_id,nombre',
-  catorcenas: 'numero,fecha_inicio,fecha_fin,cat_texto',
+  // anio (14-oct-2026): cambiar las columnas hace que la copia vieja se
+  // vuelva a bajar, ya con el año.
+  catorcenas: 'numero,anio,fecha_inicio,fecha_fin,cat_texto',
   qtm_pautas: 'vendor_face_id,campaign,fecha_inicio,fecha_fin',
   // ruta_unidad/ruta_tipo (rutas, 5-oct-2026): para saltar Ecovallas
   // Impreso. Cambiar las columnas hace que la copia vieja se vuelva a bajar.
@@ -302,7 +309,8 @@ const ORDEN: Record<TablaLocal, string[]> = {
   catalogo_incidencias: ['id'],
   arbol_digital: ['id'],
   nombres_pantallas: ['vendor_face_id'],
-  catorcenas: ['numero', 'fecha_inicio'],
+  // fecha_inicio es única (dos catorcenas no empiezan el mismo día).
+  catorcenas: ['fecha_inicio'],
   qtm_pautas: ['vendor_face_id', 'fecha_inicio', 'fecha_fin', 'campaign'],
   // site_id es único en ruta_ubicaciones: un sitio vive en una sola ruta.
   direcciones_rutas: ['site_id'],
@@ -1014,12 +1022,15 @@ export async function nombresPantallaLocal(ids: string[]): Promise<Record<string
   }
 }
 
-/** El calendario de catorcenas completo, por número. */
+/**
+ * El calendario de catorcenas completo, en orden de FECHA (14-oct-2026):
+ * por número, la Cat-1 de 2027 quedaba junto a la de 2026.
+ */
 export async function catorcenasLocal(): Promise<CatorcenaLocal[]> {
   try {
     return (await filasDe('catorcenas'))
       .map((c) => ({ ...c }))
-      .sort((a, b) => a.numero - b.numero || compararTexto(a.fecha_inicio, b.fecha_inicio));
+      .sort((a, b) => compararTexto(a.fecha_inicio, b.fecha_inicio) || a.numero - b.numero);
   } catch {
     return [];
   } finally {
@@ -1654,7 +1665,11 @@ function normalizar(t: TablaLocal, filas: unknown[]): unknown[] {
       longitud: aNumero(r.longitud),
     }));
   if (t === 'catorcenas')
-    return (filas as CatorcenaLocal[]).map((c) => ({ ...c, numero: Number(c.numero) }));
+    return (filas as CatorcenaLocal[]).map((c) => ({
+      ...c,
+      numero: Number(c.numero),
+      anio: c.anio == null ? null : Number(c.anio),
+    }));
   return filas;
 }
 

@@ -24,6 +24,7 @@ import {
 } from '../../lib/helpers';
 import { nombreDe } from '../../lib/nombres';
 import { diaCdmx } from '../../lib/fechasCdmx';
+import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib/catorcena';
 import { nombreSitio, nombrePlaza } from '../../lib/claveSitio';
 import type { MapaNombres } from '../../lib/nombres';
 import { colorTono, pintarTexto } from '../../lib/tonos';
@@ -88,6 +89,21 @@ type Detalle = {
  * Está a nivel de módulo (y no dentro del render, como en el HTML) para que
  * React no la recree en cada pintado.
  */
+/**
+ * Llave de la catorcena de una incidencia: "2026-21" (número + año,
+ * 14-oct-2026). Una fila sin año (no debería haber) queda con su número.
+ */
+function claveCatInc(i: Pick<Incidencia, 'catorcena' | 'anio'>): string | null {
+  if (i.catorcena == null) return null;
+  return i.anio != null ? claveCatorcena(Number(i.anio), Number(i.catorcena)) : String(i.catorcena);
+}
+
+/** "2026-21" → "Cat-21 · 2026"; un número suelto → "Cat-21". */
+function etiquetaClaveCat(clave: string): string {
+  const c = leerClaveCatorcena(clave);
+  return c ? etiquetaCatorcena(c.numero, c.anio) : etiquetaCatorcena(clave);
+}
+
 function Bars({
   data,
   color,
@@ -441,11 +457,15 @@ function KpiView({
 
   // Las áreas y catorcenas salen de los DATOS, no de una constante: así
   // aparecen también las áreas que no están en AREAS_RESP (Urban, Imprenta…).
+  // La catorcena es número + año (14-oct-2026): la llave es "2026-21" y el
+  // orden es por año y luego número, para no juntar la Cat-1 de dos años.
   const cats = useMemo(
     () =>
-      [...new Set(items.map((i) => i.catorcena).filter((x) => x != null))].sort(
-        (a, b) => (a as number) - (b as number)
-      ) as number[],
+      ([...new Set(items.map(claveCatInc).filter(Boolean))] as string[]).sort((a, b) => {
+        const x = leerClaveCatorcena(a);
+        const y = leerClaveCatorcena(b);
+        return (x?.anio ?? 0) - (y?.anio ?? 0) || (x?.numero ?? Number(a)) - (y?.numero ?? Number(b));
+      }),
     [items]
   );
   const areas = useMemo(
@@ -491,8 +511,7 @@ function KpiView({
           return false;
         if (fEst !== 'Todos' && i.estatus !== fEst) return false;
         if (fNivel !== 'Todos' && i.nivel !== fNivel) return false;
-        if (fCat !== 'Todas' && String(i.catorcena) !== String(fCat))
-          return false;
+        if (fCat !== 'Todas' && claveCatInc(i) !== fCat) return false;
         if (fSem !== 'Todas' && String(semanaDe(i.fecha_reporte && diaCdmx(i.fecha_reporte))) !== fSem)
           return false;
         return true;
@@ -834,7 +853,7 @@ function KpiView({
     fReporta !== 'Todas' ? `Reporta ${fReporta}` : '',
     fEst !== 'Todos' ? EST_LABEL[fEst] || fEst : '',
     fNivel !== 'Todos' ? `Nivel ${fNivel}` : '',
-    fCat !== 'Todas' ? `Cat-${fCat}` : '',
+    fCat !== 'Todas' ? etiquetaClaveCat(fCat) : '',
     fSem !== 'Todas' ? etiquetaSemana(Number(fSem)) : '',
   ]
     .filter(Boolean)
@@ -932,11 +951,11 @@ function KpiView({
           <option value="Todas">Catorcena: todas</option>
           {cats.map((c) => (
             <option key={c} value={c}>
-              Cat-{c}
+              {etiquetaClaveCat(c)}
             </option>
           ))}
-          {fCat !== 'Todas' && !cats.some((c) => String(c) === fCat) && (
-            <option value={fCat}>Cat-{fCat}</option>
+          {fCat !== 'Todas' && !cats.includes(fCat) && (
+            <option value={fCat}>{etiquetaClaveCat(fCat)}</option>
           )}
         </select>
         {/* Semana de lunes a domingo. La etiqueta trae el rango de fechas
