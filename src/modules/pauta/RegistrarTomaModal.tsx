@@ -33,6 +33,8 @@ type EvidenciaPauta = {
   path: string | null;
   referencia: string | null;
   subido_por: string | null;
+  /** De una toma que el coordinador regresó: ya no cuenta (14-oct-2026). */
+  regresada_en?: string | null;
 };
 
 /** Subcarpeta dentro del bucket, para no mezclar con las de incidencias. */
@@ -123,7 +125,13 @@ function RegistrarTomaModal({
   // regla trae una var() (estándar = --muted): ese recuadro va sin tinte ni
   // borde, como siempre (tema claro/oscuro, 24-sep-2026).
   const tonoRegla = pintar(regla.color);
-  const fotosSubidas = evidencias.filter((e) => e.tipo !== 'video').length;
+  // Solo cuentan las vigentes: las de una toma regresada se quedan como
+  // rastro, pero la toma nueva necesita sus propias fotos (14-oct-2026).
+  const vigentes = evidencias.filter((e) => !e.regresada_en);
+  const regresadas = evidencias.filter((e) => !!e.regresada_en);
+  /** Comprobada: ya no se agregan ni se quitan fotos (la base lo impide). */
+  const cerrada = !!fila.fecha_comprobacion;
+  const fotosSubidas = vigentes.filter((e) => e.tipo !== 'video').length;
   const faltanFotos = Math.max(0, regla.fotos - fotosSubidas);
 
   const cargar = async () => {
@@ -215,7 +223,7 @@ function RegistrarTomaModal({
   };
 
   const confirmar = async () => {
-    if (evidencias.length === 0) {
+    if (vigentes.length === 0) {
       setErr(
         'Adjunta al menos una foto o video. La toma ES la captura de la evidencia.'
       );
@@ -395,7 +403,7 @@ function RegistrarTomaModal({
             </div>
           ) : (
             <>
-              {evidencias.length > 0 && (
+              {vigentes.length > 0 && (
                 <div
                   style={{
                     display: 'grid',
@@ -404,7 +412,7 @@ function RegistrarTomaModal({
                     marginBottom: 10,
                   }}
                 >
-                  {evidencias.map((ev) => (
+                  {vigentes.map((ev) => (
                     <div key={ev.id}>
                       {ev.tipo === 'video' ? (
                         <a
@@ -462,26 +470,66 @@ function RegistrarTomaModal({
                         >
                           {ev.referencia || ''}
                         </span>
-                        <button
-                          type="button"
-                          className="btn-icono"
-                          onClick={() => borrar(ev)}
-                          aria-label="Eliminar evidencia"
-                          title="Eliminar"
-                        >
-                          <Ic i={Trash} className="solo" />
-                        </button>
+                        {!cerrada && (
+                          <button
+                            type="button"
+                            className="btn-icono"
+                            onClick={() => borrar(ev)}
+                            aria-label="Eliminar evidencia"
+                            title="Eliminar"
+                          >
+                            <Ic i={Trash} className="solo" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              <SubirArchivos
-                onFiles={subir}
-                disabled={subiendo}
-                ayuda="Se suben en cuanto las eliges."
-              />
+              {regresadas.length > 0 && (
+                <details style={{ marginBottom: 10, fontSize: 12, color: 'var(--muted)' }}>
+                  <summary style={{ cursor: 'pointer' }}>
+                    {regresadas.length} {regresadas.length === 1 ? 'archivo' : 'archivos'} de la toma
+                    regresada (ya no cuentan)
+                  </summary>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill,minmax(64px,1fr))',
+                      gap: 6,
+                      marginTop: 6,
+                      opacity: 0.6,
+                    }}
+                  >
+                    {regresadas.map((ev) => (
+                      <a key={ev.id} href={ev.url} target="_blank" rel="noreferrer" className="tag" style={{ display: 'block', padding: 0 }}>
+                        {ev.tipo === 'video' ? (
+                          <span style={{ display: 'flex', height: 64, alignItems: 'center', justifyContent: 'center' }}>🎥</span>
+                        ) : (
+                          <img
+                            src={ev.url}
+                            alt="Evidencia de la toma regresada"
+                            style={{ width: '100%', height: 64, objectFit: 'cover', borderRadius: 8, display: 'block' }}
+                          />
+                        )}
+                      </a>
+                    ))}
+                  </div>
+                </details>
+              )}
+
+              {cerrada ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Toma comprobada: ya no se agregan ni se quitan fotos.
+                </div>
+              ) : (
+                <SubirArchivos
+                  onFiles={subir}
+                  disabled={subiendo}
+                  ayuda="Se suben en cuanto las eliges."
+                />
+              )}
               {subiendo && (
                 <div
                   style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}

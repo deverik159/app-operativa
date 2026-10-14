@@ -79,6 +79,8 @@ export async function evidenciasDe(
       .eq('anio', anio)
       .eq('catorcena', catorcena)
       .in('vendor_face_id', trozo)
+      // Las de una toma regresada no van al cliente (14-oct-2026).
+      .is('regresada_en', null)
       .order('creado_en');
     if (error) throw new Error('No se pudieron leer las fotos: ' + error.message);
     for (const r of (data as { vendor_face_id: string; url: string; tipo: string | null }[]) || []) {
