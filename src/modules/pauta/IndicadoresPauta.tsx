@@ -1,0 +1,356 @@
+// ============================================================
+// src/modules/pauta/IndicadoresPauta.tsx
+// Pestaña Indicadores de Pauta y Monitoreo (Erik, 14-oct-2026).
+//
+// Dos bloques sobre la catorcena elegida:
+//   1. Avance: caras, tomadas, comprobadas y regresadas; por ruta, por
+//      campaña y por monitorista. Se descarga en Excel.
+//   2. Comprobaciones agrupadas por campaña y por día en que se TOMÓ. Cada
+//      campaña y cada día se descargan en PDF con fotos o en Excel con
+//      ligas, para mandarlos por correo. Solo entran las comprobadas.
+//
+// El monitorista ve solo sus rutas asignadas; coordinador y manager, todo.
+// Ese recorte lo hace PautaView al pasar `filas` (es un filtro de pantalla,
+// no un permiso: la RLS de pautas deja leer todo a cualquiera con sesión).
+//
+// Las incidencias de los sitios son el tercer bloque del diseño; esperan una
+// función nueva en la base (ver la ficha de Pauta).
+// ============================================================
+import { ChevronDown, ChevronRight, Download, FileText, Sheet } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { PautaRuta } from '../../types/db';
+import { cargarNombres, nombreDe, type MapaNombres } from '../../lib/nombres';
+import {
+  agruparComprobaciones,
+  avancePauta,
+  etiquetaDia,
+  nombreRuta,
+  paraArchivo,
+} from '../../lib/indicadoresPauta';
+import { colorTono } from '../../lib/tonos';
+import {
+  bajarArchivo,
+  evidenciasDe,
+  excelAvance,
+  excelComprobaciones,
+  pdfComprobaciones,
+  type Contexto,
+} from './descargasPauta';
+import Ic from '../../components/Ic';
+
+type Props = {
+  filas: PautaRuta[];
+  /** Ya se leyeron las rutas asignadas (o falló la lectura: el texto). */
+  asignaciones: 'cargando' | 'listas' | string;
+  anio: number;
+  numero: number;
+  /** "Cat-16 · 2026" */
+  etiquetaCat: string;
+  /** Monitorista: solo sus rutas. Si no tiene ninguna, se dice. */
+  soloMisRutas: boolean;
+};
+
+/** Una tarea de descarga en curso (una a la vez). */
+type Tarea = { clave: string; texto: string };
+
+/**
+ * Candado del MÓDULO, no del componente: si el usuario sale de Indicadores
+ * con un PDF armándose, la descarga sigue; al volver no debe poder lanzar
+ * otra en paralelo (dos PDF con fotos a la vez agotan la memoria del
+ * iPhone). Tampoco pasan dos toques seguidos antes de que React pinte.
+ */
+let descargaEnCurso = false;
+
+export default function IndicadoresPauta({ filas, asignaciones, anio, numero, etiquetaCat, soloMisRutas }: Props) {
+  const [nombres, setNombres] = useState<MapaNombres>({});
+  useEffect(() => {
+    let vivo = true;
+    cargarNombres().then((m) => vivo && setNombres(m));
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  const avance = useMemo(() => avancePauta(filas), [filas]);
+  const grupos = useMemo(() => agruparComprobaciones(filas), [filas]);
+  const [abierta, setAbierta] = useState<string | null>(null);
+  const [verDetalle, setVerDetalle] = useState<'campana' | 'monitorista' | null>(null);
+  const [tarea, setTarea] = useState<Tarea | null>(null);
+  const [err, setErr] = useState('');
+
+  const ctx: Contexto = { catorcena: etiquetaCat, anio, numero, nombres };
+  const sufijo = `${paraArchivo(etiquetaCat)}`;
+
+  const vivo = useRef(true);
+  useEffect(
+    () => () => {
+      vivo.current = false;
+    },
+    []
+  );
+  const correr = async (clave: string, texto: string, fn: () => Promise<void>) => {
+    if (descargaEnCurso) {
+      setErr('Ya se está preparando otro archivo. Espera a que termine.');
+      return;
+    }
+    descargaEnCurso = true;
+    setErr('');
+    setTarea({ clave, texto });
+    try {
+      await fn();
+    } catch (e) {
+      if (vivo.current) setErr((e as Error).message || 'No se pudo generar el archivo.');
+    } finally {
+      descargaEnCurso = false;
+      if (vivo.current) setTarea(null);
+    }
+  };
+
+  const bajarAvance = () =>
+    correr('avance', 'Preparando el Excel…', async () => {
+      const blob = await excelAvance(avance, filas, ctx);
+      bajarArchivo(blob, `Avance_${sufijo}.xlsx`);
+    });
+
+  const bajarComprobacion = (
+    clave: string,
+    formato: 'pdf' | 'xlsx',
+    titulo: string,
+    subtitulo: string,
+    nombreArchivo: string,
+    fs: PautaRuta[]
+  ) =>
+    correr(clave + formato, 'Leyendo las fotos…', async () => {
+      const evid = await evidenciasDe(anio, numero, fs.map((f) => f.vendor_face_id));
+      if (formato === 'xlsx') {
+        const blob = await excelComprobaciones(titulo, fs, evid, ctx);
+        bajarArchivo(blob, `${nombreArchivo}.xlsx`);
+        return;
+      }
+      const blob = await pdfComprobaciones(titulo, subtitulo, fs, evid, ctx, (h, t) => {
+        if (vivo.current)
+          setTarea({ clave: clave + formato, texto: t ? `Preparando fotos ${h} de ${t}…` : 'Armando el PDF…' });
+      });
+      bajarArchivo(blob, `${nombreArchivo}.pdf`);
+    });
+
+  if (soloMisRutas && asignaciones === 'cargando') return <div className="loading">Leyendo tus rutas…</div>;
+  if (soloMisRutas && asignaciones !== 'listas' && asignaciones !== 'cargando')
+    return <div className="err">No se pudieron leer tus rutas asignadas: {asignaciones}</div>;
+  if (soloMisRutas && filas.length === 0)
+    return (
+      <div className="empty">
+        No tienes rutas asignadas en esta catorcena. Pide al coordinador que te asigne una en Pauta.
+      </div>
+    );
+
+  const t = avance.total;
+  const ocupado = !!tarea;
+
+  /** Botones PDF + Excel de un grupo. */
+  const botones = (clave: string, titulo: string, subtitulo: string, archivo: string, fs: PautaRuta[]) => (
+    <span style={{ display: 'inline-flex', gap: 6, flexShrink: 0 }}>
+      {(['pdf', 'xlsx'] as const).map((fmt) => (
+        <button
+          key={fmt}
+          type="button"
+          className="btn ghost sm"
+          disabled={ocupado}
+          onClick={(e) => {
+            e.stopPropagation();
+            bajarComprobacion(clave, fmt, titulo, subtitulo, archivo, fs);
+          }}
+          title={fmt === 'pdf' ? 'PDF con las fotos, para mandar por correo' : 'Excel con una liga a cada foto'}
+        >
+          {tarea?.clave === clave + fmt && <span className="spinner" />}
+          <Ic i={fmt === 'pdf' ? FileText : Sheet} />
+          {fmt === 'pdf' ? 'PDF' : 'Excel'}
+        </button>
+      ))}
+    </span>
+  );
+
+  return (
+    <>
+      {soloMisRutas && (
+        <p className="phint" style={{ marginTop: 0 }}>
+          Ves solo tus rutas asignadas.
+        </p>
+      )}
+      {err && <div className="err">{err}</div>}
+      {tarea && (
+        <div role="status" className="phint" style={{ marginTop: 0 }}>
+          <span className="spinner" />
+          {tarea.texto}
+        </div>
+      )}
+
+      {/* 1. Avance de la catorcena */}
+      <section className="card" style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          <b style={{ flex: '1 1 auto', fontSize: 15 }}>Avance de la {etiquetaCat}</b>
+          <button type="button" className="btn ghost sm" onClick={bajarAvance} disabled={ocupado}>
+            {tarea?.clave === 'avance' && <span className="spinner" />}
+            <Ic i={Download} />
+            Descargar avance
+          </button>
+        </div>
+        <div className="cards" style={{ marginBottom: 10 }}>
+          {[
+            { l: 'Caras', n: t.caras },
+            { l: 'Pendientes', n: t.pendientes, c: 'var(--warn)', sub: t.regresadas ? `${t.regresadas} ${t.regresadas === 1 ? 'regresada' : 'regresadas'}` : '' },
+            { l: 'Tomadas', n: t.tomadas, c: colorTono('azul'), sub: 'por comprobar' },
+            { l: 'Comprobadas', n: t.comprobadas, c: colorTono('verde'), sub: `${t.pct}%` },
+          ].map((x) => (
+            <div key={x.l} className="card">
+              <div className="n" style={{ color: x.c }}>
+                {x.n}
+              </div>
+              <div className="l">
+                {x.l}
+                {x.sub ? <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · {x.sub}</span> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>Comprobado por ruta</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(70px,auto) minmax(0,1fr) auto', gap: '6px 10px', alignItems: 'center', fontSize: 13 }}>
+          {avance.porRuta.map((r) => (
+            <FilaBarra key={r.ruta || '-'} etiqueta={nombreRuta(r.ruta)} pct={r.pct} detalle={`${r.comprobadas}/${r.caras}`} />
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          {(['campana', 'monitorista'] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              className={'rt-chip' + (verDetalle === k ? ' on' : '')}
+              aria-pressed={verDetalle === k}
+              onClick={() => setVerDetalle((v) => (v === k ? null : k))}
+            >
+              {k === 'campana' ? 'Por campaña' : 'Por monitorista'}
+            </button>
+          ))}
+        </div>
+        {verDetalle === 'campana' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(60px,30%) auto', gap: '6px 10px', alignItems: 'center', fontSize: 13, marginTop: 10 }}>
+            {avance.porCampana.map((c) => (
+              <FilaBarra key={c.campana} etiqueta={c.campana} pct={c.pct} detalle={`${c.comprobadas}/${c.caras}`} />
+            ))}
+          </div>
+        )}
+        {verDetalle === 'monitorista' && (
+          <div style={{ marginTop: 10, fontSize: 13 }}>
+            {avance.porMonitorista.length === 0 ? (
+              <div style={{ color: 'var(--muted)' }}>Todavía nadie registra tomas en esta catorcena.</div>
+            ) : (
+              avance.porMonitorista.map((m) => (
+                <div key={m.correo} style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+                  <span style={{ flex: '1 1 auto', minWidth: 0 }}>{nombreDe(nombres, m.correo)}</span>
+                  <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                    {m.tomas} tomas · {m.comprobadas} comprobadas · {m.sitios} sitios
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* 2. Comprobaciones agrupadas */}
+      <section className="card">
+        <b style={{ fontSize: 15 }}>Comprobaciones</b>
+        <p className="phint" style={{ margin: '4px 0 10px' }}>
+          Por campaña y por día en que se tomó. Solo lo que el coordinador ya comprobó. Descarga en PDF con
+          fotos o en Excel con ligas.
+        </p>
+        {grupos.length === 0 && (
+          <div style={{ color: 'var(--muted)', fontSize: 13 }}>Todavía no hay tomas comprobadas en esta catorcena.</div>
+        )}
+        {grupos.map((g) => {
+          const abiertaEsta = abierta === g.campana;
+          const todas = g.dias.flatMap((d) => d.filas);
+          const evidencias = todas.reduce((n, f) => n + (f.fotos || 0), 0);
+          return (
+            <div key={g.campana} style={{ border: '1px solid var(--line)', borderRadius: 10, marginBottom: 8 }}>
+              <div
+                role="button"
+                tabIndex={0}
+                aria-expanded={abiertaEsta}
+                onClick={() => setAbierta(abiertaEsta ? null : g.campana)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setAbierta(abiertaEsta ? null : g.campana);
+                  }
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', cursor: 'pointer', flexWrap: 'wrap' }}
+              >
+                <Ic i={abiertaEsta ? ChevronDown : ChevronRight} />
+                <span style={{ flex: '1 1 160px', minWidth: 0 }}>
+                  <b>{g.campana}</b>
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                    {' '}
+                    · {g.total} {g.total === 1 ? 'cara' : 'caras'} · {g.dias.length} {g.dias.length === 1 ? 'día' : 'días'} · {evidencias} {evidencias === 1 ? 'evidencia' : 'evidencias'}
+                  </span>
+                </span>
+                {botones(
+                  'c|' + g.campana,
+                  g.campana,
+                  g.dias.length === 1 ? etiquetaDia(g.dias[0].dia) : `${etiquetaDia(g.dias[0].dia)} a ${etiquetaDia(g.dias[g.dias.length - 1].dia)}`,
+                  `Comprobacion_${paraArchivo(g.campana)}_${sufijo}`,
+                  todas
+                )}
+              </div>
+              {abiertaEsta &&
+                g.dias.map((d) => (
+                  <div
+                    key={d.dia}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px 8px 34px', borderTop: '1px solid var(--line)', flexWrap: 'wrap', fontSize: 13 }}
+                  >
+                    <span style={{ flex: '1 1 160px', minWidth: 0 }}>
+                      {etiquetaDia(d.dia)}
+                      <span style={{ color: 'var(--muted)' }}>
+                        {' '}
+                        · {d.filas.length} {d.filas.length === 1 ? 'cara' : 'caras'} ·{' '}
+                        {[...new Set(d.filas.map((f) => nombreRuta(f.ruta_clave)))].join(', ')}
+                      </span>
+                    </span>
+                    {botones(
+                      `d|${g.campana}|${d.dia}`,
+                      g.campana,
+                      etiquetaDia(d.dia),
+                      `Comprobacion_${paraArchivo(g.campana)}_${d.dia || 'sin-fecha'}_${sufijo}`,
+                      d.filas
+                    )}
+                  </div>
+                ))}
+            </div>
+          );
+        })}
+        {grupos.length > 0 && (
+          <p className="phint" style={{ marginBottom: 0 }}>
+            Un PDF con muchas fotos puede pasar del límite del correo (~25 MB): si es una campaña grande, descárgala
+            por día.
+          </p>
+        )}
+      </section>
+    </>
+  );
+}
+
+function FilaBarra({ etiqueta, pct, detalle }: { etiqueta: string; pct: number; detalle: string }) {
+  return (
+    <>
+      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{etiqueta}</span>
+      <div style={{ height: 8, background: 'var(--panel2)', borderRadius: 4, overflow: 'hidden' }} aria-hidden="true">
+        <div style={{ width: `${pct}%`, height: 8, background: colorTono('verde') }} />
+      </div>
+      <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: 12 }}>
+        {pct}% · {detalle}
+      </span>
+    </>
+  );
+}

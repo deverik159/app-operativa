@@ -43,6 +43,7 @@ import { vigilarRender } from '../../lib/vigia';
 import { tope } from '../../lib/envios';
 import { subirYLuego, subirYRegresar } from '../../lib/subirAntes';
 import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib/catorcena';
+import IndicadoresPauta from './IndicadoresPauta';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 
@@ -110,6 +111,8 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   const [catorcenas, setCatorcenas] = useState<{ anio: number; numero: number }[]>([]);
   const [catSel, setCatSel] = useState<string | null>(null);
   const catSelLeida = leerClaveCatorcena(catSel);
+  /** Lista de caras o Indicadores (avance y comprobaciones; 14-oct-2026). */
+  const [vista, setVista] = useState<'lista' | 'indicadores'>('lista');
   const [loading, setLoading] = useState(true);
   /** Ya terminó la primera carga: cambiar de catorcena ya NO cambia la
    *  pantalla por "Cargando pauta…". Desmontaba el selector con la rueda de
@@ -210,10 +213,18 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   >([]);
   const [asignando, setAsignando] = useState(false);
 
+  /** Para Indicadores: el monitorista no ve "sin rutas" mientras cargan. */
+  const [estadoAsig, setEstadoAsig] = useState<'cargando' | 'listas' | string>('cargando');
   const cargarAsignaciones = useCallback(async () => {
-    const { data } = await sb
+    const { data, error } = await sb
       .from('ruta_asignaciones')
       .select('id,ruta_id,usuario_email');
+    if (error) {
+      // Se conserva lo que había; la pestaña Indicadores dice por qué.
+      setEstadoAsig((prev) => (prev === 'listas' ? prev : error.message));
+      return;
+    }
+    setEstadoAsig('listas');
     setAsignaciones(
       (data as { id: number; ruta_id: number; usuario_email: string }[]) || []
     );
@@ -282,6 +293,12 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
     });
     return claves;
   }, [asignaciones, filas, email]);
+
+  /** Lo que ve Indicadores: el monitorista, solo sus rutas (Erik, 14-oct-2026). */
+  const filasIndicadores = useMemo(
+    () => (puedeImportar ? filas : filas.filter((f) => !!f.ruta_clave && misRutas.has(f.ruta_clave))),
+    [puedeImportar, filas, misRutas]
+  );
 
   /**
    * Al abrir Pauta, la ruta asignada se pre-filtra SOLA — una vez. Si el
@@ -814,6 +831,77 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       </>
     );
 
+  /** Pestañas Lista / Indicadores, iguales a los segmentos de Rutas. */
+  const pestanas = (
+    <div className="toolbar">
+      <div className="rt-chips rt-segmento" role="group" aria-label="Vista">
+        {(['lista', 'indicadores'] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            className={'rt-chip' + (vista === v ? ' on' : '')}
+            aria-pressed={vista === v}
+            onClick={() => v !== vista && subirYLuego(() => setVista(v), 'pauta-vista')}
+          >
+            {v === 'lista' ? 'Lista' : 'Indicadores'}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const selectorCatorcena = (
+    <select
+      aria-label="Catorcena"
+      value={catSel ?? ''}
+      onChange={(e) => {
+        const v = e.target.value;
+        subirYLuego(() => setCatSel(v), 'pauta-catorcena');
+      }}
+    >
+      {catorcenas.map((c) => {
+        const clave = claveCatorcena(c.anio, c.numero);
+        return (
+          <option key={clave} value={clave}>
+            {etiquetaCatorcena(c.numero, c.anio)}
+          </option>
+        );
+      })}
+    </select>
+  );
+
+  // Indicadores: la misma catorcena; el monitorista, solo sus rutas
+  // (coordinador y manager ven todo, Erik 14-oct-2026).
+  if (vista === 'indicadores')
+    return (
+      <>
+        <h2 className="page">
+          Pauta y monitoreo
+          {recargando && (
+            <span role="status" style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)', marginLeft: 10 }}>
+              <span className="spinner" />
+              Actualizando…
+            </span>
+          )}
+        </h2>
+        {pestanas}
+        {err && <div className="err">{err}</div>}
+        <div className="toolbar filtros-pildora">{selectorCatorcena}</div>
+        {catSelLeida && (
+          <div className={recargando ? 'recargando' : undefined}>
+            <IndicadoresPauta
+              filas={filasIndicadores}
+              asignaciones={estadoAsig}
+              anio={catSelLeida.anio}
+              numero={catSelLeida.numero}
+              etiquetaCat={etiquetaCatorcena(catSelLeida.numero, catSelLeida.anio)}
+              soloMisRutas={!puedeImportar}
+            />
+          </div>
+        )}
+      </>
+    );
+
   return (
     <>
       <h2 className="page">
@@ -831,6 +919,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       <p className="phint">
         Qué campaña va en cada cara, cómo va el avance y cómo llegar.
       </p>
+      {pestanas}
       {err && <div className="err">{err}</div>}
 
       {/* Píldoras (rediseño, oct-2026): catorcena y ruta; la ruta se resalta
@@ -838,23 +927,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       <div className="toolbar filtros-pildora">
         {/* Catorcena, ruta, campañas y tarjetas cambian mucho el alto de la
             lista: se sube la página antes (lib/subirAntes.ts, 5-oct-2026). */}
-        <select
-          aria-label="Catorcena"
-          value={catSel ?? ''}
-          onChange={(e) => {
-            const v = e.target.value;
-            subirYLuego(() => setCatSel(v), 'pauta-catorcena');
-          }}
-        >
-          {catorcenas.map((c) => {
-            const clave = claveCatorcena(c.anio, c.numero);
-            return (
-              <option key={clave} value={clave}>
-                {etiquetaCatorcena(c.numero, c.anio)}
-              </option>
-            );
-          })}
-        </select>
+        {selectorCatorcena}
         <select
           aria-label="Ruta"
           className={fRuta !== 'Todas' ? 'on' : undefined}
