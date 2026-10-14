@@ -752,7 +752,7 @@ Biobox.
 | `supabase/migrations/20260925165706_fotos_tarjetas_video.sql` | ✅ aplicada (25-sep, SQL Editor; registrada 6-oct) — `fotos_tarjetas` con el video cuando la etapa no tiene foto |
 | `supabase/migrations/20260928001429_area_reportante_mkt.sql` | ✅ aplicada (27-sep, SQL Editor; registrada 6-oct) — solo datos: lo capturado con el formulario de MKT queda con área MKT |
 | `diagnostico_catalogo_biobox.sql` | referencia, solo lectura — ✅ corrido (27-sep): 16 nombres en el árbol; 5 Digital de Biobox fuera del árbol (§9.1) |
-| `limpiar_todo.sql` + `revisar_tras_limpieza.sql` | herramienta — **NO correr** salvo la víspera del piloto (§12.15) |
+| `limpiar_todo.sql` + `revisar_tras_limpieza.sql` | ✅ **aplicada el 14-oct-2026, 16:33** (Erik, SQL Editor + `scripts/limpiar-storage.mjs`; verificada) — NO volver a correrla: hoy borraría datos reales (§12.15). `revisar_tras_limpieza.sql` sí, los primeros días |
 | `supabase/migrations/20261006195659_lado_adicional_puerta.sql` | ✅ aplicada (6-oct, SQL Editor; registrada 6-oct) — el CHECK de `incidencias.lado` acepta también `Adicional` y `Puerta` (§12.15) |
 
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
@@ -863,7 +863,9 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
   - Con la primera incidencia "Sin máquina", confirmar que el técnico puede
     guardar la máquina al reparar (depende de que la RLS de reparación deje
     actualizar `clave_sitio` y `clave_medio`).
-  - Correr `limpiar_todo.sql` la víspera del piloto (§12.15), no antes.
+  - ~~Correr `limpiar_todo.sql` la víspera del piloto~~ — hecho el
+    14-oct-2026 (§12.15). Falta: correr `revisar_tras_limpieza.sql` los
+    primeros días y reasignar las rutas a los monitoristas reales.
 - **Habilitar Google** en Supabase → Authentication → Providers (Client ID y
   Secret de Google Cloud) y dar de alta las URLs de redirect, incluida la de
   red local con `https://`. El botón ya está en el login; sin esto Google
@@ -1650,6 +1652,22 @@ salvo lo que se diga; pendientes en §9.1.
   de un teléfono. **NO correrlo hasta la víspera del piloto**, siguiendo el
   protocolo de su encabezado (vaciar las colas de envíos en cada equipo y
   cuenta, cerrar pestañas).
+- **Limpieza para el piloto APLICADA el 14-oct-2026 a las 16:33** (Erik
+  confirmó que todo era de prueba). Se vaciaron 88 incidencias con su chat
+  y avisos, 4 revisiones de Biobox, 3 tomas de pauta, la bitácora VV
+  (5 campañas, 64 pautas, 3 artes), 1 asignación y 1 visita de ruta, y 256
+  archivos del bucket; todos los folios quedaron en 1. Se conservó intacto lo
+  de la lista "no se toca" (inventario 3,861, roles 49, paradas 611, pauta
+  1,196, push 30, catálogo 680). **Ya no se vuelve a correr**: desde ese día
+  los datos son reales. Lecciones:
+  - Cada paso va SOLO en el SQL Editor. Correr el archivo completo lo hace
+    una sola transacción: el PASO 5 truena (aún no corre el script de
+    Storage) y deshace también el PASO 2. Pasó así la primera vez; no se
+    perdió nada y se repitió el PASO 2 solo.
+  - `scripts/limpiar-storage.mjs` se corre en una ventana de PowerShell
+    normal, con `$env:SUPABASE_SERVICE_ROLE_KEY = Read-Host "…"` para que la
+    llave no quede en el historial; tras mostrar cuántos archivos van, se
+    queda esperando que se escriba BORRAR.
 - **Contador de la lista** (Incidencias y Mis pendientes, 6-oct): arriba de
   las tarjetas dice "74 incidencias" y, con filtros o búsqueda, "12 de 74".
   La línea del historial dice "se cargaron" (es lo cargado, no lo filtrado).
