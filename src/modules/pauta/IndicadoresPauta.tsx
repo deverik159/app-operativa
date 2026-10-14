@@ -13,8 +13,8 @@
 // Ese recorte lo hace PautaView al pasar `filas` (es un filtro de pantalla,
 // no un permiso: la RLS de pautas deja leer todo a cualquiera con sesión).
 //
-// Las incidencias de los sitios son el tercer bloque del diseño; esperan una
-// función nueva en la base (ver la ficha de Pauta).
+// El tercer bloque, las incidencias de los sitios, vive en
+// IncidenciasSitiosPauta.tsx.
 // ============================================================
 import { ChevronDown, ChevronRight, Download, FileText, Sheet } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -37,6 +37,7 @@ import {
   type Contexto,
 } from './descargasPauta';
 import Ic from '../../components/Ic';
+import IncidenciasSitiosPauta from './IncidenciasSitiosPauta';
 
 type Props = {
   filas: PautaRuta[];
@@ -73,6 +74,7 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
 
   const avance = useMemo(() => avancePauta(filas), [filas]);
   const grupos = useMemo(() => agruparComprobaciones(filas), [filas]);
+  const sitios = useMemo(() => [...new Set(filas.map((f) => f.site_id))].sort(), [filas]);
   const [abierta, setAbierta] = useState<string | null>(null);
   const [verDetalle, setVerDetalle] = useState<'campana' | 'monitorista' | null>(null);
   const [tarea, setTarea] = useState<Tarea | null>(null);
@@ -337,6 +339,9 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
           </p>
         )}
       </section>
+
+      {/* 3. Incidencias de los sitios */}
+      <IncidenciasSitiosPauta sitios={sitios} anio={anio} numero={numero} />
     </>
   );
 }
