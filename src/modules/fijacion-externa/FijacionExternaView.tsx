@@ -444,6 +444,7 @@ function FijacionExternaView({
       causa,
       solucion,
       archivos,
+      cambioEquipo,
     }: DatosReparacion,
     op?: { alProgreso?: (texto: string) => void }
   ): Promise<FinReparacion | undefined> => {
@@ -455,6 +456,9 @@ function FijacionExternaView({
         ? {
             incidencia_srd: incidenciaSrd,
             arbol_digital_id: arbolDigitalId,
+            // Como en IncidenciasView: el historial del equipo viaja con
+            // la clasificación de Digital (15-oct-2026).
+            cambio_equipo: cambioEquipo ?? null,
           }
         : {}),
       causa_raiz: causa || null,

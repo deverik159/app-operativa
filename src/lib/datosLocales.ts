@@ -48,7 +48,7 @@ import type {
 // ------------------------------------------------------------
 
 /**
- * Fila de `arbol_digital` con las 10 columnas que usa RepararModal. Mismos
+ * Fila de `arbol_digital` con las 11 columnas que usa RepararModal. Mismos
  * tipos que ArbolDigital (types/db.ts): el modal la usa tal cual.
  */
 export type ArbolDigitalLocal = Pick<
@@ -63,6 +63,7 @@ export type ArbolDigitalLocal = Pick<
   | 'sla_min'
   | 'sla'
   | 'sla_fuera'
+  | 'equipo'
 >;
 
 export type CatorcenaLocal = {
@@ -278,8 +279,10 @@ const COLUMNAS: Record<TablaLocal, string> = {
     'vendor_face_id,site_id,site_legacy_id,cara,categoria,unidad_negocio,tipo_medio,tipo_mueble,latitud,longitud,direccion,municipio,estado',
   // '*' como NuevaInc y CorreccionModal: tipo_medio puede no existir.
   catalogo_incidencias: '*',
+  // equipo (15-oct-2026, historial de equipos): cambiar las columnas hace
+  // que la copia vieja se vuelva a bajar, ya con él.
   arbol_digital:
-    'id,incidencia,categoria_principal,incidencia_srd,causa_raiz,diagnostico,solucion,sla_min,sla,sla_fuera',
+    'id,incidencia,categoria_principal,incidencia_srd,causa_raiz,diagnostico,solucion,sla_min,sla,sla_fuera,equipo',
   nombres_pantallas: 'vendor_face_id,nombre',
   // anio (14-oct-2026): cambiar las columnas hace que la copia vieja se
   // vuelva a bajar, ya con el año.

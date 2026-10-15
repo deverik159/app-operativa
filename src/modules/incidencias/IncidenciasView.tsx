@@ -2412,6 +2412,7 @@ function IncidenciasView({
       solucion,
       archivos,
       ubicacion,
+      cambioEquipo,
     }: DatosReparacion,
     op?: { alProgreso?: (texto: string) => void }
   ): Promise<FinReparacion | undefined> => {
@@ -2431,6 +2432,10 @@ function IncidenciasView({
         ? {
             incidencia_srd: incidenciaSrd,
             arbol_digital_id: arbolDigitalId,
+            // Historial del equipo (15-oct-2026): con el árbol de Digital
+            // siempre se manda, null si la solución no cambia equipo, para
+            // no dejar el de una reparación anterior que se rechazó.
+            cambio_equipo: cambioEquipo ?? null,
           }
         : {}),
       causa_raiz: causa || null,

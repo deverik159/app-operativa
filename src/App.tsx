@@ -100,6 +100,11 @@ const MisRutasView = lazyConReintento(
   () => import('./modules/mis-rutas/MisRutasView'),
   'MisRutasView'
 );
+// Equipos (15-oct-2026): historial de los equipos de Digital que se cambian.
+const EquiposView = lazyConReintento(
+  () => import('./modules/equipos/EquiposView'),
+  'EquiposView'
+);
 
 /**
  * Módulo diferido de cada pestaña. App le avisa a cargaDiferida cuál está
@@ -117,6 +122,7 @@ const DIFERIDO_DE_TAB: Record<string, ComponentType<any>> = {
   biobox: BioboxView,
   usuarios: UsuariosView,
   mis_rutas: MisRutasView,
+  equipos: EquiposView,
 };
 
 /** A los cuántos ms el "Cargando…" de un módulo diferido ofrece salidas. */
@@ -194,6 +200,7 @@ const RUTA_DE_TAB: Record<string, string> = {
   biobox: '/biobox',
   usuarios: '/usuarios',
   mis_rutas: '/mis-rutas',
+  equipos: '/equipos',
 };
 const TAB_DE_RUTA: Record<string, string> = Object.fromEntries(
   Object.entries(RUTA_DE_TAB).map(([tab, ruta]) => [ruta, tab])
@@ -1320,6 +1327,16 @@ function Main({
 
   // manager es comodín: puede lo que puede cualquier otro rol.
   const has = (r: string) => misRoles.includes(r) || misRoles.includes('manager');
+  /**
+   * Equipos (15-oct-2026): historial de equipos de Digital. Lo ven los
+   * técnicos de Digital, coordinador, manager y consulta (Erik).
+   */
+  const veEquipos =
+    has('coordinador') ||
+    has('viewer') ||
+    rolesDetalle.some(
+      (r) => r.rol === 'reparacion' && (r.departamento || '').trim().toLowerCase() === 'digital'
+    );
 
   /**
    * Unidades del usuario, para acotar módulos y filtros. Una fila sin
@@ -1616,6 +1633,8 @@ function Main({
       },
     // Usuarios NO usa has(): solo el manager real, no por comodín.
     // La RLS (ur_manager_all / usr_write) exige manager de todos modos.
+    // Historial de los equipos que se cambian en Digital (15-oct-2026).
+    veEquipos && { k: 'equipos', ic: '🖥️', t: 'Equipos', grupo: 'campo' },
     misRoles.includes('manager') && { k: 'usuarios', ic: '👥', t: 'Usuarios', grupo: 'admin' },
   ].filter(Boolean) as NavItem[];
 
@@ -2064,6 +2083,7 @@ function Main({
                 />
               )}
               {tab === 'disponibilidad' && <DisponibilidadView />}
+              {tab === 'equipos' && <EquiposView recargarSignal={recargaManual} />}
               {tab === 'bitacora_vv' && (
                 <BitacoraVVView
                   email={email}

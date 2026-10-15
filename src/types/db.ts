@@ -175,6 +175,8 @@ export interface Incidencia {
   repaired_at: string | null;
   /** Cuándo pasó a 'cerrada'. Lo pone el trigger inc_marca_cierre (8-oct-2026). */
   cerrada_en?: string | null;
+  /** Equipo que salió y que entró en la reparación de Digital (lib/equipos.ts). */
+  cambio_equipo?: import('../lib/equipos').CambioEquipo | null;
   diagnostico: string | null;
   detalle_reparacion: string | null;
   /** Clasificación técnica elegida por Digital; no sustituye nombre_incidencia. */
@@ -403,6 +405,11 @@ export interface ArbolDigital {
   sla_min: number | null;
   sla: number | null;
   sla_fuera: number | null;
+  /**
+   * Tipo de equipo que cambia esta solución (NUC, Equipo de red…), o null si
+   * no pide historial del equipo (15-oct-2026, ver lib/equipos.ts).
+   */
+  equipo?: string | null;
 }
 
 /**

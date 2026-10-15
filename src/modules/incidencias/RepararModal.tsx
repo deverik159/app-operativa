@@ -66,6 +66,15 @@ import {
 } from '../../lib/borradorReparacion';
 import { MAX_VIDEO_BYTES } from '../../lib/comprimirImagen';
 import { vigilarRender } from '../../lib/vigia';
+import { diaCdmx } from '../../lib/fechasCdmx';
+import {
+  cambioVacio,
+  esCambioEquipo,
+  faltaEnCambio,
+  limpiarCambio,
+  type CambioEquipo,
+  type EquipoCambio,
+} from '../../lib/equipos';
 import SubirArchivos from '../../components/SubirArchivos';
 import PreviaVideo from '../../components/PreviaVideo';
 import type { ArbolDigital, Evidencia, Incidencia, InventarioItem } from '../../types/db';
@@ -86,7 +95,70 @@ type FilaArbol = Pick<
   | 'causa_raiz'
   | 'diagnostico'
   | 'solucion'
+  | 'equipo'
 >;
+
+/**
+ * Uno de los dos equipos del historial (el que sale o el que entra), con los
+ * campos que pide Erik (15-oct-2026): No. de serie (obligatorio), No. de
+ * inventario de Vallas y observación.
+ */
+function CamposEquipo({
+  titulo,
+  valor,
+  onCambio,
+  deshabilitado,
+}: {
+  titulo: string;
+  valor: EquipoCambio;
+  onCambio: (v: EquipoCambio) => void;
+  deshabilitado: boolean;
+}) {
+  return (
+    <div
+      style={{
+        border: '1px solid var(--line)',
+        borderRadius: 10,
+        padding: '10px 12px 2px',
+        marginBottom: 10,
+      }}
+    >
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>{titulo}</div>
+      <div className="row2">
+        <div className="field">
+          <label>No. de serie</label>
+          <input
+            value={valor.serie}
+            onChange={(e) => onCambio({ ...valor, serie: e.target.value })}
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            disabled={deshabilitado}
+          />
+        </div>
+        <div className="field">
+          <label>No. inventario Vallas (opcional)</label>
+          <input
+            value={valor.inventario}
+            onChange={(e) => onCambio({ ...valor, inventario: e.target.value })}
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            disabled={deshabilitado}
+          />
+        </div>
+      </div>
+      <div className="field">
+        <label>Observación (opcional)</label>
+        <input
+          value={valor.obs}
+          onChange={(e) => onCambio({ ...valor, obs: e.target.value })}
+          disabled={deshabilitado}
+        />
+      </div>
+    </div>
+  );
+}
 
 /** Tope de las dos consultas al abrir: con respaldo, no se espera más. */
 const TOPE_CONSULTA_MS = 6000;
@@ -238,6 +310,11 @@ export type DatosReparacion = {
    * sitio y de medio, dirección, mueble…). null en todas las demás.
    */
   ubicacion?: Partial<Incidencia> | null;
+  /**
+   * Historial del equipo cambiado (Digital, 15-oct-2026): solo cuando la
+   * solución elegida lo pide (arbol_digital.equipo). null = no aplica.
+   */
+  cambioEquipo?: CambioEquipo | null;
 };
 
 /**
@@ -444,6 +521,18 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
   // cae al flujo libre en vez de dejar al técnico sin poder capturar.
   const usarArbol = esDigital && tecnicasDig.length > 0;
 
+  // --- Historial del equipo (Erik, 15-oct-2026) ---
+  // Si la solución elegida cambia un equipo con serie (arbol_digital.equipo),
+  // se pide qué equipo salió y cuál entró. Viaja con la reparación.
+  const tipoEquipo = usarArbol ? filaElegida?.equipo || null : null;
+  const hoyCdmx = diaCdmx(new Date());
+  const [cambio, setCambio] = useState<CambioEquipo>(() =>
+    // Re-reparación (la rechazaron): se ofrece lo que ya se había capturado.
+    esCambioEquipo(inc.cambio_equipo) ? inc.cambio_equipo : cambioVacio('', diaCdmx(new Date()))
+  );
+  /** El cambio como texto, para el borrador del teléfono. */
+  const equipoTxt = JSON.stringify(cambio);
+
   useEffect(() => {
     let vivo = true;
     (async () => {
@@ -499,7 +588,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
             return sb
               .from('arbol_digital')
               .select(
-                'id,incidencia,categoria_principal,incidencia_srd,causa_raiz,diagnostico,solucion,sla_min,sla,sla_fuera'
+                'id,incidencia,categoria_principal,incidencia_srd,causa_raiz,diagnostico,solucion,sla_min,sla,sla_fuera,equipo'
               )
               .eq('incidencia', nombre)
               .order('incidencia_srd')
@@ -584,9 +673,9 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
 
   // --- Borrador en el teléfono (revisión sin señal, 24-sep-2026) ---
   /** Textos con los que abrió el modal (los de la incidencia). */
-  const textosIniciales = useRef({ diag, detalle });
-  const textosAhora = useRef({ diag, detalle });
-  textosAhora.current = { diag, detalle };
+  const textosIniciales = useRef({ diag, detalle, equipo: equipoTxt });
+  const textosAhora = useRef({ diag, detalle, equipo: equipoTxt });
+  textosAhora.current = { diag, detalle, equipo: equipoTxt };
   /** Ya se escribieron textos en el borrador (desde ahí, cada cambio cuenta). */
   const textosEscritos = useRef(false);
 
@@ -607,12 +696,23 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
       const ini = textosIniciales.current;
       const intactos =
         textosAhora.current.diag === ini.diag &&
-        textosAhora.current.detalle === ini.detalle;
+        textosAhora.current.detalle === ini.detalle &&
+        textosAhora.current.equipo === ini.equipo;
       const traeTextos =
-        !!r.textos && (r.textos.diag !== ini.diag || r.textos.detalle !== ini.detalle);
+        !!r.textos &&
+        (r.textos.diag !== ini.diag ||
+          r.textos.detalle !== ini.detalle ||
+          (!!r.textos.equipo && r.textos.equipo !== ini.equipo));
       if (r.textos && intactos && traeTextos) {
         setDiag(r.textos.diag);
         setDetalle(r.textos.detalle);
+        // El historial del equipo (15-oct-2026), si venía y se puede leer.
+        try {
+          const eq: unknown = r.textos.equipo ? JSON.parse(r.textos.equipo) : null;
+          if (esCambioEquipo(eq)) setCambio(eq);
+        } catch {
+          // Ilegible: se queda lo de la incidencia.
+        }
       }
       if (r.archivos.length || (intactos && traeTextos) || r.ilegibles)
         setRecuperado({
@@ -629,21 +729,27 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
   useEffect(() => {
     if (!sesion) return;
     const ini = textosIniciales.current;
-    if (!textosEscritos.current && diag === ini.diag && detalle === ini.detalle) return;
+    if (
+      !textosEscritos.current &&
+      diag === ini.diag &&
+      detalle === ini.detalle &&
+      equipoTxt === ini.equipo
+    )
+      return;
     const t = setTimeout(() => {
       textosEscritos.current = true;
-      void guardarTextosReparacion(sesion, diag, detalle);
+      void guardarTextosReparacion(sesion, diag, detalle, equipoTxt);
     }, PAUSA_TEXTOS_MS);
     return () => clearTimeout(t);
-  }, [diag, detalle, sesion]);
+  }, [diag, detalle, equipoTxt, sesion]);
   // Al desmontarse (p. ej. Atrás en Android) lo último que se tecleó.
   useEffect(
     () => () => {
       if (!sesion) return;
       const ini = textosIniciales.current;
-      const { diag: d, detalle: dt } = textosAhora.current;
-      if (textosEscritos.current || d !== ini.diag || dt !== ini.detalle)
-        void guardarTextosReparacion(sesion, d, dt);
+      const { diag: d, detalle: dt, equipo: eq } = textosAhora.current;
+      if (textosEscritos.current || d !== ini.diag || dt !== ini.detalle || eq !== ini.equipo)
+        void guardarTextosReparacion(sesion, d, dt, eq);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
@@ -784,6 +890,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
     let solucion: string | null = null;
     let incidenciaSrd: string | null = null;
     let arbolDigitalId: number | string | null = null;
+    let cambioEquipo: CambioEquipo | null = null;
 
     if (usarArbol) {
       if (!srdSel) {
@@ -811,6 +918,17 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
       causa = filaElegida.causa_raiz;
       diagnosticoFinal = filaElegida.diagnostico;
       solucion = solSel;
+      // Cambio de equipo con serie: el historial es obligatorio (Erik,
+      // 15-oct-2026). El tipo sale de la solución, no de lo capturado.
+      if (filaElegida.equipo) {
+        const conTipo = { ...cambio, tipo: filaElegida.equipo };
+        const falta = faltaEnCambio(conTipo, hoyCdmx);
+        if (falta) {
+          alert(falta);
+          return;
+        }
+        cambioEquipo = limpiarCambio(conTipo);
+      }
     }
 
     // La máquina que eligió quien repara, con los mismos datos que el alta
@@ -843,6 +961,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
           solucion,
           archivos,
           ubicacion,
+          cambioEquipo,
         },
         { alProgreso: setProgreso }
       );
@@ -1219,6 +1338,41 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                     </option>
                   ))}
                 </select>
+              </div>
+            )}
+            {/* Historial del equipo (Erik, 15-oct-2026): la solución cambia
+                un equipo con serie. Queda en "Equipos" del menú. */}
+            {tipoEquipo && (
+              <div className="field">
+                <label>
+                  Historial del equipo · {tipoEquipo} —{' '}
+                  <span style={{ color: colorTono('acento') }}>obligatorio</span>
+                </label>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                  Queda en Equipos: dónde está cada equipo y cuánto duró.
+                </div>
+                <CamposEquipo
+                  titulo="Equipo que sale"
+                  valor={cambio.sale}
+                  onCambio={(sale) => setCambio((c) => ({ ...c, sale }))}
+                  deshabilitado={ocupado}
+                />
+                <CamposEquipo
+                  titulo="Equipo que entra"
+                  valor={cambio.entra}
+                  onCambio={(entra) => setCambio((c) => ({ ...c, entra }))}
+                  deshabilitado={ocupado}
+                />
+                <div className="field">
+                  <label>Fecha del cambio</label>
+                  <input
+                    type="date"
+                    value={cambio.fecha}
+                    max={hoyCdmx}
+                    onChange={(e) => setCambio((c) => ({ ...c, fecha: e.target.value }))}
+                    disabled={ocupado}
+                  />
+                </div>
               </div>
             )}
           </>

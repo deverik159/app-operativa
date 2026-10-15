@@ -86,6 +86,8 @@ type DatosBorrador = {
   guardado_en: number;
   diag: string;
   detalle: string;
+  /** Historial del equipo de Digital, como JSON (15-oct-2026). '' = nada. */
+  equipo?: string;
   /** La reparación ya se entregó a la cola: no se ofrece; se borra después. */
   entregado?: { en: number; carga: string } | null;
 };
@@ -107,7 +109,7 @@ export type SesionReparacion = {
   cadena: Promise<unknown>;
   /** La clave de cada File guardado (para quitarlo con su ×). */
   claves: WeakMap<File, string>;
-  textos: { diag: string; detalle: string };
+  textos: { diag: string; detalle: string; equipo?: string };
   /** Ya se escribió su registro de datos. */
   conDatos: boolean;
 };
@@ -115,7 +117,7 @@ export type SesionReparacion = {
 export type Recuperado = {
   archivos: File[];
   /** Los textos de la apertura más reciente que los traía; null = ninguna. */
-  textos: { diag: string; detalle: string } | null;
+  textos: { diag: string; detalle: string; equipo?: string } | null;
   /** Estaban guardados pero no se pudieron leer (se quedan para otra vez). */
   ilegibles: number;
 };
@@ -186,6 +188,7 @@ async function escribirDatos(s: SesionReparacion): Promise<void> {
     guardado_en: Date.now(),
     diag: s.textos.diag,
     detalle: s.textos.detalle,
+    equipo: s.textos.equipo || '',
     entregado: null,
   };
   await idbPut('archivos', d);
@@ -296,9 +299,9 @@ export function recuperarReparacion(s: SesionReparacion): Promise<Recuperado | n
           // ofrecen otra vez.
         }
         s.adoptadas.add(pre);
-        if ((d.diag || d.detalle) && d.guardado_en > masReciente) {
+        if ((d.diag || d.detalle || d.equipo) && d.guardado_en > masReciente) {
           masReciente = d.guardado_en;
-          textos = { diag: d.diag || '', detalle: d.detalle || '' };
+          textos = { diag: d.diag || '', detalle: d.detalle || '', equipo: d.equipo || '' };
         }
         for (const k of claves.sort()) {
           if (k === pre + DATOS) continue;
@@ -402,13 +405,17 @@ export function quitarFotoReparacion(s: SesionReparacion, f: File): Promise<void
   );
 }
 
-/** Guarda diagnóstico y detalle (el modal lo llama con una pausa, no por tecla). */
+/**
+ * Guarda diagnóstico, detalle y el historial del equipo (JSON; '' = nada)
+ * (el modal lo llama con una pausa, no por tecla).
+ */
 export function guardarTextosReparacion(
   s: SesionReparacion,
   diag: string,
-  detalle: string
+  detalle: string,
+  equipo = ''
 ): Promise<void> {
-  s.textos = { diag, detalle };
+  s.textos = { diag, detalle, equipo };
   return enCola(
     s,
     async () => {

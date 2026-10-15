@@ -11,6 +11,7 @@ import {
   BarChart3,
   ClipboardCheck,
   Compass,
+  Cpu,
   Inbox,
   List,
   Map,
@@ -35,6 +36,7 @@ const ICONOS: Record<string, LucideIcon> = {
   pauta: ClipboardCheck,
   mis_rutas: Compass,
   biobox: Package,
+  equipos: Cpu,
   usuarios: Users,
 };
 
