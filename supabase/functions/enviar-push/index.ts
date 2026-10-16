@@ -40,6 +40,9 @@ const TITULOS: Record<string, string> = {
   reparado_reportante: 'Tu incidencia fue reparada',
   cierre: 'Tu incidencia fue cerrada',
   reabierta: 'Reparación rechazada',
+  // Lo que el validador regresa al reportante: en pantalla es "Devuelta"
+  // (13-oct-2026); el evento y el estatus siguen siendo `rechazada`.
+  rechazada: 'Incidencia devuelta para corregir',
   reasignacion: 'Reasignación aprobada',
   chat: 'Nuevo mensaje',
   ruta: 'Cambio en tu ruta',

@@ -2801,7 +2801,7 @@ function IncidenciasView({
                 ? 'Por validar y reparaciones por aprobar.'
                 : 'Asignadas a tu área.') + ' Lo cerrado se consulta en Incidencias.'
           : modo === 'bandeja'
-              ? 'Aquí puedes consultar todo lo relacionado a tus incidencias reportadas. Lo rechazado es lo que te toca corregir.'
+              ? 'Aquí puedes consultar todo lo relacionado a tus incidencias reportadas. Lo devuelto es lo que te toca corregir.'
               : 'Todo lo que tu rol puede ver (filtrado por seguridad).'}
       </p>
 
