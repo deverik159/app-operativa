@@ -12,7 +12,7 @@
   después" o "Decisiones de Erik", con fecha absoluta y quién la propuso) y sigue.
 - Cuando Erik diga "cierra la sección", o antes de cambiar de tema, actualiza la ficha
   de la sección (estado, decisiones con fecha, ideas, pendientes, lecciones) y súbela:
-  `git -C contexto pull`, commit con mensaje en español y `git -C contexto push`.
+  commit con mensaje en español, `git -C contexto pull --rebase` y `git -C contexto push`.
   Otra conversación u otra computadora puede estar escribiendo: trae antes de subir y
   nunca uses force.
 - Nunca escribas en las fichas contraseñas, llaves, tokens, servidores ni correos.
