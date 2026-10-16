@@ -1,8 +1,8 @@
 -- ============================================================
 -- avisos_incidencias.sql — FOTO de los avisos de Incidencias tal como
 -- están en producción al 8-oct-2026 (leídos con pg_get_functiondef),
--- actualizada con las migraciones 20261008224848_avisos_medio_y_area y
--- 20261013225529_aviso_devuelta.
+-- actualizada con las migraciones 20261008224848_avisos_medio_y_area,
+-- 20261013225529_aviso_devuelta y 20261016164756_aviso_correccion_area.
 --
 -- QUÉ ES: la copia en el repo de las funciones y triggers que llenan la
 -- tabla `notificaciones` (la campana) y mandan el push. Hasta hoy, cuatro
@@ -30,6 +30,7 @@
 --   asignado_tecnico_email cambia ......... asignacion_tecnico → ese técnico
 --   assigned_area cambia .................. asignacion_area → técnicos de esa área
 --   reasignación aprobada (incidencias) ... reasignacion → técnicos del área nueva
+--   Corrección cambia el área (en_proceso)  asignacion → técnicos del área nueva
 --   reasignaciones INSERT Solicitada ...... reasignacion → validadores (menos quien pidió)
 --   reasignaciones Aprobada/Rechazada ..... reasignacion → quien pidió
 --   mensajes INSERT ....................... chat → participantes (ver notificar_chat)
@@ -428,3 +429,44 @@ $function$;
 
 DROP TRIGGER IF EXISTS trg_notificar_push ON public.notificaciones;
 CREATE TRIGGER trg_notificar_push AFTER INSERT ON public.notificaciones FOR EACH ROW EXECUTE FUNCTION notificar_push();
+
+
+-- ── notificar_correccion_area: la Corrección cambia el área en proceso ──
+-- Desde el 16-oct-2026 (migración 20261016164756_aviso_correccion_area).
+-- No se dispara en la reasignación aprobada (ya avisa arriba) ni si hay
+-- assigned_area.
+create or replace function public.notificar_correccion_area()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  msg text;
+begin
+  if old.estatus = 'en_proceso'
+     and new.estatus = 'en_proceso'
+     and new.area_responsable is distinct from old.area_responsable
+     and new.area_responsable is not null
+     and new.assigned_area is null
+     and not (coalesce(old.reasignacion_pendiente, false)
+              and not coalesce(new.reasignacion_pendiente, false)) then
+
+    msg := 'Incidencia corregida a tu área (' || new.area_responsable ||
+           '), antes de ' || coalesce(old.area_responsable, '—') || ': ' ||
+           coalesce(new.folio, '') || ' · ' ||
+           coalesce(new.nombre_incidencia, '');
+
+    insert into notificaciones(record_id, para_email, evento, mensaje, unidad_negocio)
+      select new.record_id, d, 'asignacion', msg, new.unidad_negocio
+      from destinatarios_notif('reparacion'::app_role, new.unidad_negocio, new.area_responsable) d;
+
+  end if;
+  return new;
+end
+$function$;
+
+drop trigger if exists trg_notificar_correccion_area on public.incidencias;
+create trigger trg_notificar_correccion_area
+  after update on public.incidencias
+  for each row execute function notificar_correccion_area();

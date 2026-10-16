@@ -205,6 +205,16 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
                 el retraso acumulado hasta ahora deja de contarse.
               </>
             )}
+            {/* Mismas condiciones que trg_notificar_correccion_area
+                (migración 20261016164756): en proceso, área nueva y sin
+                assigned_area, que es la que repara y no cambia. */}
+            {reiniciaSla && !inc.assigned_area && areaNueva && (
+              <>
+                <br />
+                <br />
+                Se avisará a los técnicos de <b>{areaNueva}</b>.
+              </>
+            )}
           </div>
         )}
 
