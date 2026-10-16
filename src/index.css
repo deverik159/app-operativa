@@ -355,7 +355,10 @@
   /* Los items de un grid no encogen por debajo de su min-content: una sola
      pastilla indivisible ensanchaba TODAS las tarjetas de la lista. */
   .inc-list>*{min-width:0}
-  .row2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+  /* minmax(0,1fr) y no 1fr: con 1fr la columna crece al texto más largo de
+     un select (una campaña larga) y aplastaba a la vecina, Observaciones
+     (Erik, 16-oct-2026). */
+  .row2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:11px}
   .modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:6px}
   .banner{background:var(--info-fondo);border:1px solid var(--info-borde);color:var(--info-txt);font-size:12px;padding:9px 12px;border-radius:10px;margin-bottom:16px}
   /* ============================================================
@@ -376,7 +379,7 @@
       min-height:calc(100dvh - 58px)}
     .brand .sub{display:none}
     .who .info{display:none}
-    .row2{grid-template-columns:1fr}
+    .row2{grid-template-columns:minmax(0,1fr)}
 
     /* En celular la barra se queda SOLO con el logo. El título completo
        ("Central de Operaciones · GPO VALLAS") se comía el ancho y dejaba a
