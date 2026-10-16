@@ -23,3 +23,6 @@ supabase/.temp/
 # scripts/usuarios-carga.mjs y las lee k6. Nunca al repo (auditoría primer
 # mes, 24-sep-2026).
 tests/carga/.usuarios.json
+# Fichas de trabajo por sección: repositorio PRIVADO aparte
+# (deverik159/app-operativa-contexto), clonado en contexto/ (Erik, 16-oct-2026)
+/contexto/
