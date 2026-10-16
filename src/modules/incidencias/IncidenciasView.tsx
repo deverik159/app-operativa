@@ -957,10 +957,14 @@ function IncidenciasView({
    * con más de un rol (p. ej. técnico + validador) la RLS además deja pasar
    * el update aunque el área no sea la suya: las políticas se evalúan con OR.
    *
-   * Reglas, las mismas que usan los triggers notificar_* de la base:
+   * Reglas, las del blindaje de reparación de la base (los avisos, en
+   * destinatarios_notif, todavía cuentan "sin área" como todas):
    *   - manager: todas las áreas.
-   *   - fila de reparacion/coordinador con departamento null = todas las
-   *     áreas; unidad_negocio null = todas las unidades.
+   *   - fila de reparacion SIN departamento = ninguna área: el blindaje de
+   *     la base (trigger de los campos de reparación) exige el área escrita
+   *     y rechaza el guardado. Antes aquí contaba como "todas" y el técnico
+   *     veía «Registrar reparación», capturaba fotos y al guardar tronaba
+   *     (16-oct-2026). unidad_negocio null = todas las unidades.
    *   - se compara contra el área EFECTIVA (assigned_area manda).
    */
   const reparaEn = useCallback(
@@ -973,7 +977,8 @@ function IncidenciasView({
       return rolesDetalle.some(
         (r) =>
           r.rol === 'reparacion' &&
-          (!r.departamento || r.departamento.trim().toLowerCase() === area) &&
+          !!r.departamento?.trim() &&
+          r.departamento.trim().toLowerCase() === area &&
           (!r.unidad_negocio ||
             !unidad ||
             r.unidad_negocio.trim().toLowerCase() === unidad)
@@ -1075,6 +1080,15 @@ function IncidenciasView({
    * La misma regla que el nombre de la pestaña en App.tsx.
    */
   const esMisPendientes = has('validador') || has('reparacion');
+  /**
+   * Técnico cuya(s) fila(s) de reparación no traen área: la base no lo deja
+   * registrar ninguna reparación (ver `reparaEn`). Se le dice por qué no ve
+   * el botón, en vez de que parezca una falla (16-oct-2026).
+   */
+  const tecnicoSinArea =
+    !misRoles.includes('manager') &&
+    rolesDetalle.some((r) => r.rol === 'reparacion') &&
+    !rolesDetalle.some((r) => r.rol === 'reparacion' && !!r.departamento?.trim());
   /**
    * ¿Lo que se ve incluye terminales? En 'todas', sí. En la bandeja, solo
    * "Mi bandeja" del reportante (todo lo suyo, en cualquier estatus). "Mis
@@ -2804,6 +2818,13 @@ function IncidenciasView({
               ? 'Aquí puedes consultar todo lo relacionado a tus incidencias reportadas. Lo devuelto es lo que te toca corregir.'
               : 'Todo lo que tu rol puede ver (filtrado por seguridad).'}
       </p>
+
+      {tecnicoSinArea && (
+        <div className="banner" style={{ borderColor: 'var(--warn)', color: 'var(--warn)' }} role="status">
+          Tu usuario de técnico no tiene área asignada, así que no puedes registrar
+          reparaciones. Pídele al administrador que te asigne tu área en Usuarios.
+        </div>
+      )}
 
       {/* Historial recortado: se dice donde se ven terminales ('todas' y
           las bandejas que enseñan cerradas, ver vistaVeTerminales). Solo si
