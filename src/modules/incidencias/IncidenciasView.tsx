@@ -1069,16 +1069,20 @@ function IncidenciasView({
    */
   const desdePedido = useRef<string | null>(null);
   /**
-   * ¿Lo que se ve incluye terminales? En 'todas', sí. En la bandeja, solo la
-   * del reportante (todo lo suyo, en cualquier estatus) y la de manager,
-   * coordinador y viewer (= todo lo cargado). La del validador y la del
-   * técnico no enseñan ninguna cerrada (ver `bandeja`): ahí ampliar el
+   * ¿La bandeja es "Mis pendientes"? Quien valida o repara (el manager
+   * también: `has` lo trata como comodín) ve ahí SOLO lo que le toca hacer.
+   * El reportante sin esas llaves tiene "Mi bandeja": todas sus capturas.
+   * La misma regla que el nombre de la pestaña en App.tsx.
+   */
+  const esMisPendientes = has('validador') || has('reparacion');
+  /**
+   * ¿Lo que se ve incluye terminales? En 'todas', sí. En la bandeja, solo
+   * "Mi bandeja" del reportante (todo lo suyo, en cualquier estatus). "Mis
+   * pendientes" no enseña ninguna cerrada (ver `bandeja`): ahí ampliar el
    * historial era bajar miles de filas que nadie ve, y el aviso de historial
    * recortado no aplica (revisión primer mes, 24-sep-2026).
    */
-  const bandejaVeTerminales = misRoles.some((r) =>
-    ['reportante', 'manager', 'coordinador', 'viewer'].includes(r)
-  );
+  const bandejaVeTerminales = !esMisPendientes && misRoles.includes('reportante');
   const vistaVeTerminales = modo === 'todas' || bandejaVeTerminales;
 
   /**
@@ -1944,42 +1948,50 @@ function IncidenciasView({
    *
    * Con varios roles las condiciones se SUMAN: le toca lo de todos.
    */
-  const bandeja = useMemo(() => {
-    const tiene = (r: string) => misRoles.includes(r);
-
-    // Manager, coordinador y viewer no tienen bandeja acotada: ven todo.
-    // Se conserva tal cual estaba.
-    if (tiene('manager') || tiene('coordinador') || tiene('viewer'))
-      return itemsVista;
-
-    const yo = (email || '').toLowerCase();
-
-    return itemsVista.filter((i) => {
+  const yo = (email || '').toLowerCase();
+  /**
+   * ¿Le toca a ESTE usuario hacer algo con ESTA incidencia? Es lo que cuenta
+   * el globito del menú y lo único que enseña "Mis pendientes".
+   *
+   * Usa `has` (el manager es comodín): antes manager, coordinador y viewer
+   * tenían la bandeja "sin acotar" = todo lo cargado, y el globito contaba
+   * también lo CERRADO (Erik, 16-oct-2026: "Mis pendientes 1" con una sola
+   * incidencia, ya cerrada). El coordinador y el viewer no validan ni
+   * reparan: en su bandeja solo cuenta lo suyo como reportante.
+   */
+  const meToca = useCallback(
+    (i: Incidencia) =>
       // Al validador le toca también REVISAR las reasignaciones pendientes:
       // viven en 'en_proceso' y sin esta condición jamás caían en su
       // bandeja, aunque el botón "Revisar reasignación" es suyo.
-      if (
-        tiene('validador') &&
+      (has('validador') &&
         (i.estatus === 'por_validar' ||
           i.estatus === 'reparado' ||
-          i.reasignacion_pendiente)
-      )
-        return true;
+          !!i.reasignacion_pendiente)) ||
+      (has('reparacion') && i.estatus === 'en_proceso' && reparaEn(i)) ||
+      (has('reportante') &&
+        (i.captured_by || '').toLowerCase() === yo &&
+        i.estatus === 'rechazada'),
+    [has, reparaEn, yo]
+  );
 
-      if (tiene('reparacion') && i.estatus === 'en_proceso' && reparaEn(i))
-        return true;
-
-      // El reportante ve TODO lo suyo, en cualquier estatus. Antes solo veía
-      // lo rechazado —lo accionable— y el efecto fue que capturaba y su
-      // reporte desaparecía de su pantalla: no tenía DÓNDE ver en qué va
-      // (pliego petitorio, ago-2026). El badge del menú sigue contando solo
-      // lo accionable, para que no infle.
-      if (tiene('reportante') && (i.captured_by || '').toLowerCase() === yo)
-        return true;
-
-      return false;
-    });
-  }, [itemsVista, misRoles, email, reparaEn]);
+  const bandeja = useMemo(
+    () =>
+      itemsVista.filter(
+        (i) =>
+          meToca(i) ||
+          // "Mi bandeja" del reportante enseña TODO lo suyo, en cualquier
+          // estatus. Antes solo veía lo devuelto —lo accionable— y el efecto
+          // fue que capturaba y su reporte desaparecía de su pantalla: no
+          // tenía DÓNDE ver en qué va (pliego petitorio, ago-2026). En "Mis
+          // pendientes" no: quien valida o repara consulta lo suyo y lo
+          // cerrado en Incidencias.
+          (!esMisPendientes &&
+            misRoles.includes('reportante') &&
+            (i.captured_by || '').toLowerCase() === yo)
+      ),
+    [itemsVista, meToca, esMisPendientes, misRoles, yo]
+  );
 
   /**
    * Aviso sutil para el validador: solo pendientes con reloj naranja o rojo.
@@ -2017,27 +2029,14 @@ function IncidenciasView({
     if (sinAlertaFiltrada) setFSla(null);
   }, [sinAlertaFiltrada]);
 
-  // El badge de "Mi bandeja" cuenta solo lo ACCIONABLE, no lo visible. La
-  // bandeja del reportante ahora enseña todas sus capturas; si el badge las
+  // El badge de la bandeja cuenta solo lo ACCIONABLE, no lo visible. "Mi
+  // bandeja" del reportante enseña todas sus capturas; si el badge las
   // contara todas, marcaría "12" permanentes y dejaría de significar "te
   // toca hacer algo".
-  const accionables = useMemo(() => {
-    const tiene = (r: string) => misRoles.includes(r);
-    if (tiene('manager') || tiene('coordinador') || tiene('viewer'))
-      return bandeja.length;
-    const yo = (email || '').toLowerCase();
-    return itemsVista.filter(
-      (i) =>
-        (tiene('validador') &&
-          (i.estatus === 'por_validar' ||
-            i.estatus === 'reparado' ||
-            i.reasignacion_pendiente)) ||
-        (tiene('reparacion') && i.estatus === 'en_proceso' && reparaEn(i)) ||
-        (tiene('reportante') &&
-          (i.captured_by || '').toLowerCase() === yo &&
-          i.estatus === 'rechazada')
-    ).length;
-  }, [itemsVista, bandeja.length, misRoles, email, reparaEn]);
+  const accionables = useMemo(
+    () => bandeja.filter(meToca).length,
+    [bandeja, meToca]
+  );
 
   useEffect(() => {
     onBandejaCount?.(accionables);
@@ -2793,11 +2792,15 @@ function IncidenciasView({
         )}
       </h2>
       <p className="phint">
-        {modo === 'bandeja' && role === 'validador'
-          ? 'Por validar y reparaciones por aprobar.'
-          : modo === 'bandeja' && role === 'reparacion'
-            ? 'Asignadas a tu área.'
-            : modo === 'bandeja'
+        {/* Con `has`, no con el rol principal: un manager caía en el texto
+            del reportante (16-oct-2026). */}
+        {modo === 'bandeja' && esMisPendientes
+          ? (has('validador') && has('reparacion')
+              ? 'Por validar, reparaciones por aprobar y en proceso de tu área.'
+              : has('validador')
+                ? 'Por validar y reparaciones por aprobar.'
+                : 'Asignadas a tu área.') + ' Lo cerrado se consulta en Incidencias.'
+          : modo === 'bandeja'
               ? 'Aquí puedes consultar todo lo relacionado a tus incidencias reportadas. Lo rechazado es lo que te toca corregir.'
               : 'Todo lo que tu rol puede ver (filtrado por seguridad).'}
       </p>
