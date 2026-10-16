@@ -414,9 +414,12 @@ function IncCard({
       )}
       {i.estatus === 'rechazada' && i.motivo_rechazo_reparacion && (
         // Devuelta (o descartada): el reportante ve en la tarjeta qué debe
-        // corregir, sin abrir ✏️ Editar (13-oct-2026).
+        // corregir, sin abrir ✏️ Editar (13-oct-2026). Texto neutro: igual
+        // la regresa el validador ("↩ Devolver al reportante") que el técnico
+        // al descartar la prevalidación, y la base no guarda quién fue
+        // (16-oct-2026). El motivo es obligatorio en los dos (MotivoModal).
         <div className="obs inc-rechazo">
-          ↩ Devuelta al reportante: “{i.motivo_rechazo_reparacion}”
+          ↩ Devuelta para corregir: “{i.motivo_rechazo_reparacion}”
           {puedeEditar && ' Corrígela con Editar y vuelve a validación.'}
         </div>
       )}
