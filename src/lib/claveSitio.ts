@@ -26,6 +26,25 @@ const NOMBRE_PORTICO: Record<string, string> = {
   '0092': 'San Ángel Sur',
 };
 
+/** Nombre del pórtico ('San Ángel Norte') si la clave es de uno; si no, null. */
+export function nombrePortico(clave: string | null | undefined): string | null {
+  const p = (clave || '').trim().split('_');
+  if (p.length < 5 || p[2].toUpperCase() !== 'VV' || p[3].toUpperCase() !== 'POR') return null;
+  return NOMBRE_PORTICO[p[4]] ?? null;
+}
+
+/**
+ * Número (con su relleno, '0078') de los pórticos cuyo nombre contiene el
+ * texto, sin importar acentos ni mayúsculas: "san angel" → 0078 y 0092.
+ */
+export function porticosPorNombre(texto: string): string[] {
+  const norm = (s: string) =>
+    s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+  const t = norm(texto);
+  if (!t) return [];
+  return Object.keys(NOMBRE_PORTICO).filter((n) => norm(NOMBRE_PORTICO[n]).includes(t));
+}
+
 /** La clave sin país, plaza ni unidad (en Vía Verde, como en la Bitácora). */
 export function claveSitioCorta(clave: string | null | undefined): string {
   const c = (clave || '').trim();

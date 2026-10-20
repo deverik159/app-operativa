@@ -1,6 +1,10 @@
 // ============================================================
 // src/modules/inventario/DisponibilidadView.tsx
-// Buscador de disponibilidad de caras, para comercial.
+// Módulo «Inventario» (antes «Disponibilidad»; Erik, 19-oct-2026): aquí se
+// revisa lo que QTM cuenta, cara por cara. Cada sitio enseña también el
+// nombre con que se conoce hoy: la pantalla (nombres_pantallas), la máquina
+// Biobox (site_legacy_id) o el pórtico (claveSitio.ts), y se puede buscar
+// por él.
 //
 // LA PREGUNTA QUE RESPONDE, y es UNA sola: "¿puedo vender esta cara, en
 // estas fechas?". Deliberadamente NO es un tablero de indicadores. Un
@@ -21,6 +25,9 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { sb } from '../../lib/supabase';
 import { fondoTono } from '../../lib/tonos';
 import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib/catorcena';
+import { nombrePortico, porticosPorNombre } from '../../lib/claveSitio';
+import { patronNombreSinAcentos } from '../../lib/datosLocales';
+import { UNIDADES_BIOBOX } from '../../lib/constants';
 
 /** Fila de `inventario` con las columnas de estatus. */
 type Cara = {
@@ -121,7 +128,7 @@ function evaluar(
       return {
         nivel: 'parcial',
         texto: 'Se retira a media catorcena',
-        detalle: `Disponible hasta el ${fechaCorta(retiro)}. La catorcena termina el ${fechaCorta(cat.fecha_fin)}.`,
+        detalle: `Activa hasta el ${fechaCorta(retiro)}. La catorcena termina el ${fechaCorta(cat.fecha_fin)}.`,
       };
     }
   }
@@ -137,12 +144,20 @@ function evaluar(
   if (c.fecha_retiro) {
     return {
       nivel: 'si',
-      texto: 'Disponible',
+      texto: 'Activa',
       detalle: `Ojo: tiene retiro programado el ${fechaCorta(c.fecha_retiro)}.`,
     };
   }
 
-  return { nivel: 'si', texto: 'Disponible', detalle: '' };
+  return { nivel: 'si', texto: 'Activa', detalle: '' };
+}
+
+/** Nombre con que se conoce hoy el SITIO: la máquina Biobox o el pórtico. */
+function nombreDelSitio(c: Cara): string | null {
+  if (UNIDADES_BIOBOX.includes(c.unidad_negocio || '')) {
+    return (c.site_legacy_id || '').trim() || null;
+  }
+  return nombrePortico(c.site_id);
 }
 
 // Los fondos eran tintes oscuros escritos a mano: en el tema claro quedaban
@@ -163,6 +178,8 @@ function DisponibilidadView() {
   const [catSel, setCatSel] = useState<string>('');
   const [pautas, setPautas] = useState<PautaLigera[]>([]);
   const [historial, setHistorial] = useState<Record<string, Movimiento[]>>({});
+  /** Nombre de pantalla por cara (solo Ecovallas digital lo tiene). */
+  const [nombrePantalla, setNombrePantalla] = useState<Record<string, string>>({});
   const [abierta, setAbierta] = useState<string>('');
   const [buscando, setBuscando] = useState(false);
   const [err, setErr] = useState('');
@@ -206,17 +223,37 @@ function DisponibilidadView() {
     setErr('');
     setAbierta('');
 
-    // Se busca por clave, por clave de sitio, por el nombre legacy y por
-    // dirección. Comercial no siempre tiene la clave a la mano; muchas veces
-    // solo recuerda la calle.
+    // Se busca por clave, por clave de sitio, por el nombre legacy (el de la
+    // máquina en Biobox), por dirección y por el nombre con que se conoce
+    // hoy la pantalla o el pórtico. Comercial no siempre tiene la clave a la
+    // mano; muchas veces solo recuerda la calle o el nombre.
     const patron = `%${t}%`;
+    const { data: np } = await sb
+      .from('nombres_pantallas')
+      .select('vendor_face_id')
+      .filter('nombre', 'imatch', patronNombreSinAcentos(t))
+      .limit(50);
+    const idsPorNombre = ((np as { vendor_face_id: string }[]) || []).map((x) =>
+      JSON.stringify(x.vendor_face_id)
+    );
+    const porNombre = idsPorNombre.length
+      ? [`vendor_face_id.in.(${idsPorNombre.join(',')})`]
+      : [];
+    const porPortico = porticosPorNombre(t).map((n) => `site_id.ilike.%_POR_${n}`);
     const { data, error } = await sb
       .from('inventario')
       .select(
         'vendor_face_id,site_id,site_legacy_id,cara,direccion,municipio,estado,unidad_negocio,tipo_medio,tipo_mueble,face_status,fuera_servicio_motivo,fuera_servicio_notas,fecha_retiro'
       )
       .or(
-        `vendor_face_id.ilike.${patron},site_id.ilike.${patron},site_legacy_id.ilike.${patron},direccion.ilike.${patron}`
+        [
+          `vendor_face_id.ilike.${patron}`,
+          `site_id.ilike.${patron}`,
+          `site_legacy_id.ilike.${patron}`,
+          `direccion.ilike.${patron}`,
+          ...porNombre,
+          ...porPortico,
+        ].join(',')
       )
       .order('site_id')
       .order('vendor_face_id')
@@ -229,6 +266,21 @@ function DisponibilidadView() {
     }
 
     const filas = (data as Cara[]) || [];
+
+    // Nombres de pantalla de las caras encontradas. Si no contestan, se
+    // enseña la cara como antes: el nombre es ayuda, no requisito.
+    const eco = filas.filter((f) => f.unidad_negocio === 'Ecovallas').map((f) => f.vendor_face_id);
+    const nombres: Record<string, string> = {};
+    if (eco.length) {
+      const { data: nd } = await sb
+        .from('nombres_pantallas')
+        .select('vendor_face_id,nombre')
+        .in('vendor_face_id', eco);
+      ((nd as { vendor_face_id: string; nombre: string }[]) || []).forEach((x) => {
+        if (x.nombre?.trim()) nombres[x.vendor_face_id] = x.nombre.trim();
+      });
+    }
+    setNombrePantalla(nombres);
     setCaras(filas);
     setBuscado(true);
 
@@ -303,10 +355,10 @@ function DisponibilidadView() {
 
   return (
     <>
-      <h2 className="page">Disponibilidad</h2>
+      <h2 className="page">Inventario</h2>
       <p className="phint">
-        Busca una cara y comprueba si se puede vender en la catorcena que
-        elijas. El estatus viene de QTM y se actualiza cada noche.
+        Busca una cara y comprueba si está disponible. El estatus viene de QTM
+        y se actualiza cada noche.
       </p>
 
       {err && (
@@ -323,7 +375,7 @@ function DisponibilidadView() {
           onKeyDown={(e) => {
             if (e.key === 'Enter') buscar();
           }}
-          placeholder="Clave, sitio o dirección…"
+          placeholder="Clave, nombre o dirección…"
         />
         <select
           value={catSel}
@@ -357,7 +409,7 @@ function DisponibilidadView() {
             </span>
             {resumen.si > 0 && (
               <span className="tag" style={{ color: 'var(--ok)' }}>
-                {resumen.si} disponible{resumen.si === 1 ? '' : 's'}
+                {resumen.si} activa{resumen.si === 1 ? '' : 's'}
               </span>
             )}
             {resumen.ocupada > 0 && (
@@ -385,15 +437,21 @@ function DisponibilidadView() {
           <div className="inc-list agrupada">
             {sitios.map(([siteId, lista]) => {
               const primera = lista[0];
+              const nombre = nombreDelSitio(primera);
               return (
                 <div className="inc" key={siteId}>
                   <div style={{ marginBottom: 10 }}>
                     <div className="folio">{siteId}</div>
                     <div className="titulo">
-                      {primera.direccion || '(sin dirección)'}
+                      {nombre || primera.direccion || '(sin dirección)'}
                     </div>
                     <div className="meta">
-                      {[primera.municipio, primera.estado, primera.unidad_negocio]
+                      {[
+                        nombre ? primera.direccion : null,
+                        primera.municipio,
+                        primera.estado,
+                        primera.unidad_negocio,
+                      ]
                         .filter(Boolean)
                         .join(' · ')}
                       {lista.length > 1 && ` · ${lista.length} caras`}
@@ -427,7 +485,7 @@ function DisponibilidadView() {
                           >
                             <div style={{ flex: '1 1 190px', minWidth: 0 }}>
                               <div style={{ fontWeight: 700, fontSize: 13 }}>
-                                {c.cara || c.vendor_face_id}
+                                {nombrePantalla[c.vendor_face_id] || c.cara || c.vendor_face_id}
                               </div>
                               <div
                                 style={{
@@ -536,8 +594,8 @@ function DisponibilidadView() {
 
       {!buscado && (
         <div className="empty">
-          Escribe una clave —<code>MX_CM_EV_3380</code>— o parte de una calle
-          para empezar.
+          Escribe una clave —<code>MX_CM_EV_3380</code>—, parte de una calle o
+          el nombre de una pantalla, máquina o pórtico para empezar.
         </div>
       )}
     </>

@@ -1559,13 +1559,13 @@ function Main({
     // mide reparación y carga de áreas, trabajo que no es el suyo.
     !esMonitoristaPuro &&
       !esBitacoraPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores', grupo: 'indicadores' },
-    // Disponibilidad nació para comercial cuando aún no tenía rol propio;
+    // Disponibilidad (desde el 19-oct-2026 se llama «Inventario») nació para comercial cuando aún no tenía rol propio;
     // desde el 22-sep-2026 el rol `comercial` existe (Bitácora VV) y entra
     // por derecho propio. Viewer sigue: es el rol de quien solo consulta.
     (has('manager') || has('coordinador') || has('comercial') || has('viewer')) && {
       k: 'disponibilidad',
       ic: '🔎',
-      t: 'Disponibilidad',
+      t: 'Inventario',
       grupo: 'comercial',
     },
     // Bitácora de Vía Verde: comercial captura campañas y cambios de

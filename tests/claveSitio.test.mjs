@@ -10,9 +10,40 @@ const { outputFiles } = await build({
   format: 'esm',
   platform: 'neutral',
 });
-const { claveSitioCorta, nombreSitio, nombrePlaza } = await import(
+const { claveSitioCorta, nombreSitio, nombrePlaza, nombrePortico, porticosPorNombre } = await import(
   'data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64')
 );
+
+const { outputFiles: ofHelpers } = await build({
+  entryPoints: [fileURLToPath(new URL('../src/lib/helpers.ts', import.meta.url))],
+  bundle: true,
+  write: false,
+  format: 'esm',
+  platform: 'neutral',
+});
+const { ladoFijoDePortico } = await import(
+  'data:text/javascript;base64,' + Buffer.from(ofHelpers[0].text).toString('base64')
+);
+
+// Los site_id reales del inventario de QTM (consulta del 19-oct-2026).
+test('Pórticos reales: sentido fijo al capturar una incidencia', () => {
+  assert.equal(ladoFijoDePortico('Vía Verde', 'MX_CM_VV_POR_0008'), 'Sur a Norte');
+  assert.equal(ladoFijoDePortico('Vía Verde', 'MX_CM_VV_POR_0015'), 'Norte a Sur');
+  assert.equal(ladoFijoDePortico('Vía Verde', 'MX_CM_VV_POR_0078'), 'Norte a Sur');
+  assert.equal(ladoFijoDePortico('Vía Verde', 'MX_CM_VV_POR_0092'), 'Sur a Norte');
+  assert.equal(ladoFijoDePortico('Vía Verde', 'MX_CM_VV_COL_669'), null);
+  assert.equal(ladoFijoDePortico('Ecovallas', 'MX_CM_VV_POR_0008'), null);
+});
+
+test('Pórticos reales: nombre con que se conocen y búsqueda sin acentos', () => {
+  assert.equal(nombrePortico('MX_CM_VV_POR_0008'), 'San Antonio Norte');
+  assert.equal(nombrePortico('MX_CM_VV_POR_0092'), 'San Ángel Sur');
+  assert.equal(nombrePortico('MX_CM_VV_COL_669'), null);
+  assert.equal(nombrePortico(null), null);
+  assert.deepEqual(porticosPorNombre('san angel'), ['0078', '0092']);
+  assert.deepEqual(porticosPorNombre('ANTONIO  sur'), ['0015']);
+  assert.deepEqual(porticosPorNombre(''), []);
+});
 
 test('Ecovallas impreso: sin país ni plaza', () => {
   assert.equal(nombreSitio('MX_CM_EV_3244', null), 'EV_3244');
