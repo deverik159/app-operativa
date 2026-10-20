@@ -115,6 +115,12 @@ export const AREAS_RESP = [
  */
 export const AREAS_USUARIOS = ['Monitoreo', 'Operaciones', 'SRD', 'PPD', 'MKT'];
 
+/**
+ * BioGuard: app aparte (de Biobox) a la que el menú solo enlaza; se abre en
+ * otra pestaña. La ven el manager y el área SRD (Erik, 20-oct-2026).
+ */
+export const URL_BIOGUARD = 'https://bioguard.bioboxlab.work/';
+
 /** Áreas técnicas disponibles por unidad para Técnico/Coordinador. */
 export const AREAS_REPARACION_POR_UNIDAD: Record<string, string[]> = {
   BIOBOX: ['Op. Bio Box', 'TI', 'Implementaciones', 'Digital', 'Iluminación'],

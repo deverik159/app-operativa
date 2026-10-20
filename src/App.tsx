@@ -30,7 +30,7 @@ import {
 import { Lock, RefreshCw, WifiOff } from 'lucide-react';
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
-import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES } from './lib/constants';
+import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES, URL_BIOGUARD } from './lib/constants';
 import {
   abreModuloEcovallasImpreso,
   departamentosDelUsuario,
@@ -1660,6 +1660,18 @@ function Main({
     // Historial de los equipos que se cambian en Digital (15-oct-2026).
     veEquipos && { k: 'equipos', ic: '🖥️', t: 'Equipos', grupo: 'campo' },
     misRoles.includes('manager') && { k: 'usuarios', ic: '👥', t: 'Usuarios', grupo: 'admin' },
+    // BioGuard es otra app (de Biobox): aquí solo es un enlace que se abre en
+    // otra pestaña. Lo ven el manager y quien pertenece al área SRD (Erik,
+    // 20-oct-2026). Sin ruta propia: es `action`, como "Nueva".
+    (misRoles.includes('manager') || misDep.includes('SRD')) && {
+      k: 'bioguard',
+      ic: '🛡️',
+      t: 'BioGuard',
+      grupo: 'admin',
+      action: () => {
+        window.open(URL_BIOGUARD, '_blank', 'noopener,noreferrer');
+      },
+    },
   ].filter(Boolean) as NavItem[];
 
   // ---- Rutas por URL (auditoría primer mes, 24-sep-2026) ----------------
