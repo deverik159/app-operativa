@@ -28,3 +28,7 @@ tests/carga/.usuarios.json
 # Fichas de trabajo por sección: repositorio PRIVADO aparte
 # (deverik159/app-operativa-contexto), clonado en contexto/ (Erik, 16-oct-2026)
 /contexto/
+# Lo mismo para Codex: skills, agentes y hooks que instala
+# contexto/_herramientas/hooks/instalar.mjs en cada máquina (20-oct-2026)
+.agents/
+.codex/
