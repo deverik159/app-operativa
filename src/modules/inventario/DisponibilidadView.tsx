@@ -357,8 +357,8 @@ function DisponibilidadView() {
     <>
       <h2 className="page">Inventario</h2>
       <p className="phint">
-        Busca una cara y comprueba si está disponible. El estatus viene de QTM
-        y se actualiza cada noche.
+        Busca una cara o sitio y comprueba si está activa. El estatus viene de
+        QTM y se actualiza cada noche.
       </p>
 
       {err && (
