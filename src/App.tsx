@@ -1574,7 +1574,9 @@ function Main({
     (has('manager') || has('comercial') || has('pautas')) && {
       k: 'bitacora_vv',
       ic: '🛣️',
-      t: 'Bitácora VV',
+      // Antes «Bitácora VV»; Erik la renombró el 19-oct-2026 al sumarle la
+      // disponibilidad (el título al entrar es «Disponibilidad y Pauta VV»).
+      t: 'Pauta VV',
       grupo: 'comercial',
     },
     // Fijación Externa es operación de Ecovallas Impreso. El coordinador

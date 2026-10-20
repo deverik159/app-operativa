@@ -21,6 +21,7 @@ import {
   CircleCheck,
   Clock,
   Download,
+  LayoutGrid,
   Palette,
   Pencil,
   Plus,
@@ -44,6 +45,9 @@ import { diaCdmx } from '../../lib/fechasCdmx';
 import { fondoTono } from '../../lib/tonos';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
+import DisponibilidadVV from './DisponibilidadVV';
+import { etiquetaMes, planoDelDia, type PlanoDelDia } from './planoDelDia';
+import { franjasTexto, type LineaOcup } from '../../lib/ocupacionVV';
 
 type Espacio = {
   clave: string;
@@ -53,6 +57,8 @@ type Espacio = {
   sitio: string | null;
   nombre: string | null;
   activo: boolean;
+  /** Slots que rotan en el espacio (vv_ocupacion, 19-oct-2026); sin la columna, el estándar. */
+  slots?: number | null;
 };
 
 type Campana = {
@@ -519,7 +525,7 @@ function BitacoraVVView({
     if (e) {
       // Con mala señal se CONSERVA lo que ya estaba: vaciar las listas en
       // una recarga fallida hacía desaparecer la bitácora de la pantalla.
-      setErr('No se pudo cargar la bitácora: ' + e.message);
+      setErr('No se pudo cargar Pauta VV: ' + e.message);
       setCargando(false);
       return;
     }
@@ -804,10 +810,15 @@ function BitacoraVVView({
 
   // ------------------------------------------------------------
   // "Hoy al aire": qué versión tiene cada espacio en una fecha — la vista
-  // que pautas nunca tuvo con el Excel. Sale de lo ya cargado, sin
-  // consultas nuevas: pautas vigentes de campañas activas.
+  // que pautas nunca tuvo con el Excel. Las versiones salen de lo ya
+  // cargado (pautas vigentes de campañas activas); desde el 19-oct-2026
+  // se cruzan con el plano de columnas (planoDelDia): lo que el plano pone
+  // al aire esa fecha, con slot y horario.
   // ------------------------------------------------------------
-  const [vistaAire, setVistaAire] = useState(false);
+  // Vista de la lista: campañas, «Hoy al aire» o la disponibilidad por
+  // slot (DisponibilidadVV, fase 1 del 19-oct-2026).
+  const [vista, setVista] = useState<'campanas' | 'aire' | 'disponibilidad'>('campanas');
+  const vistaAire = vista === 'aire';
   const [fechaAire, setFechaAire] = useState(hoyLocal());
 
   const alAire = useMemo(() => {
@@ -826,6 +837,38 @@ function BitacoraVVView({
     });
     return m;
   }, [pautas, campanas, fechaAire]);
+
+  // Cruce con el plano (Erik, 19-oct-2026): al elegir una fecha, cada
+  // columna y pórtico muestra lo que el plano pone al aire ese día.
+  const [planoAire, setPlanoAire] = useState<PlanoDelDia | null>(null);
+  const [cargandoPlano, setCargandoPlano] = useState(true); // hasta la primera respuesta
+  const [aireAbiertas, setAireAbiertas] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!vistaAire) return;
+    let vigente = true; // una fecha nueva gana a la respuesta vieja
+    setPlanoAire(null); // no mostrar lo de la fecha anterior mientras carga
+    setCargandoPlano(true);
+    planoDelDia(fechaAire || hoyLocal())
+      .catch((e) => ({ lineas: [], plano: null, error: (e as Error).message }) as PlanoDelDia)
+      .then((r) => {
+        if (!vigente) return;
+        setPlanoAire(r);
+        setCargandoPlano(false);
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [vistaAire, fechaAire, recargarSignal]);
+  const planoPorEspacio = useMemo(() => {
+    const m = new Map<string, LineaOcup[]>();
+    (planoAire?.lineas || []).forEach((l) => {
+      const arr = m.get(l.espacio) || [];
+      arr.push(l);
+      m.set(l.espacio, arr);
+    });
+    m.forEach((arr) => arr.sort((a, b) => a.slot - b.slot || (a.horas[0] ?? 0) - (b.horas[0] ?? 0)));
+    return m;
+  }, [planoAire]);
 
   // ------------------------------------------------------------
   // Export a Excel con el FORMATO BITACORA: se sigue entregando el mismo
@@ -1330,7 +1373,7 @@ function BitacoraVVView({
   // ------------------------------------------------------------
   // Render
   // ------------------------------------------------------------
-  if (cargando) return <div className="loading">Cargando la bitácora…</div>;
+  if (cargando) return <div className="loading">Cargando Pauta VV…</div>;
 
   // ---------- Detalle de una campaña ----------
   if (campana) {
@@ -2485,7 +2528,7 @@ function BitacoraVVView({
 
   return (
     <>
-      <h2 className="page">Bitácora VV</h2>
+      <h2 className="page">Disponibilidad y Pauta VV</h2>
       <p className="phint">
         Campañas y versiones de Vía Verde. Cada cambio de versión queda registrado con
         quién y cuándo — lo que antes se perdía en el correo.
@@ -2517,31 +2560,52 @@ function BitacoraVVView({
         )}
       </div>
       {/* Vista en segmento (rediseño, oct-2026): se ve en cuál estás. Antes
-          era un botón que decía la OTRA vista ("📡 Ver campañas"). */}
-      <div className="toolbar filtros-pildora">
+          era un botón que decía la OTRA vista ("📡 Ver campañas"). Con tres
+          botones, «Ver cerradas» baja de renglón en el celular en vez de
+          quedar fuera de vista (19-oct-2026). */}
+      <div className="toolbar filtros-pildora" style={{ flexWrap: 'wrap', overflowX: 'visible' }}>
         <div className="segmento" role="group" aria-label="Vista">
-          <button type="button" aria-pressed={!vistaAire} onClick={() => setVistaAire(false)}>
+          <button type="button" aria-pressed={vista === 'campanas'} onClick={() => setVista('campanas')}>
             Campañas
           </button>
-          <button type="button" aria-pressed={vistaAire} onClick={() => setVistaAire(true)}>
+          <button type="button" aria-pressed={vistaAire} onClick={() => setVista('aire')}>
             <Ic i={RadioTower} />Hoy al aire
           </button>
+          <button
+            type="button"
+            aria-pressed={vista === 'disponibilidad'}
+            onClick={() => setVista('disponibilidad')}
+          >
+            <Ic i={LayoutGrid} />Disponibilidad
+          </button>
         </div>
-        <button
-          type="button"
-          className={'btn ghost sm' + (verCerradas ? ' on' : '')}
-          aria-pressed={verCerradas}
-          onClick={() => setVerCerradas((v) => !v)}
-        >
-          Ver cerradas
-        </button>
+        {vista !== 'disponibilidad' && (
+          <button
+            type="button"
+            className={'btn ghost sm' + (verCerradas ? ' on' : '')}
+            aria-pressed={verCerradas}
+            onClick={() => setVerCerradas((v) => !v)}
+          >
+            Ver cerradas
+          </button>
+        )}
       </div>
 
-      {vistaAire ? (
+      {vista === 'disponibilidad' ? (
+        <DisponibilidadVV espacios={espacios} puedeImportar={puedeCapturar} onCatalogo={cargar} />
+      ) : vistaAire ? (
         (() => {
-          const ocupados = [...alAire.keys()].filter(
-            (k) => (alAire.get(k) || []).length > 0
+          // Al aire = con versión de la Bitácora o con algo VENDIDO o pautado
+          // del plano ese día; lo apartado se ve, pero no está al aire.
+          // Mientras el plano carga o si falló, no se marca nada «libre»
+          // (un falso libre es peor que no decir nada; revisión 19-oct-2026).
+          const planoListo = !cargandoPlano && !!planoAire && !planoAire.error;
+          const firmesDe = (clave: string) =>
+            (planoPorEspacio.get(clave) || []).filter((l) => l.estatus !== 'reservada');
+          const ocupados = espacios.filter(
+            (e) => (alAire.get(e.clave) || []).length > 0 || firmesDe(e.clave).length > 0
           ).length;
+          const mesAire = (fechaAire || hoyLocal()).slice(0, 7);
           // Cada versión muestra el horario de ESE día: el de sábado y
           // domingo si la fecha cae en fin de semana (misma regla que la
           // captura, diasEnRango).
@@ -2563,38 +2627,54 @@ function BitacoraVVView({
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
                   gap: 8,
                 }}
               >
                 {lista.map((e) => {
                   const encima = alAire.get(e.clave) || [];
-                  const libre = encima.length === 0;
+                  const delPlano = planoPorEspacio.get(e.clave) || [];
+                  const firmes = firmesDe(e.clave);
+                  const alAireEsp = encima.length > 0 || firmes.length > 0;
+                  const vacia = encima.length === 0 && delPlano.length === 0;
+                  const libre = vacia && planoListo;
+                  const abierta = aireAbiertas.has(e.clave);
+                  const slotsUsados = new Set(firmes.map((l) => l.slot)).size;
                   return (
                     <div
                       key={e.clave}
                       onClick={() => {
-                        if (!libre) abrirCampana(encima[0].c);
+                        if (encima.length) abrirCampana(encima[0].c);
                       }}
-                      title={libre ? 'Libre' : 'Abrir la campaña'}
+                      title={encima.length ? 'Abrir la campaña' : undefined}
                       style={{
                         border: '1px solid var(--line)',
-                        borderLeft: `3px solid ${libre ? 'var(--line)' : 'var(--ok)'}`,
+                        borderLeft: `3px solid ${
+                          alAireEsp ? 'var(--ok)' : delPlano.length ? 'var(--st-ambar)' : 'var(--line)'
+                        }`,
                         borderRadius: 10,
                         padding: '8px 10px',
                         background: 'var(--panel)',
-                        cursor: libre ? 'default' : 'pointer',
+                        cursor: encima.length ? 'pointer' : 'default',
                         opacity: libre ? 0.65 : 1,
                         minWidth: 0,
                       }}
                     >
-                      <div style={{ fontWeight: 800, fontSize: 13 }}>{nombreEspacio(e)}</div>
-                      {libre ? (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'baseline' }}>
+                        <span style={{ fontWeight: 800, fontSize: 13 }}>{nombreEspacio(e)}</span>
+                        {firmes.length > 0 && (
+                          <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                            {slotsUsados}/{e.slots || 8} slots
+                          </span>
+                        )}
+                      </div>
+                      {vacia ? (
                         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                          libre
+                          {libre ? 'libre' : cargandoPlano ? 'cargando…' : 'sin datos del plano'}
                         </div>
                       ) : (
-                        encima.map(({ c, p }) => (
+                        <>
+                        {encima.map(({ c, p }) => (
                           <div key={p.id} style={{ fontSize: 11, marginTop: 3, minWidth: 0 }}>
                             <div
                               style={{
@@ -2632,7 +2712,63 @@ function BitacoraVVView({
                               {c.nombre}
                             </div>
                           </div>
-                        ))
+                        ))}
+                        {/* Lo que el plano pone al aire ese día: campaña, slot y horario. */}
+                        {delPlano.length > 0 && (
+                          <div
+                            style={{
+                              marginTop: encima.length ? 6 : 2,
+                              paddingTop: encima.length ? 6 : 0,
+                              borderTop: encima.length ? '1px dashed var(--line)' : undefined,
+                            }}
+                          >
+                            {(abierta ? delPlano : delPlano.slice(0, 6)).map((l, k) => (
+                              <div key={k} style={{ fontSize: 11, marginTop: 3, minWidth: 0 }}>
+                                <div
+                                  style={{
+                                    fontWeight: 700,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {l.campana}
+                                  {l.negociacion !== 'VENTA' && (
+                                    <span style={{ color: 'var(--accent2)' }}>
+                                      {' '}
+                                      · {l.negociacion === 'BONIFICACION' ? 'BONIF' : 'INTERC'}
+                                    </span>
+                                  )}
+                                  {l.estatus === 'reservada' && (
+                                    <span style={{ color: 'var(--st-ambar)' }}> · apartada</span>
+                                  )}
+                                </div>
+                                <div style={{ color: 'var(--muted)' }}>
+                                  S{l.slot} · {franjasTexto(l.horas)}
+                                </div>
+                              </div>
+                            ))}
+                            {delPlano.length > 6 && (
+                              <button
+                                type="button"
+                                className="btn ghost sm"
+                                style={{ marginTop: 6 }}
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  setAireAbiertas((s) => {
+                                    const n = new Set(s);
+                                    if (n.has(e.clave)) n.delete(e.clave);
+                                    else n.add(e.clave);
+                                    return n;
+                                  });
+                                }}
+                              >
+                                {abierta ? 'Ver menos' : `Ver ${delPlano.length - 6} más`}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        </>
                       )}
                     </div>
                   );
@@ -2653,12 +2789,42 @@ function BitacoraVVView({
                 <span className="tag" style={{ color: 'var(--ok)' }}>
                   {ocupados} al aire
                 </span>
-                <span className="tag">
-                  {espacios.length - ocupados} libre{espacios.length - ocupados === 1 ? '' : 's'}
-                </span>
+                {(() => {
+                  const apartados = espacios.filter(
+                    (e) =>
+                      !(alAire.get(e.clave) || []).length &&
+                      !firmesDe(e.clave).length &&
+                      (planoPorEspacio.get(e.clave) || []).length > 0
+                  ).length;
+                  const libres = espacios.length - ocupados - apartados;
+                  return (
+                    <>
+                      {apartados > 0 && (
+                        <span className="tag" style={{ color: 'var(--st-ambar)' }}>
+                          {apartados} solo apartado{apartados === 1 ? '' : 's'}
+                        </span>
+                      )}
+                      <span className="tag">
+                        {planoListo ? `${libres} libre${libres === 1 ? '' : 's'}` : 'libres: —'}
+                      </span>
+                    </>
+                  );
+                })()}
                 <span className="tag">
                   <Ic i={Clock} />
                   {findeAire ? 'Horario de sábado y domingo' : 'Horario de lunes a viernes'}
+                </span>
+                <span className="tag" style={planoAire?.error ? { color: 'var(--st-rojo)' } : undefined}>
+                  <Ic i={LayoutGrid} />
+                  {cargandoPlano
+                    ? 'Cargando el plano…'
+                    : planoAire?.error
+                      ? 'No se pudo leer el plano'
+                      : !planoAire?.plano
+                        ? 'Sin plano importado'
+                        : planoAire.plano === mesAire
+                          ? `Plano de ${etiquetaMes(planoAire.plano)}`
+                          : `Plano de ${etiquetaMes(planoAire.plano)} (no hay de ${etiquetaMes(mesAire)})`}
                 </span>
               </div>
               {seccion('PÓRTICOS', porticos)}

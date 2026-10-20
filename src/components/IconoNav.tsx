@@ -56,7 +56,7 @@ const CORTOS: Record<string, string> = {
   rutas: 'Rutas',
   pauta: 'Pauta',
   mis_rutas: 'Mis rutas',
-  bitacora_vv: 'Bitácora',
+  bitacora_vv: 'Pauta VV', // «Disponibilidad y Pauta VV» (19-oct-2026)
   fijacion_externa: 'Fijación',
   biobox: 'Biobox',
 };
