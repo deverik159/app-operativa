@@ -264,9 +264,11 @@ function RutasView({
     // Con "Ambos" en pantalla hay rutas de los tres medios: el número es
     // por medio (UNIQUE numero+unidad+medio), así que solo cuentan las del
     // medio con que nace la nueva.
+    // Del 900 en adelante son las foráneas de Pauta (EDOMEX 901, PLAZA 902;
+    // 19-oct-2026): no cuentan para el número siguiente.
     const sugerido =
       resumen
-        .filter((r) => r.tipo_medio === tipoNueva)
+        .filter((r) => r.tipo_medio === tipoNueva && Number(r.numero) < 900)
         .reduce((m, r) => Math.max(m, Number(r.numero) || 0), 0) + 1;
     setEditando({
       numero: sugerido,

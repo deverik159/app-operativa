@@ -234,15 +234,51 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
     cargarAsignaciones();
   }, [cargarAsignaciones]);
 
-  /** ruta_clave → ruta_monitoreo_id (para asignar) según la catorcena. */
+  /**
+   * Ids de las rutas de monitoreo de Ecovallas IMPRESO (19-oct-2026). La
+   * vista une la ruta por sitio sin mirar su unidad ni su medio: un sitio
+   * mixto que vive en una ruta de Digital (p. ej. "Pantallas") hacía que
+   * al elegir EDOMEX y asignar se asignara esa ruta de Digital. Pauta solo
+   * asigna y cuenta rutas de Impreso. null = no se pudo leer (no se filtra).
+   */
+  const [rutasImpreso, setRutasImpreso] = useState<Set<number> | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    sb.from('rutas_monitoreo')
+      .select('id')
+      .eq('unidad_negocio', 'Ecovallas')
+      .eq('tipo_medio', 'Impreso')
+      .then(({ data, error }) => {
+        if (!vivo || error) return;
+        setRutasImpreso(new Set(((data as { id: number }[]) || []).map((r) => r.id)));
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  const esRutaImpreso = useCallback(
+    (id: number | null | undefined) => id != null && (!rutasImpreso || rutasImpreso.has(id)),
+    [rutasImpreso]
+  );
+
+  /**
+   * ruta_clave → ruta_monitoreo_id (para asignar) según la catorcena: la
+   * ruta de Impreso que más sitios de esa clave tiene. Una clave sin ruta
+   * de Impreso no se puede asignar. EDOMEX y PLAZA tienen la suya desde
+   * que "Sincronizar rutas" las crea (Rutas 901 y 902, 19-oct-2026).
+   */
   const rutaIdDeClave = useMemo(() => {
-    const m = new Map<string, number>();
+    const votos = new Map<string, Map<number, number>>();
     filas.forEach((f) => {
-      if (f.ruta_clave && f.ruta_monitoreo_id != null)
-        m.set(f.ruta_clave, f.ruta_monitoreo_id);
+      if (!f.ruta_clave || !esRutaImpreso(f.ruta_monitoreo_id)) return;
+      const v = votos.get(f.ruta_clave) || new Map<number, number>();
+      v.set(f.ruta_monitoreo_id!, (v.get(f.ruta_monitoreo_id!) || 0) + 1);
+      votos.set(f.ruta_clave, v);
     });
+    const m = new Map<string, number>();
+    votos.forEach((v, clave) => m.set(clave, [...v.entries()].sort((a, b) => b[1] - a[1])[0][0]));
     return m;
-  }, [filas]);
+  }, [filas, esRutaImpreso]);
 
   /** Ruta elegida en el filtro, si se puede asignar (número: dependencia
    *  estable para el efecto de abajo). */
@@ -287,15 +323,18 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
         .map((a) => a.ruta_id)
     );
     const claves = new Set<string>();
-    filas.forEach((f) => {
-      if (f.ruta_clave && f.ruta_monitoreo_id != null && misIds.has(f.ruta_monitoreo_id))
-        claves.add(f.ruta_clave);
+    rutaIdDeClave.forEach((id, clave) => {
+      if (misIds.has(id)) claves.add(clave);
     });
     return claves;
-  }, [asignaciones, filas, email]);
+  }, [asignaciones, rutaIdDeClave, email]);
 
-  /** Lo que ve Indicadores: el monitorista, solo sus rutas (Erik, 14-oct-2026). */
-  const filasIndicadores = useMemo(
+  /**
+   * Lo que ve el monitorista: SOLO sus rutas asignadas, en la Lista y en
+   * Indicadores (Erik, 14 y 19-oct-2026). Coordinador y manager ven todo.
+   * Es filtro de pantalla: la RLS de pautas deja leer todo con sesión.
+   */
+  const filasMias = useMemo(
     () => (puedeImportar ? filas : filas.filter((f) => !!f.ruta_clave && misRutas.has(f.ruta_clave))),
     [puedeImportar, filas, misRutas]
   );
@@ -330,8 +369,8 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
     if (
       !confirm(
         `Se crearán/actualizarán las rutas de monitoreo con los sitios y ` +
-          `secuencias de la ${etiquetaCatorcena(catSelLeida.numero, catSelLeida.anio)} (las foráneas PLAZA/EDOMEX ` +
-          `no aplican). ¿Continuar?`
+          `secuencias de la ${etiquetaCatorcena(catSelLeida.numero, catSelLeida.anio)}, ` +
+          `incluidas EDOMEX y PLAZA. ¿Continuar?`
       )
     )
       return;
@@ -359,7 +398,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
           ? `, ${r.omitidas} omitidas (no están en inventario de Ecovallas/Impreso)`
           : '') +
         (r.foraneos_omitidos > 0
-          ? `, ${r.foraneos_omitidos} sitios foráneos fuera (PLAZA/EDOMEX)`
+          ? `, ${r.foraneos_omitidos} sitios sin ruta reconocible fuera`
           : '') +
         '.'
     );
@@ -551,7 +590,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
 
   // --- Catálogos derivados de los datos ---
   const rutas = useMemo(() => {
-    const s = new Set(filas.map((f) => f.ruta_clave).filter(Boolean) as string[]);
+    const s = new Set(filasMias.map((f) => f.ruta_clave).filter(Boolean) as string[]);
     // Numéricas primero y en orden; las foráneas (PLAZA, EDOMEX) al final.
     return [...s].sort((a, b) => {
       const na = /^\d+$/.test(a), nb = /^\d+$/.test(b);
@@ -560,18 +599,18 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       if (nb) return 1;
       return a.localeCompare(b);
     });
-  }, [filas]);
+  }, [filasMias]);
 
   /** Campañas de la ruta seleccionada, con su conteo de caras. */
   const campanasRuta = useMemo(() => {
     const base =
-      fRuta === 'Todas' ? filas : filas.filter((f) => f.ruta_clave === fRuta);
+      fRuta === 'Todas' ? filasMias : filasMias.filter((f) => f.ruta_clave === fRuta);
     const m = new Map<string, number>();
     base.forEach((f) => {
       if (f.campana) m.set(f.campana, (m.get(f.campana) || 0) + 1);
     });
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
-  }, [filas, fRuta]);
+  }, [filasMias, fRuta]);
 
   // Cambiar de ruta invalida la selección de campañas: las de la ruta
   // anterior no existen aquí y dejarían la lista vacía sin explicación.
@@ -591,7 +630,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   // cero y sigue siendo un botón con sentido.
   const base = useMemo(
     () =>
-      filas.filter((f) => {
+      filasMias.filter((f) => {
         if (fRuta !== 'Todas' && f.ruta_clave !== fRuta) return false;
         if (fCampanas.length && !fCampanas.includes(f.campana || ''))
           return false;
@@ -602,7 +641,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
         }
         return true;
       }),
-    [filas, fRuta, fCampanas, q]
+    [filasMias, fRuta, fCampanas, q]
   );
   /** Filtro de la tarjeta Incidencias: solo sitios con abiertas. */
   const [fConInc, setFConInc] = useState(false);
@@ -890,7 +929,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
         {catSelLeida && (
           <div className={recargando ? 'recargando' : undefined}>
             <IndicadoresPauta
-              filas={filasIndicadores}
+              filas={filasMias}
               asignaciones={estadoAsig}
               anio={catSelLeida.anio}
               numero={catSelLeida.numero}
@@ -921,6 +960,21 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       </p>
       {pestanas}
       {err && <div className="err">{err}</div>}
+      {/* Monitorista: solo sus rutas asignadas (Erik, 19-oct-2026). */}
+      {!puedeImportar &&
+        (estadoAsig === 'cargando' ? (
+          <div className="phint">Leyendo tus rutas…</div>
+        ) : estadoAsig !== 'listas' ? (
+          <div className="err">No se pudieron leer tus rutas asignadas: {estadoAsig}</div>
+        ) : filasMias.length === 0 ? (
+          <div className="empty">
+            No tienes rutas asignadas en esta catorcena. Pide al coordinador que te asigne una.
+          </div>
+        ) : (
+          <p className="phint" style={{ marginTop: 0 }}>
+            Ves solo tus rutas asignadas.
+          </p>
+        ))}
 
       {/* Píldoras (rediseño, oct-2026): catorcena y ruta; la ruta se resalta
           cuando filtra. */}
