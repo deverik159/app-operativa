@@ -20,6 +20,17 @@ type Props = {
   onIr: (n: Notificacion) => void;
 };
 
+type Pestana = 'incidencias' | 'operacion' | 'chat';
+
+/** Avisos del trabajo de campo y de pautas: van a la pestaña Operación. */
+const EVENTOS_OPERACION = new Set([
+  'pauta_revision',
+  'pauta_toma',
+  'ruta',
+  'vv_version',
+  'vv_programada',
+]);
+
 function CampanaNotifs({
   notifs,
   noLeidas,
@@ -29,17 +40,39 @@ function CampanaNotifs({
 }: Props) {
   const [abierto, setAbierto] = useState(false);
 
-  // ── Dos pestañas: Incidencias y Mensajes (pliego petitorio, ago-2026) ──
+  // ── Pestañas: Incidencias, Operación y Mensajes ──
   // El problema real: 50 mensajes de un chat entierran el aviso de una
-  // incidencia nueva. Se parte por `evento`: 'chat' a su pestaña, TODO lo
-  // demás a Incidencias — así un evento nuevo que se invente mañana cae en
-  // Incidencias en vez de desaparecer, que es el lado seguro del default.
-  const [pestana, setPestana] = useState<'incidencias' | 'chat'>('incidencias');
+  // incidencia nueva (pliego petitorio, ago-2026). Se parte por `evento`:
+  // 'chat' a Mensajes; Pauta, Rutas y Pauta VV a Operación (Erik,
+  // 20-oct-2026: las tomas por comprobar se mezclaban con las incidencias);
+  // TODO lo demás a Incidencias — así un evento nuevo que se invente mañana
+  // cae en Incidencias en vez de desaparecer, que es el lado seguro.
+  const [pestana, setPestana] = useState<Pestana>('incidencias');
   const deChat = notifs.filter((n) => n.evento === 'chat');
-  const deIncidencias = notifs.filter((n) => n.evento !== 'chat');
-  const noLeidasChat = deChat.length;
-  const noLeidasInc = deIncidencias.length;
-  const visibles = pestana === 'chat' ? deChat : deIncidencias;
+  const deOperacion = notifs.filter((n) => EVENTOS_OPERACION.has(n.evento));
+  const deIncidencias = notifs.filter(
+    (n) => n.evento !== 'chat' && !EVENTOS_OPERACION.has(n.evento)
+  );
+  const visibles =
+    pestana === 'chat' ? deChat : pestana === 'operacion' ? deOperacion : deIncidencias;
+
+  /**
+   * Al abrir, si la pestaña elegida no tiene nada y otra sí, se pasa a esa:
+   * un monitorista solo recibe avisos de Operación y no debe abrir la
+   * campana en una pestaña vacía.
+   */
+  const abrir = () => {
+    const conteo: Record<Pestana, number> = {
+      incidencias: deIncidencias.length,
+      operacion: deOperacion.length,
+      chat: deChat.length,
+    };
+    if (!conteo[pestana]) {
+      const otra = (['incidencias', 'operacion', 'chat'] as const).find((k) => conteo[k] > 0);
+      if (otra) setPestana(otra);
+    }
+    setAbierto(true);
+  };
 
   // ══ POR QUÉ EL PANEL VA EN UN PORTAL (bug de iPhone, ago-2026) ══
   //
@@ -68,7 +101,7 @@ function CampanaNotifs({
     <div style={{ position: 'relative' }} ref={caja}>
       <button
         className="btn ghost sm"
-        onClick={() => setAbierto((v) => !v)}
+        onClick={() => (abierto ? setAbierto(false) : abrir())}
         title="Notificaciones"
         style={{ position: 'relative' }}
       >
@@ -128,8 +161,9 @@ function CampanaNotifs({
           >
             {(
               [
-                ['incidencias', 'Incidencias', noLeidasInc],
-                ['chat', 'Mensajes', noLeidasChat],
+                ['incidencias', 'Incidencias', deIncidencias.length],
+                ['operacion', 'Operación', deOperacion.length],
+                ['chat', 'Mensajes', deChat.length],
               ] as const
             ).map(([k, t, n]) => (
               <button
@@ -196,7 +230,9 @@ function CampanaNotifs({
             >
               {pestana === 'chat'
                 ? 'Sin mensajes de chat.'
-                : 'Sin avisos de incidencias.'}
+                : pestana === 'operacion'
+                  ? 'Sin avisos de Pauta, Rutas ni Pauta VV.'
+                  : 'Sin avisos de incidencias.'}
             </div>
           ) : (
             visibles.map((n) => (
