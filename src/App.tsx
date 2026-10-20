@@ -1590,7 +1590,7 @@ function Main({
     (has('manager') || has('coordinador')) && {
       k: 'rutas',
       ic: '🗺️',
-      t: 'Rutas de Monitoreo',
+      t: 'Rutas de Operación',
       grupo: 'campo',
     },
     // Trabajo de campo sobre la pauta: del MONITORISTA (rol propio desde

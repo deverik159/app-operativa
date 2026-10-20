@@ -75,6 +75,37 @@ export function esSegmentoDePauta(unidad: string, tipo: string): boolean {
   return unidad === 'Ecovallas' && tipo === 'Impreso';
 }
 
+/** tipo_medio de una ruta con máquinas de los dos medios (Erik, 19-oct-2026).
+ *  La base la acepta en cualquier unidad (migración rutas_combinadas); la
+ *  pantalla solo la ofrece donde hay los dos medios: Biobox. */
+export const MEDIO_COMBINADA = 'Combinada';
+
+/** Botón "Ambos" del filtro de medio: enseña TODAS las rutas de la unidad
+ *  (Impreso, Digital y Combinadas) y "+ Nueva ruta" ahí crea una Combinada.
+ *  Es solo filtro de pantalla: ninguna ruta tiene tipo_medio = 'Ambos'. */
+export const FILTRO_AMBOS = 'Ambos';
+
+/** Unidades donde se pueden armar rutas con los dos medios. */
+export function admiteCombinada(unidad: string): boolean {
+  return unidad === 'Biobox';
+}
+
+/** ¿Un sitio puede pasar entre estas dos rutas desde el armado? Mismo
+ *  segmento, o una Combinada y otra de su MISMA unidad (Erik, 19-oct-2026).
+ *  Igual que el paso 1b de guardar_paradas_ruta. */
+export function segmentoCompatible(
+  a: { unidad: string; tipo: string },
+  b: { unidad: string; tipo: string }
+): boolean {
+  if (a.unidad !== b.unidad) return false;
+  return a.tipo === b.tipo || a.tipo === MEDIO_COMBINADA || b.tipo === MEDIO_COMBINADA;
+}
+
+/** "Combinada (Impreso y Digital)" para los textos; el resto, tal cual. */
+export function textoMedio(tipo: string): string {
+  return tipo === MEDIO_COMBINADA ? 'Combinada (Impreso y Digital)' : tipo;
+}
+
 // ------------------------------------------------------------
 // Direcciones: comparar sin marcar diferencias falsas
 // ------------------------------------------------------------

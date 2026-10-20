@@ -35,6 +35,9 @@ import Ic from '../../components/Ic';
 import {
   colorSeguro,
   esSegmentoDePauta,
+  MEDIO_COMBINADA,
+  segmentoCompatible,
+  textoMedio,
   textoSobre,
   traerPaginado,
   trozos,
@@ -64,6 +67,7 @@ type FilaInv = {
   site_legacy_id: string | null;
   categoria: string | null;
   tipo_mueble: string | null;
+  tipo_medio: string | null;
   latitud: number | null;
   longitud: number | null;
   direccion: string | null;
@@ -170,6 +174,9 @@ export default function ArmarRutaModal({
   vigilarRender('ArmarRutaModal');
   const unidad = ruta.unidad_negocio;
   const tipo = ruta.tipo_medio;
+  const combinada = tipo === MEDIO_COMBINADA;
+  /** "Biobox Combinada (Impreso y Digital)" o "Vía Verde Digital". */
+  const segmentoTxt = `${unidad} ${textoMedio(tipo)}`;
   const color = colorSeguro(ruta.color);
 
   // --- Datos ---
@@ -238,18 +245,18 @@ export default function ArmarRutaModal({
     setCargando(true);
     setErrCarga('');
     (async () => {
-      const r = await traerPaginado<FilaInv>((desde, hasta, senal) =>
-        sb
+      // Una ruta Combinada toma el inventario de los DOS medios de su unidad
+      // (Erik, 19-oct-2026).
+      const r = await traerPaginado<FilaInv>((desde, hasta, senal) => {
+        let c = sb
           .from('inventario')
           .select(
-            'vendor_face_id,site_id,site_legacy_id,categoria,tipo_mueble,latitud,longitud,direccion,municipio'
+            'vendor_face_id,site_id,site_legacy_id,categoria,tipo_mueble,tipo_medio,latitud,longitud,direccion,municipio'
           )
-          .eq('unidad_negocio', unidad)
-          .eq('tipo_medio', tipo)
-          .order('vendor_face_id')
-          .range(desde, hasta)
-          .abortSignal(senal)
-      );
+          .eq('unidad_negocio', unidad);
+        if (!combinada) c = c.eq('tipo_medio', tipo);
+        return c.order('vendor_face_id').range(desde, hasta).abortSignal(senal);
+      });
       if (!activo) return;
       if (r.error) {
         setErrCarga('No se pudo cargar el inventario. ' + textoFalla(r.error, r.sinRed));
@@ -279,8 +286,9 @@ export default function ArmarRutaModal({
       for (const f of r.filas) {
         const sid = (f.site_id || '').trim();
         if (!sid || RE_PRUEBA.test(sid)) continue;
-        const tipoChip =
-          (unidad === 'Ecovallas' ? f.categoria : f.tipo_mueble)?.trim() || 'Otro';
+        const tipoBase = (unidad === 'Ecovallas' ? f.categoria : f.tipo_mueble)?.trim() || 'Otro';
+        // En la Combinada el chip lleva el medio: así se filtra Impreso o Digital.
+        const tipoChip = combinada ? `${f.tipo_medio?.trim() || '¿medio?'} · ${tipoBase}` : tipoBase;
         let s = por.get(sid);
         if (!s) {
           s = {
@@ -331,7 +339,7 @@ export default function ArmarRutaModal({
             color: u.ruta_color,
             unidad: u.ruta_unidad,
             tipo: u.ruta_tipo,
-            otroSegmento: u.ruta_unidad !== unidad || u.ruta_tipo !== tipo,
+            otroSegmento: !segmentoCompatible({ unidad: u.ruta_unidad, tipo: u.ruta_tipo }, { unidad, tipo }),
           });
         }
       }
@@ -387,7 +395,8 @@ export default function ArmarRutaModal({
         color: u.ruta_color,
         unidad: u.ruta_unidad,
         tipo: u.ruta_tipo,
-        otroSegmento: false,
+        // Con el filtro "Ambos" la foto trae rutas de los tres medios.
+        otroSegmento: !segmentoCompatible({ unidad: u.ruta_unidad, tipo: u.ruta_tipo }, { unidad, tipo }),
       });
     }
     return m;
@@ -683,7 +692,8 @@ export default function ArmarRutaModal({
         className: otra ? 'rt-cand-otra' : 'rt-cand-libre',
       });
       c.bindTooltip(
-        `${escHtml(s.nombre || s.site_id)}${otra ? ` · en Ruta ${escHtml(otra.numero)}` : ''}`,
+        `${escHtml(s.site_id)}${s.nombre ? ` · ${escHtml(s.nombre)}` : ''}` +
+          `${otra ? ` · en Ruta ${escHtml(otra.numero)}` : ''}`,
         { direction: 'top' }
       );
       c.on('click', () => alternarRef.current(s.site_id));
@@ -707,8 +717,9 @@ export default function ArmarRutaModal({
       // por error una parada la manda al final al volver a agregarla.
       const caja = document.createElement('div');
       caja.innerHTML =
-        `<b>Parada ${i + 1}</b> · ${escHtml(s.nombre || s.site_id)}<br>` +
-        `<small>${escHtml(s.site_id)}</small><br><small>${escHtml(s.direccion || '')}</small><br>`;
+        `<b>Parada ${i + 1}</b> · ${escHtml(s.site_id)}<br>` +
+        (s.nombre ? `<small>${escHtml(s.nombre)}</small><br>` : '') +
+        `<small>${escHtml(s.direccion || '')}</small><br>`;
       const btn = document.createElement('button');
       btn.type = 'button';
       // Sin ghost: el globo de Leaflet es blanco en los dos temas y el
@@ -776,7 +787,7 @@ export default function ArmarRutaModal({
                 {ruta.nombre ? ` · ${ruta.nombre}` : ''}
               </h3>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {unidad} · {tipo} · {elegidos.length} paradas elegidas
+                {unidad} · {textoMedio(tipo)} · {elegidos.length} paradas elegidas
               </div>
             </div>
           </div>
@@ -901,13 +912,13 @@ export default function ArmarRutaModal({
                 {cargando && (
                   <div className="loading" style={{ padding: 24 }}>
                     <span className="spinner" />
-                    Cargando inventario de {unidad} {tipo}…
+                    Cargando inventario de {segmentoTxt}…
                   </div>
                 )}
                 {!cargando && !errCarga && filtrados.length === 0 && (
                   <div className="empty" style={{ padding: 20 }}>
                     {sitios.length === 0
-                      ? `No hay sitios de ${unidad} ${tipo} en el inventario.`
+                      ? `No hay sitios de ${segmentoTxt} en el inventario.`
                       : 'Ningún sitio con estos filtros.'}
                   </div>
                 )}
@@ -933,9 +944,12 @@ export default function ArmarRutaModal({
                           {ya ? '✓' : '＋'}
                         </button>
                         <div style={{ flex: 1, minWidth: 0 }}>
+                          {/* Clave primero (Erik, 19-oct-2026): en Biobox el
+                              "nombre" es el cruce de calles y, delante, la
+                              clave quedaba escondida al final. */}
                           <div className="rt-fila-tit">
-                            {s.nombre ? `${s.nombre} · ` : ''}
                             {s.site_id}
+                            {s.nombre ? ` · ${s.nombre}` : ''}
                           </div>
                           <div className="rt-fila-sub">
                             {s.direccion || '(sin dirección en QTM)'}
@@ -1003,8 +1017,8 @@ export default function ArmarRutaModal({
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div className="rt-fila-tit">
-                            {s?.nombre ? `${s.nombre} · ` : ''}
                             {sid}
+                            {s?.nombre ? ` · ${s.nombre}` : ''}
                           </div>
                           <div className="rt-fila-sub">{s?.direccion || ''}</div>
                           <div className="rt-fila-tags">
@@ -1015,7 +1029,7 @@ export default function ArmarRutaModal({
                             )}
                             {!cargando && !s && (
                               <span className="pill" style={{ background: fondoTono('rojo'), color: colorTono('rojo') }}>
-                                No está en el inventario de {unidad} {tipo}
+                                No está en el inventario de {segmentoTxt}
                               </span>
                             )}
                             {s && s.lat == null && (

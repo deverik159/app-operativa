@@ -232,7 +232,7 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
       </div>
       {err && <div className="err" role="alert">{err}{actualizado ? ' Se conservan los últimos datos cargados.' : ''}</div>}
       {!cargando && !ubics.length && !err && <div className="banner">
-        No hay máquinas asignadas a rutas para {unidad}. Se dan de alta desde <b>Rutas de Monitoreo → Importar mapa (KML)</b>.
+        No hay máquinas asignadas a rutas para {unidad}. Se dan de alta desde <b>Rutas de Operación → Importar mapa (KML)</b>.
       </div>}
 
       {!!ubics.length && <>

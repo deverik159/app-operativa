@@ -864,7 +864,7 @@ function MisRutasView({
 
       {rutas.length === 0 ? (
         <div className="empty">
-          No tienes rutas asignadas aquí. El coordinador te las asigna desde Rutas de Monitoreo (las de
+          No tienes rutas asignadas aquí. El coordinador te las asigna desde Rutas de Operación (las de
           Ecovallas Impreso, desde Pauta y Monitoreo).
         </div>
       ) : (

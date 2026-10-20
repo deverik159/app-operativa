@@ -39,10 +39,14 @@ import { convexHull } from '../../lib/convexHull';
 import type { Pt } from '../../lib/convexHull';
 import Ic from '../../components/Ic';
 import {
+  admiteCombinada,
   colorSeguro,
   direccionElegida,
   esSegmentoDePauta,
+  FILTRO_AMBOS,
+  MEDIO_COMBINADA,
   qtmDistinta,
+  textoMedio,
   textoFalla,
   textoSobre,
   traerPaginado,
@@ -139,6 +143,13 @@ function RutasView({
 
   /** Ecovallas Impreso: las paradas salen de la pauta, no se arman aquí. */
   const dePauta = esSegmentoDePauta(unidad, tipo);
+  /** Botón "Ambos" (Biobox): todas las rutas de la unidad, y "+ Nueva
+   *  ruta" crea una Combinada (Erik, 19-oct-2026). */
+  const verAmbos = tipo === FILTRO_AMBOS;
+  /** Medio con el que nace una ruta nueva en este filtro. */
+  const tipoNueva = verAmbos ? MEDIO_COMBINADA : tipo;
+  /** "Biobox" con Ambos (son todas), "Biobox Digital" con un medio. */
+  const segmentoTxt = verAmbos ? unidad : `${unidad} ${tipo}`;
 
   /**
    * En iPhone/iPad, cambiar de unidad o medio ARRANCA ARRIBA, como cambiar de módulo
@@ -185,28 +196,21 @@ function RutasView({
     const segmento = unidad + '|' + tipo;
     setLoading(true);
     setErr('');
+    // "Ambos" = sin filtro de medio: Impreso, Digital y Combinadas juntas.
+    const ambos = tipo === FILTRO_AMBOS;
     const [u, r] = await Promise.all([
-      traerPaginado<Ubic>((desde, hasta, senal) =>
-        sb
-          .from('vw_rutas_con_coords')
-          .select('*')
-          .eq('ruta_unidad', unidad)
-          .eq('ruta_tipo', tipo)
-          .order('ubicacion_id')
-          .range(desde, hasta)
-          .abortSignal(senal)
-      ),
-      traerPaginado<Resumen>((desde, hasta, senal) =>
-        sb
-          .from('vw_rutas_resumen')
-          .select('*')
-          .eq('unidad_negocio', unidad)
-          .eq('tipo_medio', tipo)
-          .order('numero')
-          .order('id')
-          .range(desde, hasta)
-          .abortSignal(senal)
-      ),
+      traerPaginado<Ubic>((desde, hasta, senal) => {
+        let c = sb.from('vw_rutas_con_coords').select('*').eq('ruta_unidad', unidad);
+        if (!ambos) c = c.eq('ruta_tipo', tipo);
+        return c.order('ubicacion_id').range(desde, hasta).abortSignal(senal);
+      }),
+      traerPaginado<Resumen>((desde, hasta, senal) => {
+        let c = sb.from('vw_rutas_resumen').select('*').eq('unidad_negocio', unidad);
+        if (!ambos) c = c.eq('tipo_medio', tipo);
+        // Con Ambos, agrupadas por medio (Combinada, Digital, Impreso).
+        if (ambos) c = c.order('tipo_medio');
+        return c.order('numero').order('id').range(desde, hasta).abortSignal(senal);
+      }),
     ]);
     if (ficha !== fichaCarga.current) return;
     setYaCargo(true);
@@ -257,18 +261,24 @@ function RutasView({
     // Sugerencia inmediata con lo que ya está en pantalla (siguiente libre
     // del segmento) y luego la de la base, que ve también rutas que esta
     // pantalla no cargó. El número sigue siendo editable.
-    const sugerido = resumen.reduce((m, r) => Math.max(m, Number(r.numero) || 0), 0) + 1;
+    // Con "Ambos" en pantalla hay rutas de los tres medios: el número es
+    // por medio (UNIQUE numero+unidad+medio), así que solo cuentan las del
+    // medio con que nace la nueva.
+    const sugerido =
+      resumen
+        .filter((r) => r.tipo_medio === tipoNueva)
+        .reduce((m, r) => Math.max(m, Number(r.numero) || 0), 0) + 1;
     setEditando({
       numero: sugerido,
       nombre: '',
       color: '#ff5a3c',
       unidad_negocio: unidad,
-      tipo_medio: tipo,
+      tipo_medio: tipoNueva,
       activa: true,
     });
     void (async () => {
       const { data, error } = await sb
-        .rpc('siguiente_numero_ruta', { p_unidad: unidad, p_tipo: tipo })
+        .rpc('siguiente_numero_ruta', { p_unidad: unidad, p_tipo: tipoNueva })
         .abortSignal(tope(TOPE_LECTURA_MS));
       const n = Number(data);
       if (error || !Number.isInteger(n) || n <= 0) return; // se queda la sugerencia local
@@ -310,7 +320,7 @@ function RutasView({
         nombre: editando.nombre?.trim() || null,
         color: (editando.color || '#ff5a3c').trim(),
         unidad_negocio: editando.unidad_negocio || unidad,
-        tipo_medio: editando.tipo_medio || tipo,
+        tipo_medio: editando.tipo_medio || tipoNueva,
         activa: editando.activa ?? true,
       };
       // .select('id'): la RLS niega en silencio; sin fila de regreso, no se guardó.
@@ -688,7 +698,7 @@ function RutasView({
   function modalEditar() {
     if (!editando) return null;
     const esNueva = !editando.id;
-    const segPauta = esSegmentoDePauta(editando.unidad_negocio || unidad, editando.tipo_medio || tipo);
+    const segPauta = esSegmentoDePauta(editando.unidad_negocio || unidad, editando.tipo_medio || tipoNueva);
     return (
       <div
         className="overlay"
@@ -751,7 +761,8 @@ function RutasView({
               />
               {esNueva && (
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                  Sugerido: el siguiente número libre de {editando.unidad_negocio} {editando.tipo_medio}. Puedes
+                  Sugerido: el siguiente número libre de {editando.unidad_negocio}{' '}
+                  {editando.tipo_medio === MEDIO_COMBINADA ? 'en rutas combinadas' : editando.tipo_medio}. Puedes
                   cambiarlo.
                 </div>
               )}
@@ -815,8 +826,13 @@ function RutasView({
               }}
             >
               Unidad: <b>{editando.unidad_negocio}</b> ·{' '}
-              <b>{editando.tipo_medio}</b>
+              <b>{textoMedio(editando.tipo_medio || tipoNueva)}</b>
               {esNueva && ' (del filtro actual)'}
+              {esNueva && editando.tipo_medio === MEDIO_COMBINADA && (
+                <div style={{ marginTop: 4 }}>
+                  Ruta combinada: acepta máquinas Impreso y Digital de {editando.unidad_negocio}.
+                </div>
+              )}
               {esNueva && segPauta && (
                 <div style={{ marginTop: 4 }}>
                   En Ecovallas Impreso las paradas salen de la pauta: después de crearla, llénala desde Pauta y
@@ -916,7 +932,7 @@ function RutasView({
             </button>
           </div>
           <p className="phint" style={{ marginTop: 0, marginBottom: 10 }}>
-            {detalle.unidad_negocio} · {detalle.tipo_medio} · {ubicsDetalle.length} paradas · orden de visita por
+            {detalle.unidad_negocio} · {textoMedio(detalle.tipo_medio)} · {ubicsDetalle.length} paradas · orden de visita por
             secuencia
           </p>
 
@@ -1133,9 +1149,9 @@ function RutasView({
   if (unidadesVisibles.length === 0)
     return (
       <div>
-        <h2 className="page">Rutas de Monitoreo</h2>
+        <h2 className="page">Rutas de Operación</h2>
         <div className="empty">
-          Tus unidades de negocio no tienen rutas de monitoreo (solo Ecovallas, Biobox y Vía Verde).
+          Tus unidades de negocio no tienen rutas (solo Ecovallas, Biobox y Vía Verde).
         </div>
       </div>
     );
@@ -1149,7 +1165,7 @@ function RutasView({
       ) : (
         <div>
           <h2 className="page">
-            Rutas de Monitoreo
+            Rutas de Operación
             {recargando && (
               <span
                 role="status"
@@ -1186,7 +1202,15 @@ function RutasView({
                     const ahora = segmentoPendiente.current ?? { u: unidad, t: tipo };
                     if (u === ahora.u) return;
                     // Vía Verde no tiene Impreso: columnas y pórticos son Digital.
-                    cambiarSegmento(u, u === 'Vía Verde' ? 'Digital' : ahora.t);
+                    // "Ambos" solo existe donde hay combinadas (Biobox).
+                    cambiarSegmento(
+                      u,
+                      u === 'Vía Verde'
+                        ? 'Digital'
+                        : ahora.t === FILTRO_AMBOS && !admiteCombinada(u)
+                          ? 'Impreso'
+                          : ahora.t
+                    );
                   }}
                 >
                   {u === unidad ? '✓ ' : ''}
@@ -1195,8 +1219,14 @@ function RutasView({
               ))}
             </div>
             <div className="rt-chips rt-segmento" role="group" aria-label="Medio">
-              {/* (rutas, 5-oct-2026, QA) Vía Verde no tiene Impreso: ni se ofrece. */}
-              {(unidad === 'Vía Verde' ? ['Digital'] : ['Impreso', 'Digital']).map((t) => (
+              {/* (rutas, 5-oct-2026, QA) Vía Verde no tiene Impreso: ni se ofrece.
+                  (19-oct-2026) Biobox suma "Ambos": todas sus rutas y las combinadas. */}
+              {(unidad === 'Vía Verde'
+                ? ['Digital']
+                : admiteCombinada(unidad)
+                  ? ['Impreso', 'Digital', FILTRO_AMBOS]
+                  : ['Impreso', 'Digital']
+              ).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -1278,11 +1308,21 @@ function RutasView({
                 </>
               ) : (
                 <>
-                  <b>+ Nueva ruta</b> la arma desde el inventario de {unidad} {tipo}: eliges los sitios en la
-                  lista o en el mapa y se ordenan por cercanía.{' '}
+                  {verAmbos ? (
+                    <>
+                      Aquí ves todas las rutas de {unidad} (Impreso, Digital y combinadas). <b>+ Nueva ruta</b> crea
+                      una <b>combinada</b>: la armas con máquinas Impreso y Digital del inventario, en la lista o
+                      en el mapa, y se ordenan por cercanía.{' '}
+                    </>
+                  ) : (
+                    <>
+                      <b>+ Nueva ruta</b> la arma desde el inventario de {unidad} {tipo}: eliges los sitios en la
+                      lista o en el mapa y se ordenan por cercanía.{' '}
+                    </>
+                  )}
                   {unidad === 'Biobox' ? (
                     <>
-                      También por archivo: <Ic i={FileSpreadsheet} /><b>Excel de operación</b> (clave + responsable, el recomendado) o
+                      También por archivo: <Ic i={FileSpreadsheet} /><b>Excel de operación</b> (clave + responsable, el recomendado) o{' '}
                       <Ic i={MapIcon} /><b>mapa KML</b> (empata por nombre, menos preciso).
                     </>
                   ) : (
@@ -1329,7 +1369,7 @@ function RutasView({
           {/* Con error no se dice "aún no hay rutas": no se pudieron leer. */}
           {resumen.length === 0 && !recargando && !err && (
             <div className="empty">
-              Aún no hay rutas de {unidad} {tipo}.{' '}
+              Aún no hay rutas de {segmentoTxt}.{' '}
               {puedeGestionar
                 ? dePauta
                   ? 'Créalas desde Pauta y Monitoreo → Sincronizar rutas, o impórtalas con el Excel de rutas.'
@@ -1410,6 +1450,9 @@ function RutasView({
                               {r.nombre ? ` · ${r.nombre}` : ''}
                             </div>
                             <div className="meta">
+                              {/* Con "Ambos" conviven los tres medios (y números
+                                  repetidos entre ellos): el medio va primero. */}
+                              {verAmbos ? `${r.tipo_medio} · ` : ''}
                               {r.total_ubicaciones} ubicaciones
                               {Number(r.inhabilitadas) > 0
                                 ? ` · ${r.inhabilitadas} inhabilitadas`

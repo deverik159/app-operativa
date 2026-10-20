@@ -33,7 +33,7 @@ import { haySesionReal } from '../../lib/datosLocales';
 import { sinAcentos } from '../../lib/helpers';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import { vigilarRender } from '../../lib/vigia';
-import { correoDeSesion, esSegmentoDePauta, TOPE_LECTURA_MS, type Resumen } from './rutasComun';
+import { correoDeSesion, esSegmentoDePauta, MEDIO_COMBINADA, TOPE_LECTURA_MS, type Resumen } from './rutasComun';
 import Ic from '../../components/Ic';
 
 type Asig = { id: number; ruta_id: number; usuario_email: string };
@@ -91,12 +91,16 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
     setErr('');
     (async () => {
       let gem: Gemela | null = null;
-      if (esBiobox && ruta.nombre) {
+      // Gemelas = Impreso y Digital con el mismo nombre. Una Combinada ya
+      // trae los dos medios: ni tiene gemela ni es gemela de nadie (rutas
+      // combinadas, 19-oct-2026).
+      if (esBiobox && ruta.nombre && ruta.tipo_medio !== MEDIO_COMBINADA) {
         const { data } = await sb
           .from('rutas_monitoreo')
           .select('id,numero,nombre,tipo_medio')
           .eq('unidad_negocio', ruta.unidad_negocio)
           .neq('tipo_medio', ruta.tipo_medio)
+          .neq('tipo_medio', MEDIO_COMBINADA)
           .abortSignal(tope(TOPE_LECTURA_MS));
         if (!activo) return;
         const n = normNombre(ruta.nombre);
