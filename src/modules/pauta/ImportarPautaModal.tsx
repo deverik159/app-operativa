@@ -18,6 +18,9 @@
 //
 // Antes de mandar nada se muestra una vista previa con lo que se detectó.
 // Importar reemplaza la catorcena completa: conviene ver qué se va a cargar.
+//
+// La clave de sitio de cada cara sale del inventario (QTM rige, 20-oct-2026),
+// no de la columna CLAVE SITIO: ver lib/sitioDesdeInventario.
 // ============================================================
 import { Search } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
@@ -26,11 +29,20 @@ import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
 import { anioMasCercano, esMasReciente, etiquetaCatorcena, type CatConAnio } from '../../lib/catorcena';
+import {
+  carasDe,
+  sitiosDesdeInventario,
+  type ResultadoSitios,
+  type SitioCorregido,
+} from '../../lib/sitioDesdeInventario';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 
 /** Fila ya normalizada, lista para la RPC. */
-type FilaPauta = Record<string, string | null>;
+type FilaPauta = Record<string, string | null> & {
+  site_id: string | null;
+  vendor_face_id: string | null;
+};
 
 /** Lo que se detectó al leer la hoja, para confirmar antes de importar. */
 type Analisis = {
@@ -60,8 +72,31 @@ type Resultado = {
   foraneas_sin_ruta: number;
 };
 
+/** Lo que se cambió de la clave de sitio del archivo según el inventario. */
+type AjusteSitios = { corregidas: SitioCorregido[]; sinInventario: string[] };
+
 /** Columnas que deben existir sí o sí. */
 const OBLIGATORIAS = ['CLAVE SITIO', 'Vendor Face ID'];
+
+/** Caras por consulta al inventario: el filtro `in` va en la URL. */
+const LOTE_INVENTARIO = 150;
+
+/** vendor_face_id → site_id de QTM para las caras dadas. Lanza si falla. */
+async function sitiosDeInventario(caras: string[]): Promise<Map<string, string>> {
+  const lotes: string[][] = [];
+  for (let i = 0; i < caras.length; i += LOTE_INVENTARIO) lotes.push(caras.slice(i, i + LOTE_INVENTARIO));
+  const respuestas = await Promise.all(
+    lotes.map((lote) => sb.from('inventario').select('vendor_face_id,site_id').in('vendor_face_id', lote))
+  );
+  const mapa = new Map<string, string>();
+  for (const { data, error } of respuestas) {
+    if (error) throw new Error(error.message);
+    for (const r of (data || []) as { vendor_face_id: string; site_id: string | null }[]) {
+      if (r.site_id) mapa.set(r.vendor_face_id, r.site_id);
+    }
+  }
+  return mapa;
+}
 
 /** Convierte una celda de fecha a ISO (YYYY-MM-DD) o null. */
 function aFecha(v: unknown): string | null {
@@ -104,6 +139,8 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
   const [leyendo, setLeyendo] = useState(false);
   const [importando, setImportando] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
+  /** Claves de sitio corregidas con el inventario en la última importación. */
+  const [ajuste, setAjuste] = useState<AjusteSitios | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -306,22 +343,45 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
       );
       return;
     }
+
+    // QTM rige la clave de sitio de cada cara. Sin el inventario no se
+    // importa: con la del archivo "Sincronizar rutas" podría crear paradas
+    // fantasma.
+    setImportando(true);
+    setErr('');
+    let sitios: ResultadoSitios<FilaPauta>;
+    try {
+      sitios = sitiosDesdeInventario(analisis.filas, await sitiosDeInventario(carasDe(analisis.filas)));
+    } catch (ex) {
+      setImportando(false);
+      setErr('No se pudo consultar el inventario (QTM) para revisar las claves de sitio: ' + (ex as Error).message);
+      return;
+    }
+    const nCorr = sitios.corregidas.length;
+    const nSin = sitios.sinInventario.length;
+
     if (
       !confirm(
         `Se va a REEMPLAZAR toda la pauta de la ${etiquetaCatorcena(cat, an)}.\n\n` +
           `Se cargarán ${analisis.filas.length} filas.\n` +
+          (nCorr > 0
+            ? `${nCorr} ${nCorr === 1 ? 'cara trae' : 'caras traen'} una clave de sitio distinta a la del inventario (QTM): se usará la de QTM.\n`
+            : '') +
+          (nSin > 0
+            ? `${nSin} ${nSin === 1 ? 'cara no está' : 'caras no están'} en el inventario: se deja la clave de sitio del archivo.\n`
+            : '') +
           `El avance de campo ya registrado (tomas y comprobaciones) se conserva.\n\n` +
           '¿Continuar?'
       )
-    )
+    ) {
+      setImportando(false);
       return;
+    }
 
-    setImportando(true);
-    setErr('');
     const { data, error } = await sb.rpc('importar_pauta', {
       p_catorcena: cat,
       p_etiqueta: analisis.etiqueta,
-      p_filas: analisis.filas,
+      p_filas: sitios.filas,
       p_anio: an,
     });
     setImportando(false);
@@ -329,6 +389,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
       setErr('No se pudo importar: ' + error.message);
       return;
     }
+    setAjuste({ corregidas: sitios.corregidas, sinInventario: sitios.sinInventario });
     setResultado(data as Resultado);
     onImportado();
   };
@@ -519,6 +580,35 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
                   inventario: no se podrá navegar hacia ellas.
                 </span>
               </>
+            )}
+            {ajuste && ajuste.corregidas.length > 0 && (
+              <>
+                <br />
+                <span style={{ color: 'var(--warn)' }}>
+                  ⚠ {ajuste.corregidas.length}{' '}
+                  {ajuste.corregidas.length === 1 ? 'cara traía' : 'caras traían'} otra
+                  clave de sitio en el archivo; se usó la del inventario (QTM):
+                </span>
+                <ul style={{ margin: '2px 0 0', paddingLeft: 18, fontSize: 12 }}>
+                  {ajuste.corregidas.map((c) => (
+                    <li key={c.vendor_face_id} style={{ overflowWrap: 'anywhere' }}>
+                      {c.vendor_face_id}: {c.archivo || '—'} → <b>{c.inventario}</b>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {ajuste && ajuste.sinInventario.length > 0 && (
+              <details style={{ marginTop: 2 }}>
+                <summary style={{ cursor: 'pointer' }}>
+                  {ajuste.sinInventario.length}{' '}
+                  {ajuste.sinInventario.length === 1 ? 'cara no está' : 'caras no están'} en el
+                  inventario: se dejó la clave de sitio del archivo.
+                </summary>
+                <div style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'anywhere' }}>
+                  {ajuste.sinInventario.join(', ')}
+                </div>
+              </details>
             )}
           </div>
         )}
