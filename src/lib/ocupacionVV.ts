@@ -110,15 +110,65 @@ export function horasDeTexto(texto: unknown, convencional = false): number[] {
   return [...horas].sort((x, y) => x - y);
 }
 
-/** 'LUNES A VIERNES' → [0..4], 'SABADO Y DOMINGO' → [5, 6]; vacío → null (todos). */
+/** Nombre de un día, completo o en 3 letras: 'LUNES', 'MIE', 'SABADOS'. */
+const DIA_RE = /\b(LUN(?:ES)?|MAR(?:TES)?|MIE(?:RCOLES)?|JUE(?:VES)?|VIE(?:RNES)?|SAB(?:ADOS?)?|DOM(?:INGOS?)?)\b/g;
+const DIA_NUM: Record<string, number> = { LUN: 0, MAR: 1, MIE: 2, JUE: 3, VIE: 4, SAB: 5, DOM: 6 };
+/** Letras del plano abreviado ('L-V', 'S-D'): M = martes, X = miércoles. */
+const LETRA_NUM: Record<string, number> = { L: 0, M: 1, X: 2, J: 3, V: 4, S: 5, D: 6 };
+
+/** Del día a al b; si b va antes, da la vuelta a la semana ('VIERNES A LUNES'). */
+const diasEntre = (a: number, b: number) => Array.from({ length: ((b - a + 7) % 7) + 1 }, (_, i) => (a + i) % 7);
+
+/** Siete días = todos (null), como un texto vacío. */
+const comoDias = (d: Iterable<number>): number[] | null => {
+  const s = [...new Set(d)].sort((x, y) => x - y);
+  return s.length === 7 ? null : s;
+};
+
+/**
+ * Días de proyección del plano. `entendido` es false si el texto trae algo
+ * que no se pudo leer: entonces se toman TODOS los días (contar de más es
+ * mejor que dar por libre un día vendido) y leerPlano lo avisa.
+ *   'LUNES A VIERNES' → [0..4] · 'VIERNES A DOMINGO' → [4, 5, 6]
+ *   'SABADO Y DOMINGO' → [5, 6] · 'L-V', 'S-D' · 'LUNES A DOMINGO' → null
+ */
+export function leerDias(texto: unknown): { dias: number[] | null; entendido: boolean } {
+  const t = sinAcentos(String(texto ?? ''))
+    .toUpperCase()
+    .replace(/\./g, '') // 'LUN. A VIE.'
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t || /^(TODOS( LOS DIAS)?|DIARIO|TODA LA SEMANA)$/.test(t)) return { dias: null, entendido: true };
+  if (/^FIN(ES)? DE SEMANA$/.test(t)) return { dias: [5, 6], entendido: true };
+  if (/^ENTRE SEMANA$/.test(t)) return { dias: [0, 1, 2, 3, 4], entendido: true };
+  const letras = t.match(/^([LMXJVSD]) ?(?:-|–|A|AL) ?([LMXJVSD])$/);
+  if (letras) return { dias: comoDias(diasEntre(LETRA_NUM[letras[1]], LETRA_NUM[letras[2]])), entendido: true };
+
+  // Nombres de días unidos por 'A' (rango) o por 'Y', coma o diagonal (lista).
+  const dias = new Set<number>();
+  let previo: number | null = null;
+  let ultimo = 0;
+  let entendido = true;
+  for (const m of t.matchAll(DIA_RE)) {
+    const d = DIA_NUM[m[1].slice(0, 3)];
+    const ini = m.index ?? 0;
+    const entre = t.slice(ultimo, ini).trim();
+    if (previo !== null && /^(A|AL|-|–|HASTA)$/.test(entre)) diasEntre(previo, d).forEach((x) => dias.add(x));
+    else {
+      // Antes del primer día solo puede ir 'DE' o 'DIAS' ('DE LUNES A VIERNES').
+      if (previo === null ? !/^((DE|DIAS?|LOS):? ?)*$/.test(entre) : !/^(Y|E|,|\/|&|, ?Y)?$/.test(entre)) entendido = false;
+      dias.add(d);
+    }
+    previo = d;
+    ultimo = ini + m[0].length;
+  }
+  if (!dias.size || !/^[,;]?$/.test(t.slice(ultimo).trim())) entendido = false;
+  return entendido ? { dias: comoDias(dias), entendido } : { dias: null, entendido };
+}
+
+/** Los días de leerDias, sin el aviso. Vacío o todos → null. */
 export function diasDeTexto(texto: unknown): number[] | null {
-  const t = sinAcentos(String(texto ?? '')).trim().toUpperCase();
-  if (!t) return null;
-  if (t.includes('LUNES A VIERNES')) return [0, 1, 2, 3, 4];
-  if (t.includes('SABADO Y DOMINGO')) return [5, 6];
-  const nombres = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO'];
-  const d = nombres.map((n, i) => (t.includes(n) ? i : -1)).filter((i) => i >= 0);
-  return d.length ? d : null;
+  return leerDias(texto).dias;
 }
 
 /** De horas a texto con fin inclusivo: '07:00 - 09:59 / 18:00 - 21:59'. */
@@ -489,6 +539,11 @@ export function leerPlano(filas: unknown[][], hoja: string): ResultadoPlano {
     // solo leía la primera).
     if (!textoHorario.includes('/') && (textoHorario.match(/\d{1,2}:\d{2}/g) || []).length > 2)
       avisos.push(`Fila ${filaExcel}: el horario "${textoHorario}" separa franjas con guion; se leyó como ${franjasTexto(horas)}.`);
+    // Días que no se entienden: la línea sí entra, con todos los días (así
+    // no queda libre un día vendido), pero comercial lo ve en los avisos.
+    const { dias, entendido } = leerDias(celda(f, 'dias'));
+    if (!entendido)
+      avisos.push(`Fila ${filaExcel}: los días "${String(celda(f, 'dias') ?? '').trim()}" no se entienden; se tomaron todos los días.`);
     lineas.push({
       sitio,
       espacio,
@@ -499,7 +554,7 @@ export function leerPlano(filas: unknown[][], hoja: string): ResultadoPlano {
       convencional,
       inicio,
       fin,
-      dias: diasDeTexto(celda(f, 'dias')),
+      dias,
       horas,
       estatus,
       reservadaHasta: null, // las apartadas del plano no vencen (Erik, 19-oct-2026)

@@ -329,6 +329,15 @@ function nombreEspacio(e: Espacio): string {
   return e.clave;
 }
 
+/** Nombre de campaña en «Hoy al aire»: hasta 2 líneas (en una se cortaba casi siempre). */
+const DOS_LINEAS: React.CSSProperties = {
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
+  overflowWrap: 'anywhere',
+};
+
 /**
  * Grupo de renglones que comparten versión y vigencia: es la unidad con la
  * que se piensa la bitácora ("esta versión, en estas columnas, estas
@@ -2624,11 +2633,14 @@ function BitacoraVVView({
               >
                 {titulo}
               </div>
+              {/* alignItems start: abrir «Ver N más» en una tarjeta no estira
+                  las de su renglón (revisión del 19-oct-2026). */}
               <div
                 style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
                   gap: 8,
+                  alignItems: 'start',
                 }}
               >
                 {lista.map((e) => {
@@ -2700,15 +2712,7 @@ function BitacoraVVView({
                               <Ic i={Clock} />
                               {findeAire ? p.horario_sd : p.horario_lv}
                             </div>
-                            <div
-                              style={{
-                                color: 'var(--muted)',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                              title={c.nombre}
-                            >
+                            <div style={{ ...DOS_LINEAS, color: 'var(--muted)' }} title={c.nombre}>
                               {c.nombre}
                             </div>
                           </div>
@@ -2724,14 +2728,7 @@ function BitacoraVVView({
                           >
                             {(abierta ? delPlano : delPlano.slice(0, 6)).map((l, k) => (
                               <div key={k} style={{ fontSize: 11, marginTop: 3, minWidth: 0 }}>
-                                <div
-                                  style={{
-                                    fontWeight: 700,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                  }}
-                                >
+                                <div style={{ ...DOS_LINEAS, fontWeight: 700 }} title={l.campana}>
                                   {l.campana}
                                   {l.negociacion !== 'VENTA' && (
                                     <span style={{ color: 'var(--accent2)' }}>

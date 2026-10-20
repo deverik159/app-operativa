@@ -19,8 +19,8 @@
 // La disponibilidad sale del plano más reciente; la ocupación, del plano
 // del mes elegido. Reservar y vender desde aquí es la fase 2.
 // ============================================================
-import { LayoutGrid, Sheet, Upload } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, LayoutGrid, Sheet, Upload } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { WorkBook } from 'xlsx';
 import { sb } from '../../lib/supabase';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
@@ -76,13 +76,17 @@ const nombreEspacio = (e: EspacioVV) => (e.tipo_espacio === 'portico' ? `${e.sit
  * Cómo se pinta una celda de la matriz: los colores del calculator (verde
  * libre, rojo por horario, morado convencional) más ámbar para lo apartado,
  * que en la app es una reserva (Erik, 19-oct-2026).
+ * Lo ocupado va en tono sólido y lo libre en tinte suave: con los tintes
+ * --st-*-borde, en oscuro lo ocupado casi no se distinguía de lo libre
+ * (revisión del 19-oct-2026). Así queda a 3.4:1 o más contra lo libre en
+ * los dos temas, y la diferencia no depende solo del color.
  */
 type TipoCelda = 'libre' | 'ocupada' | 'convencional' | 'reservada';
 const COLOR_CELDA: Record<TipoCelda, string> = {
-  libre: 'var(--st-verde-borde)',
-  ocupada: 'var(--st-rojo-borde)',
-  convencional: 'var(--st-morado-borde)',
-  reservada: 'var(--st-ambar-borde)',
+  libre: 'var(--st-verde-fondo)',
+  ocupada: 'var(--st-rojo)',
+  convencional: 'var(--st-morado)',
+  reservada: 'var(--st-ambar)',
 };
 const NOMBRE_TIPO: Record<TipoCelda, string> = {
   libre: 'Disponible',
@@ -114,15 +118,21 @@ const etiquetaMatriz = (e: EspacioVV) =>
   e.tipo_espacio === 'portico' ? `${e.sitio} ${e.nombre}` : `COL ${e.clave}`;
 const dosDigitos = (h: number) => String(h).padStart(2, '0');
 
+/** Filas de la matriz que se pintan de entrada con «Todos» (12 sitios de 8 slots). */
+const FILAS_DE_ENTRADA = 96;
+
+const LETRA_DIA = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+
+/** [0..4] → 'L-V', [4, 5, 6] → 'V-D', [0, 2, 4] → 'L, X, V'. */
+function diasCortos(dias: number[]): string {
+  const d = [...dias].sort((a, b) => a - b);
+  const seguidos = d.length > 1 && d.every((x, i) => i === 0 || x === d[i - 1] + 1);
+  return seguidos ? `${LETRA_DIA[d[0]]}-${LETRA_DIA[d[d.length - 1]]}` : d.map((x) => LETRA_DIA[x]).join(', ');
+}
+
 /** Texto de una línea para el detalle de una celda. */
 function textoLinea(l: LineaOcup): string[] {
-  const dias = !l.dias?.length
-    ? ''
-    : l.dias.length === 5 && l.dias[0] === 0
-      ? ' · L-V'
-      : l.dias.length === 2 && l.dias[0] === 5
-        ? ' · S-D'
-        : ' · días sueltos';
+  const dias = l.dias?.length ? ` · ${diasCortos(l.dias)}` : '';
   return [
     `Campaña: ${l.campana}`,
     `Negociación: ${NOMBRE_NEG[l.negociacion]} · ${NOMBRE_ESTATUS[l.estatus]}`,
@@ -144,6 +154,24 @@ function estadoLibre(libres: number, total: number): EstadoLibre {
 }
 const colorLibres = (libres: number, total: number) =>
   ESTADOS_LIBRE.find((x) => x.k === estadoLibre(libres, total))!.color;
+
+/**
+ * La tira de 24 horas en palabras, para el lector de pantalla: horas
+ * seguidas con los mismos slots libres se juntan ('07:00 a 21:59, 2 de 8').
+ */
+function resumenTira(porHora: number[], total: number, horas: number[]): string {
+  const partes: string[] = [];
+  let ini = 0;
+  for (let i = 1; i <= horas.length; i++) {
+    const corte = i === horas.length || horas[i] !== horas[i - 1] + 1 || porHora[horas[i]] !== porHora[horas[ini]];
+    if (!corte) continue;
+    partes.push(
+      `${dosDigitos(horas[ini])}:00 a ${dosDigitos(horas[i - 1])}:59, ${porHora[horas[ini]]} de ${total} libres`
+    );
+    ini = i;
+  }
+  return 'Slots libres por hora: ' + partes.join('; ');
+}
 
 /** Horas de una franja del filtro; si el fin es antes del inicio, cruza la medianoche. */
 function horasDeFranja(ini: number, fin: number): number[] {
@@ -199,6 +227,23 @@ export default function DisponibilidadVV({
   const [sel, setSel] = useState<{ espacio: string; slot: number; hora: number } | null>(null);
   const [banda, setBanda] = useState('mensual');
   const [importando, setImportando] = useState(false);
+  // En el iPhone había ~930 px de filtros antes de la tabla: Negociación,
+  // Estatus y las casillas van plegados en «Más filtros» (revisión 19-oct-2026).
+  const [masFiltros, setMasFiltros] = useState(false);
+  const filtrosActivos =
+    (fNeg ? 1 : 0) +
+    (fEst ? 1 : 0) +
+    (ocultarPasadas ? 0 : 1) +
+    (soloLibres ? 1 : 0) +
+    (ocultarConv ? 1 : 0) +
+    (mostrar912 ? 0 : 1);
+  // Con «Todos» la matriz pasa de 600 filas × 24 horas (~0.5 s en un
+  // iPhone): de entrada se pintan las primeras; con un sitio, todas.
+  const [todasLasFilas, setTodasLasFilas] = useState(false);
+  useEffect(() => {
+    if (vista !== 'matriz') setTodasLasFilas(false);
+  }, [vista]);
+  const uid = useId();
 
   // Pórticos primero y luego columnas, como en «Hoy al aire».
   const lista = useMemo(
@@ -376,11 +421,20 @@ export default function DisponibilidadVV({
     tip.textContent = [titulo, ...textoLinea(x.c.lineas[0]), ...extra].join('\n');
     tip.style.display = 'block';
     tip.style.left = `${Math.min(ev.clientX + 14, window.innerWidth - 300)}px`;
-    tip.style.top = `${ev.clientY + 14}px`;
+    // Cerca del borde de abajo se pone arriba del cursor, para que no se corte.
+    const alto = tip.offsetHeight;
+    const abajo = ev.clientY + 14;
+    tip.style.top = `${abajo + alto > window.innerHeight - 8 ? Math.max(8, ev.clientY - alto - 10) : abajo}px`;
   };
   const ocultarTip = () => {
     if (tipRef.current) tipRef.current.style.display = 'none';
   };
+
+  const filasVisibles = !matriz
+    ? 0
+    : fSitio || todasLasFilas
+      ? matriz.filas.length
+      : Math.min(FILAS_DE_ENTRADA, matriz.filas.length);
 
   // La tabla se arma solo cuando cambia la matriz: tocar una celda o mover
   // el cursor no la vuelve a dibujar (con «Todos» son cientos de filas × 24 horas).
@@ -411,7 +465,7 @@ export default function DisponibilidadVV({
           </tr>
         </thead>
         <tbody>
-          {matriz.filas.map((f, i) => (
+          {matriz.filas.slice(0, filasVisibles).map((f, i) => (
             <tr key={`${f.e.clave}-${f.slot}`}>
               <td style={pegadoIzq}>
                 <b>{etiquetaMatriz(f.e)}</b> · slot {f.slot}
@@ -437,13 +491,30 @@ export default function DisponibilidadVV({
         </tbody>
       </table>
     );
-  }, [matriz]);
+  }, [matriz, filasVisibles]);
 
   // Al tocar una celda, su detalle queda a la vista (en el celular no hay cursor).
   const detalleRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (sel) detalleRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [sel]);
+
+  // La celda tocada se marca a mano, como el tooltip: con estado React
+  // habría que redibujar las miles de celdas. Se vuelve a buscar cada vez
+  // que la tabla cambia, porque React reusa las celdas de otra fila. El
+  // anillo doble (texto y fondo) se ve sobre cualquier color.
+  const tablaRef = useRef<HTMLDivElement>(null);
+  const marcadaRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (marcadaRef.current) marcadaRef.current.style.boxShadow = '';
+    marcadaRef.current = null;
+    if (!sel || !matriz) return;
+    const i = matriz.filas.findIndex((f) => f.e.clave === sel.espacio && f.slot === sel.slot);
+    const td = i < 0 ? null : tablaRef.current?.querySelector<HTMLElement>(`td[data-f="${i}"][data-h="${sel.hora}"]`);
+    if (!td) return;
+    td.style.boxShadow = 'inset 0 0 0 2px var(--txt), inset 0 0 0 4px var(--bg)';
+    marcadaRef.current = td;
+  }, [sel, matriz, tablaMatriz]);
 
   // Columnas y pórticos trabajan con 8 o 12 slots (Erik, 19-oct-2026).
   const [ajustando, setAjustando] = useState(false);
@@ -530,9 +601,13 @@ export default function DisponibilidadVV({
   };
 
   // ------------------------------------------------------------
-  /** Las horas fuera del horario del filtro se ven apagadas. */
+  /** Las horas fuera del horario del filtro se ven apagadas (y el lector de pantalla no las lee). */
   const tira = (porHora: number[], total: number, activas?: number[]) => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(24, 1fr)', gap: 1, marginTop: 4 }}>
+    <div
+      role="img"
+      aria-label={resumenTira(porHora, total, activas || porHora.map((_, h) => h))}
+      style={{ display: 'grid', gridTemplateColumns: 'repeat(24, 1fr)', gap: 1, marginTop: 4 }}
+    >
       {porHora.map((x, h) => (
         <div
           key={h}
@@ -542,7 +617,6 @@ export default function DisponibilidadVV({
             background: colorLibres(x, total),
             opacity: !activas || activas.includes(h) ? 1 : 0.2,
           }}
-          aria-label={`${String(h).padStart(2, '0')}:00, ${x} de ${total} slots libres`}
         />
       ))}
     </div>
@@ -556,10 +630,18 @@ export default function DisponibilidadVV({
     </div>
   );
 
+  // 11 px (antes 9, ilegible en el teléfono). minmax(0, 1fr): el número
+  // puede salirse a la columna vacía de al lado sin ensanchar la suya, y la
+  // regla sigue alineada con las tiras.
   const reglaHoras = (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(24, 1fr)', fontSize: 9, color: 'var(--muted)' }}>
+    <div
+      aria-hidden="true"
+      style={{ display: 'grid', gridTemplateColumns: 'repeat(24, minmax(0, 1fr))', fontSize: 11, color: 'var(--muted)' }}
+    >
       {Array.from({ length: 24 }, (_, h) => (
-        <span key={h} style={{ textAlign: 'left' }}>{h % 6 === 0 ? h : ''}</span>
+        <span key={h} style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
+          {h % 6 === 0 ? h : ''}
+        </span>
       ))}
     </div>
   );
@@ -656,12 +738,18 @@ export default function DisponibilidadVV({
           {vista !== 'ocupacion' && (
             <div className="row2" style={{ marginBottom: 10 }}>
               <div className="field">
-                <label>Desde</label>
-                <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+                <label htmlFor={uid + 'desde'}>Desde</label>
+                <input id={uid + 'desde'} type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
               </div>
               <div className="field">
-                <label>Hasta</label>
-                <input type="date" value={hasta} min={desde} onChange={(e) => setHasta(e.target.value)} />
+                <label htmlFor={uid + 'hasta'}>Hasta</label>
+                <input
+                  id={uid + 'hasta'}
+                  type="date"
+                  value={hasta}
+                  min={desde}
+                  onChange={(e) => setHasta(e.target.value)}
+                />
               </div>
             </div>
           )}
@@ -680,8 +768,8 @@ export default function DisponibilidadVV({
             <>
               <div className="row2">
                 <div className="field">
-                  <label>Sitio</label>
-                  <select value={lSitio} onChange={(e) => setLSitio(e.target.value)}>
+                  <label htmlFor={uid + 'lsitio'}>Sitio</label>
+                  <select id={uid + 'lsitio'} value={lSitio} onChange={(e) => setLSitio(e.target.value)}>
                     <option value="">Todos</option>
                     {lista.map((e) => (
                       <option key={e.clave} value={e.clave}>
@@ -691,9 +779,14 @@ export default function DisponibilidadVV({
                   </select>
                 </div>
                 <div className="field">
-                  <label>Horario</label>
+                  <label htmlFor={uid + 'lini'}>Horario</label>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <select value={lIni} onChange={(e) => setLIni(Number(e.target.value))} aria-label="Desde la hora">
+                    <select
+                      id={uid + 'lini'}
+                      value={lIni}
+                      onChange={(e) => setLIni(Number(e.target.value))}
+                      aria-label="Desde la hora"
+                    >
                       {Array.from({ length: 24 }, (_, h) => (
                         <option key={h} value={h}>
                           {dosDigitos(h)}:00
@@ -801,8 +894,14 @@ export default function DisponibilidadVV({
                           .filter(({ horas }) => horas.length > 0)
                           .map(({ slot, horas }) => (
                             <div key={slot} style={{ display: 'contents' }}>
-                              <span style={{ fontSize: 12, fontWeight: 700 }}>Slot {slot}</span>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(24, 1fr)', gap: 1 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700 }} aria-hidden="true">
+                                Slot {slot}
+                              </span>
+                              <div
+                                role="img"
+                                aria-label={`Slot ${slot}, libre ${franjasTexto(horas)}`}
+                                style={{ display: 'grid', gridTemplateColumns: 'repeat(24, 1fr)', gap: 1 }}
+                              >
                                 {Array.from({ length: 24 }, (_, h) => (
                                   <div
                                     key={h}
@@ -834,8 +933,9 @@ export default function DisponibilidadVV({
             <>
               <div className="row2">
                 <div className="field">
-                  <label>Sitio</label>
+                  <label htmlFor={uid + 'msitio'}>Sitio</label>
                   <select
+                    id={uid + 'msitio'}
                     value={fSitio}
                     onChange={(e) => {
                       setFSitio(e.target.value);
@@ -850,42 +950,11 @@ export default function DisponibilidadVV({
                     ))}
                   </select>
                 </div>
-                <div className="field">
-                  <label>Negociación</label>
-                  <select
-                    value={fNeg}
-                    onChange={(e) => {
-                      setFNeg(e.target.value);
-                      setSel(null);
-                    }}
-                  >
-                    <option value="">Todas</option>
-                    <option value="VENTA">Venta</option>
-                    <option value="BONIFICACION">Bonificación</option>
-                    <option value="INTERCAMBIO">Intercambio</option>
-                  </select>
-                </div>
-              </div>
-              <div className="row2">
-                <div className="field">
-                  <label>Estatus</label>
-                  <select
-                    value={fEst}
-                    onChange={(e) => {
-                      setFEst(e.target.value);
-                      setSel(null);
-                    }}
-                  >
-                    <option value="">Todos</option>
-                    <option value="vendida">Vendida</option>
-                    <option value="reservada">Reservada (apartada)</option>
-                    <option value="pautada">Pautada</option>
-                  </select>
-                </div>
-                {puedeImportar && fSitio ? (
+                {puedeImportar && fSitio && (
                   <div className="field">
-                    <label>Slots de este sitio</label>
+                    <label htmlFor={uid + 'mslots'}>Slots de este sitio</label>
                     <select
+                      id={uid + 'mslots'}
                       value={slotsDe[fSitio]}
                       disabled={ajustando}
                       onChange={(e) => ajustarSlots(fSitio, Number(e.target.value))}
@@ -899,38 +968,86 @@ export default function DisponibilidadVV({
                         ))}
                     </select>
                   </div>
-                ) : (
-                  <div />
                 )}
               </div>
-              {/* Casillas en .pildora-check: 34–38 px de alto, a tamaño de dedo (antes .tag, ~18 px). */}
-              <div className="chips" style={{ marginBottom: 10 }}>
-                {(
-                  [
-                    ['Ocultar fechas pasadas', ocultarPasadas, setOcultarPasadas],
-                    ['Solo con horas libres', soloLibres, setSoloLibres],
-                    ['Ocultar convencionales', ocultarConv, setOcultarConv],
-                    ['Mostrar slots 9–12', mostrar912, setMostrar912],
-                  ] as const
-                ).map(([texto, valor, poner]) => (
-                  <label key={texto} className="pildora-check">
-                    <input
-                      type="checkbox"
-                      checked={valor}
-                      onChange={(e) => {
-                        poner(e.target.checked);
-                        setSel(null);
-                      }}
-                    />
-                    {texto}
-                  </label>
-                ))}
-              </div>
+              <button
+                type="button"
+                className={'btn ghost sm' + (filtrosActivos ? ' on' : '')}
+                aria-expanded={masFiltros}
+                aria-controls={uid + 'masfiltros'}
+                onClick={() => setMasFiltros((v) => !v)}
+                style={{ marginBottom: 10 }}
+              >
+                <Ic i={masFiltros ? ChevronDown : ChevronRight} />
+                Más filtros
+                {filtrosActivos > 0 && ` · ${filtrosActivos} activo${filtrosActivos === 1 ? '' : 's'}`}
+              </button>
+              {masFiltros && (
+                <div id={uid + 'masfiltros'}>
+                  <div className="row2">
+                    <div className="field">
+                      <label htmlFor={uid + 'mneg'}>Negociación</label>
+                      <select
+                        id={uid + 'mneg'}
+                        value={fNeg}
+                        onChange={(e) => {
+                          setFNeg(e.target.value);
+                          setSel(null);
+                        }}
+                      >
+                        <option value="">Todas</option>
+                        <option value="VENTA">Venta</option>
+                        <option value="BONIFICACION">Bonificación</option>
+                        <option value="INTERCAMBIO">Intercambio</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label htmlFor={uid + 'mest'}>Estatus</label>
+                      <select
+                        id={uid + 'mest'}
+                        value={fEst}
+                        onChange={(e) => {
+                          setFEst(e.target.value);
+                          setSel(null);
+                        }}
+                      >
+                        <option value="">Todos</option>
+                        <option value="vendida">Vendida</option>
+                        <option value="reservada">Reservada (apartada)</option>
+                        <option value="pautada">Pautada</option>
+                      </select>
+                    </div>
+                  </div>
+                  {/* Casillas en .pildora-check: 34–38 px de alto, a tamaño de dedo (antes .tag, ~18 px). */}
+                  <div className="chips" style={{ marginTop: 0, marginBottom: 10 }}>
+                    {(
+                      [
+                        ['Ocultar fechas pasadas', ocultarPasadas, setOcultarPasadas],
+                        ['Solo con horas libres', soloLibres, setSoloLibres],
+                        ['Ocultar convencionales', ocultarConv, setOcultarConv],
+                        ['Mostrar slots 9–12', mostrar912, setMostrar912],
+                      ] as const
+                    ).map(([texto, valor, poner]) => (
+                      <label key={texto} className="pildora-check">
+                        <input
+                          type="checkbox"
+                          checked={valor}
+                          onChange={(e) => {
+                            poner(e.target.checked);
+                            setSel(null);
+                          }}
+                        />
+                        {texto}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {yaPaso ? (
                 <div className="inc">
-                  Ese rango ya pasó. Elige fechas de hoy en adelante, o quita «Ocultar fechas pasadas» para revisar lo
-                  que hubo.
+                  Ese rango ya pasó. Elige fechas de hoy en adelante, o quita «Ocultar fechas pasadas» (en «Más
+                  filtros») para revisar lo que hubo.
                 </div>
               ) : (
                 matriz && (
@@ -943,7 +1060,7 @@ export default function DisponibilidadVV({
                         marginBottom: 10,
                       }}
                     >
-                      {kpi(matriz.filas.length.toLocaleString('es-MX'), 'Slots mostrados', 'var(--st-azul)')}
+                      {kpi(matriz.filas.length.toLocaleString('es-MX'), 'Slots con esos filtros', 'var(--st-azul)')}
                       {kpi(matriz.conLibres.toLocaleString('es-MX'), 'Slots con horas libres', 'var(--st-verde)')}
                       {kpi(
                         matriz.ocupadas.toLocaleString('es-MX'),
@@ -983,6 +1100,7 @@ export default function DisponibilidadVV({
                       <div className="inc">Ningún slot con esos filtros.</div>
                     ) : (
                       <div
+                        ref={tablaRef}
                         style={{ overflow: 'auto', maxHeight: '65vh', border: '1px solid var(--line)', borderRadius: 12 }}
                         onClick={(ev) => {
                           const x = celdaDeEvento(ev);
@@ -992,6 +1110,19 @@ export default function DisponibilidadVV({
                         onMouseLeave={ocultarTip}
                       >
                         {tablaMatriz}
+                      </div>
+                    )}
+                    {filasVisibles < matriz.filas.length && (
+                      <div
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8 }}
+                      >
+                        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                          Se ven los primeros {filasVisibles} de {matriz.filas.length.toLocaleString('es-MX')} slots.
+                          Elige un sitio para ver solo los suyos.
+                        </span>
+                        <button type="button" className="btn ghost sm" onClick={() => setTodasLasFilas(true)}>
+                          Mostrar todas
+                        </button>
                       </div>
                     )}
                     {sel && filaSel && celda && (
@@ -1145,6 +1276,7 @@ function ImportarPlano({
   const [leyendo, setLeyendo] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [xlsx, setXlsx] = useState<typeof import('xlsx') | null>(null);
+  const uid = useId();
 
   const activos = useMemo(() => new Set(espacios.map((e) => e.clave)), [espacios]);
 
@@ -1289,6 +1421,7 @@ function ImportarPlano({
         <div className="field">
           <input
             type="file"
+            aria-label="Excel del plano"
             accept=".xlsx,.xls"
             disabled={leyendo || guardando}
             onChange={(e) => elegirArchivo(e.target.files?.[0])}
@@ -1298,8 +1431,13 @@ function ImportarPlano({
 
         {wb && xlsx && wb.SheetNames.length > 1 && (
           <div className="field">
-            <label>Hoja</label>
-            <select value={hoja} onChange={(e) => analizar(xlsx, wb, e.target.value)} disabled={guardando}>
+            <label htmlFor={uid + 'hoja'}>Hoja</label>
+            <select
+              id={uid + 'hoja'}
+              value={hoja}
+              onChange={(e) => analizar(xlsx, wb, e.target.value)}
+              disabled={guardando}
+            >
               {wb.SheetNames.map((n) => (
                 <option key={n} value={n}>
                   {n}
@@ -1318,8 +1456,14 @@ function ImportarPlano({
         {res && !res.faltan.length && (
           <>
             <div className="field">
-              <label>Mes del plano</label>
-              <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} disabled={guardando} />
+              <label htmlFor={uid + 'mes'}>Mes del plano</label>
+              <input
+                id={uid + 'mes'}
+                type="month"
+                value={mes}
+                onChange={(e) => setMes(e.target.value)}
+                disabled={guardando}
+              />
             </div>
             <div className="chips" style={{ marginBottom: 8 }}>
               <span className="tag">{validas.length} líneas</span>

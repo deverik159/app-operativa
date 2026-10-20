@@ -5,13 +5,16 @@
 // Lo usan Disponibilidad (un rango de fechas, o el plano de un mes para
 // Ocupación) y «Hoy al aire» (lo que el plano pone al aire en UNA fecha,
 // cruzado con las campañas de la Bitácora; Erik, 19-oct-2026). Lee por
-// páginas: PostgREST entrega de a 1,000 filas y un plano trae miles.
+// páginas: PostgREST entrega de a 1,000 filas y un plano trae miles. La
+// página sigue al último id leído y no a la posición: si alguien importa
+// un plano a media lectura, por posición se saltaban o repetían filas.
 // ============================================================
 import { sb } from '../../lib/supabase';
 import { activaEn, cuenta, type LineaOcup } from '../../lib/ocupacionVV';
 
 /** Fila de vv_ocupacion como la usa el cálculo. */
 type FilaBD = {
+  id: number;
   espacio_clave: string;
   slot: number;
   campana: string;
@@ -26,7 +29,10 @@ type FilaBD = {
 };
 
 const COLUMNAS =
-  'espacio_clave,slot,campana,negociacion,convencional,inicio,fin,dias,horas,estatus,reservada_hasta';
+  'id,espacio_clave,slot,campana,negociacion,convencional,inicio,fin,dias,horas,estatus,reservada_hasta';
+
+/** Filas por página: el tope de PostgREST. */
+const PAGINA = 1000;
 
 const aLinea = (f: FilaBD): LineaOcup => ({
   espacio: f.espacio_clave,
@@ -121,14 +127,18 @@ export async function lineasDelPlano(
   const lista = (Array.isArray(planos) ? planos : planos ? [planos] : []).filter(esMes);
   const filtro = lista.length ? `plano_mes.in.(${lista.join(',')}),origen.eq.app` : 'origen.eq.app';
   const todas: FilaBD[] = [];
-  for (let i = 0; ; i += 1000) {
+  let ultimo: number | null = null;
+  for (;;) {
     let q = sb.from('vv_ocupacion').select(COLUMNAS).or(filtro);
     if (hasta) q = q.lte('inicio', hasta);
     if (desde) q = q.gte('fin', desde);
-    const { data, error } = await q.order('id').range(i, i + 999);
+    if (ultimo !== null) q = q.gt('id', ultimo);
+    const { data, error } = await q.order('id').limit(PAGINA);
     if (error) return { lineas: [], error: error.message };
-    todas.push(...((data as FilaBD[]) || []));
-    if (!data || data.length < 1000) break;
+    const filas = (data as FilaBD[] | null) || [];
+    todas.push(...filas);
+    if (filas.length < PAGINA) break;
+    ultimo = filas[filas.length - 1].id;
   }
   return { lineas: todas.map(aLinea) };
 }

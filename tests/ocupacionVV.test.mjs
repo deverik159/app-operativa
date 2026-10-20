@@ -15,6 +15,7 @@ const { outputFiles } = await build({
 const {
   horasDeTexto,
   diasDeTexto,
+  leerDias,
   franjasTexto,
   diaSemana,
   claveEspacio,
@@ -58,6 +59,31 @@ test('días de proyección', () => {
   assert.equal(diasDeTexto(null), null);
   assert.equal(diaSemana('2026-10-19'), 0); // lunes
   assert.equal(diaSemana('2026-10-24'), 5); // sábado
+});
+
+test('días de proyección: rangos, abreviados y listas', () => {
+  // Antes 'LUNES A DOMINGO' salía [0, 6] (solo lunes y domingo).
+  assert.equal(diasDeTexto('LUNES A DOMINGO'), null);
+  assert.deepEqual(diasDeTexto('Lunes a Sábado'), r(0, 5));
+  assert.deepEqual(diasDeTexto('VIERNES A DOMINGO'), [4, 5, 6]);
+  assert.deepEqual(diasDeTexto('DE LUNES A VIERNES'), r(0, 4));
+  assert.deepEqual(diasDeTexto('VIERNES A LUNES'), [0, 4, 5, 6]); // da la vuelta
+  assert.deepEqual(diasDeTexto('LUNES, MIÉRCOLES Y VIERNES'), [0, 2, 4]);
+  assert.deepEqual(diasDeTexto('LUN. A JUE.'), r(0, 3));
+  assert.deepEqual(diasDeTexto('L-V'), r(0, 4));
+  assert.deepEqual(diasDeTexto('S-D'), [5, 6]);
+  assert.equal(diasDeTexto('L-D'), null);
+  assert.equal(diasDeTexto('TODOS LOS DÍAS'), null);
+  assert.deepEqual(diasDeTexto('FIN DE SEMANA'), [5, 6]);
+});
+
+test('días de proyección que no se entienden: todos los días y aviso', () => {
+  assert.deepEqual(leerDias(''), { dias: null, entendido: true });
+  assert.deepEqual(leerDias('LUNES A VIERNES'), { dias: r(0, 4), entendido: true });
+  // 'Menos domingo' no se sabe leer: tomar solo el domingo sería un libre falso.
+  assert.deepEqual(leerDias('TODOS MENOS DOMINGO'), { dias: null, entendido: false });
+  assert.deepEqual(leerDias('SEGÚN CLIENTE'), { dias: null, entendido: false });
+  assert.deepEqual(leerDias('LUNES A VIERNES EXCEPTO FERIADOS'), { dias: null, entendido: false });
 });
 
 test('franjas a texto', () => {
@@ -203,6 +229,23 @@ test('leer el plano: franjas separadas con guion se leen las dos y avisan', () =
   assert.deepEqual(res.lineas[0].horas, [9, 10, 11, 16, 17, 18]);
   assert.equal(res.avisos.length, 1);
   assert.match(res.avisos[0], /guion/);
+});
+
+test('leer el plano: días en rango y días que no se entienden', () => {
+  const filas = [
+    ['Columna', 'Slots', 'Campaña', 'Fecha Inicio', 'Fecha Fin', 'Días Proyección', 'Horarios'],
+    ['MX_CM_VV_COL_639', 1, 'CAMPAÑA OCHO', '2026-06-01', '2026-06-30', 'LUNES A SÁBADO', '08:00 - 09:00'],
+    ['MX_CM_VV_COL_639', 2, 'CAMPAÑA NUEVE', '2026-06-01', '2026-06-30', 'VIERNES A DOMINGO', '08:00 - 09:00'],
+    ['MX_CM_VV_COL_639', 3, 'CAMPAÑA DIEZ', '2026-06-01', '2026-06-30', 'SEGÚN CLIENTE', '08:00 - 09:00'],
+  ];
+  const res = leerPlano(filas, 'PAUTA JUNIO');
+  assert.equal(res.lineas.length, 3); // la de días raros sí entra
+  assert.deepEqual(res.lineas[0].dias, r(0, 5));
+  assert.deepEqual(res.lineas[1].dias, [4, 5, 6]);
+  assert.equal(res.lineas[2].dias, null); // todos los días: contar de más, no dar libre
+  assert.equal(res.avisos.length, 1);
+  assert.match(res.avisos[0], /^Fila 4: los días "SEGÚN CLIENTE" no se entienden/);
+  assert.doesNotMatch(res.avisos[0], /no se tomó/); // el importador cuenta esas como descartadas
 });
 
 test('leer el plano: sin la columna de horarios no importa nada', () => {
