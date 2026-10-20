@@ -26,6 +26,8 @@ type Pestana = 'incidencias' | 'operacion' | 'chat';
 const EVENTOS_OPERACION = new Set([
   'pauta_revision',
   'pauta_toma',
+  'pauta_analista',
+  'pauta_analista_revisado',
   'ruta',
   'vv_version',
   'vv_programada',

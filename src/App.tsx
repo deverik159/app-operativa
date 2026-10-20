@@ -971,7 +971,21 @@ function Main({
 
   /** Eventos cuyo destino es Pauta y Monitoreo, no Incidencias. */
   const esEventoPauta = (e?: string | null) =>
-    e === 'pauta_toma' || e === 'pauta_revision' || e === 'ruta';
+    e === 'pauta_toma' ||
+    e === 'pauta_revision' ||
+    e === 'ruta' ||
+    e === 'pauta_analista' ||
+    e === 'pauta_analista_revisado';
+
+  /**
+   * Pestaña de Pauta a la que lleva un aviso del analista (20-oct-2026):
+   * "Campaña por revisar" a Analista; "Campaña revisada" a Indicadores.
+   */
+  const [vistaPauta, setVistaPauta] = useState<{ vista: 'analista' | 'indicadores'; n: number } | null>(null);
+  const pedirVistaPauta = (e?: string | null) => {
+    const vista = e === 'pauta_analista' ? 'analista' : e === 'pauta_analista_revisado' ? 'indicadores' : null;
+    if (vista) setVistaPauta((p) => ({ vista, n: (p?.n ?? 0) + 1 }));
+  };
 
   /** Eventos cuyo destino es la Bitácora VV (versión por programar / programada). */
   const esEventoBitacora = (e?: string | null) =>
@@ -1014,9 +1028,10 @@ function Main({
   const irAPauta = useCallback((evento?: string | null) => {
     const destino = destinoAvisoPauta(evento);
     if (destino) setTab(destino);
+    if (destino === 'pauta') pedirVistaPauta(evento);
     setRecargarSignal((n) => n + 1);
     notifs.recargar();
-    // destinoAvisoPauta solo lee un ref.
+    // destinoAvisoPauta solo lee un ref; pedirVistaPauta, un setState.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notifs.recargar]);
 
@@ -1292,6 +1307,10 @@ function Main({
     misRoles.length > 0 &&
     misRoles.every((r) => r === 'comercial' || r === 'pautas');
 
+  /** Lo mismo para el analista (20-oct-2026): su app empieza en Pauta. */
+  const esAnalistaPuro =
+    misRoles.length > 0 && misRoles.every((r) => r === 'analista');
+
   /**
    * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas
    * IMPRESO: los abre quien tiene el rol del módulo en una fila de esa
@@ -1321,7 +1340,9 @@ function Main({
       : 'mis_rutas'
     : esBitacoraPuro
       ? 'bitacora_vv'
-      : 'dashboard';
+      : esAnalistaPuro && vePauta
+        ? 'pauta'
+        : 'dashboard';
   const nombre =
     (session.user.user_metadata?.name as string) || email.split('@')[0];
 
@@ -1558,7 +1579,8 @@ function Main({
     // Indicadores no es del monitorista puro ni de comercial/pautas puros:
     // mide reparación y carga de áreas, trabajo que no es el suyo.
     !esMonitoristaPuro &&
-      !esBitacoraPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores', grupo: 'indicadores' },
+      !esBitacoraPuro &&
+      !esAnalistaPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores', grupo: 'indicadores' },
     // Disponibilidad (desde el 19-oct-2026 se llama «Inventario») nació para comercial cuando aún no tenía rol propio;
     // desde el 22-sep-2026 el rol `comercial` existe (Bitácora VV) y entra
     // por derecho propio. Viewer sigue: es el rol de quien solo consulta.
@@ -1903,6 +1925,7 @@ function Main({
                 // de Ecovallas Impreso, a Mis rutas (rutas, 5-oct-2026).
                 const destino = destinoAvisoPauta(n.evento, n.mensaje);
                 if (destino) setTab(destino);
+                if (destino === 'pauta') pedirVistaPauta(n.evento);
                 setRecargarSignal((x) => x + 1);
               } else if (esEventoBitacora(n.evento)) {
                 // Versión por programar / programada: a la Bitácora VV,
@@ -2113,6 +2136,8 @@ function Main({
                   misDep={misDep}
                   puedeImportar={has('manager') || has('coordinador')}
                   recargarSignal={recargarSignal}
+                  revisaAnalista={has('analista')}
+                  vistaPedida={vistaPauta}
                 />
               )}
               {tab === 'biobox' && (

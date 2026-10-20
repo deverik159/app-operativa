@@ -44,6 +44,7 @@ import { tope } from '../../lib/envios';
 import { subirYLuego, subirYRegresar } from '../../lib/subirAntes';
 import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib/catorcena';
 import IndicadoresPauta from './IndicadoresPauta';
+import AnalistaPauta from './AnalistaPauta';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 
@@ -100,9 +101,18 @@ type Props = {
    * enseñando la toma como registrada aunque se la acabaran de regresar.
    */
   recargarSignal?: number;
+  /**
+   * Analista (o manager): pestaña Analista con las fotos que le manda el
+   * coordinador, y ve todas las rutas como el coordinador (20-oct-2026).
+   */
+  revisaAnalista?: boolean;
+  /** Pestaña que pide un aviso ('analista' o 'indicadores'); `n` cambia en cada aviso. */
+  vistaPedida?: { vista: VistaPauta; n: number } | null;
 };
 
-function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
+type VistaPauta = 'lista' | 'indicadores' | 'analista';
+
+function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalista, vistaPedida }: Props) {
   vigilarRender('PautaView');
   const [filas, setFilas] = useState<PautaRuta[]>([]);
   /**
@@ -113,8 +123,20 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   const [catorcenas, setCatorcenas] = useState<{ anio: number; numero: number }[]>([]);
   const [catSel, setCatSel] = useState<string | null>(null);
   const catSelLeida = leerClaveCatorcena(catSel);
-  /** Lista de caras o Indicadores (avance y comprobaciones; 14-oct-2026). */
-  const [vista, setVista] = useState<'lista' | 'indicadores'>('lista');
+  /**
+   * Lista de caras, Indicadores (avance y comprobaciones; 14-oct-2026) o
+   * Analista (20-oct-2026). El analista que no gestiona entra a la suya.
+   */
+  const [vista, setVista] = useState<VistaPauta>(revisaAnalista && !puedeImportar ? 'analista' : 'lista');
+  useEffect(() => {
+    if (!vistaPedida) return;
+    if (vistaPedida.vista === 'analista' && !revisaAnalista) return;
+    setVista(vistaPedida.vista);
+    // Solo cuando llega un aviso nuevo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vistaPedida?.n]);
+  /** Coordinador, manager y analista ven todas las rutas; el monitorista, las suyas. */
+  const veTodo = puedeImportar || !!revisaAnalista;
   const [loading, setLoading] = useState(true);
   /** Ya terminó la primera carga: cambiar de catorcena ya NO cambia la
    *  pantalla por "Cargando pauta…". Desmontaba el selector con la rueda de
@@ -333,12 +355,12 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
 
   /**
    * Lo que ve el monitorista: SOLO sus rutas asignadas, en la Lista y en
-   * Indicadores (Erik, 14 y 19-oct-2026). Coordinador y manager ven todo.
-   * Es filtro de pantalla: la RLS de pautas deja leer todo con sesión.
+   * Indicadores (Erik, 14 y 19-oct-2026). Coordinador, manager y analista
+   * ven todo. Es filtro de pantalla: la RLS de pautas deja leer todo con sesión.
    */
   const filasMias = useMemo(
-    () => (puedeImportar ? filas : filas.filter((f) => !!f.ruta_clave && misRutas.has(f.ruta_clave))),
-    [puedeImportar, filas, misRutas]
+    () => (veTodo ? filas : filas.filter((f) => !!f.ruta_clave && misRutas.has(f.ruta_clave))),
+    [veTodo, filas, misRutas]
   );
 
   /**
@@ -902,17 +924,19 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
   const pestanas = (
     <div className="toolbar">
       <div className="rt-chips rt-segmento" role="group" aria-label="Vista">
-        {(['lista', 'indicadores'] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            className={'rt-chip' + (vista === v ? ' on' : '')}
-            aria-pressed={vista === v}
-            onClick={() => v !== vista && subirYLuego(() => setVista(v), 'pauta-vista')}
-          >
-            {v === 'lista' ? 'Lista' : 'Indicadores'}
-          </button>
-        ))}
+        {(revisaAnalista ? (['lista', 'indicadores', 'analista'] as const) : (['lista', 'indicadores'] as const)).map(
+          (v) => (
+            <button
+              key={v}
+              type="button"
+              className={'rt-chip' + (vista === v ? ' on' : '')}
+              aria-pressed={vista === v}
+              onClick={() => v !== vista && subirYLuego(() => setVista(v), 'pauta-vista')}
+            >
+              {v === 'lista' ? 'Lista' : v === 'indicadores' ? 'Indicadores' : 'Analista'}
+            </button>
+          )
+        )}
       </div>
     </div>
   );
@@ -962,10 +986,22 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
               anio={catSelLeida.anio}
               numero={catSelLeida.numero}
               etiquetaCat={etiquetaCatorcena(catSelLeida.numero, catSelLeida.anio)}
-              soloMisRutas={!puedeImportar}
+              soloMisRutas={!veTodo}
+              puedeEnviarAnalista={puedeImportar}
             />
           </div>
         )}
+      </>
+    );
+
+  // Analista: los envíos de todas las catorcenas, sin selector.
+  if (vista === 'analista' && revisaAnalista)
+    return (
+      <>
+        <h2 className="page">Pauta y monitoreo</h2>
+        <p className="phint">Fotos comprobadas que te manda el coordinador, por campaña y versión.</p>
+        {pestanas}
+        <AnalistaPauta puedeRevisar={revisaAnalista} recargarSignal={recargarSignal} />
       </>
     );
 
@@ -989,7 +1025,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       {pestanas}
       {err && <div className="err">{err}</div>}
       {/* Monitorista: solo sus rutas asignadas (Erik, 19-oct-2026). */}
-      {!puedeImportar &&
+      {!veTodo &&
         (estadoAsig === 'cargando' ? (
           <div className="phint">Leyendo tus rutas…</div>
         ) : estadoAsig !== 'listas' ? (

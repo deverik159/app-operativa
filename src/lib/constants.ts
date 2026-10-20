@@ -56,6 +56,9 @@ export const ROLE_LABEL: Record<string, string> = {
   // campañas y pide los cambios de versión; pautas los programa al aire.
   comercial: 'Comercial',
   pautas: 'Pautas',
+  // Revisa las fotos comprobadas que le manda el coordinador desde Pauta y
+  // sube las editadas (Erik, 20-oct-2026).
+  analista: 'Analista',
   manager: 'Admin',
   viewer: 'Viewer',
 };
@@ -68,6 +71,7 @@ export const ROLE_ICON: Record<string, string> = {
   coordinador: '🧭',
   comercial: '💼',
   pautas: '📆',
+  analista: '🖼️',
   manager: '🛡️',
   viewer: '👁️',
 };
@@ -77,6 +81,7 @@ export const ROLE_PRIORITY = [
   'coordinador',
   'comercial',
   'pautas',
+  'analista',
   'validador',
   'reparacion',
   'reportante',

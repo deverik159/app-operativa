@@ -48,6 +48,8 @@ const TITULOS: Record<string, string> = {
   ruta: 'Cambio en tu ruta',
   pauta_toma: 'Toma regresada',
   pauta_revision: 'Toma por comprobar',
+  pauta_analista: 'Campaña por revisar',
+  pauta_analista_revisado: 'Campaña revisada por el analista',
   vv_version: 'Pauta VV por programar',
   vv_programada: 'Versión VV programada',
 };

@@ -16,9 +16,10 @@
 // El tercer bloque, las incidencias de los sitios, vive en
 // IncidenciasSitiosPauta.tsx.
 // ============================================================
-import { ChevronDown, ChevronRight, Download, FileText, Sheet } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, FileText, Send, Sheet } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PautaRuta } from '../../types/db';
+import { sb } from '../../lib/supabase';
 import { cargarNombres, nombreDe, type MapaNombres } from '../../lib/nombres';
 import {
   agruparComprobaciones,
@@ -26,6 +27,7 @@ import {
   etiquetaDia,
   nombreRuta,
   paraArchivo,
+  SIN_CAMPANA,
 } from '../../lib/indicadoresPauta';
 import { colorTono } from '../../lib/tonos';
 import {
@@ -49,7 +51,12 @@ type Props = {
   etiquetaCat: string;
   /** Monitorista: solo sus rutas. Si no tiene ninguna, se dice. */
   soloMisRutas: boolean;
+  /** Coordinador/manager: puede mandar una campaña al analista (20-oct-2026). */
+  puedeEnviarAnalista?: boolean;
 };
+
+/** Lo ya enviado al analista de cada campaña en esta catorcena. */
+type EnviadoCampana = { caras: Set<string>; envios: number; revisados: number };
 
 /** Una tarea de descarga en curso (una a la vez). */
 type Tarea = { clave: string; texto: string };
@@ -62,7 +69,15 @@ type Tarea = { clave: string; texto: string };
  */
 let descargaEnCurso = false;
 
-export default function IndicadoresPauta({ filas, asignaciones, anio, numero, etiquetaCat, soloMisRutas }: Props) {
+export default function IndicadoresPauta({
+  filas,
+  asignaciones,
+  anio,
+  numero,
+  etiquetaCat,
+  soloMisRutas,
+  puedeEnviarAnalista,
+}: Props) {
   const [nombres, setNombres] = useState<MapaNombres>({});
   useEffect(() => {
     let vivo = true;
@@ -106,6 +121,61 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
       descargaEnCurso = false;
       if (vivo.current) setTarea(null);
     }
+  };
+
+  // --- Envíos al analista (20-oct-2026) ---
+  const [enviados, setEnviados] = useState<Map<string, EnviadoCampana>>(new Map());
+  const [enviando, setEnviando] = useState<string | null>(null);
+  const [avisoEnvio, setAvisoEnvio] = useState('');
+  const cargarEnviados = async () => {
+    if (!puedeEnviarAnalista) return;
+    const [{ data: env, error: e1 }, { data: fot, error: e2 }] = await Promise.all([
+      sb.from('pauta_envios_analista').select('id,campana,revisado_en').eq('anio', anio).eq('catorcena', numero),
+      sb.from('pauta_envio_fotos').select('campana,vendor_face_id').eq('anio', anio).eq('catorcena', numero).limit(20000),
+    ]);
+    if (e1 || e2) {
+      if (vivo.current) setErr('No se pudo leer lo enviado al analista: ' + (e1 || e2)!.message);
+      return;
+    }
+    const m = new Map<string, EnviadoCampana>();
+    const de = (c: string) => {
+      let x = m.get(c);
+      if (!x) m.set(c, (x = { caras: new Set(), envios: 0, revisados: 0 }));
+      return x;
+    };
+    for (const e of (env as { campana: string; revisado_en: string | null }[]) || []) {
+      const x = de(e.campana);
+      x.envios++;
+      if (e.revisado_en) x.revisados++;
+    }
+    for (const f of (fot as { campana: string; vendor_face_id: string }[]) || []) de(f.campana).caras.add(f.vendor_face_id);
+    if (vivo.current) setEnviados(m);
+  };
+  useEffect(() => {
+    cargarEnviados();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anio, numero, puedeEnviarAnalista]);
+
+  const enviarAnalista = async (campana: string) => {
+    setEnviando(campana);
+    setErr('');
+    setAvisoEnvio('');
+    const { data, error } = await sb.rpc('enviar_al_analista', {
+      p_anio: anio,
+      p_catorcena: numero,
+      p_campana: campana,
+    });
+    if (!vivo.current) return;
+    setEnviando(null);
+    if (error) {
+      setErr(error.message);
+      return;
+    }
+    const r = data as { fotos: number; caras: number };
+    setAvisoEnvio(
+      `${campana}: se enviaron al analista ${r.fotos} ${r.fotos === 1 ? 'foto' : 'fotos'} de ${r.caras} ${r.caras === 1 ? 'cara' : 'caras'}.`
+    );
+    cargarEnviados();
   };
 
   const bajarAvance = () =>
@@ -180,6 +250,11 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
         </p>
       )}
       {err && <div className="err">{err}</div>}
+      {avisoEnvio && (
+        <div role="status" className="phint" style={{ marginTop: 0, color: colorTono('verde') }}>
+          {avisoEnvio}
+        </div>
+      )}
       {tarea && (
         <div role="status" className="phint" style={{ marginTop: 0 }}>
           <span className="spinner" />
@@ -305,6 +380,37 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
                   `Comprobacion_${paraArchivo(g.campana)}_${sufijo}`,
                   todas
                 )}
+                {puedeEnviarAnalista && g.campana !== SIN_CAMPANA && (() => {
+                  const ya = enviados.get(g.campana);
+                  const nuevas = todas.filter((f) => !ya?.caras.has(f.vendor_face_id)).length;
+                  return (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {nuevas > 0 && (
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          disabled={!!enviando}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            enviarAnalista(g.campana);
+                          }}
+                          title="Manda al analista las fotos de las caras comprobadas que aún no le llegan"
+                        >
+                          {enviando === g.campana && <span className="spinner" />}
+                          <Ic i={Send} />
+                          Enviar {nuevas} {nuevas === 1 ? 'cara' : 'caras'} al analista
+                        </button>
+                      )}
+                      {ya && ya.envios > 0 && (
+                        <span style={{ fontSize: 12, color: ya.revisados === ya.envios ? colorTono('verde') : 'var(--muted)' }}>
+                          {ya.revisados === ya.envios
+                            ? 'Revisada por analista'
+                            : `Con el analista (${ya.envios - ya.revisados} por revisar)`}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })()}
               </div>
               {abiertaEsta &&
                 g.dias.map((d) => (

@@ -34,7 +34,8 @@ export type FilaDescarga = FilaIndicador & {
   fotos?: number;
 };
 
-export type Evidencia = { url: string; tipo: string | null };
+/** `editada`: la liga es la versión que subió el analista (20-oct-2026). */
+export type Evidencia = { url: string; tipo: string | null; editada?: boolean };
 
 /** Encabezado común: qué catorcena y para quién. */
 export type Contexto = {
@@ -62,20 +63,21 @@ export function bajarArchivo(blob: Blob, nombre: string) {
 
 /**
  * Evidencias de esas caras en esa catorcena, por cara y en el orden en que
- * se subieron. En trozos: la lista de ids va en la URL.
+ * se subieron. En trozos: la lista de ids va en la URL. Si el analista subió
+ * una versión editada de una foto, va esa en su lugar (20-oct-2026).
  */
 export async function evidenciasDe(
   anio: number,
   catorcena: number,
   ids: string[]
 ): Promise<Map<string, Evidencia[]>> {
-  const m = new Map<string, Evidencia[]>();
+  const filas: { id: number; vendor_face_id: string; url: string; tipo: string | null }[] = [];
   const unicos = [...new Set(ids)];
   for (let i = 0; i < unicos.length; i += 80) {
     const trozo = unicos.slice(i, i + 80);
     const { data, error } = await sb
       .from('pauta_evidencias')
-      .select('vendor_face_id,url,tipo,creado_en')
+      .select('id,vendor_face_id,url,tipo,creado_en')
       .eq('anio', anio)
       .eq('catorcena', catorcena)
       .in('vendor_face_id', trozo)
@@ -83,9 +85,30 @@ export async function evidenciasDe(
       .is('regresada_en', null)
       .order('creado_en');
     if (error) throw new Error('No se pudieron leer las fotos: ' + error.message);
-    for (const r of (data as { vendor_face_id: string; url: string; tipo: string | null }[]) || []) {
-      m.set(r.vendor_face_id, [...(m.get(r.vendor_face_id) || []), { url: r.url, tipo: r.tipo }]);
-    }
+    filas.push(...((data as typeof filas) || []));
+  }
+  const editadas = await editadasDe(filas.map((f) => f.id));
+  const m = new Map<string, Evidencia[]>();
+  for (const r of filas) {
+    const ed = editadas.get(r.id);
+    const ev: Evidencia = ed ? { url: ed, tipo: r.tipo, editada: true } : { url: r.url, tipo: r.tipo };
+    m.set(r.vendor_face_id, [...(m.get(r.vendor_face_id) || []), ev]);
+  }
+  return m;
+}
+
+/** Liga de la versión editada por el analista, por id de evidencia (la más reciente). */
+async function editadasDe(idsEvidencia: number[]): Promise<Map<number, string>> {
+  const m = new Map<number, string>();
+  for (let i = 0; i < idsEvidencia.length; i += 150) {
+    const { data, error } = await sb
+      .from('pauta_envio_fotos')
+      .select('evidencia_id,editada_url,revisado_en')
+      .eq('estado', 'editada')
+      .in('evidencia_id', idsEvidencia.slice(i, i + 150))
+      .order('revisado_en');
+    if (error) throw new Error('No se pudieron leer las fotos editadas: ' + error.message);
+    for (const r of (data as { evidencia_id: number; editada_url: string }[]) || []) m.set(r.evidencia_id, r.editada_url);
   }
   return m;
 }

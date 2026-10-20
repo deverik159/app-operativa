@@ -409,7 +409,11 @@ self.addEventListener('notificationclick', (event) => {
   const evento = datos.evento || null;
   // Estos eventos viven en Pauta y Monitoreo, no en Incidencias.
   const esPauta =
-    evento === 'pauta_toma' || evento === 'pauta_revision' || evento === 'ruta';
+    evento === 'pauta_toma' ||
+    evento === 'pauta_revision' ||
+    evento === 'ruta' ||
+    evento === 'pauta_analista' ||
+    evento === 'pauta_analista_revisado';
   // Y estos en la Bitácora VV (versión por programar / programada).
   const esBitacora = evento === 'vv_version' || evento === 'vv_programada';
   // La URL se usa tanto al abrir una ventana nueva como al navegar una ya

@@ -576,8 +576,11 @@ export function departamentosDelUsuario(
 
 /** Roles que abren Fijación Externa (la fijación es de los técnicos). */
 export const ROLES_FIJACION_EXTERNA: readonly string[] = ['reparacion'];
-/** Roles que abren Pauta y Monitoreo (gestión y trabajo de campo). */
-export const ROLES_PAUTA: readonly string[] = ['coordinador', 'monitorista', 'fijador'];
+/**
+ * Roles que abren Pauta y Monitoreo (gestión y trabajo de campo). El
+ * analista revisa las fotos que le manda el coordinador (20-oct-2026).
+ */
+export const ROLES_PAUTA: readonly string[] = ['coordinador', 'monitorista', 'fijador', 'analista'];
 
 /**
  * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas IMPRESO
