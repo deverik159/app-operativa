@@ -76,8 +76,10 @@ export function esSegmentoDePauta(unidad: string, tipo: string): boolean {
 }
 
 /** tipo_medio de una ruta con máquinas de los dos medios (Erik, 19-oct-2026).
- *  La base la acepta en cualquier unidad (migración rutas_combinadas); la
- *  pantalla solo la ofrece donde hay los dos medios: Biobox. */
+ *  Solo en Biobox, la única unidad con los dos medios: lo exige la pantalla
+ *  (admiteCombinada) y, desde la migración rutas_combinadas_seguimiento,
+ *  también la base con el check rutas_monitoreo_tipo_medio_chk (Impreso,
+ *  Digital o Combinada; Combinada solo con unidad_negocio = 'Biobox'). */
 export const MEDIO_COMBINADA = 'Combinada';
 
 /** Botón "Ambos" del filtro de medio: enseña TODAS las rutas de la unidad

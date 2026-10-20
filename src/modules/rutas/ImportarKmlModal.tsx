@@ -22,6 +22,8 @@ import { NARANJA } from '../../lib/helpers';
 import { colorTono } from '../../lib/tonos';
 import type { CapaKml, Empate, Confianza, FilaInventario } from '../../lib/kml';
 import CerrarModal from '../../components/CerrarModal';
+import AvisoGemelasVacias from './AvisoGemelasVacias';
+import type { GemelaVacia } from './AvisoGemelasVacias';
 
 type Props = {
   /** Sugerencia tomada de la pantalla. NO se usa sin confirmar. */
@@ -39,6 +41,11 @@ type Resultado = {
   omitidos_ejemplo: string[];
   sobrantes: number;
   sobrantes_borradas: boolean;
+  /** Rutas Impreso/Digital con una Combinada del mismo nombre que quedaron
+   *  sin paradas (importar_rutas_capas, migración
+   *  rutas_combinadas_seguimiento). Opcional: sin esa migración no viene y
+   *  el resumen se pinta igual que antes. */
+  gemelas_vacias?: GemelaVacia[];
 };
 
 // Todos como variables con pareja clara: #f59e0b y #f97316 sobre blanco no
@@ -312,6 +319,8 @@ function ImportarKmlModal({ unidad: sugerida, onClose, onImportado }: Props) {
               marcando la casilla de limpieza.
             </div>
           )}
+
+          <AvisoGemelasVacias gemelas={resultado.gemelas_vacias} />
 
           <div className="modal-actions">
             <button className="btn" onClick={onClose} style={{ width: '100%' }}>

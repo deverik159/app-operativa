@@ -28,6 +28,8 @@ import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { sb } from '../../lib/supabase';
 import CerrarModal from '../../components/CerrarModal';
+import AvisoGemelasVacias from './AvisoGemelasVacias';
+import type { GemelaVacia } from './AvisoGemelasVacias';
 
 type Props = {
   /** La unidad del filtro de Rutas: el archivo se importa a esa. */
@@ -47,6 +49,11 @@ type Resultado = {
   omitidos_ejemplo: string[];
   sobrantes: number;
   sobrantes_borradas: boolean;
+  /** Rutas Impreso/Digital con una Combinada del mismo nombre que quedaron
+   *  sin paradas (importar_rutas_capas, migración
+   *  rutas_combinadas_seguimiento). Opcional: sin esa migración no viene y
+   *  el resumen se pinta igual que antes. */
+  gemelas_vacias?: GemelaVacia[];
 };
 
 /** Encabezado comparable: sin acentos, sin signos, en mayúsculas. */
@@ -343,6 +350,8 @@ function ImportarRutasExcelModal({ unidad, onClose, onImportado }: Props) {
               venían en este archivo. Se quedaron donde estaban.
             </div>
           )}
+
+          <AvisoGemelasVacias gemelas={resultado.gemelas_vacias} />
 
           <div className="modal-actions">
             <button className="btn" onClick={onClose} style={{ width: '100%' }}>
