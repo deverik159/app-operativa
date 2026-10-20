@@ -755,6 +755,11 @@ Biobox.
 | `limpiar_todo.sql` + `revisar_tras_limpieza.sql` | ✅ **aplicada el 14-oct-2026, 16:33** (Erik, SQL Editor + `scripts/limpiar-storage.mjs`; verificada) — NO volver a correrla: hoy borraría datos reales (§12.15). `revisar_tras_limpieza.sql` sí, los primeros días |
 | `supabase/migrations/20261006195659_lado_adicional_puerta.sql` | ✅ aplicada (6-oct, SQL Editor; registrada 6-oct) — el CHECK de `incidencias.lado` acepta también `Adicional` y `Puerta` (§12.15) |
 
+| Archivo (19-oct → 20-oct) | Estado |
+|---|---|
+| `supabase/migrations/20261019235423_rutas_combinadas.sql` | ✅ aplicada (19-oct, `apply_migration`) — rutas Combinadas de Biobox: el trigger de segmento, `vw_rutas_con_coords`, `guardar_paradas_ruta` e `importar_rutas_capas` aceptan `tipo_medio = 'Combinada'` (§4.2) |
+| `supabase/migrations/20261020015112_rutas_combinadas_seguimiento.sql` | ✅ aplicada y verificada (20-oct, `apply_migration`; revisada antes por el subagente revisor-rls) — seguimiento de la anterior: CHECK `rutas_monitoreo_tipo_medio_chk` (Impreso, Digital o Combinada; Combinada solo en Biobox, la regla que antes solo vivía en la pantalla), `importar_rutas` con el mismo paso 1b que `guardar_paradas_ruta` (un sitio sí se mueve entre una Combinada y una Impreso/Digital de la misma unidad), `search_path` fijo en `ruta_ubic_valida_segmento()` e `importar_rutas_capas` devuelve `gemelas_vacias` (rutas gemelas que quedaron sin paradas y cuántos monitoristas conservan; los modales de KML y Excel de operación de Biobox lo muestran). Re-ejecutable; no toca `vw_rutas_con_coords` |
+
 De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls.sql`, `rutas_importar.sql`, `fijacion_externa_vista.sql`,
 `fijacion_externa_marcar.sql`.
