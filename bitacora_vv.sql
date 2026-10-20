@@ -10,7 +10,9 @@
 --
 -- EL DISEÑO — cuatro tablas:
 --   vv_espacios         → el inventario físico: 61 columnas + 4 pórticos.
---                         Catálogo estable; casi nunca cambia.
+--                         Catálogo estable; casi nunca cambia. Hoy quedan
+--                         activas 51 columnas (las 10 de EDO MEX se
+--                         desactivaron en bitacora_vv_baja_edomex.sql).
 --   vv_campanas         → el encabezado de cada hoja del Excel: cliente,
 --                         campaña, vendedor, administrador, fechas.
 --   vv_pautas           → cada renglón vivo: espacio + versión + vigencia
@@ -24,8 +26,8 @@
 --                         borraría su propio rastro.
 --
 -- ROLES NUEVOS: 'comercial' (captura campañas y pide cambios de versión)
--- y 'pautas' (programa las versiones al aire). El flujo de notificaciones
--- entre ellos es la fase 2; este archivo deja lista la estructura.
+-- y 'pautas' (programa las versiones al aire). Este archivo deja lista la
+-- estructura; los avisos entre ellos están en bitacora_vv_notificaciones.sql.
 -- ============================================================
 
 -- ------------------------------------------------------------

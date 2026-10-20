@@ -9,7 +9,7 @@
 //   Ecovallas pantalla (con nombre)       → Avenida Insurgentes Sur 1761
 //   Biobox             (con nombre)       → ESCOBEDO 500
 //                      (sin nombre)       → MED_0056
-//   Vía Verde columna  MX_CM_VV_COL_551   → COL 551   (como en la Bitácora VV)
+//   Vía Verde columna  MX_CM_VV_COL_551   → COL 551   (la Bitácora VV dice «551»)
 //   Vía Verde pórtico  MX_CM_VV_POR_0078  → POR 0078 · San Ángel Norte
 // Lo que no siga ese patrón se devuelve tal cual: nunca se inventa una clave.
 // ============================================================
@@ -45,7 +45,7 @@ export function porticosPorNombre(texto: string): string[] {
   return Object.keys(NOMBRE_PORTICO).filter((n) => norm(NOMBRE_PORTICO[n]).includes(t));
 }
 
-/** La clave sin país, plaza ni unidad (en Vía Verde, como en la Bitácora). */
+/** La clave sin país, plaza ni unidad (en Vía Verde: COL 551, POR 0078 · nombre). */
 export function claveSitioCorta(clave: string | null | undefined): string {
   const c = (clave || '').trim();
   const p = c.split('_');

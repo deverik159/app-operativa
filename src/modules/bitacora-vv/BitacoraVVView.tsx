@@ -6,7 +6,9 @@
 // es aquí una campaña con sus renglones de pauta. La diferencia de fondo no
 // es la captura — es que un CAMBIO DE VERSIÓN deja de ser un correo: cierra
 // la vigencia anterior, abre la nueva, y el historial (que escribe un
-// trigger, no esta vista) guarda quién y cuándo. Fase 2: notificar a pautas.
+// trigger, no esta vista) guarda quién y cuándo. Los avisos también los
+// pone la base (bitacora_vv_notificaciones.sql): un alta o cambio de versión
+// avisa al rol pautas, y «programada» avisa a quien capturó la pauta.
 //
 // Reglas que el Excel no podía validar y aquí sí:
 //   · La vigencia de una pauta vive DENTRO de las fechas de la campaña.
@@ -14,7 +16,19 @@
 //     lista, pero se deja continuar — comercial revisa disponibilidad entre
 //     ellos y hay bonus legítimos encimados (Erik, 22-sep-2026).
 // ============================================================
-import { Camera, Clock, Download, Palette, Pencil, Plus, Repeat, RotateCw, Trash } from 'lucide-react';
+import {
+  Camera,
+  CircleCheck,
+  Clock,
+  Download,
+  Palette,
+  Pencil,
+  Plus,
+  RadioTower,
+  Repeat,
+  RotateCw,
+  Trash,
+} from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { sb } from '../../lib/supabase';
@@ -26,6 +40,7 @@ import {
   type FotoLocal,
 } from '../../lib/storage';
 import { vigilarRender } from '../../lib/vigia';
+import { diaCdmx } from '../../lib/fechasCdmx';
 import { fondoTono } from '../../lib/tonos';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
@@ -254,6 +269,22 @@ function fechaCorta(iso: string): string {
   return `${Number(d)} ${meses[Number(m) - 1]} ${a}`;
 }
 
+/**
+ * Cuándo pasó un movimiento del historial, en hora de CDMX y no del
+ * teléfono: el día salía de la fecha UTC, y lo hecho después de las 18:00
+ * aparecía con el día siguiente (mismo criterio que lib/fechasCdmx).
+ */
+function cuandoCdmx(iso: string): string {
+  const opciones = { hour: '2-digit', minute: '2-digit' } as const;
+  let hora: string;
+  try {
+    hora = new Date(iso).toLocaleTimeString('es-MX', { ...opciones, timeZone: 'America/Mexico_City' });
+  } catch {
+    hora = new Date(iso).toLocaleTimeString('es-MX', opciones); // teléfono sin la zona
+  }
+  return `${fechaCorta(diaCdmx(iso))} ${hora}`;
+}
+
 /** Suma días a una fecha ISO sin pelearse con zonas horarias. */
 function sumarDias(iso: string, dias: number): string {
   const d = new Date(iso.slice(0, 10) + 'T12:00:00');
@@ -265,6 +296,25 @@ function sumarDias(iso: string, dias: number): string {
 function hoyLocal(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * La RLS niega un cambio SIN error: responde 0 filas. Un guardado que no
+ * tocó nada nunca se muestra como éxito, así que cada edición y borrado
+ * pide de vuelta las filas tocadas (.select('id')) y pasa por aquí.
+ * Da true si se aplicó a todas las esperadas; si no, avisa y da false.
+ */
+function aplicoATodas(accion: string, tocadas: unknown[] | null, esperadas: number): boolean {
+  const n = tocadas?.length ?? 0;
+  if (n >= esperadas) return true;
+  const porque =
+    'Puede que tu rol no lo permita o que alguien más ya lo haya cambiado o quitado. Refresca con ↻ (Recargar) para ver lo último.';
+  alert(
+    n === 0
+      ? `No se pudo ${accion}: la base no aplicó el cambio. ${porque}`
+      : `Al ${accion} solo se aplicó a ${n} de ${esperadas} espacios. ${porque}`
+  );
+  return false;
 }
 
 /** Nombre presentable de un espacio: '414 (A)' o 'San Antonio Norte'. */
@@ -316,7 +366,9 @@ function agrupar(pautas: Pauta[]): Grupo[] {
       });
     }
   });
-  // Vigencia más reciente arriba; a igual inicio, VENTA antes que BONUS.
+  // Vigencia más reciente arriba; a igual inicio, por orden alfabético del
+  // tipo (BONUS antes que VENTA). Ojo: el primero es el que precargan
+  // «Agregar pauta» y «Pauta por espacio».
   return [...m.values()].sort(
     (a, b) => b.inicio.localeCompare(a.inicio) || a.tipo_venta.localeCompare(b.tipo_venta)
   );
@@ -555,9 +607,17 @@ function BitacoraVVView({
       mediamonitor: f.mediamonitor,
       espec_tomas: f.espec_tomas.trim() || null,
     };
+    // Si falla, la ventana se queda abierta con lo capturado para
+    // reintentar: cerrarla tiraba todo lo escrito.
+    let ok = false;
     if (editando) {
-      const { error } = await sb.from('vv_campanas').update(datos).eq('id', editando);
+      const { data, error } = await sb
+        .from('vv_campanas')
+        .update(datos)
+        .eq('id', editando)
+        .select('id');
       if (error) alert('No se pudo guardar: ' + error.message);
+      else ok = aplicoATodas('guardar la campaña', data, 1);
     } else {
       const { data, error } = await sb
         .from('vv_campanas')
@@ -565,23 +625,40 @@ function BitacoraVVView({
         .select()
         .single();
       if (error) alert('No se pudo crear la campaña: ' + error.message);
-      else if (data) setCampSel(data as Campana);
+      else {
+        ok = true;
+        if (data) setCampSel(data as Campana);
+      }
     }
     setGuardando(false);
-    setFormCamp(null);
-    setEditando(null);
+    if (ok) {
+      setFormCamp(null);
+      setEditando(null);
+    }
     cargar();
   };
 
   const cerrarCampana = async (c: Campana) => {
-    if (!confirm(`¿Cerrar la campaña "${c.nombre}"? Sus pautas dejan de contar como vigentes.`)) return;
-    const { error } = await sb.from('vv_campanas').update({ estatus: 'cerrada' }).eq('id', c.id);
+    if (
+      !confirm(
+        `¿Cerrar la campaña "${c.nombre}"? Deja de salir en «Hoy al aire» y en la lista (solo con «Ver cerradas»). No se puede reabrir desde la app.`
+      )
+    )
+      return;
+    const { data, error } = await sb
+      .from('vv_campanas')
+      .update({ estatus: 'cerrada' })
+      .eq('id', c.id)
+      .select('id');
     if (error) alert('No se pudo cerrar: ' + error.message);
+    else aplicoATodas('cerrar la campaña', data, 1);
     cargar();
   };
 
   // ------------------------------------------------------------
-  // Empalmes: mismas fechas, mismo espacio, en OTRA campaña no cerrada.
+  // Empalmes: mismas fechas, mismo espacio, en OTRA campaña. Cuentan
+  // también las campañas cerradas: el filtro es el estatus de la PAUTA, y
+  // ningún código la pone en 'cerrada'.
   // Dentro de la misma campaña encimarse es normal (la VENTA y su BONUS
   // comparten fechas); el empalme que importa es la doble venta.
   // Devuelve las líneas del aviso, o [] si está libre.
@@ -1018,8 +1095,9 @@ function BitacoraVVView({
   const quitarPeriodo = async (p: Pauta) => {
     if (!confirm(`¿Quitar el periodo ${fechaCorta(p.inicio)} – ${fechaCorta(p.fin)} de ${p.espacio_clave}?`))
       return;
-    const { error } = await sb.from('vv_pautas').delete().eq('id', p.id);
+    const { data, error } = await sb.from('vv_pautas').delete().eq('id', p.id).select('id');
     if (error) alert('No se pudo quitar: ' + error.message);
+    else aplicoATodas('quitar el periodo', data, 1);
     cargar();
   };
 
@@ -1040,17 +1118,27 @@ function BitacoraVVView({
     setGuardando(true);
     const ids = g.filas.map((f) => f.id);
     // 1) La vigencia vieja termina el día ANTERIOR al cambio.
-    const { error: e1 } = await sb
+    const { data: cortadas, error: e1 } = await sb
       .from('vv_pautas')
       .update({ fin: sumarDias(cv.desde, -1) })
-      .in('id', ids);
+      .in('id', ids)
+      .select('id');
     if (e1) {
       alert('No se pudo cerrar la vigencia anterior: ' + e1.message);
       setGuardando(false);
       return;
     }
+    // Si la base no cortó ninguna, no nace nada; si cortó solo algunas, la
+    // versión nueva se abre solo en esos espacios (las dos mitades cuadran).
+    aplicoATodas('cerrar la vigencia anterior', cortadas, ids.length);
+    const idsCortados = new Set((cortadas || []).map((r) => r.id));
+    if (!idsCortados.size) {
+      setGuardando(false);
+      cargar();
+      return;
+    }
     // 2) Nace la nueva, por programar. El historial lo firma el trigger.
-    const filas = g.filas.map((f) => ({
+    const filas = g.filas.filter((f) => idsCortados.has(f.id)).map((f) => ({
       campana_id: campana.id,
       espacio_clave: f.espacio_clave,
       tipo_venta: f.tipo_venta,
@@ -1073,8 +1161,13 @@ function BitacoraVVView({
   const marcarProgramada = async (g: Grupo) => {
     const ids = g.filas.filter((f) => f.estatus === 'por_programar').map((f) => f.id);
     if (!ids.length) return;
-    const { error } = await sb.from('vv_pautas').update({ estatus: 'programada' }).in('id', ids);
+    const { data, error } = await sb
+      .from('vv_pautas')
+      .update({ estatus: 'programada' })
+      .in('id', ids)
+      .select('id');
     if (error) alert('No se pudo marcar: ' + error.message);
+    else aplicoATodas('marcar programada', data, ids.length);
     cargar();
   };
 
@@ -1085,11 +1178,13 @@ function BitacoraVVView({
       )
     )
       return;
-    const { error } = await sb
+    const { data, error } = await sb
       .from('vv_pautas')
       .delete()
-      .in('id', g.filas.map((f) => f.id));
+      .in('id', g.filas.map((f) => f.id))
+      .select('id');
     if (error) alert('No se pudo quitar: ' + error.message);
+    else aplicoATodas(`quitar "${g.version}"`, data, g.filas.length);
     cargar();
   };
 
@@ -1183,8 +1278,9 @@ function BitacoraVVView({
 
   const quitarArte = async (a: Arte) => {
     if (!confirm(`¿Quitar el arte "${a.etiqueta || a.version}"?`)) return;
-    const { error } = await sb.from('vv_artes').delete().eq('id', a.id);
+    const { data, error } = await sb.from('vv_artes').delete().eq('id', a.id).select('id');
     if (error) alert('No se pudo quitar: ' + error.message);
+    else aplicoATodas('quitar el arte', data, 1);
     cargar();
   };
 
@@ -1351,13 +1447,7 @@ function BitacoraVVView({
               <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
                 {hist.map((h) => (
                   <div key={h.id} style={{ fontSize: 12, lineHeight: 1.5 }}>
-                    <span style={{ color: 'var(--muted)' }}>
-                      {fechaCorta(h.hecho_en)}{' '}
-                      {new Date(h.hecho_en).toLocaleTimeString('es-MX', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>{' '}
+                    <span style={{ color: 'var(--muted)' }}>{cuandoCdmx(h.hecho_en)}</span>{' '}
                     · <b>{h.accion}</b> — {h.detalle}
                     <span style={{ color: 'var(--muted)' }}> · {h.hecho_por.split('@')[0]}</span>
                   </div>
@@ -1545,7 +1635,7 @@ function BitacoraVVView({
                       )}
                       {puedeProgramar && g.estatus === 'por_programar' && (
                         <button className="btn ok sm" onClick={() => marcarProgramada(g)}>
-                          ✓ Marcar programada
+                          <Ic i={CircleCheck} />Marcar programada
                         </button>
                       )}
                       {puedeCambiar && (
@@ -1563,9 +1653,9 @@ function BitacoraVVView({
 
         {/* ---------- Modal: agregar pauta ---------- */}
         {addPauta && (
-          <div className="overlay" onClick={() => setAddPauta(false)}>
+          <div className="overlay" onClick={() => !guardando && setAddPauta(false)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <CerrarModal onClick={() => setAddPauta(false)} />
+              <CerrarModal onClick={() => setAddPauta(false)} disabled={guardando} />
               <h3 style={{ marginTop: 0 }}>Agregar pauta — {campana.nombre}</h3>
 
               <div className="row2">
@@ -1715,7 +1805,7 @@ function BitacoraVVView({
               </div>
 
               <div className="modal-actions">
-                <button className="btn ghost" onClick={() => setAddPauta(false)}>
+                <button className="btn ghost" onClick={() => setAddPauta(false)} disabled={guardando}>
                   Cancelar
                 </button>
                 <button className="btn" onClick={guardarPauta} disabled={guardando}>
@@ -2089,9 +2179,9 @@ function BitacoraVVView({
 
         {/* ---------- Modal: cambio de versión ---------- */}
         {cambioDe && (
-          <div className="overlay" onClick={() => setCambioDe(null)}>
+          <div className="overlay" onClick={() => !guardando && setCambioDe(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <CerrarModal onClick={() => setCambioDe(null)} />
+              <CerrarModal onClick={() => setCambioDe(null)} disabled={guardando} />
               <h3 style={{ marginTop: 0 }}><Ic i={Repeat} />Cambio de versión</h3>
               <p className="phint">
                 Hoy: <b>{cambioDe.version}</b> en {cambioDe.filas.length} espacio
@@ -2120,7 +2210,7 @@ function BitacoraVVView({
                 />
               </div>
               <div className="modal-actions">
-                <button className="btn ghost" onClick={() => setCambioDe(null)}>
+                <button className="btn ghost" onClick={() => setCambioDe(null)} disabled={guardando}>
                   Cancelar
                 </button>
                 <button className="btn" onClick={guardarCambioVersion} disabled={guardando}>
@@ -2287,21 +2377,16 @@ function BitacoraVVView({
   function modalCampana() {
     if (!formCamp) return null;
     const f = formCamp;
+    // Mientras guarda no se cierra: el resultado tiene que llegar a la vista.
+    const cerrar = () => {
+      if (guardando) return;
+      setFormCamp(null);
+      setEditando(null);
+    };
     return (
-      <div
-        className="overlay"
-        onClick={() => {
-          setFormCamp(null);
-          setEditando(null);
-        }}
-      >
+      <div className="overlay" onClick={cerrar}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <CerrarModal
-            onClick={() => {
-              setFormCamp(null);
-              setEditando(null);
-            }}
-          />
+          <CerrarModal onClick={cerrar} disabled={guardando} />
           <h3 style={{ marginTop: 0 }}>{editando ? 'Editar campaña' : 'Nueva campaña'}</h3>
           <div className="row2">
             <div className="field">
@@ -2386,13 +2471,7 @@ function BitacoraVVView({
             />
           </div>
           <div className="modal-actions">
-            <button
-              className="btn ghost"
-              onClick={() => {
-                setFormCamp(null);
-                setEditando(null);
-              }}
-            >
+            <button className="btn ghost" onClick={cerrar} disabled={guardando}>
               Cancelar
             </button>
             <button className="btn" onClick={guardarCampana} disabled={guardando}>
@@ -2445,7 +2524,7 @@ function BitacoraVVView({
             Campañas
           </button>
           <button type="button" aria-pressed={vistaAire} onClick={() => setVistaAire(true)}>
-            📡 Hoy al aire
+            <Ic i={RadioTower} />Hoy al aire
           </button>
         </div>
         <button
@@ -2463,6 +2542,11 @@ function BitacoraVVView({
           const ocupados = [...alAire.keys()].filter(
             (k) => (alAire.get(k) || []).length > 0
           ).length;
+          // Cada versión muestra el horario de ESE día: el de sábado y
+          // domingo si la fecha cae en fin de semana (misma regla que la
+          // captura, diasEnRango).
+          const diaAire = fechaAire || hoyLocal();
+          const findeAire = [5, 6].some((d) => diasEnRango(diaAire, diaAire).has(d));
           const seccion = (titulo: string, lista: Espacio[]) => (
             <div key={titulo} style={{ marginBottom: 16 }}>
               <div
@@ -2528,6 +2612,16 @@ function BitacoraVVView({
                             </div>
                             <div
                               style={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <Ic i={Clock} />
+                              {findeAire ? p.horario_sd : p.horario_lv}
+                            </div>
+                            <div
+                              style={{
                                 color: 'var(--muted)',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
@@ -2561,6 +2655,10 @@ function BitacoraVVView({
                 </span>
                 <span className="tag">
                   {espacios.length - ocupados} libre{espacios.length - ocupados === 1 ? '' : 's'}
+                </span>
+                <span className="tag">
+                  <Ic i={Clock} />
+                  {findeAire ? 'Horario de sábado y domingo' : 'Horario de lunes a viernes'}
                 </span>
               </div>
               {seccion('PÓRTICOS', porticos)}
