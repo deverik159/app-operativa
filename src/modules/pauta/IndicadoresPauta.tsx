@@ -98,13 +98,16 @@ export default function IndicadoresPauta({
   const ctx: Contexto = { catorcena: etiquetaCat, anio, numero, nombres };
   const sufijo = `${paraArchivo(etiquetaCat)}`;
 
+  // Se vuelve a prender al montar: en desarrollo (StrictMode) React monta,
+  // desmonta y monta de nuevo, y sin esto quedaba en false para siempre y
+  // los botones se quedaban "procesando" (20-oct-2026).
   const vivo = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    vivo.current = true;
+    return () => {
       vivo.current = false;
-    },
-    []
-  );
+    };
+  }, []);
   const correr = async (clave: string, texto: string, fn: () => Promise<void>) => {
     if (descargaEnCurso) {
       setErr('Ya se está preparando otro archivo. Espera a que termine.');

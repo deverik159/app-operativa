@@ -184,13 +184,15 @@ function DetalleEnvio({
   /** Qué se está haciendo ahora (id de foto o 'zip'): una cosa a la vez. */
   const [trabajando, setTrabajando] = useState<string | null>(null);
   const [revisado, setRevisado] = useState(!!envio.revisado_en);
+  // Se prende al montar: con StrictMode (desarrollo) el desmontaje de prueba
+  // lo dejaba en false y la pantalla no salía de "procesando".
   const vivo = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    vivo.current = true;
+    return () => {
       vivo.current = false;
-    },
-    []
-  );
+    };
+  }, []);
 
   const cargar = useCallback(async () => {
     const { data, error } = await sb
