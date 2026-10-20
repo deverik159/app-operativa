@@ -73,7 +73,8 @@ import {
   type SitioLocal,
 } from '../../lib/datosLocales';
 import { caraLabel, ladoFijoDePortico } from '../../lib/helpers';
-import { ladoAlReclasificar, ubicacionSinCara } from '../../lib/catalogo';
+import { faltaObsElemento, ladoAlReclasificar, ubicacionSinCara } from '../../lib/catalogo';
+import { colorTono } from '../../lib/tonos';
 import { vigilarRender } from '../../lib/vigia';
 import {
   UNIDADES_BIOBOX,
@@ -465,6 +466,11 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     }
     if (caras.length > 1 && !cara && !elemento) {
       alert('Este sitio tiene varias caras: elige a cuál corresponde.');
+      return;
+    }
+    const faltaObs = faltaObsElemento(elemento, observaciones);
+    if (faltaObs) {
+      alert(faltaObs);
       return;
     }
     // Un sitio nuevo cuyas caras no cargaron (sin red y sin copia) dejaría
@@ -892,12 +898,26 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
 
         {/* --- Observaciones --- */}
         <div className="field">
-          <label>Observaciones</label>
+          <label>
+            Observaciones
+            {/* Como en Nueva incidencia (19-oct-2026): sin cara, son lo
+                único que dice qué tiene. */}
+            {elemento && (
+              <>
+                {' '}—{' '}
+                <span style={{ color: colorTono('acento') }}>obligatorias</span>
+              </>
+            )}
+          </label>
           <textarea
             rows={3}
             value={observaciones}
             onChange={(e) => setObservaciones(e.target.value)}
-            placeholder="Lo que viste en campo…"
+            placeholder={
+              elemento
+                ? `Qué tiene ${elemento === 'Puerta' ? 'la puerta' : 'el adicional'}…`
+                : 'Lo que viste en campo…'
+            }
           />
         </div>
 

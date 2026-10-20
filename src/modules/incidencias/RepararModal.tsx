@@ -869,6 +869,12 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
       alert('Elige la máquina afectada (se reportó sin máquina).');
       return;
     }
+    // Fuera del árbol de Digital los dos son obligatorios (Erik, 19-oct-2026;
+    // el detalle ya lo era). En Digital los da el árbol.
+    if (!usarArbol && !diag.trim()) {
+      alert('Escribe el diagnóstico: qué se encontró en sitio.');
+      return;
+    }
     if (!usarArbol && !detalle.trim()) {
       alert('Escribe el detalle de la reparación.');
       return;
@@ -1239,7 +1245,10 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
         {!usarArbol && (!esDigital || arbolListo) && (
           <>
             <div className="field">
-              <label>Diagnóstico</label>
+              <label>
+                Diagnóstico —{' '}
+                <span style={{ color: colorTono('acento') }}>obligatorio</span>
+              </label>
               <textarea
                 rows={2}
                 value={diag}
@@ -1248,7 +1257,10 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
               />
             </div>
             <div className="field">
-              <label>Detalle de reparación</label>
+              <label>
+                Detalle de reparación —{' '}
+                <span style={{ color: colorTono('acento') }}>obligatorio</span>
+              </label>
               <textarea
                 rows={2}
                 value={detalle}

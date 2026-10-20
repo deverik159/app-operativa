@@ -367,6 +367,23 @@ export function elementoDeIncidencia(detalle?: string | null): ElementoSinCara |
 }
 
 /**
+ * Una incidencia del Adicional o de la Puerta no lleva cara: lo único que
+ * dice qué tiene son las observaciones, así que ahí son obligatorias (Erik,
+ * 19-oct-2026). Devuelve el aviso para el usuario, o null si está bien.
+ * Para todos, también MKT.
+ */
+export function faltaObsElemento(
+  elemento: string | null | undefined,
+  obs: string | null | undefined
+): string | null {
+  if (!(ELEMENTOS_SIN_CARA as readonly string[]).includes(elemento || '')) return null;
+  if ((obs || '').trim()) return null;
+  return `Escribe en Observaciones qué tiene ${
+    elemento === 'Puerta' ? 'la puerta' : 'el adicional'
+  }: en las incidencias del Adicional y de la Puerta son obligatorias.`;
+}
+
+/**
  * Al reclasificar (corrección del validador, reasignación aprobada) el
  * `lado` sigue a la incidencia si entra o sale del Adicional o la Puerta:
  * sin esto quedaría "Adicional" como cara afectada de una falla de pantalla,

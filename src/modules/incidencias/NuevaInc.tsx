@@ -71,6 +71,7 @@ import {
   catalogoBiobox,
   esUnidadBiobox,
   elementoDeIncidencia,
+  faltaObsElemento,
   ubicacionSinCara,
   llaveCatalogo,
   filtrarCatalogo,
@@ -1196,6 +1197,11 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       alert('Marca al menos una cara para esta incidencia.');
       return;
     }
+    const faltaObs = faltaObsElemento(elementoSel, obs);
+    if (faltaObs) {
+      alert(faltaObs);
+      return;
+    }
     // MKT reporta lo que le llega de terceros y casi nunca trae foto: para
     // MKT la evidencia es opcional (Erik, 28-sep-2026).
     if (!esMKT && filesLinea.length === 0) {
@@ -1492,6 +1498,11 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         alert('Elige la incidencia.');
         return;
       }
+      const faltaObs = faltaObsElemento(elementoSel, obs);
+      if (faltaObs) {
+        alert(faltaObs);
+        return;
+      }
       if (!esMKT && filesLinea.length === 0) {
         alert('Adjunta al menos una evidencia (foto o video) para reportar.');
         return;
@@ -1532,6 +1543,14 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       alert(
         'Hay incidencias en el reporte que se quedaron sin foto al recuperarlo.\n\n' +
           'Edítalas con el lápiz (✏️) y vuelve a adjuntar su evidencia.'
+      );
+      return;
+    } else if (lineas.some((l) => faltaObsElemento(l.elemento, l.obs))) {
+      // Una partida de un borrador de antes de la regla (19-oct-2026): cada
+      // partida nueva ya la exige al agregarse.
+      alert(
+        'Hay una incidencia del Adicional o de la Puerta sin observaciones.\n\n' +
+          'Edítala con el lápiz (✏️) y escribe qué tiene.'
       );
       return;
     }
@@ -2672,12 +2691,25 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                 )}
               </div>
               <div className="field">
-                <label>Observaciones</label>
+                <label>
+                  Observaciones
+                  {/* Sin cara, son lo único que dice qué tiene (19-oct-2026). */}
+                  {elementoSel && (
+                    <>
+                      {' '}—{' '}
+                      <span style={{ color: colorTono('acento') }}>obligatorias</span>
+                    </>
+                  )}
+                </label>
                 <input
                   value={obs}
                   onChange={(e) => setObs(e.target.value)}
                   placeholder={
-                    esMKT ? 'El detalle de lo que el usuario reporta…' : undefined
+                    esMKT
+                      ? 'El detalle de lo que el usuario reporta…'
+                      : elementoSel
+                        ? `Qué tiene ${elementoSel === 'Puerta' ? 'la puerta' : 'el adicional'}…`
+                        : undefined
                   }
                 />
                 {esMKT && (

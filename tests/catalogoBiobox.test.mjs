@@ -11,7 +11,7 @@ const { outputFiles } = await build({
   format: 'esm',
   platform: 'neutral',
 });
-const { catalogoBiobox, catalogoDesdeArbol, esUnidadBiobox, llaveCatalogo, elementoDeIncidencia, ubicacionSinCara, ladoAlReclasificar } = await import(
+const { catalogoBiobox, catalogoDesdeArbol, esUnidadBiobox, llaveCatalogo, elementoDeIncidencia, ubicacionSinCara, ladoAlReclasificar, faltaObsElemento } = await import(
   'data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64')
 );
 
@@ -133,6 +133,16 @@ test('Adicional y Puerta se reconocen por el texto de la incidencia', () => {
   assert.equal(elementoDeIncidencia('Pantalla apagada'), null);
   assert.equal(elementoDeIncidencia('Chapa dañada'), null);
   assert.equal(elementoDeIncidencia(null), null);
+});
+
+test('Adicional y Puerta: observaciones obligatorias', () => {
+  assert.match(faltaObsElemento('Adicional', ''), /el adicional/);
+  assert.match(faltaObsElemento('Puerta', '   '), /la puerta/);
+  assert.match(faltaObsElemento('Puerta', null), /la puerta/);
+  assert.equal(faltaObsElemento('Adicional', 'Lámina suelta'), null);
+  // Una falla de cara (o de Norte/Sur) sigue con observaciones opcionales.
+  assert.equal(faltaObsElemento(null, ''), null);
+  assert.equal(faltaObsElemento('Norte', ''), null);
 });
 
 test('Sin cara: medio y mueble salen de las caras del mueble elegido', () => {
