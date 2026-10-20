@@ -55,6 +55,8 @@ const UNIDAD_PAUTA = 'Ecovallas';
 
 /** Tope de filas: el límite duro de Supabase es 1000 por consulta. */
 const PAGINA = 1000;
+/** Sitios que la Lista dibuja por tanda. */
+const SITIOS_POR_PAGINA = 100;
 
 /**
  * Colores del estado de avance, con su tinte (tema claro/oscuro,
@@ -601,15 +603,23 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
     });
   }, [filasMias]);
 
-  /** Campañas de la ruta seleccionada, con su conteo de caras. */
+  /**
+   * Campañas de la ruta seleccionada, con su conteo de caras ÚNICAS: la
+   * vista trae un renglón por versión de la pauta (20-oct-2026).
+   */
   const campanasRuta = useMemo(() => {
     const base =
       fRuta === 'Todas' ? filasMias : filasMias.filter((f) => f.ruta_clave === fRuta);
-    const m = new Map<string, number>();
+    const m = new Map<string, Set<string>>();
     base.forEach((f) => {
-      if (f.campana) m.set(f.campana, (m.get(f.campana) || 0) + 1);
+      if (!f.campana) return;
+      let s = m.get(f.campana);
+      if (!s) m.set(f.campana, (s = new Set()));
+      s.add(f.vendor_face_id);
     });
-    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+    return [...m.entries()]
+      .map(([c, s]) => [c, s.size] as [string, number])
+      .sort((a, b) => b[1] - a[1]);
   }, [filasMias, fRuta]);
 
   // Cambiar de ruta invalida la selección de campañas: las de la ruta
@@ -700,9 +710,12 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
 
   // Conteos sobre `base` (sin los filtros de tarjeta): son las CIFRAS de
   // las tarjetas-botón. sinCoord sí es de lo visible, que es lo navegable.
+  // Se cuentan caras ÚNICAS, igual que Indicadores (Erik, 20-oct-2026): una
+  // cara con dos versiones de la pauta viene en dos renglones, pero la
+  // toma es una sola.
   const stats = useMemo(() => {
     const t = {
-      total: base.length,
+      total: 0,
       pend: 0,
       tom: 0,
       comp: 0,
@@ -710,21 +723,36 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
       inc: 0,
     };
     const sitiosVistos = new Set<string>();
+    const carasVistas = new Set<string>();
     base.forEach((f) => {
-      if (f.avance === 'PENDIENTE') t.pend++;
-      else if (f.avance === 'TOMADA') t.tom++;
-      else t.comp++;
+      if (!carasVistas.has(f.vendor_face_id)) {
+        carasVistas.add(f.vendor_face_id);
+        t.total++;
+        if (f.avance === 'PENDIENTE') t.pend++;
+        else if (f.avance === 'TOMADA') t.tom++;
+        else t.comp++;
+      }
       // Incidencias abiertas: se suman UNA vez por sitio, no por cara.
       if (!sitiosVistos.has(f.site_id)) {
         sitiosVistos.add(f.site_id);
         t.inc += abiertas[f.site_id]?.abiertas ?? 0;
       }
     });
+    const sinCoordVistas = new Set<string>();
     visibles.forEach((f) => {
-      if (!f.navegable) t.sinCoord++;
+      if (!f.navegable) sinCoordVistas.add(f.vendor_face_id);
     });
+    t.sinCoord = sinCoordVistas.size;
     return t;
   }, [base, visibles, abiertas]);
+
+  // La lista dibuja de 100 en 100 sitios: con "Ruta: Todas" son ~600 sitios
+  // y en iPhone dibujarlos de golpe se siente (20-oct-2026). Los datos y las
+  // cifras siguen siendo de toda la catorcena; solo se pagina lo que se pinta.
+  const [limiteSitios, setLimiteSitios] = useState(SITIOS_POR_PAGINA);
+  useEffect(() => {
+    setLimiteSitios(SITIOS_POR_PAGINA);
+  }, [catSel, fRuta, fCampanas, q, fAvance, fConInc]);
 
   /** Tarjeta-botón: toca para filtrar por ese avance; tocar de nuevo, quita. */
   const toggleAvance = (v: string) =>
@@ -1350,7 +1378,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
         <div className="empty">Sin resultados con estos filtros.</div>
       ) : (
         <div className={'inc-list agrupada' + (recargando ? ' recargando' : '')}>
-          {sitios.map((s) => (
+          {sitios.slice(0, limiteSitios).map((s) => (
             <div key={s.site_id} className="inc">
               <div className="inc-top">
                 <div>
@@ -1555,6 +1583,20 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal }: Props) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+      {sitios.length > limiteSitios && (
+        <div style={{ textAlign: 'center', margin: '14px 0' }}>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => setLimiteSitios((n) => n + SITIOS_POR_PAGINA)}
+          >
+            Ver {Math.min(SITIOS_POR_PAGINA, sitios.length - limiteSitios)} sitios más
+          </button>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+            Mostrando {limiteSitios} de {sitios.length} sitios
+          </div>
         </div>
       )}
 
