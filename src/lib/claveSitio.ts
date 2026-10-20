@@ -49,7 +49,8 @@ export function porticosPorNombre(texto: string): string[] {
 export function claveSitioCorta(clave: string | null | undefined): string {
   const c = (clave || '').trim();
   const p = c.split('_');
-  if (p.length < 4 || p[0].toUpperCase() !== 'MX') return c;
+  // PE: Biobox Perú (PE_LM_BB_IID_0057), con el mismo patrón (20-oct-2026).
+  if (p.length < 4 || !['MX', 'PE'].includes(p[0].toUpperCase())) return c;
   const unidad = p[2].toUpperCase();
   if (unidad === 'VV') {
     const corta = p.slice(3).join(' ');

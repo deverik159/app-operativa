@@ -60,6 +60,12 @@ test('Biobox sin nombre: la clave sin país, plaza ni BB', () => {
   assert.equal(claveSitioCorta('MX_EM_BB_IID_0008'), 'IID_0008');
 });
 
+test('Biobox Perú: mismo patrón que México', () => {
+  assert.equal(claveSitioCorta('PE_LM_BB_IID_0057'), 'IID_0057');
+  assert.equal(nombreSitio('PE_LM_BB_IID_0001', 'BI-001 · PASAJE SAN RAMON'), 'BI-001 · PASAJE SAN RAMON');
+  assert.equal(nombreSitio('PE_LM_BB_IID_0001', null), 'IID_0001');
+});
+
 test('Vía Verde: COL y POR como en la Bitácora, aunque traiga nombre', () => {
   assert.equal(nombreSitio('MX_CM_VV_COL_551', 'algo'), 'COL 551');
   assert.equal(claveSitioCorta('MX_CM_VV_COL_551'), 'COL 551');
