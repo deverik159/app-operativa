@@ -17,6 +17,7 @@ import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import { caraLabel } from '../../lib/helpers';
 import { reglaEspecToma } from '../../lib/especToma';
+import { diaCdmx } from '../../lib/fechasCdmx';
 import { pintar } from '../../lib/tonos';
 import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from '../../lib/storage';
 import SubirArchivos from '../../components/SubirArchivos';
@@ -164,7 +165,9 @@ function RegistrarTomaModal({
       const ext = (
         f.name.split('.').pop() || (tipo === 'video' ? 'mp4' : 'jpg')
       ).toLowerCase();
-      const fecha = new Date().toISOString().slice(0, 10);
+      // Día de CDMX: con el ISO, lo tomado después de las 18:00 salía con
+      // la fecha de mañana (20-oct-2026).
+      const fecha = diaCdmx(new Date());
       // La cara y la catorcena (año-número, 14-oct-2026) van en el nombre:
       // así el archivo se identifica en Storage sin abrir la app. Las de
       // antes quedaron en la carpeta con solo el número.
