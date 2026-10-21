@@ -871,10 +871,8 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
   - ~~Correr `limpiar_todo.sql` la víspera del piloto~~ — hecho el
     14-oct-2026 (§12.15). Falta: correr `revisar_tras_limpieza.sql` los
     primeros días y reasignar las rutas a los monitoristas reales.
-- **Habilitar Google** en Supabase → Authentication → Providers (Client ID y
-  Secret de Google Cloud) y dar de alta las URLs de redirect, incluida la de
-  red local con `https://`. El botón ya está en el login; sin esto Google
-  rechaza el intento.
+- ~~**Habilitar Google** en Supabase → Authentication → Providers~~ — ya
+  funciona en producción (confirmado el 21-oct-2026, §12.16).
   - Nota de seguridad: cualquiera con cuenta de Google podrá autenticarse y
     llegar a la pantalla "Falta darte acceso". No ve datos (la RLS lo bloquea
     sin rol), pero sí crea un usuario en auth. Si se quiere restringir a
@@ -1710,4 +1708,58 @@ salvo lo que se diga; pendientes en §9.1.
   ícono de Campaña quedaba en otro renglón (`.inc .meta` es columna: el
   contenido va en un `<span>`). Si al bajar `main` falla el build por
   `lucide-react`, correr `npm install` (es dependencia nueva del rediseño).
+
+### 12.16. Acceso, alta de usuarios y correo (21-oct-2026)
+
+Commits `66d9139` y `a92ea52`.
+
+- **Pantalla de inicio** (`Login` en App.tsx): la línea "O continúa con" y
+  los botones pasaron de estilos en línea a clases (`.login-separador`,
+  `.login-google`, `.login-olvide`, `.login-card .btn` en index.css). Debajo
+  de la tarjeta va "© <año> GPO VALLAS. Todos los derechos reservados."
+  (`.login-legal`; el año sale de `new Date()`). `.login` ahora es columna.
+- **Errores de Auth en español** (`src/lib/erroresAcceso.ts`, prueba en
+  `tests/erroresAcceso.test.mjs`):
+  - `errorAccesoEnEspanol` traduce por `error.code` (invalid_credentials,
+    email_not_confirmed, user_banned, over_email_send_rate_limit,
+    same_password, weak_password…) y, si no viene, por el texto. Lo que no
+    reconoce sale como llegó, para no esconder la causa. Se usa en el login,
+    Google, «Olvidé mi contraseña» y `UpdatePassword`.
+  - `errorEnlaceCorreo`: un enlace de correo vencido o ya usado regresa con
+    el error en el hash (`#error_code=otp_expired…`); el login lo explica y
+    limpia la URL con `history.replaceState`.
+  - **Ojo con auth-js ≥ 2.10x:** un 500 de Auth llega como
+    `AuthRetryableFetchError`, igual que la falta de red, y `pareceSinRed`
+    lo tomaba como "Necesitas señal" (pasó cuando el SMTP rechazaba el
+    correo). En el login se usa `sinSenalAlEntrar` = `pareceSinRed` y no
+    `respondioElServidor` (status 500/501). El resto de la app no cambió.
+- **Alta de usuarios sin la invitación de Supabase.** "Send invitation"
+  llegaba en inglés, con un enlace de Supabase en vez del de la app, y la app
+  no tiene pantalla para crear contraseña al llegar por invitación (solo
+  `PASSWORD_RECOVERY` lleva a `UpdatePassword`). Ahora:
+  1. La cuenta se crea en Authentication → Users → Add user → **Create new
+     user** con «Auto Confirm User» (no manda correo).
+  2. En Usuarios se agrega y se le asigna rol.
+  3. En su tarjeta, **Mensaje de bienvenida** (`mensajeBienvenida` en
+     `modules/usuarios/UsuariosView.tsx`) copia al portapapeles un texto con
+     el link de la app (`window.location.origin`), "Continuar con Google"
+     con su correo, «Olvidé mi contraseña» como alternativa y cómo
+     agregarla a inicio en iPhone. Si no tiene roles, lo avisa junto al
+     botón. Si `navigator.clipboard` falla, copia con un textarea oculto.
+- **Correos de Auth por SMTP propio.** Supabase no deja cambiar plantillas
+  ni asunto sin SMTP propio, y su correo de fábrica tiene un tope muy bajo.
+  Se configuró en Authentication → Emails → SMTP Settings con un buzón de
+  Google Workspace de la empresa y una **contraseña de aplicación** (requiere
+  verificación en dos pasos en ese buzón), `smtp.gmail.com`, puerto 587.
+  Gmail permite ~2,000 correos al día por cuenta. Un `535 Username and
+  Password not accepted` en los registros de Auth significa usuario o
+  contraseña de aplicación equivocados.
+  - Plantilla de "Reset password" en
+    `supabase/plantillas-correo/restablecer-contrasena.html` (el asunto va
+    en su comentario). Se pega a mano en Templates; también en staging.
+  - Al pasar a SMTP propio, el límite de correos de Auth quedó en 30 por
+    hora: subirlo (Authentication → Rate Limits) antes del arranque.
+- **Diagnóstico:** el error real de un inicio de sesión o de un correo está
+  en los registros de Auth de Supabase (Logs → Auth), no en lo que muestra
+  la app.
 
