@@ -1,0 +1,62 @@
+<!--
+  Correo de "Olvidé mi contraseña" (21-oct-2026).
+  Supabase solo deja cambiar plantillas y asunto con un SMTP propio
+  configurado (Authentication → Emails → SMTP Settings). Después se pega a mano en Supabase → Authentication → Emails → Templates →
+  "Reset password", pestaña Source. Asunto:
+    Restablece tu contraseña · Central de Operaciones
+  {{ .ConfirmationURL }} es el enlace de Supabase: hay que dejarlo así, porque
+  es el que abre la sesión y lleva a la pantalla "Nueva contraseña" de la app.
+  Estilos en línea y tablas: así lo pintan Gmail y Outlook.
+-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f6;padding:24px 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <tr>
+    <td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;background:#ffffff;border:1px solid #e3e3e8;border-radius:14px;">
+        <tr>
+          <td style="padding:28px 28px 8px 28px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="background:#cc4119;border-radius:10px;width:40px;height:40px;text-align:center;vertical-align:middle;color:#ffffff;font-size:20px;font-weight:700;">GV</td>
+                <td style="padding-left:12px;">
+                  <div style="font-size:16px;font-weight:700;color:#17171a;">Central de Operaciones</div>
+                  <div style="font-size:12px;color:#6e6e76;">GPO VALLAS</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:16px 28px 0 28px;">
+            <h1 style="margin:0 0 12px 0;font-size:20px;color:#17171a;">Restablece tu contraseña</h1>
+            <p style="margin:0 0 12px 0;font-size:14px;line-height:1.6;color:#3a3a40;">
+              Recibimos una solicitud para crear o cambiar la contraseña de
+              <b>{{ .Email }}</b> en la Central de Operaciones.
+            </p>
+            <p style="margin:0 0 20px 0;font-size:14px;line-height:1.6;color:#3a3a40;">
+              Toca el botón y escribe tu contraseña nueva en la app.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:0 28px 20px 28px;">
+            <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#cc4119;color:#ffffff;text-decoration:none;font-size:15px;font-weight:700;padding:12px 28px;border-radius:9px;">Crear contraseña nueva</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:0 28px 24px 28px;">
+            <p style="margin:0 0 12px 0;font-size:12px;line-height:1.6;color:#6e6e76;">
+              El enlace sirve una sola vez y vence en 1 hora. Si ya venció, pide
+              otro desde la app con «Olvidé mi contraseña».
+            </p>
+            <p style="margin:0;font-size:12px;line-height:1.6;color:#6e6e76;">
+              Si no lo pediste tú, ignora este correo: tu contraseña no cambia.
+            </p>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:16px 0 0 0;font-size:11px;color:#8e8e93;">
+        © GPO VALLAS. Todos los derechos reservados.
+      </p>
+    </td>
+  </tr>
+</table>

@@ -56,6 +56,7 @@ import { accionesPendientes } from './lib/acciones';
 import { borrarListaLocal, iniciarSincronizacion } from './lib/datosLocales';
 import { borrarChatsLocal } from './lib/chatLocal';
 import { useEnLinea, enLineaAhora, pareceSinRed } from './lib/enLinea';
+import { errorAccesoEnEspanol, errorEnlaceCorreo } from './lib/erroresAcceso';
 import { lazyConReintento, fijarModuloEnPantalla } from './lib/cargaDiferida';
 // Incidencias se queda ESTÁTICO: es el núcleo (Mis pendientes y el alta
 // NuevaInc que abre el botón Nueva). Un alta nunca debe esperar —ni
@@ -528,12 +529,19 @@ function LogoGoogle() {
 function Login() {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
-  const [err, setErr] = useState('');
+  // Un enlace de correo vencido regresa con el error en el hash.
+  const [err, setErr] = useState(() => errorEnlaceCorreo(window.location.hash) || '');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   // Sin red no hay forma de entrar: se dice claro en vez del "Load failed"
   // crudo de Safari (modo sin señal, 24-sep-2026).
   const enLinea = useEnLinea();
+
+  useEffect(() => {
+    // Ya se leyó: se quita para que no vuelva a salir al recargar.
+    if (errorEnlaceCorreo(window.location.hash))
+      history.replaceState(history.state, '', window.location.pathname + window.location.search);
+  }, []);
 
   const entrar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -548,7 +556,7 @@ function Login() {
       password: pass,
     });
     setBusy(false);
-    if (error) setErr(pareceSinRed(error) ? NECESITAS_SENAL : error.message);
+    if (error) setErr(pareceSinRed(error) ? NECESITAS_SENAL : errorAccesoEnEspanol(error));
   };
 
   const entrarConGoogle = async () => {
@@ -568,7 +576,7 @@ function Login() {
       provider: 'google',
       options: { redirectTo: window.location.origin },
     });
-    if (error) setErr(pareceSinRed(error) ? NECESITAS_SENAL : error.message);
+    if (error) setErr(pareceSinRed(error) ? NECESITAS_SENAL : errorAccesoEnEspanol(error));
   };
 
   const recuperar = async () => {
@@ -581,7 +589,7 @@ function Login() {
       redirectTo: window.location.href,
     });
     if (error)
-      setErr(pareceSinRed(error) ? 'Necesitas señal para pedir el correo de recuperación.' : error.message);
+      setErr(pareceSinRed(error) ? 'Necesitas señal para pedir el correo de recuperación.' : errorAccesoEnEspanol(error));
     else setMsg('Te enviamos un correo para restablecer la contraseña.');
   };
 
@@ -624,52 +632,24 @@ function Login() {
             autoComplete="current-password"
           />
         </div>
-        <button className="btn" style={{ width: '100%' }} disabled={busy}>
+        <button className="btn" disabled={busy}>
           {busy ? 'Entrando…' : 'Entrar'}
         </button>
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            margin: '16px 0 12px',
-            color: 'var(--muted)',
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: '.4px',
-          }}
-        >
-          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-          O CONTINÚA CON
-          <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-        </div>
+        <div className="login-separador">O continúa con</div>
 
-        <button
-          type="button"
-          className="btn ghost"
-          style={{
-            width: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 9,
-          }}
-          onClick={entrarConGoogle}
-        >
+        <button type="button" className="btn ghost login-google" onClick={entrarConGoogle}>
           <LogoGoogle />
           Continuar con Google
         </button>
 
-        <button
-          type="button"
-          className="btn ghost sm"
-          style={{ width: '100%', marginTop: 10 }}
-          onClick={recuperar}
-        >
+        <button type="button" className="btn ghost sm login-olvide" onClick={recuperar}>
           Olvidé mi contraseña
         </button>
       </form>
+      <p className="login-legal">
+        © {new Date().getFullYear()} GPO VALLAS. Todos los derechos reservados.
+      </p>
     </div>
   );
 }
@@ -696,7 +676,7 @@ function UpdatePassword({ onDone }: { onDone: () => void }) {
     setBusy(true);
     const { error } = await sb.auth.updateUser({ password: p1 });
     setBusy(false);
-    if (error) setErr(error.message);
+    if (error) setErr(errorAccesoEnEspanol(error));
     else onDone();
   };
 

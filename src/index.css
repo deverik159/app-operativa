@@ -251,8 +251,14 @@
      del selector abierta, dejaba el menú inferior a media pantalla (Erik,
      5-oct-2026). */
   .recargando{opacity:.5;pointer-events:none;transition:opacity .15s}
-  .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(1200px 600px at 70% -10%,var(--login-brillo),transparent),var(--bg)}
+  .login{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;background:radial-gradient(1200px 600px at 70% -10%,var(--login-brillo),transparent),var(--bg)}
   .login-card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:28px;max-width:400px;width:100%}
+  .login-card .btn{width:100%}
+  .login-separador{display:flex;align-items:center;gap:10px;margin:16px 0 12px;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.4px;text-transform:uppercase}
+  .login-separador::before,.login-separador::after{content:'';flex:1;height:1px;background:var(--line)}
+  .login-google{display:flex;align-items:center;justify-content:center;gap:9px}
+  .login-olvide{margin-top:10px}
+  .login-legal{margin:16px 0 0;max-width:400px;text-align:center;color:var(--muted);font-size:11px}
   .logo{width:52px;height:52px;border-radius:13px;background:linear-gradient(135deg,var(--accent),#ffb03c);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:26px;color:#101;margin-bottom:16px}
   .login h1{margin:0 0 4px;font-size:22px}.login .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
   .field{margin-bottom:13px}.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}

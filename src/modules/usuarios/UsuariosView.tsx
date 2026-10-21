@@ -10,7 +10,7 @@
 //   - departamento vacío    → todas las áreas
 //   - medio (solo validador) vacío → Impreso y Digital
 // ============================================================
-import { Plus, Trash } from 'lucide-react';
+import { Copy, Plus, Trash } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
 import {
@@ -43,6 +43,45 @@ const ROL_VACIO: NuevoRol = {
 
 const USUARIO_VACIO: NuevoUsuario = { nombre: '', email: '', telefono: '' };
 
+/**
+ * Mensaje para mandarle a la persona nueva por WhatsApp o correo. Sustituye
+ * al "Send invitation" de Supabase, que llega en inglés y con un enlace de
+ * Supabase en vez del de la app (21-oct-2026). La cuenta se crea en
+ * Authentication → Add user → Create new user, que no manda correo.
+ */
+function mensajeBienvenida(u: Usuario): string {
+  const nombre = (u.nombre || '').trim().split(/\s+/)[0];
+  return [
+    `Hola${nombre ? ' ' + nombre : ''}, ya tienes acceso a la Central de Operaciones de GPO VALLAS.`,
+    '',
+    `Entra aquí: ${window.location.origin}`,
+    '',
+    `Toca «Continuar con Google» y elige tu correo ${u.email}.`,
+    'Si prefieres entrar con contraseña, escribe tu correo y toca «Olvidé mi contraseña»: te llega un correo para crearla.',
+    '',
+    'En iPhone, ábrela en Safari y agrégala a la pantalla de inicio (Compartir → Agregar a inicio) para recibir los avisos.',
+  ].join('\n');
+}
+
+/** Copia al portapapeles; si el navegador no deja, con un campo oculto. */
+async function copiarTexto(texto: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(texto);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  }
+}
+
 /** ¿La RPC no existe (el SQL aún no se corrió)? PostgREST responde PGRST202. */
 function faltaFuncion(e: { code?: string; message?: string }): boolean {
   return e.code === 'PGRST202' || /could not find the function/i.test(e.message || '');
@@ -57,6 +96,8 @@ function UsuariosView({ email = '' }: { email?: string }) {
   const [rolesFor, setRolesFor] = useState<string | null>(null);
   const [nr, setNr] = useState<NuevoRol>(ROL_VACIO);
   const [q, setQ] = useState('');
+  /** Resultado de copiar la bienvenida, junto al botón de ese usuario. */
+  const [copia, setCopia] = useState<{ email: string; texto: string } | null>(null);
   /** Unidad y área de cada entrada del catálogo: de ahí salen las áreas técnicas. */
   const [areasCat, setAreasCat] = useState<
     { unidad_negocio: string | null; area: string | null }[]
@@ -204,6 +245,21 @@ function UsuariosView({ email = '' }: { email?: string }) {
     else cargar();
   };
 
+  const copiarBienvenida = async (u: Usuario) => {
+    const ok = await copiarTexto(mensajeBienvenida(u));
+    // Sin rol, la persona entraría a "Falta darte acceso": se avisa aquí.
+    const texto = !ok
+      ? 'No se pudo copiar el mensaje.'
+      : rolesDe(u.email).length === 0
+        ? 'Mensaje copiado. Ojo: todavía no tiene roles.'
+        : 'Mensaje copiado. Pégalo en WhatsApp o en un correo.';
+    setCopia({ email: u.email, texto });
+    window.setTimeout(
+      () => setCopia((c) => (c?.email === u.email && c.texto === texto ? null : c)),
+      6000
+    );
+  };
+
   const rolesDe = (em: string) =>
     roles.filter(
       (r) => (r.usuario_email || '').toLowerCase() === em.toLowerCase()
@@ -275,8 +331,9 @@ function UsuariosView({ email = '' }: { email?: string }) {
           </div>
         </div>
         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-          Recuerda invitarlo también en Supabase → Authentication para que pueda
-          iniciar sesión.
+          Créale también su cuenta en Supabase → Authentication → Add user →
+          Create new user, con «Auto Confirm User». Luego mándale el mensaje de
+          bienvenida desde su tarjeta.
         </div>
       </div>
 
@@ -388,6 +445,9 @@ function UsuariosView({ email = '' }: { email?: string }) {
                 >
                   {rolesFor === u.email ? 'Cerrar' : 'Asignar rol'}
                 </button>
+                <button className="btn ghost sm" onClick={() => copiarBienvenida(u)}>
+                  <Ic i={Copy} />Mensaje de bienvenida
+                </button>
                 {/* A uno mismo no se le ofrece: la base también lo impide. */}
                 {u.email.toLowerCase() !== email.toLowerCase() && (
                   <button className="btn ghost sm" onClick={() => delUser(u.email)}>
@@ -395,6 +455,11 @@ function UsuariosView({ email = '' }: { email?: string }) {
                   </button>
                 )}
               </div>
+              {copia?.email === u.email && (
+                <div className="ok-msg" role="status" style={{ marginTop: 8, marginBottom: 0 }}>
+                  {copia.texto}
+                </div>
+              )}
 
               {rolesFor === u.email && (
                 <div
