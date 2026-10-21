@@ -10,7 +10,7 @@ const { outputFiles } = await build({
   format: 'esm',
   platform: 'neutral',
 });
-const { errorAccesoEnEspanol, errorEnlaceCorreo } = await import(
+const { errorAccesoEnEspanol, errorEnlaceCorreo, respondioElServidor } = await import(
   'data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64')
 );
 
@@ -29,6 +29,16 @@ test('espera entre correos trae los segundos', () => {
 
 test('contraseña nueva igual a la anterior', () => {
   assert.match(errorAccesoEnEspanol({ code: 'same_password', message: 'x' }), /distinta de la anterior/);
+});
+
+test('un 500 de Auth es respuesta del servidor, no falta de señal', () => {
+  // Así llega cuando Gmail rechaza el SMTP (21-oct-2026).
+  const e = { name: 'AuthRetryableFetchError', status: 500, message: 'Error sending recovery email' };
+  assert.equal(respondioElServidor(e), true);
+  assert.match(errorAccesoEnEspanol(e), /configuración de correo/);
+  assert.equal(respondioElServidor({ name: 'AuthRetryableFetchError', status: 0 }), false);
+  assert.equal(respondioElServidor({ status: 504 }), false);
+  assert.match(errorAccesoEnEspanol({ status: 500, message: 'otra cosa' }), /falla en el servidor/);
 });
 
 test('lo desconocido sale como llegó', () => {

@@ -56,7 +56,7 @@ import { accionesPendientes } from './lib/acciones';
 import { borrarListaLocal, iniciarSincronizacion } from './lib/datosLocales';
 import { borrarChatsLocal } from './lib/chatLocal';
 import { useEnLinea, enLineaAhora, pareceSinRed } from './lib/enLinea';
-import { errorAccesoEnEspanol, errorEnlaceCorreo } from './lib/erroresAcceso';
+import { errorAccesoEnEspanol, errorEnlaceCorreo, respondioElServidor } from './lib/erroresAcceso';
 import { lazyConReintento, fijarModuloEnPantalla } from './lib/cargaDiferida';
 // Incidencias se queda ESTÁTICO: es el núcleo (Mis pendientes y el alta
 // NuevaInc que abre el botón Nueva). Un alta nunca debe esperar —ni
@@ -477,6 +477,9 @@ function pedirAlmacenamientoPersistente(): void {
 /** Texto para quien intenta entrar sin red. */
 const NECESITAS_SENAL = 'Necesitas señal para iniciar sesión.';
 
+/** Sin red de verdad; un 500 de Auth es respuesta del servidor (ver erroresAcceso). */
+const sinSenalAlEntrar = (e: unknown) => pareceSinRed(e) && !respondioElServidor(e);
+
 /** Ícono de la app: una valla / espectacular. */
 function LogoValla() {
   return (
@@ -556,7 +559,7 @@ function Login() {
       password: pass,
     });
     setBusy(false);
-    if (error) setErr(pareceSinRed(error) ? NECESITAS_SENAL : errorAccesoEnEspanol(error));
+    if (error) setErr(sinSenalAlEntrar(error) ? NECESITAS_SENAL : errorAccesoEnEspanol(error));
   };
 
   const entrarConGoogle = async () => {
@@ -576,7 +579,7 @@ function Login() {
       provider: 'google',
       options: { redirectTo: window.location.origin },
     });
-    if (error) setErr(pareceSinRed(error) ? NECESITAS_SENAL : errorAccesoEnEspanol(error));
+    if (error) setErr(sinSenalAlEntrar(error) ? NECESITAS_SENAL : errorAccesoEnEspanol(error));
   };
 
   const recuperar = async () => {
@@ -589,7 +592,7 @@ function Login() {
       redirectTo: window.location.href,
     });
     if (error)
-      setErr(pareceSinRed(error) ? 'Necesitas señal para pedir el correo de recuperación.' : errorAccesoEnEspanol(error));
+      setErr(sinSenalAlEntrar(error) ? 'Necesitas señal para pedir el correo de recuperación.' : errorAccesoEnEspanol(error));
     else setMsg('Te enviamos un correo para restablecer la contraseña.');
   };
 

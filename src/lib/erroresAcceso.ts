@@ -8,6 +8,17 @@
 
 type ErrorAuth = { code?: string; message?: string; status?: number };
 
+/**
+ * auth-js ≥ 2.10x marca un 500/501 como AuthRetryableFetchError, igual que
+ * la falta de red, y pareceSinRed lo tomaba como "Necesitas señal". Pero un
+ * 500 sí es respuesta de Supabase (p. ej. el SMTP rechazó el correo,
+ * 21-oct-2026): hay que mostrar su error, no culpar a la señal.
+ */
+export function respondioElServidor(error: unknown): boolean {
+  const s = (error as { status?: unknown } | null)?.status;
+  return s === 500 || s === 501;
+}
+
 /** Segundos de espera que trae "you can only request this after 45 seconds". */
 function segundos(msg: string): string | null {
   const m = /after (\d+) seconds?/i.exec(msg);
@@ -20,6 +31,8 @@ export function errorAccesoEnEspanol(error: ErrorAuth): string {
 
   if (code === 'invalid_credentials' || /invalid login credentials/i.test(msg))
     return 'Correo o contraseña incorrectos. Si nunca has creado contraseña, entra con Google o toca «Olvidé mi contraseña».';
+  if (/error sending .*email|smtp/i.test(msg))
+    return 'No se pudo enviar el correo: falla la configuración de correo de la app. Avisa a sistemas.';
   if (code === 'email_not_confirmed' || /email not confirmed/i.test(msg))
     return 'Tu correo todavía no está confirmado. Pídele a un administrador que lo confirme.';
   if (code === 'user_banned' || /banned/i.test(msg))
@@ -46,6 +59,8 @@ export function errorAccesoEnEspanol(error: ErrorAuth): string {
     /auth session missing/i.test(msg)
   )
     return 'El enlace ya no es válido. Pide otro con «Olvidé mi contraseña».';
+  if (code === 'unexpected_failure' || respondioElServidor(error))
+    return 'Hubo una falla en el servidor de acceso. Intenta de nuevo en unos minutos; si sigue, avisa a sistemas.';
   return msg || 'No se pudo completar. Intenta de nuevo.';
 }
 
