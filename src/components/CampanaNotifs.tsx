@@ -28,6 +28,8 @@ const EVENTOS_OPERACION = new Set([
   'pauta_toma',
   'pauta_analista',
   'pauta_analista_revisado',
+  'pauta_campana_cerrada',
+  'pauta_tomas_comprobadas',
   'ruta',
   'vv_version',
   'vv_programada',

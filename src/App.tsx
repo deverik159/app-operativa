@@ -959,21 +959,25 @@ function Main({
     e === 'pauta_revision' ||
     e === 'ruta' ||
     e === 'pauta_analista' ||
-    e === 'pauta_analista_revisado';
+    e === 'pauta_analista_revisado' ||
+    e === 'pauta_campana_cerrada' ||
+    e === 'pauta_tomas_comprobadas';
 
   /**
    * Pestaña de Pauta a la que lleva un aviso del analista: "Toma por
    * revisar" (desde el 22-oct-2026 le llega al analista) a Analista; quien
    * no es analista se queda en la Lista. Los dos eventos del envío por
    * campaña (20-oct-2026) ya no se generan, pero los avisos viejos llevan
-   * al mismo lugar.
+   * al mismo lugar. "Campaña cerrada" (Coordinadores de Monitoreo,
+   * 22-oct-2026) va a Indicadores, donde se ve y se descarga; "Campaña
+   * completa" (monitorista) se queda en la Lista.
    */
   const [vistaPauta, setVistaPauta] = useState<{ vista: 'analista' | 'indicadores'; n: number } | null>(null);
   const pedirVistaPauta = (e?: string | null) => {
     const vista =
       e === 'pauta_revision' || e === 'pauta_analista'
         ? 'analista'
-        : e === 'pauta_analista_revisado'
+        : e === 'pauta_analista_revisado' || e === 'pauta_campana_cerrada'
           ? 'indicadores'
           : null;
     if (vista) setVistaPauta((p) => ({ vista, n: (p?.n ?? 0) + 1 }));
@@ -1079,8 +1083,10 @@ function Main({
     }
     if (record) enfocarDesdePush(record);
     // `?ir=pauta`: push de pauta con la app cerrada (toma regresada, por
-    // comprobar, ruta asignada) — aterriza directo en su pestaña.
-    else if (ir === 'pauta') irAPauta();
+    // comprobar, ruta asignada) — aterriza directo en su pestaña. Con
+    // `&evento=` (sw.js, 22-oct-2026) también elige la pestaña de Pauta
+    // (Analista, Indicadores), igual que con la app abierta.
+    else if (ir === 'pauta') irAPauta(params.get('evento'));
     // `?ir=bitacora`: push de la Bitácora VV con la app cerrada.
     else if (ir === 'bitacora') irABitacora();
     // Solo al montar: el parámetro llega únicamente en el arranque.

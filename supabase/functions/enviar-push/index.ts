@@ -51,6 +51,10 @@ const TITULOS: Record<string, string> = {
   pauta_revision: 'Toma por revisar',
   pauta_analista: 'Campaña por revisar',
   pauta_analista_revisado: 'Campaña revisada por el analista',
+  // Todas las caras con ruta de la campaña quedaron comprobadas (22-oct-2026):
+  // a los Coordinadores de Monitoreo y, a cada monitorista, sus tomas.
+  pauta_campana_cerrada: 'Campaña cerrada',
+  pauta_tomas_comprobadas: 'Campaña completa',
   vv_version: 'Pauta VV por programar',
   vv_programada: 'Versión VV programada',
 };

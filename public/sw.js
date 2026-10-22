@@ -413,7 +413,9 @@ self.addEventListener('notificationclick', (event) => {
     evento === 'pauta_revision' ||
     evento === 'ruta' ||
     evento === 'pauta_analista' ||
-    evento === 'pauta_analista_revisado';
+    evento === 'pauta_analista_revisado' ||
+    evento === 'pauta_campana_cerrada' ||
+    evento === 'pauta_tomas_comprobadas';
   // Y estos en la Bitácora VV (versión por programar / programada).
   const esBitacora = evento === 'vv_version' || evento === 'vv_programada';
   // La URL se usa tanto al abrir una ventana nueva como al navegar una ya
@@ -425,7 +427,8 @@ self.addEventListener('notificationclick', (event) => {
   const url = recordId
     ? destino + sep + 'record=' + encodeURIComponent(recordId)
     : esPauta
-      ? destino + sep + 'ir=pauta'
+      ? // Con el evento, la app elige la pestaña de Pauta (Indicadores, Analista).
+        destino + sep + 'ir=pauta&evento=' + encodeURIComponent(evento)
       : esBitacora
         ? destino + sep + 'ir=bitacora'
         : destino;
