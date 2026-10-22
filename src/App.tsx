@@ -53,6 +53,7 @@ import {
   listarPendientes,
 } from './lib/envios';
 import { accionesPendientes } from './lib/acciones';
+import { hayTomasPendientes } from './lib/tomasPauta';
 import { borrarListaLocal, iniciarSincronizacion } from './lib/datosLocales';
 import { borrarChatsLocal } from './lib/chatLocal';
 import { useEnLinea, enLineaAhora, pareceSinRed } from './lib/enLinea';
@@ -1447,11 +1448,13 @@ function Main({
     // Lo pendiente de ESTA cuenta, con tope: una IndexedDB colgada no debe
     // trabar el botón.
     const contar = async () => {
-      const [envios, acciones] = await Promise.all([
+      const [envios, acciones, tomas] = await Promise.all([
         listarPendientes(email).then((l) => l.length).catch(() => 0),
         accionesPendientes(email).then((l) => l.length).catch(() => 0),
+        // Las fotos de las tomas de Pauta en cola (22-oct-2026).
+        hayTomasPendientes(email).catch(() => 0),
       ]);
-      return envios + acciones;
+      return envios + acciones + tomas;
     };
     const pendientes = await conTope(contar(), 2000, -1);
     const enRiesgo = (() => {

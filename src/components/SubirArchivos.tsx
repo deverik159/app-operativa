@@ -20,8 +20,19 @@ import { prepararArchivos } from '../lib/comprimirImagen';
 import Ic from './Ic';
 
 type Props = {
-  /** Recibe los archivos elegidos. Se acumulan en el padre, no aquí. */
-  onFiles: (files: File[]) => void;
+  /**
+   * Recibe los archivos elegidos. Se acumulan en el padre, no aquí.
+   * `origen` dice si salieron de la cámara de la app (no llegan al carrete
+   * del iPhone) o de la galería.
+   */
+  onFiles: (files: File[], origen: 'camara' | 'galeria') => void | Promise<void>;
+  /**
+   * Con true, el selector sigue en "Procesando…" hasta que la promesa de
+   * onFiles se cumpla: la toma de Pauta guarda la foto en el teléfono antes
+   * de soltar la cámara (fase 1 de comprobaciones, 22-oct-2026). Por omisión
+   * no se espera (los demás módulos suben en su propio estado).
+   */
+  esperarOnFiles?: boolean;
   /** Archivos ya elegidos, para pintar miniaturas. Omitir si el padre sube al instante. */
   archivos?: File[];
   /** Quitar uno de la lista de arriba. */
@@ -142,7 +153,7 @@ function MiniFile({
  * la toma ANTES de mandarla: en campo, una foto movida o con el dedo encima
  * se detecta aquí, no cuando el validador la rechaza.
  */
-function VisorFile({ file, onClose }: { file: File; onClose: () => void }) {
+export function VisorFile({ file, onClose }: { file: File; onClose: () => void }) {
   const [url, setUrl] = useState('');
   useEffect(() => {
     const u = URL.createObjectURL(file);
@@ -224,6 +235,7 @@ function SubirArchivos({
   disabled = false,
   accept = 'image/*,video/*',
   ayuda,
+  esperarOnFiles = false,
 }: Props) {
   /** Archivo abierto en el visor a pantalla completa. */
   const [ver, setVer] = useState<File | null>(null);
@@ -238,7 +250,7 @@ function SubirArchivos({
   const aceptaFoto = accept.includes('image');
   const aceptaVideo = accept.includes('video');
 
-  const manejar = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const manejar = async (e: React.ChangeEvent<HTMLInputElement>, origen: 'camara' | 'galeria') => {
     const files = Array.from(e.target.files || []);
     setEligeCamara(false);
     // Permite volver a elegir el MISMO archivo (si no, onChange no dispara).
@@ -249,10 +261,16 @@ function SubirArchivos({
     // el final de la revisión, y el error tumbaba TODO el guardado con un
     // mensaje de "mala señal" que invitaba a reintentar en vano.
     setProcesando(true);
-    const { listos, rechazos } = await prepararArchivos(files);
-    setProcesando(false);
-    if (rechazos.length) alert('No se agregaron:\n\n' + rechazos.join('\n'));
-    if (listos.length) onFiles(listos);
+    let listos: File[] = [];
+    try {
+      const r = await prepararArchivos(files);
+      listos = r.listos;
+      if (r.rechazos.length) alert('No se agregaron:\n\n' + r.rechazos.join('\n'));
+      if (esperarOnFiles && listos.length) await onFiles(listos, origen);
+    } finally {
+      setProcesando(false);
+    }
+    if (!esperarOnFiles && listos.length) void onFiles(listos, origen);
   };
 
   const estiloBoton: React.CSSProperties = {
@@ -339,7 +357,7 @@ function SubirArchivos({
         type="file"
         accept="image/*"
         capture="environment"
-        onChange={manejar}
+        onChange={(e) => manejar(e, 'camara')}
         disabled={disabled}
         style={{ display: 'none' }}
       />
@@ -348,7 +366,7 @@ function SubirArchivos({
         type="file"
         accept="video/*"
         capture="environment"
-        onChange={manejar}
+        onChange={(e) => manejar(e, 'camara')}
         disabled={disabled}
         style={{ display: 'none' }}
       />
@@ -357,7 +375,7 @@ function SubirArchivos({
         type="file"
         accept={accept}
         multiple={multiple}
-        onChange={manejar}
+        onChange={(e) => manejar(e, 'galeria')}
         disabled={disabled}
         style={{ display: 'none' }}
       />

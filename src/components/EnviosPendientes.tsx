@@ -32,8 +32,16 @@
 // MIS RUTAS (rutas, 5-oct-2026): una tercera cola, la de VISITAS del
 // monitorista (lib/visitas.ts: "Marcar visita" sin señal), con los mismos
 // disparadores, su propia vuelta y su propio descartar.
+//
+// TOMAS DE PAUTA (fase 1 de comprobaciones, 22-oct-2026): una cuarta cola,
+// la de las fotos de la toma (lib/tomasPauta.ts), con los mismos
+// disparadores. Una subida normal NO se pinta aquí (sería un aviso por cada
+// foto): solo lo que pide atención (`atencion`: un error, algo que no cupo
+// en el teléfono o un intento que ya falló). Pero TODO cuenta para los
+// reintentos (hayPendientesRef). Cuando una toma termina, el aviso breve
+// (components/AvisoBreve) lo dice unos segundos y se recargan las listas.
 // ============================================================
-import { MapPin } from 'lucide-react';
+import { Camera, MapPin } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sb } from '../lib/supabase';
 import Ic from './Ic';
@@ -61,6 +69,19 @@ import {
   tomarAvisosVisitas,
   type ResumenVisita,
 } from '../lib/visitas';
+import {
+  descartarToma,
+  ligadasHastaAhora,
+  listarTomasAviso,
+  procesarTomasPendientes,
+  suscribirTomas,
+  tomarAvisosTomas,
+  tomarLogrosTomas,
+  type ResumenTomaAviso,
+} from '../lib/tomasPauta';
+import type { Logro } from '../lib/tomasPautaLogica';
+import AvisoBreve from './AvisoBreve';
+import LimiteSilencioso from './LimiteSilencioso';
 
 /** Reintento periódico mientras haya pendientes. */
 const CADA_MS = 2 * 60 * 1000;
@@ -74,6 +95,9 @@ function hora(iso: string): string {
     ? h
     : `${d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })} ${h}`;
 }
+
+/** ¿El aviso de la cola de tomas dice que el analista regresó la toma? */
+const esRegreso = (m: string) => /regresó la toma/.test(m);
 
 function plural(n: number, uno: string, varios: string): string {
   return `${n} ${n === 1 ? uno : varios}`;
@@ -89,6 +113,10 @@ function EnviosPendientes({
   const [lista, setLista] = useState<ResumenPendiente[]>([]);
   const [acciones, setAcciones] = useState<ResumenAccion[]>([]);
   const [visitas, setVisitas] = useState<ResumenVisita[]>([]);
+  /** Todos los trabajos de la cola de tomas (se pintan solo los que piden atención). */
+  const [tomas, setTomas] = useState<ResumenTomaAviso[]>([]);
+  /** Tomas que terminaron y aún no se muestran en el aviso breve. */
+  const [logros, setLogros] = useState<Logro[]>([]);
   const [abierto, setAbierto] = useState(false);
   // Una bandera por cola (verificación de la revisión sin señal,
   // 24-sep-2026): con un video lento en la de acciones, la de reportes se
@@ -96,7 +124,8 @@ function EnviosPendientes({
   const [enviandoReportes, setEnviandoReportes] = useState(false);
   const [enviandoAcciones, setEnviandoAcciones] = useState(false);
   const [enviandoVisitas, setEnviandoVisitas] = useState(false);
-  const trabajando = enviandoReportes || enviandoAcciones || enviandoVisitas;
+  const [enviandoTomas, setEnviandoTomas] = useState(false);
+  const trabajando = enviandoReportes || enviandoAcciones || enviandoVisitas || enviandoTomas;
   /** Avisos de la última vuelta (omitidos por duplicado, etc.): una vez. */
   const [mensajes, setMensajes] = useState<string[]>([]);
   // App pasa una flecha nueva en cada render: con ref no se re-suscribe todo.
@@ -115,11 +144,57 @@ function EnviosPendientes({
   const vueltaReportesRef = useRef<Promise<void> | null>(null);
   const vueltaAccionesRef = useRef<Promise<void> | null>(null);
   const vueltaVisitasRef = useRef<Promise<void> | null>(null);
+  const vueltaTomasRef = useRef<Promise<void> | null>(null);
   /** Lo último que se pintó de las tres colas (ver refrescar). */
   const firmaListasRef = useRef('');
   /** Las dos colas que terminan casi juntas piden UNA recarga de listas, no dos. */
   const relojRecarga = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(relojRecarga.current), []);
+  /** Cuándo toca la recarga pedida (para no aplazar una que va antes). */
+  const recargaEnRef = useRef(0);
+  /** Lo último visto de ligadasHastaAhora (ver refrescar). */
+  const ligadasVistasRef = useRef(ligadasHastaAhora());
+  useEffect(
+    () => () => {
+      window.clearTimeout(relojRecarga.current);
+      // Si no, tras un remontaje (Fast Refresh) ninguna recarga volvía a pedirse.
+      relojRecarga.current = undefined;
+    },
+    []
+  );
+
+  /**
+   * Pide a App recargar las listas, como con ↻. Pronta cuando algo cambió de
+   * estado (salió un reporte, se registró una toma). Las fotos sueltas que
+   * terminan de subir no cambian el estado de la toma: su recarga se difiere
+   * y espera a que no haya una ventana abierta (el monitorista suele seguir
+   * tomando fotos; revisión del código, 22-oct-2026).
+   */
+  const pedirRecarga = useCallback((diferida: boolean) => {
+    const espera = diferida ? 10_000 : 300;
+    const en = Date.now() + espera;
+    if (relojRecarga.current !== undefined && recargaEnRef.current <= en) return;
+    window.clearTimeout(relojRecarga.current);
+    const disparar = () => {
+      if (diferida && document.querySelector('.overlay')) {
+        recargaEnRef.current = Date.now() + espera;
+        relojRecarga.current = window.setTimeout(disparar, espera);
+        return;
+      }
+      relojRecarga.current = undefined;
+      onEnviadoRef.current();
+    };
+    recargaEnRef.current = en;
+    relojRecarga.current = window.setTimeout(disparar, espera);
+  }, []);
+
+  /** Suma avisos sin repetir los que ya se ven. */
+  const sumarMensajes = useCallback((nuevos: string[]) => {
+    if (!nuevos.length) return;
+    setMensajes((m) => {
+      const sin = [...new Set(nuevos)].filter((x) => !m.includes(x));
+      return sin.length ? [...m, ...sin] : m;
+    });
+  }, []);
 
   // El borrador del alta usa este correo de respaldo cuando auth-js no da
   // la sesión a tiempo (sin red y con el token vencido).
@@ -129,32 +204,55 @@ function EnviosPendientes({
 
   const refrescar = useCallback(async () => {
     try {
-      const [l, la, lv] = await Promise.all([
+      const [l, la, lv, lt] = await Promise.all([
         listarPendientes(email),
         listarAccionesAviso(email),
         // Una cola de visitas que no carga no debe esconder las otras dos.
         listarVisitasAviso(email).catch(() => [] as ResumenVisita[]),
+        // Ni una de tomas (22-oct-2026).
+        listarTomasAviso(email).catch(() => [] as ResumenTomaAviso[]),
       ]);
-      hayPendientesRef.current = l.length + la.length + lv.length > 0;
+      // Las tomas cuentan TODAS para los reintentos (cada 2 min, sesión
+      // renovada), aunque solo se pinten las que piden atención.
+      hayPendientesRef.current = l.length + la.length + lv.length + lt.length > 0;
       // (rutas, 5-oct-2026, revisión) Regla anti-congelamiento del 24-sep:
       // un setState tras una lectura local se compara con un ref. Si las
-      // tres listas dicen lo mismo que la vez pasada, no se re-renderiza.
-      const firma = JSON.stringify([l, la, lv]);
+      // listas dicen lo mismo que la vez pasada, no se re-renderiza.
+      const firma = JSON.stringify([l, la, lv, lt]);
       if (firma !== firmaListasRef.current) {
         firmaListasRef.current = firma;
         setLista(l);
         setAcciones(la);
         setVisitas(lv);
+        setTomas(lt);
       }
       // Avisos de acciones que se mandaron por su cuenta (p. ej. una previa
       // de la misma incidencia antes de la que se acaba de tocar). Solo los
       // de este correo (revisión sin señal, 24-sep-2026: teléfono compartido).
-      const buzon = [...tomarAvisosAcciones(email), ...tomarAvisosVisitas(email)];
-      if (buzon.length) setMensajes((m) => [...m, ...buzon]);
+      const deTomas = tomarAvisosTomas(email);
+      const buzon = [...tomarAvisosAcciones(email), ...tomarAvisosVisitas(email), ...deTomas];
+      sumarMensajes(buzon);
+      // Una toma regresada: la lista se recarga para que la ventana vea el
+      // motivo (y no vuelva a chocar con "regresada" al registrar).
+      if (deTomas.some(esRegreso)) pedirRecarga(false);
+      // Tomas que terminaron (aquí o en el primer intento al encolar): el
+      // aviso breve y la recarga de las listas (Pauta deja de verla pendiente).
+      const nuevos = tomarLogrosTomas(email);
+      if (nuevos.length) {
+        setLogros((prev) => [...prev, ...nuevos]);
+        pedirRecarga(!nuevos.some((l) => l.registrada));
+      }
+      // Entró una foto de una toma que sigue en cola (sin logro todavía): la
+      // lista se recarga diferido para que su cuenta no se quede desfasada.
+      const ligadas = ligadasHastaAhora();
+      if (ligadas !== ligadasVistasRef.current) {
+        ligadasVistasRef.current = ligadas;
+        pedirRecarga(true);
+      }
     } catch {
       /* el aviso nunca debe romper la app */
     }
-  }, [email]);
+  }, [email, pedirRecarga, sumarMensajes]);
 
   const procesar = useCallback((): Promise<void> => {
     if (!email) return Promise.resolve();
@@ -169,13 +267,10 @@ function EnviosPendientes({
       const p = (async () => {
         try {
           const r = await vuelta();
-          if (r.mensajes.length) setMensajes((m) => [...m, ...r.mensajes]);
+          sumarMensajes(r.mensajes);
           // Salió al menos uno (o ya existe su incidencia, o una acción ya
           // no aplica): que App recargue las listas, como con ↻.
-          if (r.recargar) {
-            window.clearTimeout(relojRecarga.current);
-            relojRecarga.current = window.setTimeout(() => onEnviadoRef.current(), 300);
-          }
+          if (r.recargar) pedirRecarga(false);
         } catch {
           /* se reintenta en la siguiente vuelta */
         }
@@ -202,8 +297,14 @@ function EnviosPendientes({
         const r = await procesarVisitasPendientes(email);
         return { mensajes: r.mensajes, recargar: r.terminadas > 0 };
       }),
+      correr(vueltaTomasRef, setEnviandoTomas, async () => {
+        const r = await procesarTomasPendientes(email);
+        // Solo un registro (o un regreso) cambia la toma; las fotos sueltas
+        // recargan diferido por su logro (ver refrescar).
+        return { mensajes: r.mensajes, recargar: r.registradas > 0 || r.mensajes.some(esRegreso) };
+      }),
     ]).then(() => undefined);
-  }, [email, refrescar]);
+  }, [email, refrescar, pedirRecarga, sumarMensajes]);
 
   // Cambios en las colas (de esta pestaña o de otra). Con un respiro: cada
   // foto subida avisa, y no hace falta releer la cola por cada una.
@@ -216,11 +317,13 @@ function EnviosPendientes({
     const quitarEnvios = suscribirEnvios(alCambiar);
     const quitarAcciones = suscribirAcciones(alCambiar);
     const quitarVisitas = suscribirVisitas(alCambiar);
+    const quitarTomas = suscribirTomas(alCambiar);
     refrescar();
     return () => {
       quitarEnvios();
       quitarAcciones();
       quitarVisitas();
+      quitarTomas();
       window.clearTimeout(t);
     };
   }, [refrescar]);
@@ -306,10 +409,37 @@ function EnviosPendientes({
     refrescar();
   };
 
+  /** Descartar una toma = lo que no subió se borra del teléfono (22-oct-2026). */
+  const descartarTom = async (p: ResumenTomaAviso) => {
+    const faltan = Math.max(0, p.archivos - p.ligados);
+    const texto =
+      `¿Descartar la toma de ${p.resumen}?\n\n` +
+      (faltan > 0
+        ? `Se borran de este teléfono ${plural(faltan, 'foto o video que no se ha subido', 'fotos o videos que no se han subido')}. `
+        : '') +
+      (p.ligados > 0 ? 'Lo que ya subió se queda en la evidencia de la toma. ' : '') +
+      (p.registrarPedido ? 'La toma NO quedará registrada: hazlo desde Pauta cuando tengas las fotos.' : '');
+    if (!confirm(texto)) return;
+    const r = await descartarToma(p.id);
+    if (r === 'ocupado')
+      alert('Esa toma se está enviando en este momento. Espera a que termine e intenta de nuevo.');
+    refrescar();
+  };
+
+  const mostrados = useCallback((k: number) => setLogros((prev) => prev.slice(k)), []);
+  const aviso = (
+    <LimiteSilencioso nombre="aviso-breve">
+      <AvisoBreve logros={logros} onMostrados={mostrados} />
+    </LimiteSilencioso>
+  );
+
   const n = lista.length;
   const m = acciones.length;
   const nv = visitas.length;
-  if (!n && !m && !nv && !mensajes.length) return null;
+  // De las tomas solo se pintan las que piden atención (ver cabecera).
+  const tomasVisibles = tomas.filter((p) => p.atencion);
+  const nt = tomasVisibles.length;
+  if (!n && !m && !nv && !nt && !mensajes.length) return aviso;
 
   const soloFotos = n > 0 && lista.every((p) => p.filasCreadas);
   // "📤 1 reporte, 2 acciones y 3 visitas sin enviar" (rutas, 5-oct-2026):
@@ -318,17 +448,19 @@ function EnviosPendientes({
     ...(n ? [plural(n, 'reporte', 'reportes')] : []),
     ...(m ? [plural(m, 'acción', 'acciones')] : []),
     ...(nv ? [plural(nv, 'visita', 'visitas')] : []),
+    ...(nt ? [plural(nt, 'toma', 'tomas')] : []),
   ];
   const unidas =
     partes.length > 1 ? `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}` : partes[0];
   const titulo =
-    n && !m && !nv && soloFotos
+    n && !m && !nv && !nt && soloFotos
       ? `📤 Fotos de ${plural(n, 'reporte', 'reportes')} sin subir`
       : `📤 ${unidas} sin enviar`;
   const enRiesgo =
     lista.some((p) => p.soloMemoria || p.fueraDelTelefono > 0) ||
     acciones.some((p) => p.soloMemoria || p.fueraDelTelefono > 0) ||
-    visitas.some((p) => p.soloMemoria || p.fueraDelTelefono > 0);
+    visitas.some((p) => p.soloMemoria || p.fueraDelTelefono > 0) ||
+    tomas.some((p) => p.soloMemoria || p.fueraDelTelefono > 0);
 
   const renglon = {
     // El borde de .banner, con su pareja del tema claro (tema claro/oscuro,
@@ -343,6 +475,8 @@ function EnviosPendientes({
   } as const;
 
   return (
+    <>
+    {aviso}
     <div className="banner" style={{ margin: '10px 16px 0' }} role="status">
       {mensajes.map((msg, i) => (
         <div
@@ -369,7 +503,7 @@ function EnviosPendientes({
         </div>
       ))}
 
-      {n + m + nv > 0 && (
+      {n + m + nv + nt > 0 && (
         <>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ flex: '1 1 220px', minWidth: 0 }}>
@@ -378,7 +512,9 @@ function EnviosPendientes({
                   ruta retirada) no sale solo: no prometer que sí. */}
               {trabajando
                 ? 'enviando…'
-                : acciones.some((p) => p.conError) || visitas.some((p) => p.conError)
+                : acciones.some((p) => p.conError) ||
+                    visitas.some((p) => p.conError) ||
+                    tomasVisibles.some((p) => p.conError)
                   ? 'hay envíos que no salen solos: toca «Ver detalle»'
                   : 'se reintenta solo al volver la señal'}
             </span>
@@ -388,7 +524,10 @@ function EnviosPendientes({
               // Se puede tocar mientras alguna cola con pendientes esté
               // parada (la otra puede seguir con un video lento).
               disabled={
-                (!n || enviandoReportes) && (!m || enviandoAcciones) && (!nv || enviandoVisitas)
+                (!n || enviandoReportes) &&
+                (!m || enviandoAcciones) &&
+                (!nv || enviandoVisitas) &&
+                (!nt || enviandoTomas)
               }
               onClick={() => procesar()}
             >
@@ -535,9 +674,58 @@ function EnviosPendientes({
                 </button>
               </div>
             ))}
+
+          {abierto && (
+            <LimiteSilencioso nombre="aviso-tomas">
+              {tomasVisibles.map((p) => (
+                <div key={p.id} style={renglon}>
+                  <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                    <div style={{ fontWeight: 700 }}>
+                      <Ic i={Camera} />Toma de {p.resumen}
+                    </div>
+                    <div>
+                      {hora(p.creado_en)}
+                      {p.archivos > 0 &&
+                        ` · ${plural(p.archivos, 'foto o video', 'fotos o videos')}` +
+                          (p.ligados > 0 ? ` (${p.ligados} ya subidos)` : '')}
+                      {p.registrarPedido && ' · se registra al subir'}
+                      {p.enviando && ' · enviando…'}
+                    </div>
+                    {p.soloMemoria && (
+                      <div style={{ color: 'var(--warn)' }}>
+                        No se pudo guardar en el teléfono: si cierras la app, se pierde.
+                      </div>
+                    )}
+                    {!p.soloMemoria && p.fueraDelTelefono > 0 && (
+                      <div style={{ color: 'var(--warn)' }}>
+                        {plural(p.fueraDelTelefono, 'foto no cupo', 'fotos no cupieron')} en el
+                        teléfono: si cierras la app, se pierden.
+                      </div>
+                    )}
+                    {p.ultimoError &&
+                      (p.conError ? (
+                        <div style={{ color: 'var(--warn)' }}>{p.ultimoError}</div>
+                      ) : (
+                        <div style={{ opacity: 0.75 }}>Último intento: {p.ultimoError}</div>
+                      ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    disabled={p.enviando || enviandoTomas}
+                    onClick={() => descartarTom(p)}
+                    style={{ flexShrink: 0 }}
+                  >
+                    Descartar
+                  </button>
+                </div>
+              ))}
+            </LimiteSilencioso>
+          )}
         </>
       )}
     </div>
+    </>
   );
 }
 

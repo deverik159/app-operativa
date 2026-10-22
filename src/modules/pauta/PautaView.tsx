@@ -14,6 +14,7 @@
 // ============================================================
 import {
   Camera,
+  CloudUpload,
   Download,
   Map as MapIcon,
   Plus,
@@ -35,7 +36,9 @@ import {
 } from '../../lib/estadoMaquina';
 import type { MapaResumen, IncidenciaAbierta } from '../../lib/estadoMaquina';
 import ImportarPautaModal from './ImportarPautaModal';
-import RegistrarTomaModal from './RegistrarTomaModal';
+import RegistrarTomaModal, { type InfoRegistro } from './RegistrarTomaModal';
+import { olvidarRegistrada, resumenTomas, suscribirTomas, tomasRegistradasEnSesion } from '../../lib/tomasPauta';
+import { llaveCara, type ResumenCara } from '../../lib/tomasPautaLogica';
 import NuevaInc from '../incidencias/NuevaInc';
 import type { GrupoReporte } from '../incidencias/NuevaInc';
 import type { PautaRuta } from '../../types/db';
@@ -181,6 +184,84 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
    * confirm()— si algo del sitio amerita reporte.
    */
   const [ofrecerIncEn, setOfrecerIncEn] = useState<string | null>(null);
+  /** El registro de esa toma quedó en la cola (se registra al subir las fotos). */
+  const [ofrecerEnCola, setOfrecerEnCola] = useState(false);
+
+  /**
+   * La cola de tomas del teléfono (fase 1 de comprobaciones, 22-oct-2026):
+   * por cara, lo que sigue sin subir y si ya se pidió el registro. Encima de
+   * lo que dice el servidor, para que una toma a medio subir no se vea
+   * "Pendiente" (e invite a repetirla).
+   */
+  const [cola, setCola] = useState<Map<string, ResumenCara & { enviando: boolean }>>(() => new Map());
+  /**
+   * Caras que la cola registró en esta pestaña → cuándo (ms del teléfono),
+   * hasta que una carga de la lista que empezó después las traiga.
+   */
+  const [regSesion, setRegSesion] = useState<Map<string, number>>(() => new Map());
+  /**
+   * Cuándo EMPEZÓ la última carga de la lista que se aplicó (ms del
+   * teléfono): lo registrado o ligado antes de ese momento ya viene en `filas`.
+   */
+  const [cargadaDesde, setCargadaDesde] = useState(0);
+  /**
+   * Cuándo LLEGÓ esa carga: lo que la cola mandó después seguro no viene en
+   * `filas` (lo de en medio puede venir o no; no se suma para no contar de más).
+   */
+  const [cargadaHasta, setCargadaHasta] = useState(0);
+  const firmaColaRef = useRef('');
+  useEffect(() => {
+    if (!email) return;
+    let vivo = true;
+    let t: number | undefined;
+    const leer = async () => {
+      try {
+        const m = await resumenTomas(email);
+        const reg = new Map(
+          tomasRegistradasEnSesion(email).map((r) => [llaveCara(r.anio, r.catorcena, r.vfid), r.en] as const)
+        );
+        if (!vivo) return;
+        // Regla anti-congelamiento (24-sep-2026): sin cambios, no se re-renderiza.
+        const firma = JSON.stringify([[...m.entries()], [...reg]]);
+        if (firma === firmaColaRef.current) return;
+        firmaColaRef.current = firma;
+        setCola(m);
+        setRegSesion(reg);
+      } catch {
+        /* sin cola: la lista sigue con lo del servidor */
+      }
+    };
+    void leer();
+    const quitar = suscribirTomas(() => {
+      window.clearTimeout(t);
+      t = window.setTimeout(() => void leer(), 300);
+    });
+    return () => {
+      vivo = false;
+      quitar();
+      window.clearTimeout(t);
+    };
+  }, [email]);
+  // Una carga que empezó DESPUÉS del registro ya trae la cara como quedó en el
+  // servidor, venga con fecha_toma o regresada: la marca de sesión se suelta.
+  // Antes se esperaba la fecha_toma y, si el analista la regresaba antes de
+  // esa carga, la fila decía «Tomada · actualizando…» para siempre
+  // (verificación, 22-oct-2026).
+  useEffect(() => {
+    if (!email || !regSesion.size || !cargadaDesde) return;
+    const ya = [...regSesion.entries()].filter(([, en]) => en < cargadaDesde).map(([k]) => k);
+    if (!ya.length) return;
+    ya.forEach((k) => {
+      // llaveCara = año-catorcena-cara (la cara puede traer guiones).
+      const [anio, catorcena, ...cara] = k.split('-');
+      olvidarRegistrada(email, Number(anio), Number(catorcena), cara.join('-'));
+    });
+    setRegSesion((prev) => {
+      const s = new Map(prev);
+      ya.forEach((k) => s.delete(k));
+      return s;
+    });
+  }, [email, filas, regSesion, cargadaDesde]);
   /** Sitio con NuevaInc abierto (el modal nace con este sitio ligado). */
   const [nuevaEn, setNuevaEn] = useState<string | null>(null);
 
@@ -540,6 +621,8 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
    */
   const cargar = useCallback(async (cat: string, silenciosa = false) => {
     const miCarga = ++cargaSeq.current;
+    /** Lo de la cola anterior a este momento ya viene en esta lectura. */
+    const inicio = Date.now();
     // `cat` es la llave "2026-16": la catorcena es número + año.
     const leida = leerClaveCatorcena(cat);
     if (!leida) return;
@@ -578,6 +661,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
       desde += PAGINA;
       if (desde > 20000) break; // salvavidas
     }
+    const llego = Date.now();
     // Recarga silenciosa y el monitorista registró/comprobó/regresó una toma
     // mientras viajaba: esta respuesta se tomó ANTES de su cambio y lo
     // "revertiría" en pantalla. Se descarta y se pide otra de inmediato,
@@ -591,6 +675,8 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
     aplicarDeCatorcena(cat, miCarga, () => {
       setFilas(todas);
       catEnPantalla.current = cat;
+      setCargadaDesde(inicio);
+      setCargadaHasta(llego);
       setLoading(false);
     });
   }, []);
@@ -781,25 +867,50 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
     setFAvance((prev) => (prev === v ? 'Todos' : v));
 
   // --- Acciones de campo ---
+  /** Lo que la cola del teléfono tiene de esta cara (o undefined). */
+  const colaDe = (f: PautaRuta) => cola.get(llaveCara(f.anio, f.catorcena, f.vendor_face_id));
+  /** Se pidió registrar y espera a que suban las fotos (y la base aún no la tiene). */
+  const enColaRegistro = (f: PautaRuta) => !f.fecha_toma && !!colaDe(f)?.registrarPedido;
+  /** La cola ya la registró en esta pestaña, pero la lista aún no se recarga. */
+  const registradaEnSesion = (f: PautaRuta) =>
+    !f.fecha_toma && regSesion.has(llaveCara(f.anio, f.catorcena, f.vendor_face_id));
+  /**
+   * Fotos de la cara: las de la lista, más las que la cola mandó después de
+   * que llegó su última carga (ésas seguro no vienen en f.fotos), más las que
+   * siguen en el teléfono. Las de en medio no se suman: puede faltar una un
+   * momento, nunca sobrar; la recarga diferida (al entrar una foto) lo corrige.
+   */
+  const fotosConCola = (f: PautaRuta) => {
+    const c = colaDe(f);
+    if (!c) return f.fotos;
+    const nuevas = c.ligadasEn.filter((en) => Date.parse(en) >= cargadaHasta).length;
+    return f.fotos + nuevas + c.porSubir;
+  };
+
   /**
    * La toma quedó registrada en el modal. Se refleja en memoria para que el
-   * avance se vea al instante, sin recargar toda la catorcena.
+   * avance se vea al instante, sin recargar toda la catorcena. Si quedó en la
+   * cola (fotos por subir), no se pinta "Tomada": la marca de la cola ya lo
+   * dice, y la base todavía no la tiene.
    */
-  const tomaRegistrada = (vendorFaceId: string) => {
+  const tomaRegistrada = (vendorFaceId: string, info: InfoRegistro) => {
     const ahora = new Date().toISOString();
-    setFilasLocal((prev) =>
-      prev.map((f) => {
-        if (f.vendor_face_id !== vendorFaceId) return f;
-        // La RPC no pisa una toma anterior: aquí se respeta igual.
-        return {
-          ...f,
-          fecha_toma: f.fecha_toma || ahora,
-          toma_por: f.toma_por || email,
-          fotos: f.fotos + 1,
-          avance: f.fecha_comprobacion ? 'COMPROBADA' : 'TOMADA',
-        };
-      })
-    );
+    if (!info.enCola)
+      setFilasLocal((prev) =>
+        prev.map((f) => {
+          if (f.vendor_face_id !== vendorFaceId) return f;
+          // La RPC no pisa una toma anterior: aquí se respeta igual.
+          return {
+            ...f,
+            fecha_toma: f.fecha_toma || ahora,
+            toma_por: f.toma_por || email,
+            // Las fotos reales de la toma (antes sumaba 1 sin importar cuántas).
+            fotos: Math.max(f.fotos, info.fotos),
+            avance: f.fecha_comprobacion ? 'COMPROBADA' : 'TOMADA',
+          };
+        })
+      );
+    setOfrecerEnCola(info.enCola);
     // Con la toma cerrada, se ofrece levantar incidencia del sitio: el
     // monitorista ya está parado frente a la valla y acaba de fotografiarla
     // — es EL momento de reportar lo que vio mal.
@@ -1506,16 +1617,37 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
                             {f.estatus}
                           </span>
                         )}
-                        <span
-                          className="pill"
-                          style={{ ...COLOR_AVANCE[f.avance] }}
-                        >
-                          {f.avance === 'PENDIENTE'
-                            ? 'Pendiente'
-                            : f.avance === 'TOMADA'
-                              ? `Tomada ${fmt(f.fecha_toma)}`
-                              : `Comprobada ${fmt(f.fecha_comprobacion)}`}
-                        </span>
+                        {/* La cola del teléfono va encima de lo del servidor:
+                            "Por subir" en gris (el ámbar ya es "Tomada"). */}
+                        {enColaRegistro(f) ? (
+                          <span
+                            className="pill"
+                            style={{ color: 'var(--muted)', background: fondoTono('gris') }}
+                          >
+                            <Ic i={CloudUpload} />
+                            {/* Con error no está "registrando": espera al monitorista. */}
+                            {colaDe(f)?.conError
+                              ? 'Sin registrar'
+                              : (colaDe(f)?.porSubir ?? 0) > 0
+                                ? `Por subir · ${colaDe(f)?.porSubir}`
+                                : 'Registrando…'}
+                          </span>
+                        ) : registradaEnSesion(f) ? (
+                          <span className="pill" style={{ ...COLOR_AVANCE.TOMADA }}>
+                            Tomada · actualizando…
+                          </span>
+                        ) : (
+                          <span
+                            className="pill"
+                            style={{ ...COLOR_AVANCE[f.avance] }}
+                          >
+                            {f.avance === 'PENDIENTE'
+                              ? 'Pendiente'
+                              : f.avance === 'TOMADA'
+                                ? `Tomada ${fmt(f.fecha_toma)}`
+                                : `Comprobada ${fmt(f.fecha_comprobacion)}`}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1532,15 +1664,49 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
                           Comprobar ya no vive aquí ni en el modal: desde el
                           22-oct-2026 lo hace el analista al revisar las
                           fotos (pestaña Analista). */}
-                      <button className={f.fecha_toma ? 'btn ghost sm' : 'btn sm'} onClick={() => setTomaDe(f)}>
+                      <button
+                        className={f.fecha_toma || colaDe(f) || registradaEnSesion(f) ? 'btn ghost sm' : 'btn sm'}
+                        onClick={() => setTomaDe(f)}
+                      >
                         <Ic i={Camera} />
-                        {f.fecha_toma ? `Evidencia${f.fotos ? ` (${f.fotos})` : ''}` : 'Registrar toma'}
+                        {colaDe(f)
+                          ? `Ver toma (${fotosConCola(f)})`
+                          : f.fecha_toma || registradaEnSesion(f)
+                            ? `Evidencia${f.fotos ? ` (${f.fotos})` : ''}`
+                            : f.fotos > 0
+                              ? `Terminar toma (${f.fotos})`
+                              : 'Registrar toma'}
                       </button>
                       {f.fecha_comprobacion && f.comprobacion_por && (
                         <span
                           style={{ fontSize: 11, color: 'var(--muted)' }}
                         >
                           Comprobó {f.comprobacion_por.split('@')[0]}
+                        </span>
+                      )}
+                      {/* La cola no pudo con esta toma: se dice aquí, en rojo. */}
+                      {colaDe(f)?.conError && (
+                        <span style={{ fontSize: 11, color: colorTono('rojo'), flexBasis: '100%' }}>
+                          {/* "Fotos sin subir" solo si de verdad queda alguna
+                              y no se pidió el registro; si no, es el registro. */}
+                          {(colaDe(f)?.porSubir ?? 0) > 0 && !colaDe(f)?.registrarPedido
+                            ? 'Fotos sin subir'
+                            : 'No se registró'}
+                          :{' '}
+                          {colaDe(f)?.ultimoError || 'abre la toma.'}
+                        </span>
+                      )}
+                      {/* Fotos extra (o sin registro pedido) que siguen en el teléfono. */}
+                      {!colaDe(f)?.conError && !!colaDe(f) && !enColaRegistro(f) && (colaDe(f)?.porSubir ?? 0) > 0 && (
+                        <span style={{ fontSize: 11, color: 'var(--muted)', flexBasis: '100%' }}>
+                          {colaDe(f)?.porSubir} por subir desde este teléfono
+                        </span>
+                      )}
+                      {/* Fotos subidas pero la toma nunca se registró (se cerró
+                          la ventana sin tocar Registrar): que no se pierda de vista. */}
+                      {!colaDe(f) && !f.fecha_toma && !registradaEnSesion(f) && f.fotos > 0 && !f.rechazo_motivo && (
+                        <span style={{ fontSize: 11, color: 'var(--muted)', flexBasis: '100%' }}>
+                          {f.fotos} {f.fotos === 1 ? 'foto subida' : 'fotos subidas'} · falta registrar la toma
                         </span>
                       )}
                       {/* Toma regresada: el monitorista ve el motivo sin
@@ -1688,9 +1854,10 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
           <div className="modal" style={{ maxWidth: 360, margin: 'auto 0' }}>
             <CerrarModal onClick={() => setOfrecerIncEn(null)} />
             <h2 style={{ margin: '0 0 3px', fontSize: 17 }}>
-              ✓ Toma registrada
+              {ofrecerEnCola ? 'Toma guardada en el teléfono' : '✓ Toma registrada'}
             </h2>
             <p className="phint" style={{ marginBottom: 14 }}>
+              {ofrecerEnCola && <>Se registra sola en cuanto suban las fotos (con la app abierta). </>}
               ¿Viste algo mal en <b>{ofrecerIncEn}</b>? Puedes levantar la
               incidencia ahora mismo, con el sitio ya cargado.
             </p>
