@@ -47,7 +47,7 @@ begin
            g.campana || ': versión "' || g.version || '" por programar — ' ||
              g.espacios || ' espacio' || case when g.espacios = 1 then '' else 's' end ||
              ', del ' || to_char(g.desde, 'DD/MM') || ' al ' || to_char(g.hasta, 'DD/MM') ||
-             '. Revísala en Bitácora VV.',
+             '. Revísala en Pauta VV.',  -- «Bitácora VV» hasta el 21-oct-2026 (migración aviso_pauta_vv)
            'Vía Verde'
     from (
       select distinct lower(usuario_email) as email
