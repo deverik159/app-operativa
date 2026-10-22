@@ -6,8 +6,9 @@
 //   1. Avance: caras, tomadas, comprobadas y regresadas; por ruta, por
 //      campaña y por monitorista. Se descarga en Excel.
 //   2. Comprobaciones agrupadas por campaña y por día en que se TOMÓ. Cada
-//      campaña y cada día se descargan en PDF con fotos o en Excel con
-//      ligas, para mandarlos por correo. Solo entran las comprobadas.
+//      campaña y cada día se descargan en Excel con ligas a las fotos. Solo
+//      entran las comprobadas (desde el 22-oct-2026 las comprueba el
+//      analista al revisarlas; el PDF se quitó ese día).
 //
 // El monitorista ve solo sus rutas asignadas; coordinador y manager, todo.
 // Ese recorte lo hace PautaView al pasar `filas` (es un filtro de pantalla,
@@ -16,10 +17,9 @@
 // El tercer bloque, las incidencias de los sitios, vive en
 // IncidenciasSitiosPauta.tsx.
 // ============================================================
-import { ChevronDown, ChevronRight, Download, FileText, Send, Sheet } from 'lucide-react';
+import { ChevronDown, ChevronRight, Download, Sheet } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PautaRuta } from '../../types/db';
-import { sb } from '../../lib/supabase';
 import { cargarNombres, nombreDe, type MapaNombres } from '../../lib/nombres';
 import {
   agruparComprobaciones,
@@ -27,7 +27,6 @@ import {
   etiquetaDia,
   nombreRuta,
   paraArchivo,
-  SIN_CAMPANA,
 } from '../../lib/indicadoresPauta';
 import { colorTono } from '../../lib/tonos';
 import {
@@ -35,7 +34,6 @@ import {
   evidenciasDe,
   excelAvance,
   excelComprobaciones,
-  pdfComprobaciones,
   type Contexto,
 } from './descargasPauta';
 import Ic from '../../components/Ic';
@@ -51,33 +49,20 @@ type Props = {
   etiquetaCat: string;
   /** Monitorista: solo sus rutas. Si no tiene ninguna, se dice. */
   soloMisRutas: boolean;
-  /** Coordinador/manager: puede mandar una campaña al analista (20-oct-2026). */
-  puedeEnviarAnalista?: boolean;
 };
-
-/** Lo ya enviado al analista de cada campaña en esta catorcena. */
-type EnviadoCampana = { caras: Set<string>; envios: number; revisados: number };
 
 /** Una tarea de descarga en curso (una a la vez). */
 type Tarea = { clave: string; texto: string };
 
 /**
  * Candado del MÓDULO, no del componente: si el usuario sale de Indicadores
- * con un PDF armándose, la descarga sigue; al volver no debe poder lanzar
- * otra en paralelo (dos PDF con fotos a la vez agotan la memoria del
- * iPhone). Tampoco pasan dos toques seguidos antes de que React pinte.
+ * con un archivo armándose, la descarga sigue; al volver no debe poder
+ * lanzar otra en paralelo. Tampoco pasan dos toques seguidos antes de que
+ * React pinte.
  */
 let descargaEnCurso = false;
 
-export default function IndicadoresPauta({
-  filas,
-  asignaciones,
-  anio,
-  numero,
-  etiquetaCat,
-  soloMisRutas,
-  puedeEnviarAnalista,
-}: Props) {
+export default function IndicadoresPauta({ filas, asignaciones, anio, numero, etiquetaCat, soloMisRutas }: Props) {
   const [nombres, setNombres] = useState<MapaNombres>({});
   useEffect(() => {
     let vivo = true;
@@ -126,87 +111,17 @@ export default function IndicadoresPauta({
     }
   };
 
-  // --- Envíos al analista (20-oct-2026) ---
-  const [enviados, setEnviados] = useState<Map<string, EnviadoCampana>>(new Map());
-  const [enviando, setEnviando] = useState<string | null>(null);
-  const [avisoEnvio, setAvisoEnvio] = useState('');
-  const cargarEnviados = async () => {
-    if (!puedeEnviarAnalista) return;
-    const [{ data: env, error: e1 }, { data: fot, error: e2 }] = await Promise.all([
-      sb.from('pauta_envios_analista').select('id,campana,revisado_en').eq('anio', anio).eq('catorcena', numero),
-      sb.from('pauta_envio_fotos').select('campana,vendor_face_id').eq('anio', anio).eq('catorcena', numero).limit(20000),
-    ]);
-    if (e1 || e2) {
-      if (vivo.current) setErr('No se pudo leer lo enviado al analista: ' + (e1 || e2)!.message);
-      return;
-    }
-    const m = new Map<string, EnviadoCampana>();
-    const de = (c: string) => {
-      let x = m.get(c);
-      if (!x) m.set(c, (x = { caras: new Set(), envios: 0, revisados: 0 }));
-      return x;
-    };
-    for (const e of (env as { campana: string; revisado_en: string | null }[]) || []) {
-      const x = de(e.campana);
-      x.envios++;
-      if (e.revisado_en) x.revisados++;
-    }
-    for (const f of (fot as { campana: string; vendor_face_id: string }[]) || []) de(f.campana).caras.add(f.vendor_face_id);
-    if (vivo.current) setEnviados(m);
-  };
-  useEffect(() => {
-    cargarEnviados();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anio, numero, puedeEnviarAnalista]);
-
-  const enviarAnalista = async (campana: string) => {
-    setEnviando(campana);
-    setErr('');
-    setAvisoEnvio('');
-    const { data, error } = await sb.rpc('enviar_al_analista', {
-      p_anio: anio,
-      p_catorcena: numero,
-      p_campana: campana,
-    });
-    if (!vivo.current) return;
-    setEnviando(null);
-    if (error) {
-      setErr(error.message);
-      return;
-    }
-    const r = data as { fotos: number; caras: number };
-    setAvisoEnvio(
-      `${campana}: se enviaron al analista ${r.fotos} ${r.fotos === 1 ? 'foto' : 'fotos'} de ${r.caras} ${r.caras === 1 ? 'cara' : 'caras'}.`
-    );
-    cargarEnviados();
-  };
-
   const bajarAvance = () =>
     correr('avance', 'Preparando el Excel…', async () => {
       const blob = await excelAvance(avance, filas, ctx);
       bajarArchivo(blob, `Avance_${sufijo}.xlsx`);
     });
 
-  const bajarComprobacion = (
-    clave: string,
-    formato: 'pdf' | 'xlsx',
-    titulo: string,
-    subtitulo: string,
-    nombreArchivo: string,
-    fs: PautaRuta[]
-  ) =>
-    correr(clave + formato, 'Leyendo las fotos…', async () => {
+  const bajarComprobacion = (clave: string, titulo: string, nombreArchivo: string, fs: PautaRuta[]) =>
+    correr(clave, 'Leyendo las fotos…', async () => {
       const evid = await evidenciasDe(anio, numero, fs.map((f) => f.vendor_face_id));
-      if (formato === 'xlsx') {
-        const blob = await excelComprobaciones(titulo, fs, evid, ctx);
-        bajarArchivo(blob, `${nombreArchivo}.xlsx`);
-        return;
-      }
-      const blob = await pdfComprobaciones(titulo, subtitulo, fs, evid, ctx, (h, t) => {
-        if (vivo.current)
-          setTarea({ clave: clave + formato, texto: t ? `Preparando fotos ${h} de ${t}…` : 'Armando el PDF…' });
-      });
-      bajarArchivo(blob, `${nombreArchivo}.pdf`);
+      const blob = await excelComprobaciones(titulo, fs, evid, ctx);
+      bajarArchivo(blob, `${nombreArchivo}.xlsx`);
     });
 
   if (soloMisRutas && asignaciones === 'cargando') return <div className="loading">Leyendo tus rutas…</div>;
@@ -222,27 +137,23 @@ export default function IndicadoresPauta({
   const t = avance.total;
   const ocupado = !!tarea;
 
-  /** Botones PDF + Excel de un grupo. */
-  const botones = (clave: string, titulo: string, subtitulo: string, archivo: string, fs: PautaRuta[]) => (
-    <span style={{ display: 'inline-flex', gap: 6, flexShrink: 0 }}>
-      {(['pdf', 'xlsx'] as const).map((fmt) => (
-        <button
-          key={fmt}
-          type="button"
-          className="btn ghost sm"
-          disabled={ocupado}
-          onClick={(e) => {
-            e.stopPropagation();
-            bajarComprobacion(clave, fmt, titulo, subtitulo, archivo, fs);
-          }}
-          title={fmt === 'pdf' ? 'PDF con las fotos, para mandar por correo' : 'Excel con una liga a cada foto'}
-        >
-          {tarea?.clave === clave + fmt && <span className="spinner" />}
-          <Ic i={fmt === 'pdf' ? FileText : Sheet} />
-          {fmt === 'pdf' ? 'PDF' : 'Excel'}
-        </button>
-      ))}
-    </span>
+  /** Botón Excel de un grupo. */
+  const botones = (clave: string, titulo: string, archivo: string, fs: PautaRuta[]) => (
+    <button
+      type="button"
+      className="btn ghost sm"
+      disabled={ocupado}
+      onClick={(e) => {
+        e.stopPropagation();
+        bajarComprobacion(clave, titulo, archivo, fs);
+      }}
+      title="Excel con una liga a cada foto"
+      style={{ flexShrink: 0 }}
+    >
+      {tarea?.clave === clave && <span className="spinner" />}
+      <Ic i={Sheet} />
+      Excel
+    </button>
   );
 
   return (
@@ -253,11 +164,6 @@ export default function IndicadoresPauta({
         </p>
       )}
       {err && <div className="err">{err}</div>}
-      {avisoEnvio && (
-        <div role="status" className="phint" style={{ marginTop: 0, color: colorTono('verde') }}>
-          {avisoEnvio}
-        </div>
-      )}
       {tarea && (
         <div role="status" className="phint" style={{ marginTop: 0 }}>
           <span className="spinner" />
@@ -279,7 +185,7 @@ export default function IndicadoresPauta({
           {[
             { l: 'Caras', n: t.caras },
             { l: 'Pendientes', n: t.pendientes, c: 'var(--warn)', sub: t.regresadas ? `${t.regresadas} ${t.regresadas === 1 ? 'regresada' : 'regresadas'}` : '' },
-            { l: 'Tomadas', n: t.tomadas, c: colorTono('azul'), sub: 'por comprobar' },
+            { l: 'Tomadas', n: t.tomadas, c: colorTono('azul'), sub: 'por revisar' },
             { l: 'Comprobadas', n: t.comprobadas, c: colorTono('verde'), sub: `${t.pct}%` },
           ].map((x) => (
             <div key={x.l} className="card">
@@ -343,8 +249,8 @@ export default function IndicadoresPauta({
       <section className="card">
         <b style={{ fontSize: 15 }}>Comprobaciones</b>
         <p className="phint" style={{ margin: '4px 0 10px' }}>
-          Por campaña y por día en que se tomó. Solo lo que el coordinador ya comprobó. Descarga en PDF con
-          fotos o en Excel con ligas.
+          Por campaña y por día en que se tomó. Solo lo que el analista ya comprobó al revisar las fotos.
+          Descarga en Excel con una liga a cada foto (la editada, si el analista la cambió).
         </p>
         {grupos.length === 0 && (
           <div style={{ color: 'var(--muted)', fontSize: 13 }}>Todavía no hay tomas comprobadas en esta catorcena.</div>
@@ -376,44 +282,7 @@ export default function IndicadoresPauta({
                     · {g.total} {g.total === 1 ? 'cara' : 'caras'} · {g.dias.length} {g.dias.length === 1 ? 'día' : 'días'} · {evidencias} {evidencias === 1 ? 'evidencia' : 'evidencias'}
                   </span>
                 </span>
-                {botones(
-                  'c|' + g.campana,
-                  g.campana,
-                  g.dias.length === 1 ? etiquetaDia(g.dias[0].dia) : `${etiquetaDia(g.dias[0].dia)} a ${etiquetaDia(g.dias[g.dias.length - 1].dia)}`,
-                  `Comprobacion_${paraArchivo(g.campana)}_${sufijo}`,
-                  todas
-                )}
-                {puedeEnviarAnalista && g.campana !== SIN_CAMPANA && (() => {
-                  const ya = enviados.get(g.campana);
-                  const nuevas = todas.filter((f) => !ya?.caras.has(f.vendor_face_id)).length;
-                  return (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      {nuevas > 0 && (
-                        <button
-                          type="button"
-                          className="btn ghost sm"
-                          disabled={!!enviando}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            enviarAnalista(g.campana);
-                          }}
-                          title="Manda al analista las fotos de las caras comprobadas que aún no le llegan"
-                        >
-                          {enviando === g.campana && <span className="spinner" />}
-                          <Ic i={Send} />
-                          Enviar {nuevas} {nuevas === 1 ? 'cara' : 'caras'} al analista
-                        </button>
-                      )}
-                      {ya && ya.envios > 0 && (
-                        <span style={{ fontSize: 12, color: ya.revisados === ya.envios ? colorTono('verde') : 'var(--muted)' }}>
-                          {ya.revisados === ya.envios
-                            ? 'Revisada por analista'
-                            : `Con el analista (${ya.envios - ya.revisados} por revisar)`}
-                        </span>
-                      )}
-                    </span>
-                  );
-                })()}
+                {botones('c|' + g.campana, g.campana, `Comprobacion_${paraArchivo(g.campana)}_${sufijo}`, todas)}
               </div>
               {abiertaEsta &&
                 g.dias.map((d) => (
@@ -432,7 +301,6 @@ export default function IndicadoresPauta({
                     {botones(
                       `d|${g.campana}|${d.dia}`,
                       g.campana,
-                      etiquetaDia(d.dia),
                       `Comprobacion_${paraArchivo(g.campana)}_${d.dia || 'sin-fecha'}_${sufijo}`,
                       d.filas
                     )}
@@ -441,12 +309,6 @@ export default function IndicadoresPauta({
             </div>
           );
         })}
-        {grupos.length > 0 && (
-          <p className="phint" style={{ marginBottom: 0 }}>
-            Un PDF con muchas fotos puede pasar del límite del correo (~25 MB): si es una campaña grande, descárgala
-            por día.
-          </p>
-        )}
       </section>
 
       {/* 3. Incidencias de los sitios */}

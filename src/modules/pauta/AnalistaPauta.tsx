@@ -1,73 +1,68 @@
 // ============================================================
 // src/modules/pauta/AnalistaPauta.tsx
-// Pestaña Analista de Pauta y Monitoreo (Erik, 20-oct-2026).
+// Pestaña Analista de Pauta y Monitoreo (Erik, 20 y 22-oct-2026).
 //
-// El coordinador manda al analista, por campaña, las fotos de las tomas
-// comprobadas (Indicadores → Comprobaciones → "Enviar al analista"). Aquí el
-// analista las ve en carpetas campaña → versión, cada una con el nombre
-// <vendor_face_id>_<n>, y:
-//   · si está bien, la marca "Correcta" (no se edita);
-//   · si hay que editarla, la descarga, la edita y sube la editada.
-// Cuando no queda ninguna pendiente, el envío queda revisado (lo cierra la
-// base y avisa a quien lo mandó) y las descargas de comprobación usan las
-// editadas. Todo el envío se puede bajar en un ZIP con las carpetas.
+// Cada toma que registra el monitorista le llega aquí al analista, en
+// carpetas campaña → versión de la catorcena elegida. Cada foto se llama
+// <vendor_face_id>_<n>. Por foto, el analista:
+//   · la marca Correcta, o sube la Editada (la descarga, la edita y la sube);
+//   · o la rechaza con motivo (junto con otras de la misma cara): esas dejan
+//     de contar y la toma vuelve al monitorista para subir las que faltan.
+// También puede regresar toda la toma. Cuando ninguna foto de la toma queda
+// sin revisar, la cara queda COMPROBADA sola: la revisión del analista ES la
+// comprobación (el coordinador ya no comprueba). Todo lo hace la base con
+// revisar_foto_pauta, rechazar_fotos_pauta y rechazar_toma.
 //
-// La foto editada no entra a pauta_evidencias (la base no deja agregar
-// fotos a una toma comprobada): vive en pauta_envio_fotos y la original se
-// conserva.
+// Bandejas: Por revisar (tomadas sin comprobar), Comprobadas (se pueden
+// rechazar después) y Regresadas (esperan al monitorista, con su motivo).
+// Las fotos de una carpeta se leen al abrirla; cada carpeta se baja en ZIP.
 // ============================================================
-import { ArrowLeft, Check, Download, FolderOpen, Upload } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Download, FolderOpen, Undo2, Upload, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { PautaRuta } from '../../types/db';
 import { sb } from '../../lib/supabase';
 import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from '../../lib/storage';
-import { etiquetaCatorcena } from '../../lib/catorcena';
 import { fechaHoraCdmx } from '../../lib/fechasCdmx';
 import { cargarNombres, nombreDe, type MapaNombres } from '../../lib/nombres';
-import { paraArchivo } from '../../lib/indicadoresPauta';
+import { nombreRuta, paraArchivo } from '../../lib/indicadoresPauta';
 import {
   carpetasAnalista,
-  extension,
   nombreFoto,
-  resumenEnvio,
+  numerar,
+  resumenFotos,
   rutasZip,
   urlVigente,
-  type FotoEnvio,
+  type Bandeja,
+  type FotoRevision,
 } from '../../lib/analistaPauta';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import { bajarArchivo } from './descargasPauta';
 import Ic from '../../components/Ic';
 
-type Envio = {
-  id: number;
-  anio: number;
-  catorcena: number;
-  campana: string;
-  enviado_por: string;
-  enviado_en: string;
-  fotos: number;
-  caras: number;
-  revisado_en: string | null;
-  revisado_por: string | null;
-};
-
 type Props = {
-  /** Analista (o manager): puede marcar y subir editadas. */
-  puedeRevisar: boolean;
-  /** Cambia cuando llega un aviso de envío nuevo: recarga la lista. */
-  recargarSignal?: number;
+  /** Filas de la catorcena (vw_pauta_ruta), ya recortadas por PautaView. */
+  filas: PautaRuta[];
+  anio: number;
+  numero: number;
+  /** "Cat-16 · 2026" */
+  etiquetaCat: string;
+  /** Algo cambió en la base (comprobada, rechazada): PautaView recarga. */
+  onCambio: () => void;
 };
 
 const CARPETA_EDITADAS = 'pauta-analista';
+const TXT_BANDEJA: Record<Bandeja, string> = {
+  por_revisar: 'Por revisar',
+  comprobadas: 'Comprobadas',
+  regresadas: 'Regresadas',
+};
 
 /** Una descarga o subida a la vez en toda la pestaña. */
 let ocupadoModulo = false;
 
-export default function AnalistaPauta({ puedeRevisar, recargarSignal }: Props) {
-  const [envios, setEnvios] = useState<Envio[]>([]);
-  const [filtro, setFiltro] = useState<'pendientes' | 'revisados'>('pendientes');
-  const [cargando, setCargando] = useState(true);
-  const [err, setErr] = useState('');
-  const [abierto, setAbierto] = useState<Envio | null>(null);
+export default function AnalistaPauta({ filas, anio, numero, etiquetaCat, onCambio }: Props) {
+  const [bandeja, setBandeja] = useState<Bandeja>('por_revisar');
+  const [abierta, setAbierta] = useState<string | null>(null);
   const [nombres, setNombres] = useState<MapaNombres>({});
 
   useEffect(() => {
@@ -78,112 +73,133 @@ export default function AnalistaPauta({ puedeRevisar, recargarSignal }: Props) {
     };
   }, []);
 
-  const cargar = useCallback(async () => {
-    setErr('');
-    const { data, error } = await sb
-      .from('pauta_envios_analista')
-      .select('*')
-      .order('enviado_en', { ascending: false })
-      .limit(200);
-    if (error) setErr('No se pudieron leer los envíos: ' + error.message);
-    else setEnvios((data as Envio[]) || []);
-    setCargando(false);
-  }, []);
+  const grupos = useMemo(
+    () => ({
+      por_revisar: carpetasAnalista(filas, 'por_revisar'),
+      comprobadas: carpetasAnalista(filas, 'comprobadas'),
+      regresadas: carpetasAnalista(filas, 'regresadas'),
+    }),
+    [filas]
+  );
+  const total = (b: Bandeja) => grupos[b].reduce((n, g) => n + g.total, 0);
+  const visibles = grupos[bandeja];
 
-  useEffect(() => {
-    cargar();
-  }, [cargar, recargarSignal]);
-
-  const pendientes = envios.filter((e) => !e.revisado_en);
-  const visibles = filtro === 'pendientes' ? pendientes : envios.filter((e) => !!e.revisado_en);
-
-  if (abierto)
-    return (
-      <DetalleEnvio
-        envio={abierto}
-        puedeRevisar={puedeRevisar}
-        nombres={nombres}
-        onVolver={() => {
-          setAbierto(null);
-          cargar();
-        }}
-      />
-    );
+  // Cambiar de catorcena o de bandeja cierra la carpeta abierta.
+  useEffect(() => setAbierta(null), [anio, numero, bandeja]);
 
   return (
     <>
       <div className="toolbar">
-        <div className="rt-chips rt-segmento" role="group" aria-label="Envíos">
-          {(['pendientes', 'revisados'] as const).map((k) => (
+        <div className="rt-chips rt-segmento" role="group" aria-label="Bandeja">
+          {(['por_revisar', 'comprobadas', 'regresadas'] as const).map((k) => (
             <button
               key={k}
               type="button"
-              className={'rt-chip' + (filtro === k ? ' on' : '')}
-              aria-pressed={filtro === k}
-              onClick={() => setFiltro(k)}
+              className={'rt-chip' + (bandeja === k ? ' on' : '')}
+              aria-pressed={bandeja === k}
+              onClick={() => setBandeja(k)}
             >
-              {k === 'pendientes' ? `Por revisar (${pendientes.length})` : 'Revisados'}
+              {TXT_BANDEJA[k]} ({total(k)})
             </button>
           ))}
         </div>
       </div>
-      {err && <div className="err">{err}</div>}
-      {cargando ? (
-        <div className="loading">Leyendo los envíos…</div>
-      ) : visibles.length === 0 ? (
+      {visibles.length === 0 ? (
         <div className="empty">
-          {filtro === 'pendientes'
-            ? 'No hay campañas por revisar. Te llega un aviso cuando el coordinador te envíe una.'
-            : 'Todavía no hay campañas revisadas.'}
+          {bandeja === 'por_revisar'
+            ? `No hay tomas por revisar en la ${etiquetaCat}. Te llega un aviso cuando un monitorista registra una.`
+            : bandeja === 'comprobadas'
+              ? `Todavía no hay tomas comprobadas en la ${etiquetaCat}.`
+              : 'No hay tomas regresadas esperando al monitorista.'}
         </div>
       ) : (
-        <div className="inc-list">
-          {visibles.map((e) => (
-            <button
-              key={e.id}
-              type="button"
-              className="inc"
-              onClick={() => setAbierto(e)}
-              style={{ textAlign: 'left', font: 'inherit', color: 'var(--txt)', cursor: 'pointer', width: '100%' }}
-            >
-              <div className="folio">
-                {etiquetaCatorcena(e.catorcena, e.anio)} · enviado {fechaHoraCdmx(e.enviado_en)} por{' '}
-                {nombreDe(nombres, e.enviado_por)}
-              </div>
-              <div className="titulo">
-                <Ic i={FolderOpen} />
-                {e.campana}
-              </div>
-              <div className="meta">
-                {e.fotos} {e.fotos === 1 ? 'foto' : 'fotos'} de {e.caras} {e.caras === 1 ? 'cara' : 'caras'}
-                {e.revisado_en && ` · revisada ${fechaHoraCdmx(e.revisado_en)} por ${nombreDe(nombres, e.revisado_por || '')}`}
-              </div>
-            </button>
-          ))}
-        </div>
+        visibles.map((g) => (
+          <section key={g.campana} className="card" style={{ marginBottom: 10 }}>
+            <b style={{ display: 'block', marginBottom: 6, overflowWrap: 'anywhere' }}>
+              <Ic i={FolderOpen} />
+              {g.campana}
+              <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                {' '}
+                · {g.total} {g.total === 1 ? 'cara' : 'caras'}
+              </span>
+            </b>
+            {g.versiones.map((v) => {
+              const clave = `${g.campana}\u0000${v.version}`;
+              const abiertaEsta = abierta === clave;
+              return (
+                <div key={clave} style={{ border: '1px solid var(--line)', borderRadius: 10, marginBottom: 8 }}>
+                  <button
+                    type="button"
+                    aria-expanded={abiertaEsta}
+                    onClick={() => setAbierta(abiertaEsta ? null : clave)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      width: '100%',
+                      padding: '10px 12px',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--txt)',
+                      font: 'inherit',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Ic i={abiertaEsta ? ChevronDown : ChevronRight} />
+                    <span style={{ flex: '1 1 auto', minWidth: 0, overflowWrap: 'anywhere' }}>{v.version}</span>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      {v.caras.length} {v.caras.length === 1 ? 'cara' : 'caras'}
+                    </span>
+                  </button>
+                  {abiertaEsta && (
+                    <Carpeta
+                      campana={g.campana}
+                      version={v.version}
+                      caras={v.caras}
+                      bandeja={bandeja}
+                      anio={anio}
+                      numero={numero}
+                      nombres={nombres}
+                      onCambio={onCambio}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </section>
+        ))
       )}
     </>
   );
 }
 
-function DetalleEnvio({
-  envio,
-  puedeRevisar,
+/** Una carpeta campaña/versión abierta: sus caras con sus fotos. */
+function Carpeta({
+  campana,
+  version,
+  caras,
+  bandeja,
+  anio,
+  numero,
   nombres,
-  onVolver,
+  onCambio,
 }: {
-  envio: Envio;
-  puedeRevisar: boolean;
+  campana: string;
+  version: string;
+  caras: PautaRuta[];
+  bandeja: Bandeja;
+  anio: number;
+  numero: number;
   nombres: MapaNombres;
-  onVolver: () => void;
+  onCambio: () => void;
 }) {
-  const [fotos, setFotos] = useState<FotoEnvio[]>([]);
-  const [cargando, setCargando] = useState(true);
+  const [fotos, setFotos] = useState<FotoRevision[]>([]);
+  const [cargando, setCargando] = useState(bandeja !== 'regresadas');
   const [err, setErr] = useState('');
   const [aviso, setAviso] = useState('');
-  /** Qué se está haciendo ahora (id de foto o 'zip'): una cosa a la vez. */
+  /** Qué se está haciendo (id de foto, cara o 'zip'): una cosa a la vez. */
   const [trabajando, setTrabajando] = useState<string | null>(null);
-  const [revisado, setRevisado] = useState(!!envio.revisado_en);
   // Se prende al montar: con StrictMode (desarrollo) el desmontaje de prueba
   // lo dejaba en false y la pantalla no salía de "procesando".
   const vivo = useRef(true);
@@ -194,25 +210,69 @@ function DetalleEnvio({
     };
   }, []);
 
+  const ids = useMemo(() => caras.map((c) => c.vendor_face_id), [caras]);
+  const firma = ids.join('|');
+
+  /** Fotos vigentes (no videos) de estas caras con su revisión. */
   const cargar = useCallback(async () => {
-    const { data, error } = await sb
-      .from('pauta_envio_fotos')
-      .select('id,envio_id,campana,version,vendor_face_id,site_id,tipo,original_url,n,estado,editada_url')
-      .eq('envio_id', envio.id)
-      .order('vendor_face_id')
-      .order('n');
-    if (!vivo.current) return;
-    if (error) setErr('No se pudieron leer las fotos: ' + error.message);
-    else setFotos((data as FotoEnvio[]) || []);
-    setCargando(false);
-  }, [envio.id]);
+    if (bandeja === 'regresadas') return;
+    setErr('');
+    const evid: { id: number; vendor_face_id: string; url: string; tipo: string | null; creado_en: string }[] = [];
+    for (let i = 0; i < ids.length; i += 80) {
+      const { data, error } = await sb
+        .from('pauta_evidencias')
+        .select('id,vendor_face_id,url,tipo,creado_en')
+        .eq('anio', anio)
+        .eq('catorcena', numero)
+        .in('vendor_face_id', ids.slice(i, i + 80))
+        .is('regresada_en', null)
+        // Solo fotos (los videos no se revisan); `neq` sola dejaría fuera tipo null.
+        .or('tipo.is.null,tipo.neq.video')
+        .order('creado_en');
+      if (error) {
+        if (vivo.current) setErr('No se pudieron leer las fotos: ' + error.message);
+        return;
+      }
+      evid.push(...((data as typeof evid) || []));
+    }
+    const rev = new Map<number, { estado: FotoRevision['estado']; editada_url: string | null }>();
+    for (let i = 0; i < evid.length; i += 150) {
+      const { data, error } = await sb
+        .from('pauta_revision_fotos')
+        .select('evidencia_id,estado,editada_url')
+        .in(
+          'evidencia_id',
+          evid.slice(i, i + 150).map((e) => e.id)
+        );
+      if (error) {
+        if (vivo.current) setErr('No se pudieron leer las revisiones: ' + error.message);
+        return;
+      }
+      for (const r of (data as { evidencia_id: number; estado: string; editada_url: string | null }[]) || [])
+        if (r.estado === 'correcta' || r.estado === 'editada')
+          rev.set(r.evidencia_id, { estado: r.estado, editada_url: r.editada_url });
+    }
+    const lista = numerar(
+      evid.map((e) => ({
+        evidencia_id: e.id,
+        vendor_face_id: e.vendor_face_id,
+        url: e.url,
+        tipo: e.tipo,
+        creado_en: e.creado_en,
+        estado: rev.get(e.id)?.estado ?? ('pendiente' as const),
+        editada_url: rev.get(e.id)?.editada_url ?? null,
+      }))
+    );
+    if (vivo.current) {
+      setFotos(lista);
+      setCargando(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anio, numero, firma, bandeja]);
 
   useEffect(() => {
     cargar();
   }, [cargar]);
-
-  const grupos = useMemo(() => carpetasAnalista(fotos), [fotos]);
-  const r = resumenEnvio(fotos);
 
   /** Corre una tarea con el candado de la pestaña; los errores se muestran. */
   const correr = async (clave: string, fn: () => Promise<void>) => {
@@ -234,40 +294,46 @@ function DetalleEnvio({
     }
   };
 
-  /** Llama a la RPC y aplica el cambio en pantalla. */
-  const marcar = async (f: FotoEnvio, estado: 'correcta' | 'editada', path?: string, url?: string) => {
-    const { data, error } = await sb.rpc('revisar_foto_analista', {
-      p_foto_id: f.id,
+  /** Marca una foto en la base y en pantalla. true = la toma quedó comprobada. */
+  const marcar = async (f: FotoRevision, estado: 'correcta' | 'editada', path?: string): Promise<boolean> => {
+    const { data, error } = await sb.rpc('revisar_foto_pauta', {
+      p_evidencia_id: f.evidencia_id,
       p_estado: estado,
       p_path: path ?? null,
-      p_url: url ?? null,
     });
     if (error) throw new Error('No se guardó: ' + error.message);
-    if (!vivo.current) return;
-    // La liga de la editada la arma la base desde el archivo en Storage.
-    const res = data as { pendientes: number; revisado: boolean; url: string | null } | null;
-    setFotos((prev) =>
-      prev.map((x) =>
-        x.id === f.id ? { ...x, estado, editada_url: estado === 'editada' ? res?.url ?? url ?? null : null } : x
-      )
-    );
-    if (res?.revisado && !revisado) {
-      setRevisado(true);
-      setAviso('Campaña revisada: se avisó al coordinador y las descargas de comprobación ya usan las editadas.');
-    }
+    const res = data as { comprobada: boolean; url: string | null } | null;
+    if (vivo.current)
+      setFotos((prev) =>
+        prev.map((x) =>
+          x.evidencia_id === f.evidencia_id
+            ? { ...x, estado, editada_url: estado === 'editada' ? res?.url ?? null : null }
+            : x
+        )
+      );
+    return !!res?.comprobada;
   };
 
-  const correcta = (f: FotoEnvio) => correr('f' + f.id, () => marcar(f, 'correcta'));
+  const tras = (comprobada: boolean, cara: string) => {
+    if (!comprobada) return;
+    if (vivo.current) setAviso(`${cara}: toma comprobada.`);
+    onCambio();
+  };
 
-  const todasCorrectas = (fs: FotoEnvio[], clave: string) =>
-    correr(clave, async () => {
-      for (const f of fs.filter((x) => x.estado === 'pendiente')) await marcar(f, 'correcta');
+  const correcta = (f: FotoRevision) => correr('f' + f.evidencia_id, async () => tras(await marcar(f, 'correcta'), f.vendor_face_id));
+
+  const todasCorrectas = (cara: string) =>
+    correr('c' + cara, async () => {
+      let ok = false;
+      for (const f of fotos.filter((x) => x.vendor_face_id === cara && x.estado === 'pendiente'))
+        ok = (await marcar(f, 'correcta')) || ok;
+      tras(ok, cara);
     });
 
-  const subirEditada = (f: FotoEnvio, archivo: File) =>
-    correr('f' + f.id, async () => {
+  const subirEditada = (f: FotoRevision, archivo: File) =>
+    correr('f' + f.evidencia_id, async () => {
       const ext = (archivo.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-      const path = `${CARPETA_EDITADAS}/${envio.anio}-${envio.catorcena}/${envio.id}/${f.vendor_face_id}_${f.n}_editada_${Date.now()}.${ext}`.replace(
+      const path = `${CARPETA_EDITADAS}/${anio}-${numero}/${f.vendor_face_id}_${f.n}_editada_${Date.now()}.${ext}`.replace(
         /[^\w.\-/]/g,
         '_'
       );
@@ -275,9 +341,8 @@ function DetalleEnvio({
         .from(BUCKET_EVIDENCIAS)
         .upload(path, archivo, { upsert: false, cacheControl: CACHE_INMUTABLE });
       if (up) throw new Error('No se pudo subir la editada: ' + up.message);
-      const url = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path).data.publicUrl;
       try {
-        await marcar(f, 'editada', path, url);
+        tras(await marcar(f, 'editada', path), f.vendor_face_id);
       } catch (e) {
         // Sin registro, el archivo quedaría huérfano en Storage.
         await sb.storage.from(BUCKET_EVIDENCIAS).remove([path]);
@@ -285,8 +350,41 @@ function DetalleEnvio({
       }
     });
 
-  const bajarUna = (f: FotoEnvio) =>
-    correr('d' + f.id, async () => {
+  const rechazar = (cara: string, idsFotos: number[], motivo: string) =>
+    correr('c' + cara, async () => {
+      const { error } = await sb.rpc('rechazar_fotos_pauta', { p_evidencia_ids: idsFotos, p_motivo: motivo });
+      if (error) throw new Error('No se rechazó: ' + error.message);
+      if (vivo.current) setAviso(`${cara}: se rechazaron ${idsFotos.length} y la toma regresó al monitorista.`);
+      onCambio();
+    });
+
+  const regresarToma = (cara: string, motivo: string) =>
+    correr('c' + cara, async () => {
+      const { error } = await sb.rpc('rechazar_toma', {
+        p_catorcena: numero,
+        p_vendor_face_id: cara,
+        p_motivo: motivo,
+        p_anio: anio,
+      });
+      if (error) throw new Error('No se regresó: ' + error.message);
+      if (vivo.current) setAviso(`${cara}: la toma completa regresó al monitorista.`);
+      onCambio();
+    });
+
+  /** Respaldo: la toma no tiene nada pendiente pero no se comprobó sola. */
+  const comprobarToma = (cara: string) =>
+    correr('c' + cara, async () => {
+      const { error } = await sb.rpc('registrar_comprobacion', {
+        p_catorcena: numero,
+        p_vendor_face_id: cara,
+        p_anio: anio,
+      });
+      if (error) throw new Error('No se comprobó: ' + error.message);
+      tras(true, cara);
+    });
+
+  const bajarUna = (f: FotoRevision) =>
+    correr('d' + f.evidencia_id, async () => {
       const resp = await fetch(urlVigente(f));
       if (!resp.ok) throw new Error('No se pudo bajar la foto (' + resp.status + ').');
       bajarArchivo(await resp.blob(), nombreFoto(f));
@@ -295,7 +393,7 @@ function DetalleEnvio({
   const bajarZip = () =>
     correr('zip', async () => {
       const { zip } = await import('fflate');
-      const lista = rutasZip(grupos);
+      const lista = rutasZip(campana, version, fotos);
       const archivos: Record<string, [Uint8Array, { level: 0 }]> = {};
       let i = 0;
       for (const { ruta, foto } of lista) {
@@ -307,12 +405,10 @@ function DetalleEnvio({
         archivos[ruta] = [new Uint8Array(await resp.arrayBuffer()), { level: 0 }];
       }
       if (vivo.current) setAviso('Armando el ZIP…');
-      const bytes = await new Promise<Uint8Array>((ok, mal) =>
-        zip(archivos, (e, d) => (e ? mal(e) : ok(d)))
-      );
+      const bytes = await new Promise<Uint8Array>((ok, mal) => zip(archivos, (e, d) => (e ? mal(e) : ok(d))));
       bajarArchivo(
         new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }),
-        `${paraArchivo(envio.campana)}_${paraArchivo(etiquetaCatorcena(envio.catorcena, envio.anio))}_envio${envio.id}.zip`
+        `${paraArchivo(campana)}_${paraArchivo(version)}_${anio}-${numero}.zip`
       );
       if (vivo.current) setAviso('');
     });
@@ -320,27 +416,15 @@ function DetalleEnvio({
   const ocupado = !!trabajando;
 
   return (
-    <>
-      <div className="toolbar" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <button type="button" className="btn ghost sm" onClick={onVolver} disabled={ocupado}>
-          <Ic i={ArrowLeft} />
-          Envíos
-        </button>
-        <button type="button" className="btn ghost sm" onClick={bajarZip} disabled={ocupado || fotos.length === 0}>
-          {trabajando === 'zip' && <span className="spinner" />}
-          <Ic i={Download} />
-          Bajar ZIP con carpetas
-        </button>
-      </div>
-      <h3 style={{ margin: '6px 0 2px' }}>{envio.campana}</h3>
-      <p className="phint" style={{ marginTop: 0 }}>
-        {etiquetaCatorcena(envio.catorcena, envio.anio)} · enviado {fechaHoraCdmx(envio.enviado_en)} por{' '}
-        {nombreDe(nombres, envio.enviado_por)} · {r.total} fotos: {r.pendientes} por revisar, {r.correctas} correctas,{' '}
-        {r.editadas} editadas
-        {revisado && ' · revisada'}
-      </p>
-      {!puedeRevisar && (
-        <p className="phint">Solo el analista marca las fotos y sube las editadas.</p>
+    <div style={{ padding: '0 12px 12px' }}>
+      {bandeja !== 'regresadas' && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          <button type="button" className="btn ghost sm" onClick={bajarZip} disabled={ocupado || fotos.length === 0}>
+            {trabajando === 'zip' && <span className="spinner" />}
+            <Ic i={Download} />
+            Bajar ZIP de esta carpeta
+          </button>
+        </div>
       )}
       {err && <div className="err">{err}</div>}
       {aviso && (
@@ -352,147 +436,278 @@ function DetalleEnvio({
       {cargando ? (
         <div className="loading">Leyendo las fotos…</div>
       ) : (
-        grupos.map((g) => (
-          <section key={g.campana} className="card" style={{ marginBottom: 12 }}>
-            {g.versiones.map((v) => {
-              const pend = v.fotos.filter((f) => f.estado === 'pendiente').length;
-              const clave = 'v' + v.version;
-              return (
-                <div key={v.version} style={{ marginBottom: 14 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                    <b style={{ flex: '1 1 160px', minWidth: 0, overflowWrap: 'anywhere' }}>
-                      <Ic i={FolderOpen} />
-                      {g.campana} / {v.version}
-                    </b>
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      {v.fotos.length} {v.fotos.length === 1 ? 'foto' : 'fotos'}
-                    </span>
-                    {puedeRevisar && pend > 0 && (
-                      <button
-                        type="button"
-                        className="btn ghost sm"
-                        disabled={ocupado}
-                        onClick={() => todasCorrectas(v.fotos, clave)}
-                      >
-                        {trabajando === clave && <span className="spinner" />}
-                        <Ic i={Check} />
-                        Las {pend} por revisar: correctas
-                      </button>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-                      gap: 10,
-                    }}
-                  >
-                    {v.fotos.map((f) => (
-                      <TarjetaFoto
-                        key={f.id}
-                        f={f}
-                        puedeRevisar={puedeRevisar}
-                        ocupado={ocupado}
-                        trabajando={trabajando}
-                        onCorrecta={() => correcta(f)}
-                        onBajar={() => bajarUna(f)}
-                        onEditada={(a) => subirEditada(f, a)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </section>
+        caras.map((c) => (
+          <BloqueCara
+            key={c.vendor_face_id}
+            cara={c}
+            fotos={fotos.filter((f) => f.vendor_face_id === c.vendor_face_id)}
+            bandeja={bandeja}
+            nombres={nombres}
+            ocupado={ocupado}
+            trabajando={trabajando}
+            onCorrecta={correcta}
+            onTodasCorrectas={() => todasCorrectas(c.vendor_face_id)}
+            onEditada={subirEditada}
+            onBajar={bajarUna}
+            onRechazar={(idsFotos, motivo) => rechazar(c.vendor_face_id, idsFotos, motivo)}
+            onRegresar={(motivo) => regresarToma(c.vendor_face_id, motivo)}
+            onComprobar={() => comprobarToma(c.vendor_face_id)}
+          />
         ))
       )}
-    </>
+    </div>
   );
 }
 
 const TONO_ESTADO = { pendiente: 'ambar', correcta: 'verde', editada: 'azul' } as const;
 const TXT_ESTADO = { pendiente: 'Por revisar', correcta: 'Correcta', editada: 'Editada' };
 
-function TarjetaFoto({
-  f,
-  puedeRevisar,
+/** Una cara con sus fotos y lo que el analista puede hacer con ella. */
+function BloqueCara({
+  cara,
+  fotos,
+  bandeja,
+  nombres,
   ocupado,
   trabajando,
+  onCorrecta,
+  onTodasCorrectas,
+  onEditada,
+  onBajar,
+  onRechazar,
+  onRegresar,
+  onComprobar,
+}: {
+  cara: PautaRuta;
+  fotos: FotoRevision[];
+  bandeja: Bandeja;
+  nombres: MapaNombres;
+  ocupado: boolean;
+  trabajando: string | null;
+  onCorrecta: (f: FotoRevision) => void;
+  onTodasCorrectas: () => void;
+  onEditada: (f: FotoRevision, a: File) => void;
+  onBajar: (f: FotoRevision) => void;
+  onRechazar: (ids: number[], motivo: string) => void;
+  onRegresar: (motivo: string) => void;
+  onComprobar: () => void;
+}) {
+  /** Fotos marcadas para rechazar. */
+  const [sel, setSel] = useState<Set<number>>(new Set());
+  /** Qué motivo se está escribiendo: rechazar las elegidas o regresar toda la toma. */
+  const [pidiendo, setPidiendo] = useState<'fotos' | 'toma' | null>(null);
+  const [motivo, setMotivo] = useState('');
+  const r = resumenFotos(fotos);
+  const puedeActuar = bandeja !== 'regresadas';
+  const enCurso = trabajando === 'c' + cara.vendor_face_id;
+
+  const alternar = (id: number) =>
+    setSel((prev) => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id);
+      else s.add(id);
+      return s;
+    });
+
+  const confirmar = () => {
+    const m = motivo.trim();
+    if (!m) return;
+    if (pidiendo === 'fotos') onRechazar([...sel], m);
+    else onRegresar(m);
+    setPidiendo(null);
+    setMotivo('');
+    setSel(new Set());
+  };
+
+  return (
+    <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+        <b style={{ overflowWrap: 'anywhere' }}>{cara.vendor_face_id}</b>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+          {cara.site_id} · {nombreRuta(cara.ruta_clave)}
+          {cara.fecha_toma && ` · tomó ${nombreDe(nombres, cara.toma_por || '')} ${fechaHoraCdmx(cara.fecha_toma)}`}
+          {cara.fecha_comprobacion &&
+            ` · comprobó ${nombreDe(nombres, cara.comprobacion_por || '')} ${fechaHoraCdmx(cara.fecha_comprobacion)}`}
+        </span>
+      </div>
+      {cara.rechazo_motivo && !cara.fecha_toma && (
+        <div style={{ fontSize: 12, color: colorTono('rojo'), marginTop: 4 }}>⛔ Regresada: “{cara.rechazo_motivo}”</div>
+      )}
+
+      {puedeActuar && (
+        <>
+          {fotos.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Sin fotos vigentes.</div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+                gap: 10,
+                marginTop: 8,
+              }}
+            >
+              {fotos.map((f) => (
+                <TarjetaFoto
+                  key={f.evidencia_id}
+                  f={f}
+                  elegida={sel.has(f.evidencia_id)}
+                  ocupado={ocupado}
+                  trabajando={trabajando}
+                  onElegir={() => alternar(f.evidencia_id)}
+                  onCorrecta={() => onCorrecta(f)}
+                  onBajar={() => onBajar(f)}
+                  onEditada={(a) => onEditada(f, a)}
+                />
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
+            {enCurso && <span className="spinner" />}
+            {r.pendientes > 0 && (
+              <button type="button" className="btn ghost sm" disabled={ocupado} onClick={onTodasCorrectas}>
+                <Ic i={Check} />
+                Las {r.pendientes} por revisar: correctas
+              </button>
+            )}
+            {bandeja === 'por_revisar' && r.total > 0 && r.pendientes === 0 && (
+              <button type="button" className="btn ok sm" disabled={ocupado} onClick={onComprobar}>
+                <Ic i={Check} />
+                Comprobar toma
+              </button>
+            )}
+            {sel.size > 0 && (
+              <button type="button" className="btn hi sm" disabled={ocupado} onClick={() => setPidiendo('fotos')}>
+                <Ic i={X} />
+                Rechazar {sel.size} {sel.size === 1 ? 'foto' : 'fotos'}
+              </button>
+            )}
+            <button type="button" className="btn ghost sm" disabled={ocupado} onClick={() => setPidiendo('toma')}>
+              <Ic i={Undo2} />
+              Regresar toda la toma
+            </button>
+          </div>
+
+          {pidiendo && (
+            <div className="field" style={{ marginTop: 8 }}>
+              <label>
+                {pidiendo === 'fotos'
+                  ? `Motivo del rechazo de ${sel.size} ${sel.size === 1 ? 'foto' : 'fotos'}`
+                  : 'Motivo para regresar toda la toma'}
+              </label>
+              <textarea
+                rows={2}
+                value={motivo}
+                onChange={(e) => setMotivo(e.target.value)}
+                placeholder="Ej. la foto salió movida; falta la toma larga…"
+              />
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  onClick={() => {
+                    setPidiendo(null);
+                    setMotivo('');
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button type="button" className="btn hi sm" disabled={ocupado || !motivo.trim()} onClick={confirmar}>
+                  {pidiendo === 'fotos' ? 'Rechazar y avisar al monitorista' : 'Regresar y avisar al monitorista'}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function TarjetaFoto({
+  f,
+  elegida,
+  ocupado,
+  trabajando,
+  onElegir,
   onCorrecta,
   onBajar,
   onEditada,
 }: {
-  f: FotoEnvio;
-  puedeRevisar: boolean;
+  f: FotoRevision;
+  elegida: boolean;
   ocupado: boolean;
   trabajando: string | null;
+  onElegir: () => void;
   onCorrecta: () => void;
   onBajar: () => void;
   onEditada: (a: File) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const url = urlVigente(f);
-  const esVideo = extension(url, f.tipo) === 'mp4' || f.tipo === 'video';
   const tono = TONO_ESTADO[f.estado];
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 9, overflow: 'hidden', background: 'var(--panel2)' }}>
+    <div
+      style={{
+        border: '1px solid ' + (elegida ? colorTono('rojo') : 'var(--line)'),
+        borderRadius: 9,
+        overflow: 'hidden',
+        background: 'var(--panel2)',
+      }}
+    >
       <a href={url} target="_blank" rel="noreferrer" style={{ display: 'block', background: 'var(--panel)' }}>
-        {esVideo ? (
-          <video src={url} preload="metadata" style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
-        ) : (
-          <img src={url} alt={nombreFoto(f)} loading="lazy" style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
-        )}
+        <img src={url} alt={nombreFoto(f)} loading="lazy" style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
       </a>
       <div style={{ padding: '7px 8px', display: 'grid', gap: 6 }}>
         <div style={{ fontSize: 11, fontWeight: 700, overflowWrap: 'anywhere' }}>{nombreFoto(f)}</div>
-        <span
-          className="pill"
-          style={{ justifySelf: 'start', background: fondoTono(tono), color: colorTono(tono) }}
-        >
-          {TXT_ESTADO[f.estado]}
-        </span>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span className="pill" style={{ background: fondoTono(tono), color: colorTono(tono) }}>
+            {TXT_ESTADO[f.estado]}
+          </span>
+          <label style={{ fontSize: 11, display: 'inline-flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}>
+            <input type="checkbox" checked={elegida} onChange={onElegir} disabled={ocupado} />
+            Rechazar
+          </label>
+        </div>
         {f.estado === 'editada' && (
-          <a href={f.original_url} target="_blank" rel="noreferrer" style={{ fontSize: 11 }}>
+          <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 11 }}>
             Ver original
           </a>
         )}
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
           <button type="button" className="btn ghost sm" disabled={ocupado} onClick={onBajar} title="Descargar con su nombre">
-            {trabajando === 'd' + f.id && <span className="spinner" />}
+            {trabajando === 'd' + f.evidencia_id && <span className="spinner" />}
             <Ic i={Download} />
           </button>
-          {puedeRevisar && f.estado !== 'correcta' && (
+          {f.estado !== 'correcta' && (
             <button type="button" className="btn ghost sm" disabled={ocupado} onClick={onCorrecta}>
-              {trabajando === 'f' + f.id && <span className="spinner" />}
+              {trabajando === 'f' + f.evidencia_id && <span className="spinner" />}
               <Ic i={Check} />
               Correcta
             </button>
           )}
-          {puedeRevisar && (
-            <>
-              <button
-                type="button"
-                className="btn ghost sm"
-                disabled={ocupado}
-                onClick={() => input.current?.click()}
-                title="Subir la foto editada"
-              >
-                <Ic i={Upload} />
-                {f.estado === 'editada' ? 'Otra editada' : 'Editada'}
-              </button>
-              <input
-                ref={input}
-                type="file"
-                accept="image/*,video/*"
-                hidden
-                onChange={(e) => {
-                  const a = e.target.files?.[0];
-                  e.target.value = '';
-                  if (a) onEditada(a);
-                }}
-              />
-            </>
-          )}
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={ocupado}
+            onClick={() => input.current?.click()}
+            title="Subir la foto editada"
+          >
+            <Ic i={Upload} />
+            {f.estado === 'editada' ? 'Otra editada' : 'Editada'}
+          </button>
+          <input
+            ref={input}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const a = e.target.files?.[0];
+              e.target.value = '';
+              if (a) onEditada(a);
+            }}
+          />
         </div>
       </div>
     </div>

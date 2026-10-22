@@ -961,12 +961,20 @@ function Main({
     e === 'pauta_analista_revisado';
 
   /**
-   * Pestaña de Pauta a la que lleva un aviso del analista (20-oct-2026):
-   * "Campaña por revisar" a Analista; "Campaña revisada" a Indicadores.
+   * Pestaña de Pauta a la que lleva un aviso del analista: "Toma por
+   * revisar" (desde el 22-oct-2026 le llega al analista) a Analista; quien
+   * no es analista se queda en la Lista. Los dos eventos del envío por
+   * campaña (20-oct-2026) ya no se generan, pero los avisos viejos llevan
+   * al mismo lugar.
    */
   const [vistaPauta, setVistaPauta] = useState<{ vista: 'analista' | 'indicadores'; n: number } | null>(null);
   const pedirVistaPauta = (e?: string | null) => {
-    const vista = e === 'pauta_analista' ? 'analista' : e === 'pauta_analista_revisado' ? 'indicadores' : null;
+    const vista =
+      e === 'pauta_revision' || e === 'pauta_analista'
+        ? 'analista'
+        : e === 'pauta_analista_revisado'
+          ? 'indicadores'
+          : null;
     if (vista) setVistaPauta((p) => ({ vista, n: (p?.n ?? 0) + 1 }));
   };
 
