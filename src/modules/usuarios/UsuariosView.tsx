@@ -218,6 +218,13 @@ function UsuariosView({ email = '' }: { email?: string }) {
       alert('Elige el área de pertenencia del usuario.');
       return;
     }
+    // Sin área, el técnico no puede registrar reparaciones y le llegarían los
+    // avisos de todas las áreas: el técnico va siempre con su área, una fila
+    // por área si atiende varias (Erik, 21-oct-2026).
+    if (nr.rol === 'reparacion' && !nr.depto) {
+      alert('Elige el área técnica responsable del técnico.');
+      return;
+    }
     const { error } = await sb.from('usuario_roles').insert({
       usuario_email: em.toLowerCase(),
       rol: nr.rol as AppRole,
@@ -521,7 +528,9 @@ function UsuariosView({ email = '' }: { email?: string }) {
                       onChange={(e) => setNr({ ...nr, depto: e.target.value })}
                     >
                       <option value="">
-                        {esPersonalUsuario ? '(elige un área)' : '(ninguna / todas)'}
+                        {esPersonalUsuario || nr.rol === 'reparacion'
+                          ? '(elige un área)'
+                          : '(ninguna / todas)'}
                       </option>
                       {opcionesDepto.map((x) => (
                         <option key={x} value={x}>
@@ -538,6 +547,8 @@ function UsuariosView({ email = '' }: { email?: string }) {
                     {esPersonalTecnico && (
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                         Esta área sí determina qué incidencias puede atender el técnico.
+                        {nr.rol === 'reparacion' &&
+                          ' Si atiende varias áreas, agrega una fila por cada una.'}
                       </div>
                     )}
                   </div>
