@@ -38,6 +38,9 @@ export type Ubic = {
   direccion_fuente?: 'qtm' | 'archivo' | null;
   direccion?: string | null;
   origen?: string | null;
+  /** Dueño de la ruta (migración rutas_por_coordinador, 22-oct-2026). */
+  ruta_coordinador?: string | null;
+  ruta_coordinador_nombre?: string | null;
 };
 
 export type Resumen = {
@@ -51,7 +54,30 @@ export type Resumen = {
   total_ubicaciones: number;
   retiradas: number;
   inhabilitadas: number;
+  /** Dueño de la ruta (migración rutas_por_coordinador, 22-oct-2026). */
+  coordinador_email?: string | null;
+  coordinador_nombre?: string | null;
 };
+
+// ------------------------------------------------------------
+// Rutas por coordinador (Erik, 22-oct-2026)
+// ------------------------------------------------------------
+
+/** Un coordinador que puede tener rutas en la unidad. */
+export type Coordinador = { email: string; nombre: string };
+
+/** Lo que devuelve rutas_contexto(p_unidad): quién soy y a quién puedo ver.
+ *  Un coordinador solo se ve a sí mismo; el manager, a todos los de la
+ *  unidad (los que tienen el rol y los dueños de rutas que ya existen). */
+export type ContextoRutas = { yo: string; es_manager: boolean; coordinadores: Coordinador[] };
+
+/** Filtro "todos los coordinadores" del manager (no es un correo). */
+export const TODOS_COORDINADORES = '';
+
+/** Primer nombre para los chips: "Marco Anaya" → "Marco". */
+export function nombreCorto(nombre: string | null | undefined): string {
+  return (nombre || '').trim().split(/\s+/)[0] || '(sin nombre)';
+}
 
 /** La dirección que se muestra de una parada: la ELEGIDA (columna
  *  `direccion` de la vista) y, si la vista aún no la trae, la del archivo. */

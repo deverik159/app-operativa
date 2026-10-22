@@ -85,6 +85,9 @@ type EnOtra = {
    *  Digital e Impreso que está en una ruta de Pauta): no se mueve desde
    *  aquí; guardar_paradas_ruta también lo rechaza (revisión, 5-oct-2026). */
   otroSegmento: boolean;
+  /** Nombre del dueño si la ruta es de OTRO coordinador (22-oct-2026): no
+   *  se mueve desde aquí y guardar_paradas_ruta también lo rechaza. */
+  deOtro: string | null;
 };
 
 /** Fila de vw_rutas_con_coords que se relee al abrir (revisión, 5-oct-2026). */
@@ -98,6 +101,8 @@ type FilaRutaHoy = {
   ruta_tipo: string;
   site_id: string;
   secuencia: number | null;
+  ruta_coordinador?: string | null;
+  ruta_coordinador_nombre?: string | null;
 };
 
 /**
@@ -178,6 +183,11 @@ export default function ArmarRutaModal({
   /** "Biobox Combinada (Impreso y Digital)" o "Vía Verde Digital". */
   const segmentoTxt = `${unidad} ${textoMedio(tipo)}`;
   const color = colorSeguro(ruta.color);
+  /** Si otra ruta es de OTRO coordinador, su nombre; si no, null (rutas por
+   *  coordinador, 22-oct-2026). Sin dato del dueño (vista vieja) no se
+   *  bloquea: la base revisa de todos modos al guardar. */
+  const deOtroDueno = (dueno?: string | null, nombre?: string | null): string | null =>
+    dueno && ruta.coordinador_email && dueno !== ruta.coordinador_email ? nombre || dueno.split('@')[0] : null;
 
   // --- Datos ---
   const [cargando, setCargando] = useState(true);
@@ -322,7 +332,7 @@ export default function ArmarRutaModal({
       for (const t of trozos([...por.keys()], 150)) {
         const { data, error } = await sb
           .from('vw_rutas_con_coords')
-          .select('ubicacion_id,ruta_id,ruta_numero,ruta_nombre,ruta_color,ruta_unidad,ruta_tipo,site_id,secuencia')
+          .select('ubicacion_id,ruta_id,ruta_numero,ruta_nombre,ruta_color,ruta_unidad,ruta_tipo,site_id,secuencia,ruta_coordinador,ruta_coordinador_nombre')
           .in('site_id', t)
           .abortSignal(tope(12000));
         if (!activo) return;
@@ -339,7 +349,10 @@ export default function ArmarRutaModal({
             color: u.ruta_color,
             unidad: u.ruta_unidad,
             tipo: u.ruta_tipo,
-            otroSegmento: !segmentoCompatible({ unidad: u.ruta_unidad, tipo: u.ruta_tipo }, { unidad, tipo }),
+            otroSegmento:
+              !segmentoCompatible({ unidad: u.ruta_unidad, tipo: u.ruta_tipo }, { unidad, tipo }) ||
+              deOtroDueno(u.ruta_coordinador, u.ruta_coordinador_nombre) != null,
+            deOtro: deOtroDueno(u.ruta_coordinador, u.ruta_coordinador_nombre),
           });
         }
       }
@@ -348,7 +361,7 @@ export default function ArmarRutaModal({
         const rp = await traerPaginado<FilaRutaHoy>((desde, hasta, senal) =>
           sb
             .from('vw_rutas_con_coords')
-            .select('ubicacion_id,ruta_id,ruta_numero,ruta_nombre,ruta_color,ruta_unidad,ruta_tipo,site_id,secuencia')
+            .select('ubicacion_id,ruta_id,ruta_numero,ruta_nombre,ruta_color,ruta_unidad,ruta_tipo,site_id,secuencia,ruta_coordinador,ruta_coordinador_nombre')
             .eq('ruta_id', ruta.id)
             .order('secuencia', { ascending: true, nullsFirst: false })
             .order('ubicacion_id', { ascending: true })
@@ -395,8 +408,12 @@ export default function ArmarRutaModal({
         color: u.ruta_color,
         unidad: u.ruta_unidad,
         tipo: u.ruta_tipo,
-        // Con el filtro "Ambos" la foto trae rutas de los tres medios.
-        otroSegmento: !segmentoCompatible({ unidad: u.ruta_unidad, tipo: u.ruta_tipo }, { unidad, tipo }),
+        // Con el filtro "Ambos" la foto trae rutas de los tres medios; con el
+        // manager en "Todos", rutas de varios coordinadores.
+        otroSegmento:
+          !segmentoCompatible({ unidad: u.ruta_unidad, tipo: u.ruta_tipo }, { unidad, tipo }) ||
+          deOtroDueno(u.ruta_coordinador, u.ruta_coordinador_nombre) != null,
+        deOtro: deOtroDueno(u.ruta_coordinador, u.ruta_coordinador_nombre),
       });
     }
     return m;
@@ -450,6 +467,10 @@ export default function ArmarRutaModal({
   const alternar = (sid: string) => {
     const otra = enOtra.get(sid);
     if (otra?.otroSegmento && !elegidos.includes(sid)) {
+      if (otra.deOtro) {
+        alert(`${sid} ya está en la Ruta ${otra.numero} de ${otra.deOtro}. Es de otro coordinador: no se mueve.`);
+        return;
+      }
       alert(
         `${sid} ya está en la Ruta ${otra.numero} de ${otra.unidad} ${otra.tipo}` +
           (esSegmentoDePauta(otra.unidad, otra.tipo) ? ' (la manda la pauta)' : '') +
@@ -961,7 +982,11 @@ export default function ArmarRutaModal({
                               <span className="pill" style={{ background: fondoTono('ambar'), color: colorTono('ambar') }}>
                                 En Ruta {otra.numero}
                                 {otra.nombre ? ` · ${otra.nombre}` : ''}
-                                {otra.otroSegmento ? ` (${otra.unidad} ${otra.tipo}: no se mueve desde aquí)` : ''}
+                                {otra.deOtro
+                                  ? ` (de ${otra.deOtro}: no se mueve)`
+                                  : otra.otroSegmento
+                                    ? ` (${otra.unidad} ${otra.tipo}: no se mueve desde aquí)`
+                                    : ''}
                               </span>
                             )}
                             {s.lat == null && (

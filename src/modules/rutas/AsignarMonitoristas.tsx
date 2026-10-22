@@ -95,13 +95,15 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
       // trae los dos medios: ni tiene gemela ni es gemela de nadie (rutas
       // combinadas, 19-oct-2026).
       if (esBiobox && ruta.nombre && ruta.tipo_medio !== MEDIO_COMBINADA) {
-        const { data } = await sb
+        let c = sb
           .from('rutas_monitoreo')
           .select('id,numero,nombre,tipo_medio')
           .eq('unidad_negocio', ruta.unidad_negocio)
           .neq('tipo_medio', ruta.tipo_medio)
-          .neq('tipo_medio', MEDIO_COMBINADA)
-          .abortSignal(tope(TOPE_LECTURA_MS));
+          .neq('tipo_medio', MEDIO_COMBINADA);
+        // La gemela es del mismo coordinador (rutas por coordinador, 22-oct-2026).
+        if (ruta.coordinador_email) c = c.eq('coordinador_email', ruta.coordinador_email);
+        const { data } = await c.abortSignal(tope(TOPE_LECTURA_MS));
         if (!activo) return;
         const n = normNombre(ruta.nombre);
         gem = ((data as Gemela[] | null) || []).find((r) => normNombre(r.nombre) === n) || null;

@@ -64,6 +64,9 @@ type Actual = {
   unidad: string;
   tipo: string;
   fuente: Fuente | null;
+  /** Dueño de esa ruta (22-oct-2026); null si la vista aún no lo trae. */
+  dueno: string | null;
+  duenoNombre: string | null;
 };
 type FilaActual = {
   site_id: string;
@@ -72,6 +75,8 @@ type FilaActual = {
   ruta_unidad: string;
   ruta_tipo: string;
   direccion_fuente: string | null;
+  ruta_coordinador?: string | null;
+  ruta_coordinador_nombre?: string | null;
 };
 
 const mismoTexto = (a: string | null | undefined, b: string | null | undefined) =>
@@ -149,6 +154,13 @@ type Resultado = {
   ubicaciones_procesadas?: number;
   omitidas?: number;
   omitidos_ejemplo?: unknown[];
+  /** Lo que se reemplazó (rutas por coordinador, 22-oct-2026). */
+  reemplazo?: {
+    hecho?: boolean;
+    motivo?: string;
+    paradas_quitadas?: number;
+    rutas_borradas?: { numero: number; nombre: string | null }[];
+  } | null;
 };
 
 /** Las filas que se ven por tanda en la comparación (iPhone viejo). */
@@ -162,11 +174,17 @@ export default function ImportarRutasArchivoModal({
   descartadas,
   resumen,
   ubicsSegmento,
+  coordinador,
+  coordinadorNombre,
   onClose,
   onImportado,
 }: {
   unidad: string;
   tipo: string;
+  /** Dueño de las rutas que se reemplazan (Erik, 22-oct-2026). `resumen` y
+   *  `ubicsSegmento` llegan ya filtrados a sus rutas. */
+  coordinador: string | null;
+  coordinadorNombre?: string;
   /** Paradas actuales del segmento (las que Rutas ya tenía cargadas). Solo
    *  cubren mientras llega la lectura fresca de la base, que es la que
    *  decide la fuente inicial y qué sitios cambian de ruta (rutas,
@@ -237,7 +255,7 @@ export default function ImportarRutasArchivoModal({
           (desde, hasta, senal) =>
             sb
               .from('vw_rutas_con_coords')
-              .select('site_id,ruta_numero,ruta_nombre,ruta_unidad,ruta_tipo,direccion_fuente')
+              .select('site_id,ruta_numero,ruta_nombre,ruta_unidad,ruta_tipo,direccion_fuente,ruta_coordinador,ruta_coordinador_nombre')
               .in('site_id', t)
               .order('site_id')
               .range(desde, hasta)
@@ -257,6 +275,8 @@ export default function ImportarRutasArchivoModal({
             unidad: x.ruta_unidad,
             tipo: x.ruta_tipo,
             fuente: x.direccion_fuente === 'archivo' ? 'archivo' : x.direccion_fuente === 'qtm' ? 'qtm' : null,
+            dueno: x.ruta_coordinador ?? null,
+            duenoNombre: x.ruta_coordinador_nombre ?? null,
           });
       }
       if (!activo) return;
@@ -282,6 +302,8 @@ export default function ImportarRutasArchivoModal({
         unidad,
         tipo,
         fuente: u.direccion_fuente ?? null,
+        dueno: u.ruta_coordinador ?? null,
+        duenoNombre: u.ruta_coordinador_nombre ?? null,
       });
     return m;
   }, [actuales, ubicsSegmento, unidad, tipo]);
@@ -316,9 +338,19 @@ export default function ImportarRutasArchivoModal({
     // sitio brincaba entre las dos). Aquí solo se avisa, sin confirmación.
     const cambianDeRuta: { site_id: string; de: string; a: number }[] = [];
     const otroSegmento: { site_id: string; de: string }[] = [];
+    // (Erik, 22-oct-2026) Un sitio que está en una ruta de OTRO coordinador
+    // no se toca: la base lo omite y aquí se avisa antes.
+    const deOtro: { site_id: string; de: string }[] = [];
     for (const f of filas) {
       const h = hoy.get(f.site_id);
       if (!h) continue;
+      if (coordinador && h.dueno && h.dueno !== coordinador) {
+        deOtro.push({
+          site_id: f.site_id,
+          de: `Ruta ${h.ruta}` + (h.nombre ? ` · ${h.nombre}` : '') + ` de ${h.duenoNombre || h.dueno.split('@')[0]}`,
+        });
+        continue;
+      }
       const otroSeg = !mismoTexto(h.unidad, unidad) || !mismoTexto(h.tipo, tipo);
       if (otroSeg) {
         otroSegmento.push({
@@ -334,7 +366,25 @@ export default function ImportarRutasArchivoModal({
         a: f.ruta,
       });
     }
+    // REEMPLAZO (Erik, 22-oct-2026): las rutas de este coordinador en esta
+    // unidad y medio quedan como el archivo. Lo que se va: sus rutas cuyo
+    // número no viene y sus paradas cuyo sitio no viene. Lo mismo que hace
+    // importar_rutas con p_reemplazar; aquí se enseña ANTES.
+    const numerosArchivo = new Set(filas.map((f) => f.ruta));
+    const sitiosArchivo = new Set(filas.map((f) => f.site_id));
+    // Las 900+ (EDOMEX, PLAZA: foráneas de la pauta) no se tocan.
+    const rutasSeBorran = resumen.filter(
+      (r) => Number(r.numero) < 900 && !numerosArchivo.has(Number(r.numero))
+    );
+    const idsSeBorran = new Set(rutasSeBorran.map((r) => r.id));
+    // Las paradas de las rutas que se borran ya cuentan con su ruta.
+    const paradasSalen = ubicsSegmento.filter(
+      (u) => Number(u.ruta_numero) < 900 && !sitiosArchivo.has(u.site_id) && !idsSeBorran.has(u.ruta_id)
+    );
     return {
+      rutasSeBorran,
+      paradasSalen,
+      deOtro,
       cambianDeRuta,
       otroSegmento,
       difieren,
@@ -345,7 +395,9 @@ export default function ImportarRutasArchivoModal({
       numeros,
       nuevas: numeros.filter((n) => !existentes.has(n)),
     };
-  }, [filas, qtm, resumen, hoy]);
+  }, [filas, qtm, resumen, hoy, ubicsSegmento, coordinador]);
+  /** Al importar se borra algo: hay que confirmarlo con la lista. */
+  const reemplazaAlgo = analisis.rutasSeBorran.length > 0 || analisis.paradasSalen.length > 0;
 
   // --- Elección ---
   /** null = no se ha tocado la elección para todo el archivo. */
@@ -419,7 +471,7 @@ export default function ImportarRutasArchivoModal({
 
   const importar = async (moverConfirmado = false) => {
     if (enCurso.current || faltaElegir) return;
-    if (analisis.cambianDeRuta.length > 0 && !moverConfirmado) {
+    if ((analisis.cambianDeRuta.length > 0 || reemplazaAlgo) && !moverConfirmado) {
       setConfirmarMover(true);
       return;
     }
@@ -444,7 +496,14 @@ export default function ImportarRutasArchivoModal({
         ...(fuenteDe(f) ? { fuente_direccion: fuenteDe(f) as Fuente } : {}),
       }));
       const { data, error, status } = await sb
-        .rpc('importar_rutas', { p_unidad: unidad, p_tipo: tipo, p_filas })
+        // Reemplaza las rutas del coordinador (Erik, 22-oct-2026).
+        .rpc('importar_rutas', {
+          p_unidad: unidad,
+          p_tipo: tipo,
+          p_filas,
+          p_reemplazar: true,
+          p_coordinador: coordinador,
+        })
         .abortSignal(tope(60000));
       if (!vivo.current) return;
       if (error || status === 0) {
@@ -458,9 +517,13 @@ export default function ImportarRutasArchivoModal({
       }
       const r = (data || {}) as Resultado;
       setResultado(r);
+      const rem = r.reemplazo;
       onImportado(
         `${nombreArchivo}: ${r.ubicaciones_procesadas ?? 0} ubicaciones procesadas, ${r.rutas_creadas ?? 0} rutas creadas` +
           ((r.omitidas ?? 0) > 0 ? `, ${r.omitidas} omitidas` : '') +
+          (rem?.hecho && (rem.rutas_borradas?.length ?? 0) > 0 ? `, ${rem.rutas_borradas!.length} rutas borradas` : '') +
+          (rem?.hecho && (rem.paradas_quitadas ?? 0) > 0 ? `, ${rem.paradas_quitadas} paradas quitadas` : '') +
+          (rem && rem.hecho === false ? `. ${rem.motivo || 'No se reemplazó nada.'}` : '') +
           '.'
       );
     } finally {
@@ -539,6 +602,32 @@ export default function ImportarRutasArchivoModal({
                 .map((c) => `${c.site_id}: ${c.de} → Ruta ${c.a}`)
                 .join(', ')}
               {analisis.cambianDeRuta.length > 5 ? '…' : ''}). Antes de importar te pido confirmarlo.
+            </div>
+          )}
+          {!cargando && reemplazaAlgo && (
+            <div style={{ color: 'var(--st-ambar)' }}>
+              ⚠ Importar <b>reemplaza</b> tus rutas de {unidad} {tipo}
+              {analisis.rutasSeBorran.length > 0
+                ? `: se borran ${analisis.rutasSeBorran.length} ${analisis.rutasSeBorran.length === 1 ? 'ruta que no viene' : 'rutas que no vienen'} en el archivo`
+                : ''}
+              {analisis.paradasSalen.length > 0
+                ? `${analisis.rutasSeBorran.length > 0 ? ' y' : ':'} salen ${analisis.paradasSalen.length} paradas que no vienen`
+                : ''}
+              . Antes de importar te enseño la lista.
+            </div>
+          )}
+          {!cargando && analisis.deOtro.length > 0 && (
+            <div style={{ color: 'var(--st-ambar)' }}>
+              ⚠{' '}
+              {analisis.deOtro.length === 1
+                ? '1 sitio está en una ruta de otro coordinador y no se toca'
+                : `${analisis.deOtro.length} sitios están en rutas de otro coordinador y no se tocan`}{' '}
+              (
+              {analisis.deOtro
+                .slice(0, 5)
+                .map((c) => `${c.site_id}: ${c.de}`)
+                .join(', ')}
+              {analisis.deOtro.length > 5 ? '…' : ''}): la base los omite.
             </div>
           )}
           {!cargando && analisis.otroSegmento.length > 0 && (
@@ -708,26 +797,82 @@ export default function ImportarRutasArchivoModal({
                 Omitidas (ejemplos): {ejemplos.join(' · ')}
               </div>
             )}
+            {resultado.reemplazo?.hecho && (
+              <div style={{ marginTop: 6 }}>
+                Reemplazo: {resultado.reemplazo.paradas_quitadas ?? 0} paradas quitadas
+                {(resultado.reemplazo.rutas_borradas?.length ?? 0) > 0
+                  ? ` y ${resultado.reemplazo.rutas_borradas!.length} rutas borradas (${resultado.reemplazo
+                      .rutas_borradas!.slice(0, 12)
+                      .map((b) => `Ruta ${b.numero}${b.nombre ? ' · ' + b.nombre : ''}`)
+                      .join(', ')}${resultado.reemplazo.rutas_borradas!.length > 12 ? '…' : ''})`
+                  : ''}
+                .
+              </div>
+            )}
+            {resultado.reemplazo && resultado.reemplazo.hecho === false && (
+              <div style={{ marginTop: 6 }}>{resultado.reemplazo.motivo || 'No se reemplazó nada.'}</div>
+            )}
           </div>
         )}
         {/* Confirmación de mover (rutas, 5-oct-2026): la base no cambió nada
             todavía. Misma forma que la del armado. */}
-        {confirmarMover && !resultado && analisis.cambianDeRuta.length > 0 && (
+        {confirmarMover && !resultado && (analisis.cambianDeRuta.length > 0 || reemplazaAlgo) && (
           <div className="rt-aviso" ref={avisoMoverRef}>
-            <b>
-              {analisis.cambianDeRuta.length === 1
-                ? 'Este sitio hoy está en otra ruta y el archivo lo cambia:'
-                : `Estos ${analisis.cambianDeRuta.length} sitios hoy están en otra ruta y el archivo los cambia:`}
-            </b>
-            <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
-              {analisis.cambianDeRuta.slice(0, 12).map((c) => (
-                <li key={c.site_id}>
-                  {c.site_id}: sale de {c.de} y pasa a la Ruta {c.a}
-                </li>
-              ))}
-              {analisis.cambianDeRuta.length > 12 && <li>y {analisis.cambianDeRuta.length - 12} más</li>}
-            </ul>
-            <div>Si continúas, salen de su ruta de hoy y quedan solo en la que dice el archivo.</div>
+            {/* (Erik, 22-oct-2026) Lo que el reemplazo borra, antes de hacerlo. */}
+            {analisis.rutasSeBorran.length > 0 && (
+              <>
+                <b>
+                  {analisis.rutasSeBorran.length === 1
+                    ? 'Esta ruta no viene en el archivo y se BORRA:'
+                    : `Estas ${analisis.rutasSeBorran.length} rutas no vienen en el archivo y se BORRAN:`}
+                </b>
+                <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
+                  {analisis.rutasSeBorran.slice(0, 12).map((r) => (
+                    <li key={r.id}>
+                      Ruta {r.numero}
+                      {r.nombre ? ` · ${r.nombre}` : ''} ({r.total_ubicaciones} paradas)
+                    </li>
+                  ))}
+                  {analisis.rutasSeBorran.length > 12 && <li>y {analisis.rutasSeBorran.length - 12} más</li>}
+                </ul>
+              </>
+            )}
+            {analisis.paradasSalen.length > 0 && (
+              <div style={{ margin: '6px 0' }}>
+                <b>
+                  {analisis.paradasSalen.length === 1
+                    ? '1 parada no viene en el archivo y sale de su ruta'
+                    : `${analisis.paradasSalen.length} paradas no vienen en el archivo y salen de sus rutas`}
+                </b>{' '}
+                ({analisis.paradasSalen
+                  .slice(0, 8)
+                  .map((u) => `${u.site_id} de la Ruta ${u.ruta_numero}`)
+                  .join(', ')}
+                {analisis.paradasSalen.length > 8 ? '…' : ''}).
+              </div>
+            )}
+            {analisis.cambianDeRuta.length > 0 && (
+              <>
+                <b>
+                  {analisis.cambianDeRuta.length === 1
+                    ? 'Este sitio hoy está en otra ruta y el archivo lo cambia:'
+                    : `Estos ${analisis.cambianDeRuta.length} sitios hoy están en otra ruta y el archivo los cambia:`}
+                </b>
+                <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
+                  {analisis.cambianDeRuta.slice(0, 12).map((c) => (
+                    <li key={c.site_id}>
+                      {c.site_id}: sale de {c.de} y pasa a la Ruta {c.a}
+                    </li>
+                  ))}
+                  {analisis.cambianDeRuta.length > 12 && <li>y {analisis.cambianDeRuta.length - 12} más</li>}
+                </ul>
+              </>
+            )}
+            <div>
+              Si continúas, tus rutas de {unidad} {tipo}
+              {coordinadorNombre ? ` (de ${coordinadorNombre})` : ''} quedan exactamente como el archivo. Las de
+              otros coordinadores no se tocan.
+            </div>
             <div className="rt-aviso-acc">
               <button
                 type="button"
@@ -738,7 +883,7 @@ export default function ImportarRutasArchivoModal({
                 No, déjame revisar
               </button>
               <button type="button" className="btn sm warn" onClick={() => importar(true)} disabled={importando}>
-                {importando ? 'Importando…' : 'Sí, importar y moverlos'}
+                {importando ? 'Importando…' : 'Sí, importar y reemplazar'}
               </button>
             </div>
           </div>
@@ -748,7 +893,7 @@ export default function ImportarRutasArchivoModal({
         <div className="rt-pie">
           <div style={{ fontSize: 12, color: 'var(--muted)', flex: '1 1 160px' }}>
             {faltaElegir && !resultado ? 'Elige qué dirección se queda para poder importar.' : ''}
-            {!faltaElegir && !resultado && confirmarMover ? 'Confirma arriba los sitios que cambian de ruta.' : ''}
+            {!faltaElegir && !resultado && confirmarMover ? 'Confirma arriba lo que cambia y lo que se borra.' : ''}
           </div>
           <button type="button" className="btn ghost sm" onClick={cerrar} disabled={importando}>
             {resultado ? 'Cerrar' : 'Cancelar'}

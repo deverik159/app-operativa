@@ -34,6 +34,8 @@ import type { GemelaVacia } from './AvisoGemelasVacias';
 type Props = {
   /** La unidad del filtro de Rutas: el archivo se importa a esa. */
   unidad: string;
+  /** Dueño de las rutas (22-oct-2026): el del filtro de Rutas. */
+  coordinador?: string | null;
   onClose: () => void;
   onImportado: (resumen: string) => void;
 };
@@ -69,7 +71,7 @@ function norm(s: unknown): string {
 /** Forma de una clave: MX_CM_BB_MED_0001. */
 const RE_CLAVE = /^[A-Z]{2}_[A-Z]{2}_[A-Z]{2,3}_[A-Z]{3}_\d{3,5}$/;
 
-function ImportarRutasExcelModal({ unidad, onClose, onImportado }: Props) {
+function ImportarRutasExcelModal({ unidad, coordinador, onClose, onImportado }: Props) {
   // La unidad se HEREDA de la pantalla (Erik, 5-oct-2026: ya la elegiste en
   // el filtro, no tiene caso pedirla otra vez). El KML sí la vuelve a pedir a
   // propósito: empata por CERCANÍA y con la unidad equivocada amarró máquinas
@@ -298,6 +300,8 @@ function ImportarRutasExcelModal({ unidad, onClose, onImportado }: Props) {
       p_capas: capas,
       p_quitar_faltantes: quitarFaltantes,
       p_conservar: conservar,
+      // Solo las rutas de este coordinador (rutas por coordinador, 22-oct-2026).
+      p_coordinador: coordinador || null,
     });
     setImportando(false);
 

@@ -28,6 +28,8 @@ import type { GemelaVacia } from './AvisoGemelasVacias';
 type Props = {
   /** Sugerencia tomada de la pantalla. NO se usa sin confirmar. */
   unidad: string;
+  /** Dueño de las rutas (22-oct-2026): el del filtro de Rutas. */
+  coordinador?: string | null;
   onClose: () => void;
   onImportado: (resumen: string) => void;
 };
@@ -64,7 +66,7 @@ const ETIQUETA: Record<Confianza, string> = {
   ninguna: 'Sin empate',
 };
 
-function ImportarKmlModal({ unidad: sugerida, onClose, onImportado }: Props) {
+function ImportarKmlModal({ unidad: sugerida, coordinador, onClose, onImportado }: Props) {
   /**
    * Unidad de negocio destino. EMPIEZA VACÍA A PROPÓSITO.
    *
@@ -257,6 +259,8 @@ function ImportarKmlModal({ unidad: sugerida, onClose, onImportado }: Props) {
       p_capas: payload,
       p_quitar_faltantes: quitarFaltantes,
       p_conservar: conservar,
+      // Solo las rutas de este coordinador (rutas por coordinador, 22-oct-2026).
+      p_coordinador: coordinador || null,
     });
     setImportando(false);
 

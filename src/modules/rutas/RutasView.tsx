@@ -13,7 +13,7 @@
 //   · El detalle muestra la dirección ELEGIDA, asigna monitoristas y enseña
 //     el avance de visitas por catorcena.
 // ============================================================
-import { ClipboardList, Download, FileSpreadsheet, Map as MapIcon, Pencil, Puzzle } from 'lucide-react';
+import { ClipboardList, Download, FileSpreadsheet, Map as MapIcon, Pencil, Puzzle, Trash2 } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
@@ -45,12 +45,16 @@ import {
   esSegmentoDePauta,
   FILTRO_AMBOS,
   MEDIO_COMBINADA,
+  nombreCorto,
   qtmDistinta,
   textoMedio,
   textoFalla,
   textoSobre,
+  TODOS_COORDINADORES,
   traerPaginado,
   TOPE_LECTURA_MS,
+  TOPE_RPC_MS,
+  type ContextoRutas,
   type Resumen,
   type Ubic,
 } from './rutasComun';
@@ -151,6 +155,54 @@ function RutasView({
   /** "Biobox" con Ambos (son todas), "Biobox Digital" con un medio. */
   const segmentoTxt = verAmbos ? unidad : `${unidad} ${tipo}`;
 
+  // ---------------------------------------------------------
+  // Rutas por coordinador (Erik, 22-oct-2026)
+  // ---------------------------------------------------------
+  /** Quién soy y a qué coordinadores puedo ver, por unidad (rutas_contexto).
+   *  Hasta que llega no se cargan rutas: un coordinador nunca ve, ni por un
+   *  momento, las rutas de otro. */
+  const [ctx, setCtx] = useState<{ unidad: string; datos: ContextoRutas } | null>(null);
+  const [errCtx, setErrCtx] = useState('');
+  const [intentoCtx, setIntentoCtx] = useState(0);
+  /** Filtro del manager: correo del coordinador o TODOS_COORDINADORES. */
+  const [filtroCoord, setFiltroCoord] = useState(TODOS_COORDINADORES);
+  useEffect(() => {
+    let vivo = true;
+    setErrCtx('');
+    void (async () => {
+      const { data, error, status } = await sb
+        .rpc('rutas_contexto', { p_unidad: unidad })
+        .abortSignal(tope(TOPE_LECTURA_MS));
+      if (!vivo) return;
+      if (error || status === 0 || !data) {
+        setErrCtx(
+          'No pude saber cuáles rutas son tuyas. ' +
+            textoFalla(error?.message || null, status === 0 || pareceSinRed(error, status))
+        );
+        return;
+      }
+      const d = data as ContextoRutas;
+      setCtx({ unidad, datos: { ...d, coordinadores: d.coordinadores || [] } });
+      // Un coordinador del filtro que no existe en esta unidad se quita.
+      setFiltroCoord((f) =>
+        f && !(d.coordinadores || []).some((c) => c.email === f) ? TODOS_COORDINADORES : f
+      );
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, [unidad, intentoCtx]);
+  const ctxListo = ctx != null && ctx.unidad === unidad;
+  const esManager = !!(ctxListo && ctx!.datos.es_manager);
+  /** De quién son las rutas en pantalla: el coordinador, las suyas; el
+   *  manager, las del filtro ('' = de todos). null = aún no se sabe. */
+  const duenoVista: string | null = !ctxListo ? null : esManager ? filtroCoord : ctx!.datos.yo;
+  /** Con qué dueño se crea o importa: null si el manager está en "Todos"
+   *  (tiene que elegir a alguien antes; Erik, 22-oct-2026). */
+  const duenoAccion: string | null = duenoVista || null;
+  const nombreDe = (email: string | null | undefined): string =>
+    (ctxListo && ctx!.datos.coordinadores.find((c) => c.email === email)?.nombre) || '';
+
   /**
    * En iPhone/iPad, cambiar de unidad o medio ARRANCA ARRIBA, como cambiar de módulo
    * (84cfe3f). En el iPhone (iOS 27, app instalada), pasar de una unidad con
@@ -192,8 +244,11 @@ function RutasView({
   /** De qué unidad|medio son las rutas que están en pantalla. */
   const segmentoEnPantalla = useRef('');
   const cargar = async () => {
+    // Sin saber de quién son, no se carga nada (ver ctx).
+    if (duenoVista == null) return;
     const ficha = ++fichaCarga.current;
-    const segmento = unidad + '|' + tipo;
+    const dueno = duenoVista;
+    const segmento = unidad + '|' + tipo + '|' + dueno;
     setLoading(true);
     setErr('');
     // "Ambos" = sin filtro de medio: Impreso, Digital y Combinadas juntas.
@@ -202,11 +257,14 @@ function RutasView({
       traerPaginado<Ubic>((desde, hasta, senal) => {
         let c = sb.from('vw_rutas_con_coords').select('*').eq('ruta_unidad', unidad);
         if (!ambos) c = c.eq('ruta_tipo', tipo);
+        // Cada coordinador, solo sus rutas (Erik, 22-oct-2026).
+        if (dueno) c = c.eq('ruta_coordinador', dueno);
         return c.order('ubicacion_id').range(desde, hasta).abortSignal(senal);
       }),
       traerPaginado<Resumen>((desde, hasta, senal) => {
         let c = sb.from('vw_rutas_resumen').select('*').eq('unidad_negocio', unidad);
         if (!ambos) c = c.eq('tipo_medio', tipo);
+        if (dueno) c = c.eq('coordinador_email', dueno);
         // Con Ambos, agrupadas por medio (Combinada, Digital, Impreso).
         if (ambos) c = c.order('tipo_medio');
         return c.order('numero').order('id').range(desde, hasta).abortSignal(senal);
@@ -251,10 +309,12 @@ function RutasView({
   useEffect(() => {
     cargar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unidad, tipo]);
+  }, [unidad, tipo, duenoVista]);
 
   // Abrir modal para crear una ruta nueva (segmento = el activo)
   const nuevaRuta = () => {
+    // El manager en "Todos" tiene que elegir de quién es (el botón ya lo dice).
+    if (!duenoAccion) return;
     setErr('');
     numeroTocado.current = false;
     const ficha = ++fichaNueva.current;
@@ -277,10 +337,13 @@ function RutasView({
       unidad_negocio: unidad,
       tipo_medio: tipoNueva,
       activa: true,
+      coordinador_email: duenoAccion,
+      coordinador_nombre: nombreDe(duenoAccion),
     });
     void (async () => {
+      // Numeración por coordinador (22-oct-2026).
       const { data, error } = await sb
-        .rpc('siguiente_numero_ruta', { p_unidad: unidad, p_tipo: tipoNueva })
+        .rpc('siguiente_numero_ruta', { p_unidad: unidad, p_tipo: tipoNueva, p_coordinador: duenoAccion })
         .abortSignal(tope(TOPE_LECTURA_MS));
       const n = Number(data);
       if (error || !Number.isInteger(n) || n <= 0) return; // se queda la sugerencia local
@@ -294,6 +357,78 @@ function RutasView({
     fichaNueva.current++;
     setEditando({ ...r });
   };
+  // Eliminar la ruta completa (Erik, 22-oct-2026). Primero la base cuenta
+  // lo que se va (paradas, monitoristas asignados, visitas, revisiones) y
+  // se confirma con esos números; luego se borra en una sola llamada.
+  const [eliminando, setEliminando] = useState(false);
+  const eliminarRuta = async () => {
+    if (!editando?.id || eliminando) return;
+    const id = editando.id;
+    setEliminando(true);
+    setErr('');
+    try {
+      if (!(await haySesionReal())) {
+        setErr('Tu sesión se está reconectando. Espera unos segundos y vuelve a intentarlo.');
+        return;
+      }
+      type RespEliminar = {
+        ok?: boolean;
+        numero?: number;
+        nombre?: string | null;
+        paradas?: number;
+        monitoristas?: number;
+        visitas?: number;
+        revisiones?: number;
+      };
+      const cuenta = await sb
+        .rpc('eliminar_ruta', { p_ruta_id: id, p_solo_contar: true })
+        .abortSignal(tope(TOPE_LECTURA_MS));
+      if (cuenta.error || cuenta.status === 0) {
+        setErr(
+          'No se pudo eliminar: ' +
+            textoFalla(cuenta.error?.message || null, cuenta.status === 0 || pareceSinRed(cuenta.error, cuenta.status))
+        );
+        return;
+      }
+      const c = (cuenta.data || {}) as RespEliminar;
+      const partes = [
+        `${c.paradas ?? 0} ${c.paradas === 1 ? 'parada' : 'paradas'}`,
+        c.monitoristas ? `${c.monitoristas} ${c.monitoristas === 1 ? 'monitorista asignado (le llega aviso)' : 'monitoristas asignados (les llega aviso)'}` : '',
+        c.visitas ? `${c.visitas} visitas marcadas (se conservan, sin ruta)` : '',
+        c.revisiones ? `${c.revisiones} revisiones de máquinas (se conservan, sin ruta)` : '',
+      ].filter(Boolean);
+      if (
+        !confirm(
+          `¿Eliminar la Ruta ${c.numero ?? editando.numero}${c.nombre ? ' · ' + c.nombre : ''}?\n\n` +
+            `Se va con: ${partes.join(', ')}.\n\nNo se puede deshacer. Si solo quieres dejar de usarla, ` +
+            'mejor desmarca «Ruta activa».'
+        )
+      )
+        return;
+      const r = await sb
+        .rpc('eliminar_ruta', { p_ruta_id: id, p_solo_contar: false })
+        .abortSignal(tope(TOPE_RPC_MS));
+      if (r.error || r.status === 0) {
+        setErr(
+          'No se eliminó: ' +
+            textoFalla(r.error?.message || null, r.status === 0 || pareceSinRed(r.error, r.status))
+        );
+        return;
+      }
+      const hecho = (r.data || {}) as RespEliminar;
+      setEditando(null);
+      if (detalleRuta?.id === id) setDetalleRuta(null);
+      if (rutaFoco === id) setRutaFoco(null);
+      setResultadoImport(
+        `Ruta ${hecho.numero ?? ''}${hecho.nombre ? ' · ' + hecho.nombre : ''} eliminada ` +
+          `(${hecho.paradas ?? 0} paradas${hecho.monitoristas ? `, ${hecho.monitoristas} monitoristas avisados` : ''}).`
+      );
+      cargar();
+    } finally {
+      setEliminando(false);
+    }
+  };
+
   // Guardar (insert si es nueva, update si existe)
   const guardarRuta = async () => {
     if (!editando || guardando) return;
@@ -326,6 +461,7 @@ function RutasView({
         activa: editando.activa ?? true,
       };
       // .select('id'): la RLS niega en silencio; sin fila de regreso, no se guardó.
+      // Al crear va el dueño (el del filtro); al editar no se toca.
       const resp = editando.id
         ? await sb
             .from('rutas_monitoreo')
@@ -335,7 +471,7 @@ function RutasView({
             .abortSignal(tope(TOPE_LECTURA_MS))
         : await sb
             .from('rutas_monitoreo')
-            .insert(payload)
+            .insert({ ...payload, coordinador_email: editando.coordinador_email || duenoAccion })
             .select('id')
             .abortSignal(tope(TOPE_LECTURA_MS));
       const { data, error, status } = resp;
@@ -343,7 +479,7 @@ function RutasView({
         // Detectar violación de unicidad del número de ruta y mostrar mensaje claro
         const msg = (error?.message || '').toLowerCase();
         if (msg.includes('duplicate') || msg.includes('unique') || error?.code === '23505') {
-          setErr('Número de ruta duplicado, elige otro.');
+          setErr('Ya tienes una ruta con ese número en esta unidad y medio: elige otro.');
         } else if (status === 0 || pareceSinRed(error, status)) {
           setErr('Sin señal o la red tardó demasiado: no se guardó. Vuelve a intentar.');
         } else {
@@ -371,6 +507,8 @@ function RutasView({
           total_ubicaciones: 0,
           retiradas: 0,
           inhabilitadas: 0,
+          coordinador_email: editando.coordinador_email || duenoAccion,
+          coordinador_nombre: editando.coordinador_nombre || nombreDe(duenoAccion),
         };
         if (esSegmentoDePauta(payload.unidad_negocio, payload.tipo_medio)) {
           setResultadoImport(
@@ -644,6 +782,7 @@ function RutasView({
       {kmlAbierto && (
         <ImportarKmlModal
           unidad={unidad}
+          coordinador={duenoAccion}
           onClose={() => setKmlAbierto(false)}
           onImportado={(resumen) => {
             setResultadoImport('Importación desde el mapa: ' + resumen);
@@ -654,6 +793,7 @@ function RutasView({
       {excelRutasAbierto && (
         <ImportarRutasExcelModal
           unidad={unidad}
+          coordinador={duenoAccion}
           onClose={() => setExcelRutasAbierto(false)}
           onImportado={(resumen) => {
             setResultadoImport('Importación desde el Excel: ' + resumen);
@@ -665,6 +805,8 @@ function RutasView({
         <ImportarRutasArchivoModal
           unidad={unidad}
           tipo={tipo}
+          coordinador={duenoAccion}
+          coordinadorNombre={nombreDe(duenoAccion)}
           ubicsSegmento={ubics}
           nombreArchivo={archivoLeido.nombre}
           filas={archivoLeido.filas}
@@ -830,6 +972,12 @@ function RutasView({
               Unidad: <b>{editando.unidad_negocio}</b> ·{' '}
               <b>{textoMedio(editando.tipo_medio || tipoNueva)}</b>
               {esNueva && ' (del filtro actual)'}
+              {/* De quién es: solo le sirve al manager, que ve las de todos. */}
+              {esManager && (editando.coordinador_nombre || editando.coordinador_email) && (
+                <div style={{ marginTop: 4 }}>
+                  Coordinador: <b>{editando.coordinador_nombre || editando.coordinador_email}</b>
+                </div>
+              )}
               {esNueva && editando.tipo_medio === MEDIO_COMBINADA && (
                 <div style={{ marginTop: 4 }}>
                   Ruta combinada: acepta máquinas Impreso y Digital de {editando.unidad_negocio}.
@@ -876,14 +1024,27 @@ function RutasView({
               paddingTop: 14,
             }}
           >
+            {/* Eliminar va a la izquierda, lejos de Guardar (Erik, 22-oct-2026). */}
+            {!esNueva && (
+              <button
+                type="button"
+                className="btn sm warn"
+                style={{ marginRight: 'auto' }}
+                onClick={eliminarRuta}
+                disabled={guardando || eliminando}
+              >
+                <Ic i={Trash2} />
+                {eliminando ? 'Revisando…' : 'Eliminar ruta'}
+              </button>
+            )}
             <button
               className="btn ghost sm"
               onClick={() => setEditando(null)}
-              disabled={guardando}
+              disabled={guardando || eliminando}
             >
               Cancelar
             </button>
-            <button className="btn ok" onClick={guardarRuta} disabled={guardando}>
+            <button className="btn ok" onClick={guardarRuta} disabled={guardando || eliminando}>
               {guardando ? 'Guardando…' : esNueva && !segPauta ? 'Guardar y elegir paradas' : 'Guardar'}
             </button>
           </div>
@@ -1161,9 +1322,21 @@ function RutasView({
   return (
     <>
       {loading && !yaCargo ? (
-        <div className="loading" style={{ textAlign: 'center', color: 'var(--muted)', padding: 60 }}>
-          Cargando rutas…
-        </div>
+        errCtx ? (
+          <div>
+            <h2 className="page">Rutas de Operación</h2>
+            <div className="err">
+              {errCtx}{' '}
+              <button type="button" className="btn sm ghost" onClick={() => setIntentoCtx((n) => n + 1)}>
+                Reintentar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="loading" style={{ textAlign: 'center', color: 'var(--muted)', padding: 60 }}>
+            Cargando rutas…
+          </div>
+        )
       ) : (
         <div>
           <h2 className="page">
@@ -1245,17 +1418,44 @@ function RutasView({
                 </button>
               ))}
             </div>
-            {puedeGestionar && (
+            {/* (Erik, 22-oct-2026) Cada coordinador ve solo sus rutas; el
+                manager elige de quién (o todos). Botones, no <select>: ver
+                arriba lo de iOS. */}
+            {esManager && (
+              <div className="rt-chips rt-segmento" role="group" aria-label="Coordinador">
+                {[{ email: TODOS_COORDINADORES, nombre: 'Todos' }, ...ctx!.datos.coordinadores].map((c) => (
+                  <button
+                    key={c.email || 'todos'}
+                    type="button"
+                    className={'rt-chip' + (c.email === filtroCoord ? ' on' : '')}
+                    aria-pressed={c.email === filtroCoord}
+                    title={c.email ? c.nombre : 'Las rutas de todos los coordinadores'}
+                    onClick={() => {
+                      if (c.email === filtroCoord) return;
+                      setRutaFoco(null);
+                      subirYLuego(() => setFiltroCoord(c.email));
+                    }}
+                  >
+                    {c.email === filtroCoord ? '✓ ' : ''}
+                    {c.email ? nombreCorto(c.nombre) : 'Todos'}
+                  </button>
+                ))}
+              </div>
+            )}
+            {puedeGestionar && duenoAccion && (
               <button className="btn sm" onClick={nuevaRuta}>
                 + Nueva ruta
               </button>
+            )}
+            {puedeGestionar && esManager && !duenoAccion && (
+              <span className="tag">Elige un coordinador para crear o importar rutas</span>
             )}
             {/* Los importadores son POR UNIDAD, no un menú fijo: los tres
                 botones juntos confundían — dos son exclusivos de Biobox (el
                 Excel de operación y el mapa KML) y el genérico es el Excel de
                 rutas de las demás unidades (Erik, 22-sep-2026). Cada unidad ve
                 solo sus caminos, con etiqueta de qué archivo espera. */}
-            {puedeGestionar && unidad !== 'Biobox' && (
+            {puedeGestionar && duenoAccion && unidad !== 'Biobox' && (
               <label
                 className="btn sm ghost"
                 style={{ display: 'inline-block', cursor: 'pointer' }}
@@ -1271,7 +1471,7 @@ function RutasView({
                 />
               </label>
             )}
-            {puedeGestionar && unidad === 'Biobox' && (
+            {puedeGestionar && duenoAccion && unidad === 'Biobox' && (
               <button
                 className="btn sm"
                 onClick={() => setExcelRutasAbierto(true)}
@@ -1280,7 +1480,7 @@ function RutasView({
                 <Ic i={FileSpreadsheet} />Rutas Biobox: Excel de operación
               </button>
             )}
-            {puedeGestionar && unidad === 'Biobox' && (
+            {puedeGestionar && duenoAccion && unidad === 'Biobox' && (
               <button
                 className="btn sm ghost"
                 onClick={() => setKmlAbierto(true)}
@@ -1306,7 +1506,8 @@ function RutasView({
                 <>
                   En <b>Ecovallas Impreso</b> manda la pauta: las paradas y su orden salen de{' '}
                   <b><Ic i={MapIcon} />Sincronizar rutas</b> en Pauta y Monitoreo (no se arman a mano). El <Ic i={Download} />Excel de rutas
-                  sigue disponible; antes de importar te enseña las direcciones que no coinciden con QTM.
+                  sigue disponible y <b>reemplaza</b> tus rutas de Ecovallas Impreso con las del archivo (menos EDOMEX y
+                  PLAZA); antes de importar te enseña qué se borra y las direcciones que no coinciden con QTM.
                 </>
               ) : (
                 <>
@@ -1330,7 +1531,8 @@ function RutasView({
                   ) : (
                     <>
                       También por archivo: <Ic i={Download} /><b>Excel de rutas</b> con columnas Clave Nueva, Ruta, Secuencia,
-                      Estatus, VALLAS y Dirección (antes de importar eliges qué dirección se queda).
+                      Estatus, VALLAS y Dirección. <b>Reemplaza</b> tus rutas de {unidad} {tipo} con las del archivo: antes
+                      de importar te enseña qué se borra y eliges qué dirección se queda.
                     </>
                   )}
                 </>
@@ -1455,6 +1657,8 @@ function RutasView({
                               {/* Con "Ambos" conviven los tres medios (y números
                                   repetidos entre ellos): el medio va primero. */}
                               {verAmbos ? `${r.tipo_medio} · ` : ''}
+                              {/* Manager viendo a todos: de quién es cada una. */}
+                              {esManager && !filtroCoord ? `${nombreCorto(r.coordinador_nombre)} · ` : ''}
                               {r.total_ubicaciones} ubicaciones
                               {Number(r.inhabilitadas) > 0
                                 ? ` · ${r.inhabilitadas} inhabilitadas`
