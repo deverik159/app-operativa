@@ -2162,6 +2162,14 @@ begin
     if v_dia > v_hoy or v_dia < v_hoy - 7 then
       raise exception 'El día debe ser hoy o uno de los 7 días anteriores.';
     end if;
+    -- Un sitio que ya no viene en la carga o de una campaña retirada no se
+    -- marca: no cuenta para la meta (revisor-rls, 23-oct-2026).
+    select count(*) into v_n
+      from comp_sitios s join comp_campanas c on c.id = s.campana_id
+     where s.id = any (v_ids) and s.estado = 'pendiente' and (s.fuera_de_carga or c.retirada);
+    if v_n > 0 then
+      raise exception '% sitio(s) ya no vienen en la carga o son de una campaña retirada. No se marcó nada.', v_n;
+    end if;
     select count(*) into v_n
       from comp_sitios s join comp_campanas c on c.id = s.campana_id join comp_periodos p on p.id = c.periodo_id
      where s.id = any (v_ids) and s.estado = 'pendiente' and v_dia < p.fecha_inicio;
@@ -2630,6 +2638,7 @@ end $$;
 create or replace function public.comp_guardar_regla(p jsonb)
 returns bigint language plpgsql security definer
 set search_path to 'public', 'pg_temp'
+set lock_timeout to '3s'
 as $$
 declare
   v_email text := lower(coalesce(auth_email(), ''));
@@ -2672,6 +2681,7 @@ end $$;
 create or replace function public.comp_borrar_regla(p_id bigint)
 returns boolean language plpgsql security definer
 set search_path to 'public', 'pg_temp'
+set lock_timeout to '3s'
 as $$
 declare
   v_email text := lower(coalesce(auth_email(), ''));
@@ -2708,7 +2718,9 @@ end $$;
 --                   sea posterior al mes de p_desde; si no hay, el primero
 --                   después. Se elige aquí con TODOS los planos, así que el
 --                   TS, al repetir la regla con lo que llega, da el mismo.
---                   Todas las estatus: el filtro (vendida/pautada) es del TS.
+--                   Solo vendida y pautada: las «reservada» son prospectos de
+--                   comercial que la app no usa y el Supervisor no debe ver
+--                   (revisor-rls, 23-oct-2026). v_plano sí se elige con todas.
 --      espacios   = vv_espacios completo (clave, tipo_espacio, tramo, activo)
 --      totales    = count(*) de cada lista. Salen del MISMO select que arma
 --                   la lista, así que aquí siempre coinciden con su largo:
@@ -2768,7 +2780,8 @@ begin
     into v_ocu, v_no
     from vv_ocupacion o
    where o.inicio <= p_hasta and o.fin >= p_desde
-     and (o.origen = 'app' or o.plano_mes = v_plano);
+     and (o.origen = 'app' or o.plano_mes = v_plano)
+     and o.estatus in ('vendida', 'pautada');
 
   select coalesce(jsonb_agg(jsonb_build_object('clave', e.clave, 'tipo_espacio', e.tipo_espacio,
                                                'tramo', e.tramo, 'activo', e.activo) order by e.clave), '[]'),
