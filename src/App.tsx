@@ -973,23 +973,24 @@ function Main({
     e === 'pauta_tomas_comprobadas';
 
   /**
-   * Pestaña de Pauta a la que lleva un aviso del analista: "Toma por
-   * revisar" (desde el 22-oct-2026 le llega al analista) a Analista; quien
-   * no es analista se queda en la Lista. Los dos eventos del envío por
-   * campaña (20-oct-2026) ya no se generan, pero los avisos viejos llevan
-   * al mismo lugar. "Campaña cerrada" (Coordinadores de Monitoreo,
-   * 22-oct-2026) va a Indicadores, donde se ve y se descarga; "Campaña
-   * completa" (monitorista) se queda en la Lista.
+   * Avisos del analista: "Toma por revisar" (desde el 22-oct-2026 le llega
+   * al analista) y "Campaña por revisar" (envío por campaña del 20-oct-2026,
+   * ya no se genera pero los avisos viejos llevan al mismo lugar). Desde el
+   * 23-oct-2026 su revisión vive en Comprobaciones, «Tomas de Pauta» (Erik).
    */
-  const [vistaPauta, setVistaPauta] = useState<{ vista: 'analista' | 'indicadores'; n: number } | null>(null);
+  const esAvisoDelAnalista = (e?: string | null) => e === 'pauta_revision' || e === 'pauta_analista';
+
+  /**
+   * Pestaña de Pauta a la que lleva un aviso: "Campaña cerrada"
+   * (Coordinadores de Monitoreo, 22-oct-2026) va a Indicadores, donde se ve
+   * y se descarga; "Campaña completa" (monitorista) se queda en la Lista.
+   * Los del analista ya no llegan aquí si tiene Comprobaciones (irAPauta);
+   * sin ella se quedan en la Lista.
+   */
+  const [vistaPauta, setVistaPauta] = useState<{ vista: 'indicadores'; n: number } | null>(null);
   const pedirVistaPauta = (e?: string | null) => {
-    const vista =
-      e === 'pauta_revision' || e === 'pauta_analista'
-        ? 'analista'
-        : e === 'pauta_analista_revisado' || e === 'pauta_campana_cerrada'
-          ? 'indicadores'
-          : null;
-    if (vista) setVistaPauta((p) => ({ vista, n: (p?.n ?? 0) + 1 }));
+    if (e === 'pauta_analista_revisado' || e === 'pauta_campana_cerrada')
+      setVistaPauta((p) => ({ vista: 'indicadores', n: (p?.n ?? 0) + 1 }));
   };
 
   /**
@@ -999,10 +1000,14 @@ function Main({
    * el efecto de clavesConRuta la regresa a la de siempre.
    */
   const esEventoComp = (e?: string | null) => e === 'comp_asignada';
-  const [vistaComp, setVistaComp] = useState<{ vista: 'mis'; n: number; unidad?: string | null } | null>(null);
+  const [vistaComp, setVistaComp] = useState<{ vista: 'mis' | 'pauta'; n: number; unidad?: string | null } | null>(
+    null
+  );
   const irAComprobaciones = useCallback((evento?: string | null, unidad?: string | null) => {
     setTab('comprobaciones');
     if (evento === 'comp_asignada') setVistaComp((p) => ({ vista: 'mis', n: (p?.n ?? 0) + 1, unidad: unidad ?? null }));
+    // La revisión de tomas de Pauta vive en Comprobaciones (Erik, 23-oct-2026).
+    else if (esAvisoDelAnalista(evento)) setVistaComp((p) => ({ vista: 'pauta', n: (p?.n ?? 0) + 1 }));
     setRecargarSignal((n) => n + 1);
     notifs.recargar();
   }, [notifs.recargar]);
@@ -1020,9 +1025,18 @@ function Main({
   // efecto de vistaPedida corría otra vez con el aviso viejo. En
   // Comprobaciones eso cambiaba la unidad (y la guardaba) y forzaba «Mis
   // campañas» en cada regreso. Al salir de la pestaña, el aviso se suelta.
+  // Solo al SALIR (23-oct-2026): soltarlo cada vez que la pestaña no era la
+  // suya lo borraba al arrancar desde un push (?ir=…): en modo estricto el
+  // efecto corre otra vez con la pestaña inicial, después de que el aviso
+  // ya la había cambiado, y «Toma por revisar» o «Campaña cerrada» caían en
+  // la pestaña de siempre.
+  const tabAnterior = useRef(tab);
   useEffect(() => {
-    if (tab !== 'comprobaciones') setVistaComp(null);
-    if (tab !== 'pauta') setVistaPauta(null);
+    const antes = tabAnterior.current;
+    tabAnterior.current = tab;
+    if (antes === tab) return;
+    if (antes === 'comprobaciones') setVistaComp(null);
+    if (antes === 'pauta') setVistaPauta(null);
   }, [tab]);
 
   /** Eventos cuyo destino es la Bitácora VV (versión por programar / programada). */
@@ -1064,6 +1078,19 @@ function Main({
 
   /** Abre Pauta RECARGADA: una lista ya abierta enseñaría la toma vieja. */
   const irAPauta = useCallback((evento?: string | null) => {
+    // Los avisos del analista van a «Tomas de Pauta» en Comprobaciones
+    // (Erik, 23-oct-2026) si la tiene en el menú. Con el menú aún vacío
+    // (push con la app cerrada) también, y el aviso se guarda por si los
+    // roles llegan después (ver avisoCompPendiente).
+    if (esAvisoDelAnalista(evento)) {
+      const claves = menuConRutaRef.current;
+      if (!claves || claves.split('|').includes('comprobaciones')) {
+        if (tokenRolesOk.current === null)
+          avisoCompPendiente.current = { evento: evento ?? null, unidad: null, hasta: Date.now() + RUTA_PENDIENTE_MS };
+        irAComprobaciones(evento);
+        return;
+      }
+    }
     const destino = destinoAvisoPauta(evento);
     if (destino) setTab(destino);
     if (destino === 'pauta') pedirVistaPauta(evento);
@@ -1071,7 +1098,7 @@ function Main({
     notifs.recargar();
     // destinoAvisoPauta solo lee un ref; pedirVistaPauta, un setState.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notifs.recargar]);
+  }, [notifs.recargar, irAComprobaciones]);
 
   /** Abre la Bitácora VV recargada: misma razón que irAPauta. */
   const irABitacora = useCallback(() => {
@@ -1406,17 +1433,15 @@ function Main({
       : 'mis_rutas'
     : esBitacoraPuro
       ? 'bitacora_vv'
-      : // Supervisor de Comprobaciones (Victor, 23-oct-2026) abre en
-        // Comprobaciones aunque conserve su fila de analista de Pauta; el
-        // analista puro sigue en Pauta (lo de hoy) y, si no tiene Pauta
-        // (Biobox o Vía Verde), en Comprobaciones en vez de Indicadores.
-        esEquipoCompPuro && misRoles.includes('supervisor') && veComprobaciones
+      : // El equipo de Comprobaciones (analista y Supervisor) abre en
+        // Comprobaciones: desde el 23-oct-2026 ahí también vive la revisión
+        // de las tomas de Pauta («Tomas de Pauta»). Sin ella, en Pauta; si
+        // tampoco, en Indicadores.
+        esEquipoCompPuro && veComprobaciones
         ? 'comprobaciones'
         : esEquipoCompPuro && vePauta
           ? 'pauta'
-          : esEquipoCompPuro && veComprobaciones
-            ? 'comprobaciones'
-            : 'dashboard';
+          : 'dashboard';
   const nombre =
     (session.user.user_metadata?.name as string) || email.split('@')[0];
 
@@ -1720,8 +1745,9 @@ function Main({
       t: 'Pauta y Monitoreo',
       grupo: 'campo',
     },
-    // Comprobaciones (fase 2, 23-oct-2026): Supervisor, analistas y
-    // coordinadores (solo lectura) de Ecovallas Digital, Biobox y Vía Verde.
+    // Comprobaciones (fase 2, 23-oct-2026): Supervisor, manager y analistas
+    // de Ecovallas Digital, Biobox y Vía Verde, más «Tomas de Pauta» (la
+    // revisión del analista de Pauta). El coordinador ya no (Erik, 23-oct).
     veComprobaciones && {
       k: 'comprobaciones',
       ic: '📑',
@@ -2041,6 +2067,13 @@ function Main({
                 // el folio lo pone un trigger y la notificación no lo trae.
                 setTab('todas');
                 setFocoRecordId(n.record_id);
+              } else if (
+                esAvisoDelAnalista(n.evento) &&
+                clavesConRuta.split('|').includes('comprobaciones')
+              ) {
+                // Toma o campaña por revisar: a «Tomas de Pauta» en
+                // Comprobaciones (Erik, 23-oct-2026).
+                irAComprobaciones(n.evento);
               } else if (esEventoPauta(n.evento)) {
                 // Toma regresada / por comprobar / ruta asignada: el
                 // destino es Pauta, RECARGADA — una lista ya abierta
@@ -2270,6 +2303,7 @@ function Main({
                 <ComprobacionesView
                   email={email}
                   roles={rolesDetalle}
+                  misDep={misDep}
                   recargarSignal={recargarSignal}
                   vistaPedida={vistaComp}
                 />

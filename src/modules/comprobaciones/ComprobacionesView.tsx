@@ -6,10 +6,15 @@
 // lo procese, sino que Victor desde la app construya ese Excel». Aquí solo
 // vive lo común; cada pestaña es su archivo y recibe las props de
 // tiposComp.ts:
-//   · Supervisor (o manager): Armar · Campañas · Formato · Avance · Excel,
-//     y además «Mis campañas» si también es analista (Victor lo es).
-//   · Coordinador: Campañas y Avance en solo lectura (P3).
+//   · Supervisor (o manager): Armar · Campañas · Formato · Avance · Excel ·
+//     Mis campañas (Erik, 23-oct-2026: «lo mismo» que la analista, además).
 //   · Analista: Mis campañas.
+//   · El coordinador ya no entra (Erik, 23-oct-2026: «el módulo nuevo de
+//     Comprobaciones, solo el Supervisor y el Manager»).
+//   · «Tomas de Pauta» (Erik, 23-oct-2026): la revisión de las tomas del
+//     monitorista de Pauta que antes era la pestaña Analista de Pauta y
+//     Monitoreo. La ven la analista de Pauta, el Supervisor (solo ver si no
+//     es analista) y el manager; no depende de la unidad ni del periodo.
 // Los permisos van POR UNIDAD (rol y unidad de la misma fila de
 // usuario_roles); la base vuelve a validar todo en cada RPC.
 //
@@ -20,7 +25,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
-import { unidadesComprobaciones } from '../../lib/helpers';
+import { soloVeTomasPauta, unidadesComprobaciones, veTomasPauta } from '../../lib/helpers';
 import { ETIQUETA_UNIDAD_COMP, UNIDADES_COMP, type UnidadComp } from '../../lib/comprobaciones';
 import {
   leerCampanas,
@@ -59,6 +64,10 @@ const CampanasSupervisor = lazyConReintento(() => import('./CampanasSupervisor')
 const FormatoGeneral = lazyConReintento(() => import('./FormatoGeneral'), 'FormatoGeneral');
 const AvanceComprobaciones = lazyConReintento(() => import('./AvanceComprobaciones'), 'AvanceComprobaciones');
 const DescargarExcel = lazyConReintento(() => import('./DescargarExcel'), 'DescargarExcel');
+// «Tomas de Pauta» monta Pauta y Monitoreo en modo 'analista': el mismo chunk
+// que abre App para Pauta, así la carga de la catorcena y la revisión que
+// Erik ya probó no se duplican (23-oct-2026).
+const PautaView = lazyConReintento(() => import('../pauta/PautaView'), 'PautaView');
 
 /**
  * El lazy de cada pestaña diferida (revisión de pantallas, 23-oct-2026).
@@ -73,6 +82,7 @@ const DIFERIDO_DE_VISTA: Partial<Record<VistaComp, ComponentType<any>>> = {
   formato: FormatoGeneral,
   avance: AvanceComprobaciones,
   excel: DescargarExcel,
+  pauta: PautaView,
 };
 
 type FilaRol = { rol: string; unidad_negocio: string | null; medio?: string | null };
@@ -82,11 +92,14 @@ type Props = {
   email: string;
   /** Filas de usuario_roles de la persona (rolesDetalle de App). */
   roles: FilaRol[];
+  /** Departamentos de la persona: Pauta los pide para levantar un reporte. */
+  misDep: string[];
   /** Sube con ↻ y con cada aviso: relee en silencio. */
   recargarSignal?: number;
   /**
    * Pestaña (y unidad) que pide un aviso: comp_asignada → «Mis campañas» de
-   * la unidad del aviso (App.tsx, 23-oct-2026). `n` cambia en cada aviso.
+   * la unidad del aviso; «Toma por revisar» / «Campaña por revisar» →
+   * «Tomas de Pauta» (App.tsx, 23-oct-2026). `n` cambia en cada aviso.
    */
   vistaPedida?: { vista: VistaComp; n: number; unidad?: string | null } | null;
 };
@@ -123,27 +136,31 @@ function guardarUnidad(u: string): void {
 /** Permisos en la unidad, con la misma regla de fila que comp_mis_unidades. */
 function permisosEn(roles: FilaRol[], u: UnidadComp): PermisosComp {
   const gestiona = unidadesComprobaciones(roles, ['supervisor']).has(u);
-  const leeTodo = unidadesComprobaciones(roles, ['supervisor', 'coordinador']).has(u);
-  // El manager pasa por todo, pero no es analista: «Mis campañas» es de
-  // quien tiene la fila de analista en la unidad.
+  // Lee toda la unidad solo quien la gestiona: el coordinador ya no entra
+  // (Erik, 23-oct-2026; la base tampoco se lo da, comp_sin_coordinador), así
+  // que ya no hay «solo lectura».
+  const leeTodo = gestiona;
+  // El manager pasa por todo, pero no es analista: la fila de analista en la
+  // unidad dice si la base le acepta marcar como analista.
   const esAnalista = unidadesComprobaciones(
     roles.filter((r) => r.rol !== 'manager'),
     ['analista']
   ).has(u);
-  return { gestiona, leeTodo, soloLectura: leeTodo && !gestiona, esAnalista };
+  return { gestiona, leeTodo, soloLectura: false, esAnalista };
 }
 
-function vistasDe(p: PermisosComp): VistaComp[] {
+function vistasDe(p: PermisosComp, conPauta: boolean): VistaComp[] {
+  // Supervisor y manager: todo, también «Mis campañas» (Erik: «lo mismo»).
   const v: VistaComp[] = p.gestiona
-    ? ['armar', 'campanas', 'formato', 'avance', 'excel']
-    : p.leeTodo
-      ? ['campanas', 'avance']
+    ? ['armar', 'campanas', 'formato', 'avance', 'excel', 'mis']
+    : p.esAnalista
+      ? ['mis']
       : [];
-  if (p.esAnalista) v.push('mis');
+  if (conPauta) v.push('pauta');
   return v;
 }
 
-export default function ComprobacionesView({ email, roles, recargarSignal, vistaPedida }: Props) {
+export default function ComprobacionesView({ email, roles, misDep, recargarSignal, vistaPedida }: Props) {
   vigilarRender('ComprobacionesView');
   const correo = (email || '').trim().toLowerCase();
   const telefono = useSyncExternalStore(suscribirTelefono, esTelefono, () => false);
@@ -178,7 +195,16 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [firmaRoles, unidad]
   );
-  const vistas = useMemo(() => vistasDe(permisos), [permisos]);
+  // «Tomas de Pauta»: quién la ve, quién solo ve y quién puede importar la
+  // pauta (manager), con las mismas reglas que tenía en Pauta y Monitoreo.
+  const conPauta = useMemo(
+    () => veTomasPauta(roles),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [firmaRoles]
+  );
+  const soloVerPauta = soloVeTomasPauta(roles);
+  const esManager = roles.some((r) => r.rol === 'manager');
+  const vistas = useMemo(() => vistasDe(permisos, conPauta), [permisos, conPauta]);
   /** Armar ya se abrió alguna vez: desde ahí se queda montado (uso-2). */
   const [armarVisto, setArmarVisto] = useState(false);
   const [vistaSel, setVistaSel] = useState<VistaComp>('campanas');
@@ -456,13 +482,42 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
   }, [vista]);
 
   // ---- Render -----------------------------------------------------------
+  // «Tomas de Pauta»: Pauta y Monitoreo en modo 'analista' (su catorcena y
+  // su revisión), sin unidad ni periodo de Comprobaciones.
+  const tomasPauta = conPauta ? (
+    <PautaView
+      modo="analista"
+      email={email}
+      misDep={misDep}
+      puedeImportar={esManager}
+      revisaAnalista
+      soloVer={soloVerPauta}
+      recargarSignal={recargarSignal}
+    />
+  ) : null;
+  const abriendoPauta = (
+    <div className="phint">
+      <span className="spinner" />
+      Abriendo {ETIQUETA_VISTA.pauta}…
+    </div>
+  );
+
   if (!unidad)
-    return (
+    return conPauta ? (
+      // Analista de Pauta sin unidad de Comprobaciones: solo sus tomas.
+      <>
+        <h2 className="page">Comprobaciones</h2>
+        <ErrorBoundary modulo="comprobaciones:pauta" resetKey={String(recargarSignal ?? 0)}>
+          <Suspense fallback={abriendoPauta}>{tomasPauta}</Suspense>
+        </ErrorBoundary>
+      </>
+    ) : (
       <>
         <h2 className="page">Comprobaciones</h2>
         <div className="empty">No tienes una unidad de Comprobaciones (Ecovallas Digital, Biobox o Vía Verde).</div>
       </>
     );
+  const enPauta = vista === 'pauta';
 
   const bloqueado = ocupado != null;
   const ctx: ContextoComp = {
@@ -562,6 +617,8 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
   let contenido: JSX.Element | null = null;
   if (!vista) {
     contenido = <div className="empty">No tienes permiso para Comprobaciones en {ETIQUETA_UNIDAD_COMP[unidad]}.</div>;
+  } else if (enPauta) {
+    contenido = tomasPauta;
   } else if (!periodo) {
     contenido =
       periodosDe === unidad ? (
@@ -627,22 +684,25 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
           </span>
         )}
       </h2>
-      <p className="phint">
-        {permisos.gestiona
-          ? 'Arma las campañas del periodo, repártelas y descarga los Excel de siempre.'
-          : permisos.soloLectura
-            ? 'Campañas y avance del equipo, solo para consultar.'
+      {/* En «Tomas de Pauta» la explicación la pone Pauta; ahí tampoco
+          cuentan la unidad ni el periodo de Comprobaciones. */}
+      {!enPauta && (
+        <p className="phint">
+          {permisos.gestiona
+            ? 'Arma las campañas del periodo, repártelas y descarga los Excel de siempre.'
             : 'Tus campañas: marca lo que ya comprobaste.'}
-      </p>
-      {selectorUnidad}
+        </p>
+      )}
+      {!enPauta && selectorUnidad}
       {pestanas}
-      {selectorPeriodo}
-      {errores.map((e) => (
-        <div key={e} className="err">
-          {e}
-        </div>
-      ))}
-      {avisoCalendario}
+      {!enPauta && selectorPeriodo}
+      {!enPauta &&
+        errores.map((e) => (
+          <div key={e} className="err">
+            {e}
+          </div>
+        ))}
+      {!enPauta && avisoCalendario}
       {/* Su propio ErrorBoundary (revisión de pantallas, 23-oct-2026): si el
           chunk de una pestaña no llega, se cae solo esa pestaña con su aviso
           («Recargar la app»); los selectores de unidad y periodo siguen. */}
@@ -652,10 +712,14 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
       >
       <Suspense
         fallback={
-          <div className="phint">
-            <span className="spinner" />
-            Abriendo {vista ? ETIQUETA_VISTA[vista] : 'la pestaña'}…
-          </div>
+          enPauta ? (
+            abriendoPauta
+          ) : (
+            <div className="phint">
+              <span className="spinner" />
+              Abriendo {vista ? ETIQUETA_VISTA[vista] : 'la pestaña'}…
+            </div>
+          )
         }
       >
         {contenido}

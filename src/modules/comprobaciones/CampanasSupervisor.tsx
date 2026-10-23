@@ -21,10 +21,11 @@
 //   · Selección múltiple con barra fija abajo y acciones en lote
 //     (AccionesLoteModal), «Pasar lo pendiente» (ReasignarPendienteModal)
 //     y el plan de tomas en lote (PlanTomasModal).
-//   · El coordinador la ve en solo lectura: sin casillas ni selectores.
 //   · «Sitios» abre el detalle de la campaña (DetalleCampana) a pantalla
-//     completa: marcar, cancelar o regresar sitios y agregar columnas FULL;
-//     en lectura para el coordinador (integración, 23-oct-2026).
+//     completa: marcar, cancelar o regresar sitios y agregar columnas FULL
+//     (integración, 23-oct-2026).
+//   · El modo de solo lectura (permisos.soloLectura) era del coordinador;
+//     desde el 23-oct-2026 el coordinador ya no entra y nadie llega así.
 // Toda escritura va por las RPC (comprobacionesApi) con el candado del
 // esqueleto (correr) y se cuenta con lo que DEVUELVE la base: la RLS niega
 // en silencio. Después se relee en silencio (recargar) sin desmontar.

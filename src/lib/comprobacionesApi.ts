@@ -939,7 +939,7 @@ function periodoMes(unidad: UnidadComp, anio: number, mes: number): PeriodoSel {
  *   · si `conPorArmar` (quien gestiona), además el actual, los 2 anteriores
  *     y el siguiente que aún no existan: catorcenas del calendario para
  *     Ecovallas Digital, meses para Biobox y Vía Verde.
- * Un analista o coordinador solo ve los ya armados.
+ * Una analista solo ve los ya armados.
  */
 export function opcionesPeriodo(args: {
   unidad: UnidadComp;

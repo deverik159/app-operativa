@@ -199,9 +199,10 @@ export function ReporteVista({ r, previa, mostrarMedio }: { r: ReporteCarga; pre
     const o = (a ?? {}) as Record<string, unknown>;
     return `${String(o.campana ?? '')}: del plano sin versión → «${String(o.version ?? '')}»`;
   });
-  const tomas =
-    r.tomas_nuevas + r.tomas_borradas + r.tomas_actualizadas + r.tomas_canceladas + r.tomas_regresadas > 0 ||
-    r.campanas_replanificadas > 0;
+  // Solo si el plan movió tomas (23-oct-2026): campanas_replanificadas cuenta
+  // las campañas que CAMBIARON (también las nuevas, sin plan), y con 4 nuevas
+  // decía «Tomas de las 4 campaña(s) que ya tenían plan: 0 nuevas».
+  const tomas = r.tomas_nuevas + r.tomas_borradas + r.tomas_actualizadas + r.tomas_canceladas + r.tomas_regresadas > 0;
   return (
     <Caja titulo={`${mostrarMedio ? r.medio + ' · ' : ''}${previa ? 'Lo que haría la carga (previa de la base)' : 'Lo que hizo la base'}`}>
       <div style={{ color: 'var(--muted)' }}>
@@ -218,7 +219,7 @@ export function ReporteVista({ r, previa, mostrarMedio }: { r: ReporteCarga; pre
         {tomas && (
           <>
             <br />
-            Tomas de las {fmt(r.campanas_replanificadas)} campaña(s) que ya tenían plan: <B>{fmt(r.tomas_nuevas)}</B> nuevas ·{' '}
+            Tomas de las campañas que ya tenían plan: <B>{fmt(r.tomas_nuevas)}</B> nuevas ·{' '}
             {fmt(r.tomas_actualizadas)} actualizadas · {fmt(r.tomas_borradas)} quitadas
             {r.tomas_canceladas + r.tomas_regresadas > 0 && (
               <>

@@ -15,7 +15,10 @@ import type { UnidadComp } from '../../lib/comprobaciones';
 import type { MiembroEquipo, PeriodoCargado, PeriodoSel, VwCampana } from '../../lib/comprobacionesApi';
 
 /** Pestañas del módulo. */
-export type VistaComp = 'armar' | 'campanas' | 'formato' | 'avance' | 'excel' | 'mis';
+// 'pauta' (Erik, 23-oct-2026): «Tomas de Pauta», la pestaña donde el
+// analista revisa, rechaza y regresa las tomas del monitorista de Pauta; se
+// mudó aquí desde Pauta y Monitoreo y no depende de la unidad ni del periodo.
+export type VistaComp = 'armar' | 'campanas' | 'formato' | 'avance' | 'excel' | 'mis' | 'pauta';
 
 export const ETIQUETA_VISTA: Record<VistaComp, string> = {
   armar: 'Armar',
@@ -24,6 +27,7 @@ export const ETIQUETA_VISTA: Record<VistaComp, string> = {
   avance: 'Avance',
   excel: 'Excel',
   mis: 'Mis campañas',
+  pauta: 'Tomas de Pauta',
 };
 
 /**
