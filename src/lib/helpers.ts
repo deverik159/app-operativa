@@ -586,12 +586,14 @@ export const ROLES_PAUTA: readonly string[] = ['coordinador', 'monitorista', 'fi
 /**
  * Roles que abren Comprobaciones (Erik, 22/23-oct-2026): el Supervisor
  * (Victor) reparte y cierra; el analista marca lo que comprobó de SUS
- * campañas; el coordinador lee todo en solo lectura (P3). Qué puede hacer
- * cada uno lo decide la base (RPC y RLS); esto solo abre la pestaña.
+ * campañas («Mis campañas»). El coordinador ya NO entra (Erik, 23-oct-2026:
+ * «El módulo nuevo de Comprobaciones, solo el Supervisor y el Manager»;
+ * la base tampoco se lo entrega, migración comp_sin_coordinador). Qué puede
+ * hacer cada uno lo decide la base (RPC y RLS); esto solo abre la pestaña.
  * El supervisor NO va en ROLES_PAUTA: Victor conserva su fila de analista
  * de Ecovallas para Pauta.
  */
-export const ROLES_COMPROBACIONES: readonly string[] = ['supervisor', 'analista', 'coordinador'];
+export const ROLES_COMPROBACIONES: readonly string[] = ['supervisor', 'analista'];
 
 /**
  * Unidades de Comprobaciones que ve quien tiene estas filas de rol. Espejo
@@ -645,10 +647,30 @@ export function unidadesComprobaciones(
   return out;
 }
 
-/** ¿Ve la pestaña Comprobaciones? */
+/**
+ * «Tomas de Pauta» en Comprobaciones (Erik, 23-oct-2026): la pestaña donde
+ * el analista revisa, rechaza y regresa las tomas del monitorista de Pauta
+ * (Ecovallas Impreso) se mudó aquí desde Pauta y Monitoreo. La ve el
+ * analista que antes la veía en Pauta (fila de analista que abre Ecovallas
+ * Impreso), el Supervisor de cualquier unidad («el Supervisor podrá ver
+ * también las tomas de todos») y el manager. El coordinador, no.
+ */
+export const veTomasPauta = (
+  roles: { rol: string; unidad_negocio: string | null; medio?: string | null }[]
+): boolean => roles.some((r) => r.rol === 'supervisor') || abreModuloEcovallasImpreso(roles, ['analista']);
+
+/**
+ * En «Tomas de Pauta» solo ve quien no es analista ni manager: revisar,
+ * rechazar, regresar y comprobar lo exigen las RPC de Pauta
+ * (tiene_rol('analista') o manager, en cualquier unidad).
+ */
+export const soloVeTomasPauta = (roles: { rol: string }[]): boolean =>
+  !roles.some((r) => r.rol === 'analista' || r.rol === 'manager');
+
+/** ¿Ve la pestaña Comprobaciones? Sus unidades o, al menos, «Tomas de Pauta». */
 export const abreComprobaciones = (
   roles: { rol: string; unidad_negocio: string | null; medio?: string | null }[]
-): boolean => unidadesComprobaciones(roles).size > 0;
+): boolean => unidadesComprobaciones(roles).size > 0 || veTomasPauta(roles);
 
 /**
  * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas IMPRESO

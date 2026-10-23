@@ -14,7 +14,7 @@ const { outputFiles } = await build({
   format: 'esm',
   platform: 'neutral',
 });
-const { unidadesComprobaciones, abreComprobaciones, ROLES_COMPROBACIONES, ROLES_PAUTA } = await import(
+const { unidadesComprobaciones, abreComprobaciones, veTomasPauta, soloVeTomasPauta, ROLES_COMPROBACIONES, ROLES_PAUTA } = await import(
   'data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64')
 );
 
@@ -23,7 +23,9 @@ const u = (roles, modulo) => [...unidadesComprobaciones(roles, modulo)].sort();
 const TODAS = ['Biobox', 'Ecovallas', 'Vía Verde'];
 
 test('roles del módulo; el supervisor no entra a Pauta', () => {
-  assert.deepEqual([...ROLES_COMPROBACIONES], ['supervisor', 'analista', 'coordinador']);
+  // El coordinador ya no entra (Erik, 23-oct-2026: solo Supervisor y Manager;
+  // la analista, a «Mis campañas»).
+  assert.deepEqual([...ROLES_COMPROBACIONES], ['supervisor', 'analista']);
   assert.equal(ROLES_PAUTA.includes('supervisor'), false);
 });
 
@@ -71,14 +73,13 @@ test('Ecovallas: medio Impreso no abre; sin medio o Digital sí', () => {
   assert.deepEqual(u([r('analista', 'Biobox', 'Impreso')]), ['Biobox']);
 });
 
-test('Ecovallas, FORMA REAL de hoy: medio NULL abre Ecovallas Digital (por decidir con Erik)', () => {
+test('Ecovallas, FORMA REAL de hoy: medio NULL abre Ecovallas Digital a la analista; al coordinador no', () => {
   // Usuarios solo guarda el medio del validador: en producción (23-oct-2026)
   // TODAS las filas de coordinador y analista de Ecovallas tienen medio NULL,
-  // también las del equipo de Pauta (Impreso). Con «sin medio = ambos»
-  // abren Ecovallas Digital: el coordinador lee (P3) y el analista queda
-  // asignable. Si Erik decide que Impreso no entra, esta prueba cambia junto
-  // con Usuarios (guardar medio) y comp_mis_unidades.
-  assert.deepEqual(u([r('coordinador', 'Ecovallas', null)]), ['Ecovallas']);
+  // también las del equipo de Pauta (Impreso). Con «sin medio = ambos» la
+  // analista abre Ecovallas Digital y queda asignable (Erik lo dio por bueno
+  // el 23-oct-2026). El coordinador ya no entra al módulo.
+  assert.deepEqual(u([r('coordinador', 'Ecovallas', null)]), []);
   assert.deepEqual(u([r('analista', 'Ecovallas', null), r('reportante', 'Ecovallas', null)]), ['Ecovallas']);
   // Solo el medio explícito Impreso la cierra, y hoy la app no lo guarda en estos roles.
   assert.deepEqual(u([r('coordinador', 'Ecovallas', 'Impreso')]), []);
@@ -89,7 +90,8 @@ test('fila sin unidad = las 3 (sin Ecovallas si su medio es Impreso)', () => {
   assert.deepEqual(u([r('supervisor', undefined)]), TODAS);
   // Solo NULL es «todas»: '' en SQL no es null ni igual a ninguna unidad.
   assert.deepEqual(u([r('supervisor', '')]), []);
-  assert.deepEqual(u([r('coordinador', null, 'Impreso')]), ['Biobox', 'Vía Verde']);
+  assert.deepEqual(u([r('analista', null, 'Impreso')]), ['Biobox', 'Vía Verde']);
+  assert.deepEqual(u([r('coordinador', null)]), []);
 });
 
 test('el manager ve las 3, tenga la unidad que tenga', () => {
@@ -130,7 +132,41 @@ test('roles que no son del módulo no abren nada', () => {
 
 test('abreComprobaciones', () => {
   assert.equal(abreComprobaciones([r('analista', 'Vía Verde')]), true);
-  assert.equal(abreComprobaciones([r('coordinador', 'Biobox')]), true);
-  assert.equal(abreComprobaciones([r('analista', 'Ecovallas', 'Impreso')]), false);
+  // El coordinador (de rutas o de Pauta y Monitoreo) ya no lo ve.
+  assert.equal(abreComprobaciones([r('coordinador', 'Biobox')]), false);
+  assert.equal(abreComprobaciones([r('coordinador', null)]), false);
+  // La analista de Pauta (Impreso) entra por «Tomas de Pauta», aunque no
+  // tenga unidades de Comprobaciones.
+  assert.equal(abreComprobaciones([r('analista', 'Ecovallas', 'Impreso')]), true);
+  assert.deepEqual(u([r('analista', 'Ecovallas', 'Impreso')]), []);
   assert.equal(abreComprobaciones([r('manager', null)]), true);
+});
+
+test('«Tomas de Pauta» en Comprobaciones (se mudó de Pauta, 23-oct-2026)', () => {
+  // La ve la analista que la veía en Pauta (Ecovallas Impreso o sin medio).
+  assert.equal(veTomasPauta([r('analista', 'Ecovallas', null)]), true);
+  assert.equal(veTomasPauta([r('analista', 'Ecovallas', 'Impreso')]), true);
+  assert.equal(veTomasPauta([r('analista', null)]), true);
+  // Una analista de Vía Verde o Biobox no revisa tomas de Pauta.
+  assert.equal(veTomasPauta([r('analista', 'Vía Verde'), r('reportante', 'Vía Verde')]), false);
+  // El Supervisor de cualquier unidad las ve («las tomas de todos») y el manager.
+  assert.equal(veTomasPauta([r('supervisor', 'Vía Verde')]), true);
+  assert.equal(veTomasPauta([r('manager', null)]), true);
+  // El coordinador y el monitorista, no.
+  assert.equal(veTomasPauta([r('coordinador', 'Ecovallas', null)]), false);
+  assert.equal(veTomasPauta([r('monitorista', 'Ecovallas', null)]), false);
+});
+
+test('«Tomas de Pauta»: el Supervisor sin fila de analista solo ve', () => {
+  // Las RPC de Pauta piden tiene_rol('analista') o manager.
+  assert.equal(soloVeTomasPauta([r('supervisor', 'Vía Verde')]), true);
+  assert.equal(soloVeTomasPauta([r('analista', 'Ecovallas')]), false);
+  assert.equal(soloVeTomasPauta([r('manager', null)]), false);
+  // La forma de Victor hoy: supervisor de Vía Verde + analista de Ecovallas.
+  const victor = [r('analista', 'Ecovallas', null), r('supervisor', 'Vía Verde')];
+  assert.equal(abreComprobaciones(victor), true);
+  assert.deepEqual(u(victor), ['Ecovallas', 'Vía Verde']);
+  assert.deepEqual(u(victor, ['supervisor']), ['Vía Verde']);
+  assert.equal(veTomasPauta(victor), true);
+  assert.equal(soloVeTomasPauta(victor), false);
 });

@@ -105,17 +105,37 @@ type Props = {
    */
   recargarSignal?: number;
   /**
-   * Analista (o manager): pestaña Analista con las fotos que le manda el
-   * coordinador, y ve todas las rutas como el coordinador (20-oct-2026).
+   * Analista (o manager): ve todas las rutas como el coordinador
+   * (20-oct-2026). Su pestaña de revisión vive en Comprobaciones desde el
+   * 23-oct-2026 (modo 'analista').
    */
   revisaAnalista?: boolean;
-  /** Pestaña que pide un aviso ('analista' o 'indicadores'); `n` cambia en cada aviso. */
+  /** Pestaña que pide un aviso ('indicadores'); `n` cambia en cada aviso. */
   vistaPedida?: { vista: VistaPauta; n: number } | null;
+  /**
+   * 'analista' (Erik, 23-oct-2026): la pestaña donde el analista revisa,
+   * rechaza y regresa las tomas del monitorista se mudó a Comprobaciones
+   * («Tomas de Pauta»). Comprobaciones monta PautaView en este modo: solo esa
+   * vista, sin Lista ni Indicadores ni el título del módulo, con la misma
+   * carga de la catorcena. En 'completo' (Pauta y Monitoreo) ya no sale.
+   */
+  modo?: 'completo' | 'analista';
+  /** Solo ver las tomas, sin revisar (Supervisor sin fila de analista). */
+  soloVer?: boolean;
 };
 
 type VistaPauta = 'lista' | 'indicadores' | 'analista';
 
-function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalista, vistaPedida }: Props) {
+function PautaView({
+  puedeImportar,
+  email,
+  misDep,
+  recargarSignal,
+  revisaAnalista,
+  vistaPedida,
+  modo = 'completo',
+  soloVer,
+}: Props) {
   vigilarRender('PautaView');
   const [filas, setFilas] = useState<PautaRuta[]>([]);
   /**
@@ -127,13 +147,14 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
   const [catSel, setCatSel] = useState<string | null>(null);
   const catSelLeida = leerClaveCatorcena(catSel);
   /**
-   * Lista de caras, Indicadores (avance y comprobaciones; 14-oct-2026) o
-   * Analista (20-oct-2026). El analista que no gestiona entra a la suya.
+   * Lista de caras o Indicadores (avance y comprobaciones; 14-oct-2026). La
+   * vista Analista (20-oct-2026) solo existe en modo 'analista', desde
+   * Comprobaciones (23-oct-2026).
    */
-  const [vista, setVista] = useState<VistaPauta>(revisaAnalista && !puedeImportar ? 'analista' : 'lista');
+  const [vista, setVista] = useState<VistaPauta>(modo === 'analista' ? 'analista' : 'lista');
   useEffect(() => {
-    if (!vistaPedida) return;
-    if (vistaPedida.vista === 'analista' && !revisaAnalista) return;
+    if (!vistaPedida || modo === 'analista') return;
+    if (vistaPedida.vista === 'analista') return;
     setVista(vistaPedida.vista);
     // Solo cuando llega un aviso nuevo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -951,6 +972,13 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
   // --- Render ---
   if (loading && !yaCargo) return <div className="loading">Cargando pauta…</div>;
 
+  if (catorcenas.length === 0 && modo === 'analista')
+    return (
+      <>
+        {err && <div className="err">{err}</div>}
+        <div className="empty">Todavía no hay ninguna catorcena de Pauta cargada.</div>
+      </>
+    );
   if (catorcenas.length === 0)
     return (
       <>
@@ -987,19 +1015,17 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
   const pestanas = (
     <div className="toolbar">
       <div className="rt-chips rt-segmento" role="group" aria-label="Vista">
-        {(revisaAnalista ? (['lista', 'indicadores', 'analista'] as const) : (['lista', 'indicadores'] as const)).map(
-          (v) => (
-            <button
-              key={v}
-              type="button"
-              className={'rt-chip' + (vista === v ? ' on' : '')}
-              aria-pressed={vista === v}
-              onClick={() => v !== vista && subirYLuego(() => setVista(v), 'pauta-vista')}
-            >
-              {v === 'lista' ? 'Lista' : v === 'indicadores' ? 'Indicadores' : 'Analista'}
-            </button>
-          )
-        )}
+        {(['lista', 'indicadores'] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            className={'rt-chip' + (vista === v ? ' on' : '')}
+            aria-pressed={vista === v}
+            onClick={() => v !== vista && subirYLuego(() => setVista(v), 'pauta-vista')}
+          >
+            {v === 'lista' ? 'Lista' : 'Indicadores'}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -1058,13 +1084,17 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
 
   // Analista (22-oct-2026): las tomas registradas de la catorcena, por
   // campaña y versión, para revisarlas foto por foto. Su revisión es la
-  // comprobación; un cambio recarga la catorcena en silencio.
-  if (vista === 'analista' && revisaAnalista)
+  // comprobación; un cambio recarga la catorcena en silencio. Desde el
+  // 23-oct-2026 vive en Comprobaciones («Tomas de Pauta»), que pone su
+  // propio título y pestañas.
+  if (modo === 'analista' && vista === 'analista' && revisaAnalista)
     return (
       <>
-        <h2 className="page">Pauta y monitoreo</h2>
-        <p className="phint">Tomas que registran los monitoristas: revisa cada foto y la toma queda comprobada.</p>
-        {pestanas}
+        <p className="phint">
+          {soloVer
+            ? 'Tomas que registran los monitoristas. Solo ves: revisar, rechazar y comprobar lo hace el analista.'
+            : 'Tomas que registran los monitoristas: revisa cada foto y la toma queda comprobada.'}
+        </p>
         {err && <div className="err">{err}</div>}
         <div className="toolbar filtros-pildora">{selectorCatorcena}</div>
         {catSelLeida && (
@@ -1074,6 +1104,7 @@ function PautaView({ puedeImportar, email, misDep, recargarSignal, revisaAnalist
             numero={catSelLeida.numero}
             etiquetaCat={etiquetaCatorcena(catSelLeida.numero, catSelLeida.anio)}
             onCambio={() => catSel != null && cargar(catSel, true)}
+            soloVer={soloVer}
           />
         )}
       </>

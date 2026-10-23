@@ -48,6 +48,13 @@ type Props = {
   etiquetaCat: string;
   /** Algo cambió en la base (comprobada, rechazada): PautaView recarga. */
   onCambio: () => void;
+  /**
+   * Solo ver (23-oct-2026): el Supervisor de Comprobaciones ve las tomas de
+   * todos, pero revisar, rechazar, regresar y comprobar siguen siendo del
+   * analista y del manager (las RPC lo exigen). Se ocultan esos botones;
+   * bajar fotos y el ZIP se quedan.
+   */
+  soloVer?: boolean;
 };
 
 const CARPETA_EDITADAS = 'pauta-analista';
@@ -60,7 +67,7 @@ const TXT_BANDEJA: Record<Bandeja, string> = {
 /** Una descarga o subida a la vez en toda la pestaña. */
 let ocupadoModulo = false;
 
-export default function AnalistaPauta({ filas, anio, numero, etiquetaCat, onCambio }: Props) {
+export default function AnalistaPauta({ filas, anio, numero, etiquetaCat, onCambio, soloVer }: Props) {
   const [bandeja, setBandeja] = useState<Bandeja>('por_revisar');
   const [abierta, setAbierta] = useState<string | null>(null);
   const [nombres, setNombres] = useState<MapaNombres>({});
@@ -162,6 +169,7 @@ export default function AnalistaPauta({ filas, anio, numero, etiquetaCat, onCamb
                       numero={numero}
                       nombres={nombres}
                       onCambio={onCambio}
+                      soloVer={soloVer}
                     />
                   )}
                 </div>
@@ -184,6 +192,7 @@ function Carpeta({
   numero,
   nombres,
   onCambio,
+  soloVer,
 }: {
   campana: string;
   version: string;
@@ -193,6 +202,7 @@ function Carpeta({
   numero: number;
   nombres: MapaNombres;
   onCambio: () => void;
+  soloVer?: boolean;
 }) {
   const [fotos, setFotos] = useState<FotoRevision[]>([]);
   const [cargando, setCargando] = useState(bandeja !== 'regresadas');
@@ -445,6 +455,7 @@ function Carpeta({
             nombres={nombres}
             ocupado={ocupado}
             trabajando={trabajando}
+            soloVer={soloVer}
             onCorrecta={correcta}
             onTodasCorrectas={() => todasCorrectas(c.vendor_face_id)}
             onEditada={subirEditada}
@@ -470,6 +481,7 @@ function BloqueCara({
   nombres,
   ocupado,
   trabajando,
+  soloVer,
   onCorrecta,
   onTodasCorrectas,
   onEditada,
@@ -484,6 +496,7 @@ function BloqueCara({
   nombres: MapaNombres;
   ocupado: boolean;
   trabajando: string | null;
+  soloVer?: boolean;
   onCorrecta: (f: FotoRevision) => void;
   onTodasCorrectas: () => void;
   onEditada: (f: FotoRevision, a: File) => void;
@@ -554,6 +567,7 @@ function BloqueCara({
                   elegida={sel.has(f.evidencia_id)}
                   ocupado={ocupado}
                   trabajando={trabajando}
+                  soloVer={soloVer}
                   onElegir={() => alternar(f.evidencia_id)}
                   onCorrecta={() => onCorrecta(f)}
                   onBajar={() => onBajar(f)}
@@ -563,6 +577,7 @@ function BloqueCara({
             </div>
           )}
 
+          {!soloVer && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
             {enCurso && <span className="spinner" />}
             {r.pendientes > 0 && (
@@ -588,8 +603,9 @@ function BloqueCara({
               Regresar toda la toma
             </button>
           </div>
+          )}
 
-          {pidiendo && (
+          {pidiendo && !soloVer && (
             <div className="field" style={{ marginTop: 8 }}>
               <label>
                 {pidiendo === 'fotos'
@@ -630,6 +646,7 @@ function TarjetaFoto({
   elegida,
   ocupado,
   trabajando,
+  soloVer,
   onElegir,
   onCorrecta,
   onBajar,
@@ -639,6 +656,7 @@ function TarjetaFoto({
   elegida: boolean;
   ocupado: boolean;
   trabajando: string | null;
+  soloVer?: boolean;
   onElegir: () => void;
   onCorrecta: () => void;
   onBajar: () => void;
@@ -665,10 +683,12 @@ function TarjetaFoto({
           <span className="pill" style={{ background: fondoTono(tono), color: colorTono(tono) }}>
             {TXT_ESTADO[f.estado]}
           </span>
-          <label style={{ fontSize: 11, display: 'inline-flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}>
-            <input type="checkbox" checked={elegida} onChange={onElegir} disabled={ocupado} />
-            Rechazar
-          </label>
+          {!soloVer && (
+            <label style={{ fontSize: 11, display: 'inline-flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}>
+              <input type="checkbox" checked={elegida} onChange={onElegir} disabled={ocupado} />
+              Rechazar
+            </label>
+          )}
         </div>
         {f.estado === 'editada' && (
           <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 11 }}>
@@ -680,13 +700,14 @@ function TarjetaFoto({
             {trabajando === 'd' + f.evidencia_id && <span className="spinner" />}
             <Ic i={Download} />
           </button>
-          {f.estado !== 'correcta' && (
+          {f.estado !== 'correcta' && !soloVer && (
             <button type="button" className="btn ghost sm" disabled={ocupado} onClick={onCorrecta}>
               {trabajando === 'f' + f.evidencia_id && <span className="spinner" />}
               <Ic i={Check} />
               Correcta
             </button>
           )}
+          {!soloVer && (
           <button
             type="button"
             className="btn ghost sm"
@@ -697,6 +718,7 @@ function TarjetaFoto({
             <Ic i={Upload} />
             {f.estado === 'editada' ? 'Otra editada' : 'Editada'}
           </button>
+          )}
           <input
             ref={input}
             type="file"
