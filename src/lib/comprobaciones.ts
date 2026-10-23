@@ -20,10 +20,11 @@
 
 import { diaCdmx } from './fechasCdmx';
 
-export type UnidadComp = 'Ecovallas' | 'Biobox' | 'Vía Verde';
+// La lista vive en unidadesComp.ts para no arrastrar este núcleo al chunk
+// principal (helpers.ts la usa); aquí se reexporta.
+import { UNIDADES_COMP, type UnidadComp } from './unidadesComp';
+export { UNIDADES_COMP, type UnidadComp };
 export type MedioComp = 'Pantalla' | 'Máquina' | 'Columna' | 'Pórtico';
-
-export const UNIDADES_COMP: readonly UnidadComp[] = ['Ecovallas', 'Biobox', 'Vía Verde'];
 
 export const ETIQUETA_UNIDAD_COMP: Record<UnidadComp, string> = {
   Ecovallas: 'Ecovallas Digital',

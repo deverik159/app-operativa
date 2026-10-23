@@ -393,6 +393,9 @@ self.addEventListener('push', (event) => {
       url: d.url || '/',
       record_id: d.record_id || null,
       evento: d.evento || null,
+      // Unidad del aviso (23-oct-2026): «Se te asignaron campañas» abre
+      // Comprobaciones en esa unidad. Llega desde enviar-push.
+      unidad: d.unidad || null,
     },
     // vibrate no lo soporta iOS, pero en Android ayuda a notarla en campo.
     vibrate: [80, 40, 80],
@@ -418,6 +421,9 @@ self.addEventListener('notificationclick', (event) => {
     evento === 'pauta_tomas_comprobadas';
   // Y estos en la Bitácora VV (versión por programar / programada).
   const esBitacora = evento === 'vv_version' || evento === 'vv_programada';
+  // Y este en Comprobaciones → «Mis campañas» de la unidad (23-oct-2026).
+  const esComp = evento === 'comp_asignada';
+  const unidad = datos.unidad || null;
   // La URL se usa tanto al abrir una ventana nueva como al navegar una ya
   // abierta. De esta manera la app arranca desde el bundle actual y lee el
   // destino en App.tsx (`?record=` enfoca la incidencia; `?ir=pauta`
@@ -431,7 +437,10 @@ self.addEventListener('notificationclick', (event) => {
         destino + sep + 'ir=pauta&evento=' + encodeURIComponent(evento)
       : esBitacora
         ? destino + sep + 'ir=bitacora'
-        : destino;
+        : esComp
+          ? destino + sep + 'ir=comprobaciones&evento=' + encodeURIComponent(evento) +
+            (unidad ? '&unidad=' + encodeURIComponent(unidad) : '')
+          : destino;
 
   event.waitUntil(
     (async () => {
@@ -454,6 +463,7 @@ self.addEventListener('notificationclick', (event) => {
               url: destino,
               record_id: recordId,
               evento,
+              unidad,
             });
           }
           await v.focus();

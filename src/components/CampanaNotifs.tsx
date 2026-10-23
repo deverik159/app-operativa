@@ -33,6 +33,8 @@ const EVENTOS_OPERACION = new Set([
   'ruta',
   'vv_version',
   'vv_programada',
+  // Comprobaciones (23-oct-2026): «Se te asignaron N campañas».
+  'comp_asignada',
 ]);
 
 function CampanaNotifs({

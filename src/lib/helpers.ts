@@ -6,7 +6,7 @@
 // ============================================================
 
 import { PORTICOS_LADO_FIJO } from './constants';
-import { UNIDADES_COMP, type UnidadComp } from './comprobaciones';
+import { UNIDADES_COMP, type UnidadComp } from './unidadesComp';
 
 /**
  * Id aleatorio corto (8 hex) para record_id / reassign_id.

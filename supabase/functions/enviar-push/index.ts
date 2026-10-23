@@ -57,6 +57,8 @@ const TITULOS: Record<string, string> = {
   pauta_tomas_comprobadas: 'Campaña completa',
   vv_version: 'Pauta VV por programar',
   vv_programada: 'Versión VV programada',
+  // comp_asignar_analista (23-oct-2026): un aviso por unidad y periodo.
+  comp_asignada: 'Campañas asignadas',
 };
 
 type Cuerpo = {
@@ -152,6 +154,9 @@ Deno.serve(async (req) => {
     // El evento decide la sección al tocar la notificación: los de pauta
     // (pauta_toma, pauta_revision, ruta) llevan a Pauta y Monitoreo.
     evento: cuerpo.evento || null,
+    // La unidad lleva el aviso de Comprobaciones a la unidad correcta
+    // (23-oct-2026); el trigger notificar_push ya la manda.
+    unidad: cuerpo.unidad_negocio || null,
     // tag por registro Y tipo de evento: los chats de una incidencia se
     // reemplazan entre sí sin apilarse, pero un chat ya no pisa la solicitud
     // de reasignación de la misma incidencia (así se perdían en el celular).
