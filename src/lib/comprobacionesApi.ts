@@ -709,6 +709,14 @@ export type FuentePautaVV = {
   ocupacion: VVOcupacionFila[];
   espacios: (EspacioVV & { tipo_espacio: string | null })[];
   totales: { campanas: number; pautas: number; ocupacion: number; espacios: number };
+  /**
+   * Columnas «reservada» del plano que NO entran (Erik, 23-oct-2026), solo
+   * para avisar: por campaña, las de campañas que sí tienen algo vendido o
+   * pautado en el rango; de las demás, solo cuántas líneas. Llegan con la
+   * migración comp_fuente_reservadas; antes no vienen.
+   */
+  reservadas?: { campana: string; n: number; espacios: string[] }[];
+  reservadas_otras?: number;
 };
 
 /**

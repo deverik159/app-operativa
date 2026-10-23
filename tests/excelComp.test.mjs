@@ -396,9 +396,9 @@ test('armarFormatoGeneral Ecovallas Digital: encabezado y renglones como la hoja
     'TEATRO DE PRUEBA',
     'OBRA UNO',
     'VIDEO',
-    // Ecovallas Digital es todo 24 horas (Erik, 23-oct-2026): aunque la toma
-    // traiga una franja, el HORARIO sale «24 HORAS».
-    '24 HORAS',
+    // Ecovallas Digital: si la bitácora trae una franja, sale tal cual; «24
+    // HORAS» solo si dice 24 horas o no trae nada (Erik, 23-oct-2026).
+    '7:00 - 9:59',
     null,
     null,
     'Aline Ejemplo',
@@ -1051,7 +1051,7 @@ test('tomasExcelDeVista: solo estado <> cancelada; ruta ← ruta_numero, horario
   assert.equal(h.filas.length, 6);
 });
 
-test('Ecovallas Digital y Biobox: HORARIO «24 HORAS» en todos los Excel, sin franjas ni sábado y domingo', () => {
+test('Ecovallas Digital y Biobox: HORARIO «24 HORAS» con «24 HRS» o vacío, sin columnas de sábado y domingo', () => {
   const vista = [
     // Lo que deja la base con la bitácora: «24 HRS» entre semana y nada el domingo.
     {

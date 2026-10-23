@@ -179,7 +179,11 @@ export default function DetalleCampana(props: Props) {
   const esMia = permisos.esAnalista && (camp.analista_email || '').toLowerCase() === email;
   const abierta = camp.estatus === 'abierta';
   const puedeEscribir = abierta && (permisos.gestiona || esMia);
-  const puedeAgregar = puedeEscribir && !camp.retirada && camp.es_full && camp.unidad === 'Vía Verde';
+  // La analista solo agrega columnas a un FULL de Vía Verde; el Supervisor, a
+  // cualquier campaña abierta (comp_agregar_sitios lo permite): así puede
+  // sumar a mano una columna «reservada» que sí se comprueba (Erik, 23-oct-2026).
+  const esFullVV = camp.es_full && camp.unidad === 'Vía Verde';
+  const puedeAgregar = puedeEscribir && !camp.retirada && (esFullVV || permisos.gestiona);
   const motivoLectura = !abierta
     ? 'Esta campaña ya está cerrada: solo se puede consultar.'
     : !puedeEscribir
@@ -592,8 +596,11 @@ export default function DetalleCampana(props: Props) {
     const puede = accionable(s);
     const tramos = Array.isArray(s.tramos) && s.tramos.length > 1 ? s.tramos : null;
     const vig = tramos ? tramos.map((t) => vigenciaTexto(t.inicio, t.fin)).filter(Boolean).join(' y ') : vigenciaTexto(s.inicio, s.fin);
-    const hLv = es24 ? null : horarioParaMostrar(camp.medio, s.horario_lv);
-    const hSd = es24 ? null : horarioParaMostrar(camp.medio, s.horario_sd);
+    // En Ecovallas Digital y Biobox el «24 HORAS» va una vez arriba; el sitio
+    // solo enseña su franja si la bitácora trae una (Erik, 23-oct-2026).
+    const soloFranja = (h: string | null) => (es24 && h === HORARIO_24H ? null : h);
+    const hLv = soloFranja(horarioParaMostrar(camp.medio, s.horario_lv));
+    const hSd = soloFranja(horarioParaMostrar(camp.medio, s.horario_sd));
     const original = s.sitio_original && s.sitio_original.trim().toUpperCase() !== s.sitio_clave.toUpperCase() ? s.sitio_original.trim() : '';
     // Accesibilidad (revisión de pantallas, 23-oct-2026): el renglón ya no
     // es role=checkbox con el ✓ ADENTRO (VoiceOver leía los dos juntos y el
@@ -879,7 +886,7 @@ export default function DetalleCampana(props: Props) {
               }}
             >
               <Ic i={CirclePlus} />
-              Agregar columnas
+              {camp.unidad === 'Vía Verde' ? 'Agregar columnas' : 'Agregar sitios'}
             </button>
           )}
         </div>
@@ -947,7 +954,9 @@ export default function DetalleCampana(props: Props) {
 
         {panel === 'agregar' && (
           <div className="rt-seccion">
-            <div className="rt-seccion-tit">Agregar columnas a este FULL</div>
+            <div className="rt-seccion-tit">
+              {camp.unidad === 'Vía Verde' ? (esFullVV ? 'Agregar columnas a este FULL' : 'Agregar columnas') : 'Agregar sitios'}
+            </div>
             <div className="field" style={{ marginBottom: 8 }}>
               <label htmlFor="comp-claves">Columnas o pórticos (separa con comas o espacios)</label>
               <textarea

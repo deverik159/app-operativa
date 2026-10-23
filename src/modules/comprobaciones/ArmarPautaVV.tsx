@@ -62,6 +62,8 @@ export default function ArmarPautaVV({ ctx }: { ctx: PropsArmar }) {
   const vacios = res && !res.errores.length ? (['Columna', 'Pórtico'] as const).filter((m) => !res.porMedio[m].length) : [];
   const totalCampanas = entradas.reduce((a, e) => a + e.campanas.length, 0);
   const totalSitios = entradas.reduce((a, e) => a + sitiosDe(e.campanas), 0);
+  const reservadas = (lectura?.fuente.reservadas ?? []).filter((r) => Array.isArray(r.espacios));
+  const reservadasOtras = lectura?.fuente.reservadas_otras ?? 0;
 
   if (previa && res && !res.errores.length)
     return (
@@ -109,6 +111,25 @@ export default function ArmarPautaVV({ ctx }: { ctx: PropsArmar }) {
             </div>
             <ListaPlegable tono="warn" abierta={res.avisos.length <= 4} titulo={`${fmt(res.avisos.length)} aviso(s)`} items={res.avisos} />
           </Caja>
+          {/* Reservadas (Erik, 23-oct-2026): no entran, pero se avisa; en el
+              Formato de agosto algunas sí se comprobaron (TOPO CHICO 12 contra 4). */}
+          {(reservadas.length > 0 || reservadasOtras > 0) && (
+            <div className="banner">
+              Columnas del plano marcadas «reservada»: no entran a Comprobaciones. Si alguna sí se comprueba, agrégala a mano en
+              su campaña (Campañas › Sitios › Agregar).
+              {reservadasOtras > 0 && <> Además hay {fmt(reservadasOtras)} línea(s) reservadas de campañas sin nada vendido.</>}
+              {reservadas.length > 0 && (
+                <ListaPlegable
+                  tono="warn"
+                  abierta={reservadas.length <= 4}
+                  titulo={`${fmt(reservadas.length)} campaña(s) con columnas reservadas`}
+                  items={reservadas.map(
+                    (r) => `${r.campana}: ${fmt(r.espacios.length)} columna(s) · ${r.espacios.join(', ')}`
+                  )}
+                />
+              )}
+            </div>
+          )}
           {res.errores.length > 0 && (
             <div className="err">
               <b>No se carga nada:</b>

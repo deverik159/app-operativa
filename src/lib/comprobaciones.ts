@@ -930,17 +930,41 @@ export function esMedio24h(medioOUnidad: MedioComp | UnidadComp | string | null 
   return LLAVES_24H.has(llaveComp(medioOUnidad));
 }
 
+/** ¿El texto dice «24 horas»? El mismo patrón que leerHorario (importadorComp). */
+function dice24h(s: string): boolean {
+  const t = s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  return /^(24 ?H(RS?|ORAS)?\.?|00:00 ?- ?23:59( ?HRS)?)$/.test(t);
+}
+
 /**
- * El HORARIO que se le enseña a la gente (Excel, pantalla): «24 HORAS» en
- * Ecovallas Digital y Biobox, aunque la bitácora haya dicho «24 HRS», venga
- * vacío en sábado y domingo o traiga algo raro; en Vía Verde, el horario
- * del día tal como lo guardó la base (horario_texto), recortado.
+ * HORARIO de una toma de Ecovallas Digital o Biobox (Erik, 23-oct-2026):
+ * «24 HORAS» si la bitácora dice 24 horas o no trae nada (sábado y domingo
+ * vacíos); si trae una franja («3 PM A 4 PM», «6:00 AM A 15:00 HRS») o
+ * «PROGRAMMATIC», el texto tal cual, como en los Excel de hoy (en la CAT 21
+ * son el 14% de los sitios de Ecovallas y el 5% de Biobox). Antes salía
+ * «24 HORAS» siempre y el monitorista iba a una hora en que el anuncio no
+ * sale (revisión 2, punta-a-punta-1).
+ */
+export function horario24hOFranja(horario: string | null | undefined): string {
+  const s = typeof horario === 'string' ? horario.trim() : '';
+  return s === '' || dice24h(s) ? HORARIO_24H : s;
+}
+
+/**
+ * El HORARIO que se le enseña a la gente (Excel, pantalla): en Ecovallas
+ * Digital y Biobox, horario24hOFranja; en Vía Verde, el horario del día tal
+ * como lo guardó la base (horario_texto), recortado.
  */
 export function horarioParaMostrar(
   medioOUnidad: MedioComp | UnidadComp | string | null | undefined,
   horario: string | null | undefined
 ): string | null {
-  if (esMedio24h(medioOUnidad)) return HORARIO_24H;
+  if (esMedio24h(medioOUnidad)) return horario24hOFranja(horario);
   const s = typeof horario === 'string' ? horario.trim() : '';
   return s === '' ? null : s;
 }

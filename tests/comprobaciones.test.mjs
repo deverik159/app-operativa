@@ -844,7 +844,13 @@ test('horario de 24 horas: Ecovallas Digital y Biobox sin franjas; Vía Verde co
   for (const m of ['Columna', 'Pórtico', 'Vía Verde', 'Via Verde', '', null, undefined, 'Pantallas', 'Biobox Perú']) assert.equal(esMedio24h(m), false, String(m));
   assert.equal(horarioParaMostrar('Pantalla', '24 HRS'), '24 HORAS');
   assert.equal(horarioParaMostrar('Máquina', null), '24 HORAS');
-  assert.equal(horarioParaMostrar('Biobox', '10:00 - 18:00'), '24 HORAS');
+  // Con franja, la franja (Erik, 23-oct-2026: así van los Excel de hoy).
+  assert.equal(horarioParaMostrar('Biobox', '10:00 - 18:00'), '10:00 - 18:00');
+  assert.equal(horarioParaMostrar('Pantalla', '3 PM A 4 PM'), '3 PM A 4 PM');
+  assert.equal(horarioParaMostrar('Máquina', ' PROGRAMMATIC '), 'PROGRAMMATIC');
+  // 24 horas en cualquiera de sus formas, o vacío: «24 HORAS».
+  for (const h of ['24 hrs', '24 HORAS.', '24hrs', '24 h', '00:00 - 23:59', '00:00-23:59 HRS', '  ', null, undefined])
+    assert.equal(horarioParaMostrar('Pantalla', h), '24 HORAS', String(h));
   assert.equal(horarioParaMostrar('Columna', '  06:00 - 09:59 '), '06:00 - 09:59');
   assert.equal(horarioParaMostrar('Pórtico', '   '), null);
   assert.equal(horarioParaMostrar(null, '24 HRS'), '24 HRS');

@@ -42,7 +42,7 @@ import {
   diasEntre,
   esCompleta,
   esFinDeSemana,
-  HORARIO_24H,
+  horario24hOFranja,
   horarioParaMostrar,
   llaveComp,
   observacionesToma,
@@ -946,9 +946,9 @@ function columnasBase(cfg: ConfigMedio, conRuta: boolean): { enc: string[]; anch
 
 /**
  * Las celdas comunes de una toma. HORARIO: en Ecovallas Digital y Biobox
- * siempre «24 HORAS» (cfg.horario24h; Erik, 23-oct-2026), aunque la toma
- * traiga el «24 HRS» de la bitácora o nada en sábado y domingo; en Vía Verde
- * el horario del día de la toma.
+ * (cfg.horario24h) «24 HORAS» si la toma trae el «24 HRS» de la bitácora o
+ * nada en sábado y domingo, y la franja tal cual si la trae (Erik,
+ * 23-oct-2026, horario24hOFranja); en Vía Verde el horario del día de la toma.
  */
 function celdasBase(cfg: ConfigMedio, t: TomaExcel, conRuta: boolean): Celda[] {
   return [
@@ -958,7 +958,7 @@ function celdasBase(cfg: ConfigMedio, t: TomaExcel, conRuta: boolean): Celda[] {
     texto(t.campana),
     texto(t.version),
     texto(t.comprobacion) ?? 'FOTO',
-    cfg.horario24h ? HORARIO_24H : texto(t.horario),
+    cfg.horario24h ? horario24hOFranja(t.horario) : texto(t.horario),
     observacionesToma(t.especificacion, t.observaciones),
   ];
 }
