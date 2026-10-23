@@ -433,7 +433,7 @@ self.addEventListener('notificationclick', (event) => {
   const url = recordId
     ? destino + sep + 'record=' + encodeURIComponent(recordId)
     : esPauta
-      ? // Con el evento, la app elige la pestaña de Pauta (Indicadores, Analista).
+      ? // Con el evento, la app elige el destino: Indicadores de Pauta o, para el analista, Comprobaciones › Tomas de Pauta (23-oct-2026).
         destino + sep + 'ir=pauta&evento=' + encodeURIComponent(evento)
       : esBitacora
         ? destino + sep + 'ir=bitacora'

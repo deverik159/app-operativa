@@ -38,6 +38,7 @@ import {
   initials,
   ROLES_FIJACION_EXTERNA,
   ROLES_PAUTA,
+  veTomasPauta,
 } from './lib/helpers';
 import { useNotificaciones } from './lib/useNotificaciones';
 import { vigilarNuevaVersion, traerVersionNueva, revisarVersionAhora } from './lib/versionApp';
@@ -833,6 +834,14 @@ function Main({
   const [errRoles, setErrRoles] = useState('');
   const [ready, setReady] = useState(copiaRoles !== null);
   const [tab, setTab] = useState('dashboard');
+  /**
+   * La pestaña de ESTE render, para los avisos que llegan fuera del ciclo de
+   * render (?ir= al montar, postMessage): en qué pestaña se dejó a la
+   * persona (ver avisoCompPendiente). Al arrancar con copia ya trae la de
+   * siempre: la resolución de la ruta la pone en el mismo render.
+   */
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
   const enLinea = useEnLinea();
   /**
    * La pestaña que pide la URL al arrancar (/pauta → 'pauta'). Todavía no
@@ -1017,8 +1026,15 @@ function Main({
    * teléfono todavía no trae la fila de analista, el menú no tiene la
    * pestaña, el efecto de clavesConRuta la regresa a la de siempre y el
    * aviso se perdía. Se guarda y se atiende al llegar los roles.
+   * `desde` = la pestaña en que se dejó a la persona: solo se aplica si
+   * sigue ahí (como rutaPendiente; revisión 3, 23-oct-2026).
    */
-  const avisoCompPendiente = useRef<{ evento: string | null; unidad: string | null; hasta: number } | null>(null);
+  const avisoCompPendiente = useRef<{
+    evento: string | null;
+    unidad: string | null;
+    desde: string;
+    hasta: number;
+  } | null>(null);
 
   // Cada aviso se atiende UNA vez (revisión de pantallas, 23-oct-2026): los
   // módulos se desmontan al cambiar de pestaña y, al volver por el menú, su
@@ -1070,33 +1086,73 @@ function Main({
     // Sin Pauta en el menú, a Pauta no se le manda con NINGÚN aviso: antes
     // solo se revisaba con 'ruta' o sin evento, y una toma regresada abría
     // Pauta a un técnico o a un monitorista de otra unidad (revisión,
-    // 8-oct-2026). Con el menú aún vacío (push con la app cerrada y roles
-    // sin cargar) va a Pauta y el efecto de clavesConRuta lo corrige.
-    if (claves && !tienePauta) return tieneMis ? 'mis_rutas' : null;
+    // 8-oct-2026). Con los roles aún sin cargar (push con la app cerrada y
+    // sin copia en el teléfono) va a Pauta y el efecto de clavesConRuta lo
+    // corrige. Ese menú no viene vacío: con roles null trae 'dashboard', así
+    // que se mira si hay roles y no si hay claves (revisión 3, 23-oct-2026).
+    const rolesListos = !!rolesRef.current?.length;
+    if (rolesListos && claves && !tienePauta) return tieneMis ? 'mis_rutas' : null;
     return 'pauta';
   };
 
-  /** Abre Pauta RECARGADA: una lista ya abierta enseñaría la toma vieja. */
-  const irAPauta = useCallback((evento?: string | null) => {
-    // Los avisos del analista van a «Tomas de Pauta» en Comprobaciones
-    // (Erik, 23-oct-2026) si la tiene en el menú. Con el menú aún vacío
-    // (push con la app cerrada) también, y el aviso se guarda por si los
-    // roles llegan después (ver avisoCompPendiente).
-    if (esAvisoDelAnalista(evento)) {
-      const claves = menuConRutaRef.current;
-      if (!claves || claves.split('|').includes('comprobaciones')) {
-        if (tokenRolesOk.current === null)
-          avisoCompPendiente.current = { evento: evento ?? null, unidad: null, hasta: Date.now() + RUTA_PENDIENTE_MS };
-        irAComprobaciones(evento);
-        return;
-      }
-    }
+  /**
+   * Pauta RECARGADA (una lista ya abierta enseñaría la toma vieja), o a
+   * donde lleve el aviso en su menú. Devuelve la pestaña a la que mandó
+   * (null = se quedó donde estaba).
+   */
+  const irAPautaDirecto = (evento?: string | null): string | null => {
     const destino = destinoAvisoPauta(evento);
     if (destino) setTab(destino);
     if (destino === 'pauta') pedirVistaPauta(evento);
     setRecargarSignal((n) => n + 1);
     notifs.recargar();
-    // destinoAvisoPauta solo lee un ref; pedirVistaPauta, un setState.
+    return destino;
+  };
+
+  /**
+   * Lleva un aviso a Comprobaciones y decide si guardarlo para cuando
+   * lleguen los roles de la red (avisoCompPendiente; revisión 3,
+   * 23-oct-2026):
+   *   · roles sin cargar (sin copia en el teléfono): se abre Comprobaciones
+   *     y se guarda; al llegar los roles, si no la tiene, va a `alterno`;
+   *   · el menú ya la tiene: se abre y NO se guarda. Antes se guardaba igual
+   *     y, si la persona se movía antes de que llegaran los roles, la
+   *     regresaba a Comprobaciones;
+   *   · el menú (de la copia) no la tiene: `alterno` decide y, si la red aún
+   *     no confirma los roles, se guarda por si los nuevos sí la traen.
+   * `alterno` navega por su cuenta y devuelve la pestaña a la que mandó.
+   */
+  const avisoAComprobaciones = (
+    evento: string | null,
+    unidad: string | null,
+    alterno: () => string | null
+  ) => {
+    const hasta = Date.now() + RUTA_PENDIENTE_MS;
+    if (!rolesRef.current?.length) {
+      irAComprobaciones(evento, unidad);
+      avisoCompPendiente.current = { evento, unidad, desde: 'comprobaciones', hasta };
+      return;
+    }
+    if (menuConRutaRef.current.split('|').includes('comprobaciones')) {
+      avisoCompPendiente.current = null;
+      irAComprobaciones(evento, unidad);
+      return;
+    }
+    const destino = alterno();
+    avisoCompPendiente.current =
+      tokenRolesOk.current === null ? { evento, unidad, desde: destino ?? tabRef.current, hasta } : null;
+  };
+
+  /** Abre Pauta RECARGADA: una lista ya abierta enseñaría la toma vieja. */
+  const irAPauta = useCallback((evento?: string | null) => {
+    // Los avisos del analista van a «Tomas de Pauta» en Comprobaciones
+    // (Erik, 23-oct-2026) si la tiene en el menú; si no, a Pauta como antes.
+    if (esAvisoDelAnalista(evento)) {
+      avisoAComprobaciones(evento ?? null, null, () => irAPautaDirecto(evento));
+      return;
+    }
+    irAPautaDirecto(evento);
+    // Las de arriba solo leen refs y llaman setState o estas dos.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notifs.recargar, irAComprobaciones]);
 
@@ -1163,15 +1219,10 @@ function Main({
     else if (ir === 'bitacora') irABitacora();
     // `?ir=comprobaciones&evento=comp_asignada&unidad=…`: listo para cuando
     // sw.js lo mande (hoy el clic del push de Comprobaciones abre la portada).
-    else if (ir === 'comprobaciones') {
-      if (tokenRolesOk.current === null)
-        avisoCompPendiente.current = {
-          evento: params.get('evento'),
-          unidad: params.get('unidad'),
-          hasta: Date.now() + RUTA_PENDIENTE_MS,
-        };
-      irAComprobaciones(params.get('evento'), params.get('unidad'));
-    }
+    // Sin la pestaña en el menú de la copia no se mueve: se guarda por si
+    // los roles de la red la traen.
+    else if (ir === 'comprobaciones')
+      avisoAComprobaciones(params.get('evento'), params.get('unidad'), () => null);
     // Solo al montar: el parámetro llega únicamente en el arranque.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1888,14 +1939,21 @@ function Main({
 
   // El aviso de Comprobaciones que llegó antes que los roles (ver
   // avisoCompPendiente): una sola vez, dentro de RUTA_PENDIENTE_MS y solo si
-  // ahora SÍ está en el menú.
+  // la persona sigue en la pestaña en que se le dejó (revisión 3,
+  // 23-oct-2026: antes la sacaba de donde se hubiera ido). Si ahora tiene
+  // Comprobaciones, ahí; si se le abrió a ciegas (roles sin cargar) y no la
+  // tiene, los avisos de Pauta van a Pauta como antes del 23-oct-2026 y no a
+  // la de siempre (el efecto de clavesConRuta corre antes; esto gana).
   useEffect(() => {
     const a = avisoCompPendiente.current;
     if (!rolesDeRed || !a) return;
     avisoCompPendiente.current = null;
-    if (Date.now() > a.hasta || tab === 'comprobaciones') return;
-    if (!clavesConRuta.split('|').includes('comprobaciones')) return;
-    irAComprobaciones(a.evento, a.unidad);
+    if (Date.now() > a.hasta || tab !== a.desde) return;
+    if (clavesConRuta.split('|').includes('comprobaciones')) {
+      if (tab !== 'comprobaciones') irAComprobaciones(a.evento, a.unidad);
+    } else if (tab === 'comprobaciones' && esAvisoDelAnalista(a.evento)) {
+      irAPautaDirecto(a.evento);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rolesDeRed, clavesConRuta]);
 
@@ -2297,6 +2355,11 @@ function Main({
                   recargarSignal={recargarSignal}
                   revisaAnalista={has('analista')}
                   vistaPedida={vistaPauta}
+                  onIrATomas={
+                    veTomasPauta(rolesDetalle) && clavesConRuta.split('|').includes('comprobaciones')
+                      ? () => irAComprobaciones('pauta_revision')
+                      : undefined
+                  }
                 />
               )}
               {tab === 'comprobaciones' && (

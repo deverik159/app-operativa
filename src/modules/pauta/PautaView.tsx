@@ -122,6 +122,13 @@ type Props = {
   modo?: 'completo' | 'analista';
   /** Solo ver las tomas, sin revisar (Supervisor sin fila de analista). */
   soloVer?: boolean;
+  /**
+   * Quien ve «Tomas de Pauta» en Comprobaciones: en modo 'completo' se le
+   * dice dónde quedó la revisión y este botón lo lleva ahí (revisión 3,
+   * 23-oct-2026: el aviso «Toma por revisar» todavía dice «pestaña
+   * Analista», que ya no existe aquí).
+   */
+  onIrATomas?: () => void;
 };
 
 type VistaPauta = 'lista' | 'indicadores' | 'analista';
@@ -135,6 +142,7 @@ function PautaView({
   vistaPedida,
   modo = 'completo',
   soloVer,
+  onIrATomas,
 }: Props) {
   vigilarRender('PautaView');
   const [filas, setFilas] = useState<PautaRuta[]>([]);
@@ -316,11 +324,19 @@ function PautaView({
     // no deben borrar los distintivos del resto de la ruta.
     setAbiertas((prev) => ({ ...prev, ...m }));
   }, []);
+  /**
+   * En modo 'analista' (Tomas de Pauta) no se pinta la Lista: ni sus
+   * distintivos de incidencias, ni las asignaciones de ruta, ni las rutas de
+   * Impreso. Sin esto, cada revisión (recarga silenciosa) volvía a pedir
+   * resumenMaquinas de los ~600 sitios (revisión 3, 23-oct-2026).
+   */
+  const conLista = modo === 'completo';
   useEffect(() => {
+    if (!conLista) return;
     const ids = [...new Set(filas.map((f) => f.site_id))];
     setAbiertas({});
     cargarAbiertas(ids);
-  }, [filas, cargarAbiertas]);
+  }, [filas, cargarAbiertas, conLista]);
 
   // Filtros
   const [fRuta, setFRuta] = useState('Todas');
@@ -357,8 +373,8 @@ function PautaView({
   }, []);
 
   useEffect(() => {
-    cargarAsignaciones();
-  }, [cargarAsignaciones]);
+    if (conLista) cargarAsignaciones();
+  }, [cargarAsignaciones, conLista]);
 
   /**
    * Ids de las rutas de monitoreo de Ecovallas IMPRESO (19-oct-2026). La
@@ -369,6 +385,7 @@ function PautaView({
    */
   const [rutasImpreso, setRutasImpreso] = useState<Set<number> | null>(null);
   useEffect(() => {
+    if (!conLista) return;
     let vivo = true;
     sb.from('rutas_monitoreo')
       .select('id')
@@ -381,7 +398,7 @@ function PautaView({
     return () => {
       vivo = false;
     };
-  }, []);
+  }, [conLista]);
   const esRutaImpreso = useCallback(
     (id: number | null | undefined) => id != null && (!rutasImpreso || rutasImpreso.has(id)),
     [rutasImpreso]
@@ -574,7 +591,20 @@ function PautaView({
    * el selector. Así cada viaje trae una fila y usa el índice (anio,
    * catorcena).
    */
+  const catsEnCurso = useRef(false);
   const cargarCatorcenas = useCallback(async () => {
+    // Ya va una lectura: ↻ (o el doble efecto de StrictMode) no lanza otra
+    // encima (revisión 3, 23-oct-2026).
+    if (catsEnCurso.current) return;
+    catsEnCurso.current = true;
+    try {
+      await leerCatorcenasPauta();
+    } finally {
+      catsEnCurso.current = false;
+    }
+  }, []);
+  /** El cuerpo de cargarCatorcenas: solo usa setState (estables). */
+  async function leerCatorcenasPauta() {
     const cats: { anio: number; numero: number }[] = [];
     for (let i = 0; i < 120; i++) {
       const ult = cats[cats.length - 1];
@@ -605,7 +635,7 @@ function PautaView({
     const primera = cats[0] ? claveCatorcena(cats[0].anio, cats[0].numero) : null;
     setCatSel((prev) => prev ?? primera);
     if (cats.length === 0) setLoading(false);
-  }, []);
+  }
 
   /** Número de carga: la respuesta de una carga superada se descarta. */
   const cargaSeq = useRef(0);
@@ -711,13 +741,23 @@ function PautaView({
   }, [catSel, cargar]);
 
   // Recarga pedida desde afuera (notificación de pauta abierta).
+  // Si la primera lectura de catorcenas falló (sin señal), ↻ la vuelve a
+  // pedir: antes se quedaba en «no hay ninguna catorcena» hasta salir y
+  // volver (revisión 3, 23-oct-2026). Al montar ya va la de arriba en curso
+  // y cargarCatorcenas no lanza otra.
   useEffect(() => {
-    if (recargarSignal && catSel != null) {
+    if (!recargarSignal) return;
+    if (catSel != null) {
       cargar(catSel, true);
-      cargarAsignaciones();
-    }
+      if (conLista) cargarAsignaciones();
+    } else reintentarCatorcenas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recargarSignal]);
+  const reintentarCatorcenas = () => {
+    if (catsEnCurso.current) return;
+    setErr('');
+    void cargarCatorcenas();
+  };
 
   // --- Catálogos derivados de los datos ---
   const rutas = useMemo(() => {
@@ -973,11 +1013,16 @@ function PautaView({
   if (loading && !yaCargo) return <div className="loading">Cargando pauta…</div>;
 
   if (catorcenas.length === 0 && modo === 'analista')
-    return (
-      <>
-        {err && <div className="err">{err}</div>}
-        <div className="empty">Todavía no hay ninguna catorcena de Pauta cargada.</div>
-      </>
+    return err ? (
+      // Falló la lectura (sin señal): no es que no haya catorcenas.
+      <div className="err">
+        No se pudo leer la Pauta ({err}).{' '}
+        <button type="button" className="btn ghost sm" onClick={reintentarCatorcenas}>
+          Reintentar
+        </button>
+      </div>
+    ) : (
+      <div className="empty">Todavía no hay ninguna catorcena de Pauta cargada.</div>
     );
   if (catorcenas.length === 0)
     return (
@@ -1050,6 +1095,18 @@ function PautaView({
     </select>
   );
 
+  // La revisión de tomas se mudó a Comprobaciones (Erik, 23-oct-2026): a
+  // quien la ve ahí se le dice, por si llega aquí siguiendo el texto viejo
+  // del aviso («pestaña Analista»; revisión 3, 23-oct-2026).
+  const avisoTomas = onIrATomas ? (
+    <p className="phint">
+      Revisar las tomas de los monitoristas ahora está en Comprobaciones › Tomas de Pauta.{' '}
+      <button type="button" className="btn ghost sm" onClick={onIrATomas}>
+        Ir a Tomas de Pauta
+      </button>
+    </p>
+  ) : null;
+
   // Indicadores: la misma catorcena; el monitorista, solo sus rutas
   // (coordinador y manager ven todo, Erik 14-oct-2026).
   if (vista === 'indicadores')
@@ -1065,6 +1122,7 @@ function PautaView({
           )}
         </h2>
         {pestanas}
+        {avisoTomas}
         {err && <div className="err">{err}</div>}
         <div className="toolbar filtros-pildora">{selectorCatorcena}</div>
         {catSelLeida && (
@@ -1128,6 +1186,7 @@ function PautaView({
         Qué campaña va en cada cara, cómo va el avance y cómo llegar.
       </p>
       {pestanas}
+      {avisoTomas}
       {err && <div className="err">{err}</div>}
       {/* Monitorista: solo sus rutas asignadas (Erik, 19-oct-2026). */}
       {!veTodo &&
@@ -1694,7 +1753,7 @@ function PautaView({
                           modal con cámara y galería, no guarda a ciegas.
                           Comprobar ya no vive aquí ni en el modal: desde el
                           22-oct-2026 lo hace el analista al revisar las
-                          fotos (pestaña Analista). */}
+                          fotos (Comprobaciones › Tomas de Pauta). */}
                       <button
                         className={f.fecha_toma || colaDe(f) || registradaEnSesion(f) ? 'btn ghost sm' : 'btn sm'}
                         onClick={() => setTomaDe(f)}

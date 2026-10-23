@@ -7,8 +7,10 @@
 // vive lo común; cada pestaña es su archivo y recibe las props de
 // tiposComp.ts:
 //   · Supervisor (o manager): Armar · Campañas · Formato · Avance · Excel ·
-//     Mis campañas (Erik, 23-oct-2026: «lo mismo» que la analista, además).
-//   · Analista: Mis campañas.
+//     Mis campañas (Erik, 23-oct-2026: «lo mismo» que la analista). Sin
+//     fila de analista, Mis campañas lleva un selector de analista: ve la
+//     pantalla de cada una y puede marcar por ella.
+//   · Analista: Mis campañas; si es de Pauta, abre en «Tomas de Pauta».
 //   · El coordinador ya no entra (Erik, 23-oct-2026: «el módulo nuevo de
 //     Comprobaciones, solo el Supervisor y el Manager»).
 //   · «Tomas de Pauta» (Erik, 23-oct-2026): la revisión de las tomas del
@@ -150,12 +152,11 @@ function permisosEn(roles: FilaRol[], u: UnidadComp): PermisosComp {
 }
 
 function vistasDe(p: PermisosComp, conPauta: boolean): VistaComp[] {
-  // Supervisor y manager: todo, también «Mis campañas» (Erik: «lo mismo»).
-  const v: VistaComp[] = p.gestiona
-    ? ['armar', 'campanas', 'formato', 'avance', 'excel', 'mis']
-    : p.esAnalista
-      ? ['mis']
-      : [];
+  // Supervisor y manager: todo, también «Mis campañas» (Erik, 23-oct-2026:
+  // «lo mismo»); sin fila de analista, MisCampanas les da un selector de
+  // analista en vez de decir que la pestaña no es para ellos (revisión 3).
+  const v: VistaComp[] = p.gestiona ? ['armar', 'campanas', 'formato', 'avance', 'excel'] : [];
+  if (p.gestiona || p.esAnalista) v.push('mis');
   if (conPauta) v.push('pauta');
   return v;
 }
@@ -207,12 +208,20 @@ export default function ComprobacionesView({ email, roles, misDep, recargarSigna
   const vistas = useMemo(() => vistasDe(permisos, conPauta), [permisos, conPauta]);
   /** Armar ya se abrió alguna vez: desde ahí se queda montado (uso-2). */
   const [armarVisto, setArmarVisto] = useState(false);
-  const [vistaSel, setVistaSel] = useState<VistaComp>('campanas');
+  // La pedida por un aviso desde el primer render (revisión 3,
+  // 23-oct-2026): con 'campanas' se montaba un instante la pestaña por
+  // omisión (y se pedía su chunk) antes del efecto de vistaPedida.
+  const [vistaSel, setVistaSel] = useState<VistaComp>(() => vistaPedida?.vista ?? 'campanas');
+  // Por omisión: Campañas para quien gestiona; «Tomas de Pauta» para la
+  // analista de Pauta (su trabajo diario mientras Mis campañas se llena,
+  // revisión 3, pauta-y-avisos-5); si no, la primera.
   const vista: VistaComp | null = vistas.includes(vistaSel)
     ? vistaSel
     : vistas.includes('campanas')
       ? 'campanas'
-      : vistas[0] ?? null;
+      : vistas.includes('pauta')
+        ? 'pauta'
+        : vistas[0] ?? null;
   useEffect(() => {
     if (vista === 'armar') setArmarVisto(true);
   }, [vista]);

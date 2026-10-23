@@ -10,6 +10,11 @@
 // límite con semáforo, la especificación y sus etiquetas. Al tocarla se abre
 // el detalle a pantalla completa (DetalleCampana) para marcar sitios.
 //
+// Supervisor y manager (Erik, 23-oct-2026: «lo mismo» que la analista):
+// también la tienen, con un selector de analista. Ven la pantalla de cada
+// una (o de todas) y pueden marcar por ella: la base deja al Supervisor
+// marcar en su unidad (comp_sitios_ajenos).
+//
 // La lista ya la trae el esqueleto (vw_comp_campanas del periodo); el
 // detalle relee la campaña y pide al esqueleto releer la lista en silencio
 // (recargar) después de cada marca, sin desmontar nada.
@@ -55,9 +60,29 @@ function ordenar(a: VwCampana, b: VwCampana): number {
 
 export default function MisCampanas(props: PropsPestanaComp) {
   vigilarRender('MisCampanas');
-  const { campanas, email, cargando, periodo, permisos, unidad } = props;
+  const { campanas, email, cargando, periodo, permisos, unidad, equipo, nombreDe } = props;
 
-  const mias = useMemo(() => campanas.filter((c) => (c.analista_email || '').toLowerCase() === email), [campanas, email]);
+  // De quién se ven las campañas: la analista, las suyas; quien gestiona,
+  // las de la analista que elija o las de todas ('*').
+  const TODAS = '*';
+  const [deSel, setDe] = useState<string | null>(null);
+  const de = deSel ?? (permisos.esAnalista ? email : TODAS);
+  const analistas = useMemo(
+    () =>
+      equipo
+        .filter((m) => m.asignable && m.email !== email)
+        .map((m) => ({ email: m.email, nombre: m.nombre || nombreDe(m.email) })),
+    [equipo, email, nombreDe]
+  );
+  const propias = de === email;
+  const mias = useMemo(
+    () =>
+      campanas.filter((c) => {
+        const a = (c.analista_email || '').toLowerCase();
+        return de === TODAS ? a !== '' : a === de;
+      }),
+    [campanas, de]
+  );
 
   const t = useMemo(() => {
     let vivas = 0;
@@ -115,7 +140,7 @@ export default function MisCampanas(props: PropsPestanaComp) {
 
   const abierta = abiertaId == null ? null : mias.find((c) => c.id === abiertaId) ?? campanas.find((c) => c.id === abiertaId) ?? abiertaCopia;
 
-  if (!permisos.esAnalista)
+  if (!permisos.esAnalista && !permisos.gestiona)
     return <div className="empty">«Mis campañas» es para quien tiene el rol de analista en esta unidad.</div>;
 
   if (cargando && !campanas.length)
@@ -130,9 +155,31 @@ export default function MisCampanas(props: PropsPestanaComp) {
 
   return (
     <div>
+      {permisos.gestiona && (
+        <div className="toolbar filtros-pildora">
+          <select
+            aria-label="De qué analista"
+            value={de}
+            onChange={(e) => {
+              setDe(e.target.value);
+              setAbiertaId(null);
+              setAbiertaCopia(null);
+              setLimite(PAGINA);
+            }}
+          >
+            {permisos.esAnalista && <option value={email}>Las mías</option>}
+            <option value={TODAS}>Todas las analistas</option>
+            {analistas.map((a) => (
+              <option key={a.email} value={a.email}>
+                {a.nombre}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="cards">
         {[
-          { l: 'Mis campañas', n: t.vivas, sub: `${nf(t.pendientesCamp)} por terminar` },
+          { l: propias ? 'Mis campañas' : 'Campañas', n: t.vivas, sub: `${nf(t.pendientesCamp)} por terminar` },
           { l: 'Sitios pendientes', n: t.pendientesSitios, c: 'var(--warn)' },
           { l: 'Vencen pronto', n: t.pronto, c: t.pronto ? 'var(--warn)' : undefined, sub: '2 días o menos' },
           { l: 'Vencidas', n: t.vencidas, c: t.vencidas ? colorTono('rojo') : undefined },
@@ -196,14 +243,20 @@ export default function MisCampanas(props: PropsPestanaComp) {
 
       {mias.length === 0 ? (
         <div className="empty">
-          No tienes campañas asignadas en {periodo.etiqueta}. Cuando el Supervisor te asigne, aparecen aquí.
+          {propias
+            ? `No tienes campañas asignadas en ${periodo.etiqueta}. Cuando el Supervisor te asigne, aparecen aquí.`
+            : de === TODAS
+              ? `Todavía no hay campañas con analista en ${periodo.etiqueta}. Asígnalas en Campañas.`
+              : `${nombreDe(de)} no tiene campañas en ${periodo.etiqueta}.`}
         </div>
       ) : visibles.length === 0 ? (
         <div className="empty">
           {busca
             ? 'Ninguna campaña coincide con la búsqueda.'
             : filtro === 'pendientes'
-              ? '¡No tienes campañas pendientes en este periodo!'
+              ? propias
+                ? '¡No tienes campañas pendientes en este periodo!'
+                : 'No hay campañas pendientes aquí.'
               : 'No hay campañas aquí.'}
         </div>
       ) : (
@@ -240,6 +293,11 @@ export default function MisCampanas(props: PropsPestanaComp) {
                 </div>
                 {c.cliente && (
                   <div style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'anywhere', marginBottom: 4 }}>{c.cliente}</div>
+                )}
+                {de === TODAS && (
+                  <div style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'anywhere', marginBottom: 4 }}>
+                    Analista: {nombreDe(c.analista_email)}
+                  </div>
                 )}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '6px 0 4px' }}>
                   <div style={{ flex: '1 1 auto', minWidth: 0 }}>

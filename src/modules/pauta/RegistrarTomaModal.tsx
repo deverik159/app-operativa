@@ -20,7 +20,7 @@
 //   · "Guardar en Fotos" abre la hoja de compartir con las fotos que se
 //     tomaron con la cámara de la app en esta ventana.
 // Comprobar y regresar ya no viven aquí (22-oct-2026): las tomas las revisa
-// el analista foto por foto en la pestaña Analista (AnalistaPauta.tsx).
+// el analista foto por foto en Comprobaciones › Tomas de Pauta (AnalistaPauta.tsx).
 // ============================================================
 import { Camera, ClipboardList, CloudOff, ImageDown, Trash, TriangleAlert } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';

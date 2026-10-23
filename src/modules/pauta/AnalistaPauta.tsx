@@ -122,7 +122,9 @@ export default function AnalistaPauta({ filas, anio, numero, etiquetaCat, onCamb
       ) : (
         visibles.map((g) => (
           <section key={g.campana} className="card" style={{ marginBottom: 10 }}>
-            <b style={{ display: 'block', marginBottom: 6, overflowWrap: 'anywhere' }}>
+            {/* 13 px como los títulos de las listas (.rt-fila-tit): a tamaño
+                de cuerpo se veía grande junto al resto (Erik, 23-oct-2026). */}
+            <b style={{ display: 'block', marginBottom: 6, overflowWrap: 'anywhere', fontSize: 13 }}>
               <Ic i={FolderOpen} />
               {g.campana}
               <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
@@ -149,6 +151,7 @@ export default function AnalistaPauta({ filas, anio, numero, etiquetaCat, onCamb
                       border: 'none',
                       color: 'var(--txt)',
                       font: 'inherit',
+                      fontSize: 13,
                       textAlign: 'left',
                       cursor: 'pointer',
                     }}
@@ -535,7 +538,7 @@ function BloqueCara({
   return (
     <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 10 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-        <b style={{ overflowWrap: 'anywhere' }}>{cara.vendor_face_id}</b>
+        <b style={{ overflowWrap: 'anywhere', fontSize: 13 }}>{cara.vendor_face_id}</b>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>
           {cara.site_id} · {nombreRuta(cara.ruta_clave)}
           {cara.fecha_toma && ` · tomó ${nombreDe(nombres, cara.toma_por || '')} ${fechaHoraCdmx(cara.fecha_toma)}`}
@@ -684,7 +687,18 @@ function TarjetaFoto({
             {TXT_ESTADO[f.estado]}
           </span>
           {!soloVer && (
-            <label style={{ fontSize: 11, display: 'inline-flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}>
+            // Sin partir la palabra: en la tarjeta de 150 px salía «Rec / haz / ar» (Erik, 23-oct-2026).
+            <label
+              style={{
+                fontSize: 11,
+                display: 'inline-flex',
+                gap: 4,
+                alignItems: 'center',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
               <input type="checkbox" checked={elegida} onChange={onElegir} disabled={ocupado} />
               Rechazar
             </label>
