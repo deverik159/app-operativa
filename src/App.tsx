@@ -1006,6 +1006,14 @@ function Main({
     setRecargarSignal((n) => n + 1);
     notifs.recargar();
   }, [notifs.recargar]);
+  /**
+   * Aviso de Comprobaciones tocado con la app cerrada ANTES de que lleguen
+   * los roles de la red (revisión 2, regresiones-4): si la copia del
+   * teléfono todavía no trae la fila de analista, el menú no tiene la
+   * pestaña, el efecto de clavesConRuta la regresa a la de siempre y el
+   * aviso se perdía. Se guarda y se atiende al llegar los roles.
+   */
+  const avisoCompPendiente = useRef<{ evento: string | null; unidad: string | null; hasta: number } | null>(null);
 
   // Cada aviso se atiende UNA vez (revisión de pantallas, 23-oct-2026): los
   // módulos se desmontan al cambiar de pestaña y, al volver por el menú, su
@@ -1128,7 +1136,15 @@ function Main({
     else if (ir === 'bitacora') irABitacora();
     // `?ir=comprobaciones&evento=comp_asignada&unidad=…`: listo para cuando
     // sw.js lo mande (hoy el clic del push de Comprobaciones abre la portada).
-    else if (ir === 'comprobaciones') irAComprobaciones(params.get('evento'), params.get('unidad'));
+    else if (ir === 'comprobaciones') {
+      if (tokenRolesOk.current === null)
+        avisoCompPendiente.current = {
+          evento: params.get('evento'),
+          unidad: params.get('unidad'),
+          hasta: Date.now() + RUTA_PENDIENTE_MS,
+        };
+      irAComprobaciones(params.get('evento'), params.get('unidad'));
+    }
     // Solo al montar: el parámetro llega únicamente en el arranque.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1644,9 +1660,17 @@ function Main({
     },
     // Indicadores no es del monitorista puro ni de comercial/pautas puros:
     // mide reparación y carga de áreas, trabajo que no es el suyo.
+    // El equipo de Comprobaciones tampoco, SALVO que no abra ni
+    // Comprobaciones ni Pauta (p. ej. supervisor o analista en Biobox Perú):
+    // sin esto se quedaba con la barra vacía (revisión 2, regresiones-6).
     !esMonitoristaPuro &&
       !esBitacoraPuro &&
-      !esEquipoCompPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores', grupo: 'indicadores' },
+      !(esEquipoCompPuro && (veComprobaciones || vePauta)) && {
+        k: 'dashboard',
+        ic: '📊',
+        t: 'Indicadores',
+        grupo: 'indicadores',
+      },
     // Disponibilidad (desde el 19-oct-2026 se llama «Inventario») nació para comercial cuando aún no tenía rol propio;
     // desde el 22-sep-2026 el rol `comercial` existe (Bitácora VV) y entra
     // por derecho propio. Viewer sigue: es el rol de quien solo consulta.
@@ -1835,6 +1859,19 @@ function Main({
     // Solo al llegar los roles de la red.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rolesDeRed]);
+
+  // El aviso de Comprobaciones que llegó antes que los roles (ver
+  // avisoCompPendiente): una sola vez, dentro de RUTA_PENDIENTE_MS y solo si
+  // ahora SÍ está en el menú.
+  useEffect(() => {
+    const a = avisoCompPendiente.current;
+    if (!rolesDeRed || !a) return;
+    avisoCompPendiente.current = null;
+    if (Date.now() > a.hasta || tab === 'comprobaciones') return;
+    if (!clavesConRuta.split('|').includes('comprobaciones')) return;
+    irAComprobaciones(a.evento, a.unidad);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rolesDeRed, clavesConRuta]);
 
   // Refs para el manejador de popstate, que vive fuera del ciclo de render.
   // El alta solo cuenta como abierta si se VE: `nuevaAbierta` puede quedarse

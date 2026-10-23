@@ -131,6 +131,11 @@ function borradorDe(r: ReglaComp): Borrador {
   };
 }
 
+/** Tope de «desde», «hasta» y de un valor en sitios o minutos. */
+const TOPE_RANGO = 100000;
+/** Tope de un valor en días (unos 10 años). */
+const TOPE_DIAS = 3650;
+
 /** Entero ≥ 0 o null; NaN si no se entiende. */
 function entero(s: string): number | null {
   const x = s.trim();
@@ -152,9 +157,19 @@ function armarEnvio(b: Borrador): { ok: true; envio: ReglaEnvio } | { ok: false;
   const hasta = t.rango ? entero(b.hasta) : null;
   if (Number.isNaN(desde) || Number.isNaN(hasta)) return { ok: false, error: '«Desde» y «hasta» van en números enteros.' };
   if (desde != null && hasta != null && hasta < desde) return { ok: false, error: '«Hasta» no puede ser menor que «desde».' };
+  // Topes (revisión 2, contrato-7): la base hace ::int sin atrapar el
+  // desbordamiento y salía «out of range for type integer» en inglés; y un
+  // valor de días enorme se guardaba (valor es numeric) y rompía después la
+  // lectura de TODAS las campañas de la unidad (fecha fuera de rango).
+  if ((desde != null && desde > TOPE_RANGO) || (hasta != null && hasta > TOPE_RANGO))
+    return { ok: false, error: `«Desde» y «hasta» van de 0 a ${nf(TOPE_RANGO)}.` };
   let valor = t.valor ? numero(b.valor) : null;
   if (Number.isNaN(valor)) return { ok: false, error: 'El valor va en número.' };
   if (valor != null && valor < 0) return { ok: false, error: 'El valor no puede ser negativo.' };
+  if (t.valor === 'dias' && valor != null && valor > TOPE_DIAS)
+    return { ok: false, error: `Los días van de 0 a ${nf(TOPE_DIAS)}.` };
+  if (t.valor !== 'pct' && t.valor !== 'dias' && valor != null && valor > TOPE_RANGO)
+    return { ok: false, error: `El valor va de 0 a ${nf(TOPE_RANGO)}.` };
   if (t.valor === 'pct' && valor != null) {
     if (valor > 100) return { ok: false, error: 'El % va de 0 a 100.' };
     valor = Math.round(valor * 10) / 1000;

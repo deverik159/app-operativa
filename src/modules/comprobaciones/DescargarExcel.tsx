@@ -39,6 +39,7 @@ import {
   type XlsxMinimo,
 } from '../../lib/excelComp';
 import {
+  generarTomas,
   leerCampanas,
   leerDiaria,
   leerMonitoristas,
@@ -66,7 +67,24 @@ type FormatoMon = 'como_hoy' | 'por_persona';
 type ArchivosMon = {
   medio: MedioComp;
   libros: { libro: LibroExcel; renglones: number; sinMonitorista: boolean }[];
+  /** Hora (CDMX, HH:MM) en que se armaron: son una foto de ese momento. */
+  hora: string;
 };
+
+/**
+ * Lo que falta repartir en lo que va a campo (revisión 2, punta-a-punta-3 y
+ * 5): tomas sin monitorista y, de ellas, las de sitios sin ruta.
+ */
+type FaltaRepartir = { medio: MedioComp; sinMonitorista: number; sinRuta: number; clavesSinRuta: string[] };
+
+/** Campañas por llamada al reaplicar el plan (igual que PlanTomasModal). */
+const TANDA_PLAN = 40;
+
+const horaAhora = () =>
+  new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' });
+
+const sinMonitoristaToma = (t: TomaExcel) =>
+  !(t.monitorista_email || t.monitorista || (Array.isArray(t.monitoristas) && t.monitoristas.some((m) => m?.email || m?.nombre)));
 
 const pausa = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -128,13 +146,28 @@ export default function DescargarExcel(props: PropsPestanaComp) {
   const [nota, setNota] = useState('');
   const [formatoEco, setFormatoEco] = useState<FormatoMon>('como_hoy');
   const [archivosMon, setArchivosMon] = useState<ArchivosMon | null>(null);
+  const [faltaRepartir, setFaltaRepartir] = useState<FaltaRepartir | null>(null);
 
   // Otro periodo u otra unidad: lo armado ya no sirve.
   useEffect(() => {
     setArchivosMon(null);
+    setFaltaRepartir(null);
     setErr('');
     setAviso('');
   }, [periodo.id, unidad]);
+
+  // La lista del esqueleto se releyó (↻, un aviso o una escritura): lo
+  // armado puede estar viejo y «Descargar» lo bajaría tal cual (revisión 2,
+  // uso-7). Se pide volver a armar.
+  const primeraLista = useRef(true);
+  useEffect(() => {
+    if (primeraLista.current) {
+      primeraLista.current = false;
+      return;
+    }
+    setArchivosMon(null);
+    setFaltaRepartir(null);
+  }, [campanas]);
 
   // Nombres de los monitoristas (comp_monitoristas), una vez por unidad.
   const nombresMon = useRef<{ unidad: string; mapa: Map<string, string> } | null>(null);
@@ -234,9 +267,20 @@ export default function DescargarExcel(props: PropsPestanaComp) {
   const armarMonitoristas = (medio: MedioComp) =>
     correrDescarga('mon|' + medio, async () => {
       setArchivosMon(null);
+      setFaltaRepartir(null);
       const r = await tomasDelMedio(medio);
       if ('error' in r) return r.error;
-      const porTomar = r.tomas.filter(tomaParaCampo).length;
+      const aCampo = r.tomas.filter(tomaParaCampo);
+      const porTomar = aCampo.length;
+      const sinMon = aCampo.filter(sinMonitoristaToma);
+      const sinRuta = sinMon.filter((t) => t.ruta == null || String(t.ruta).trim() === '');
+      if (sinMon.length)
+        setFaltaRepartir({
+          medio,
+          sinMonitorista: sinMon.length,
+          sinRuta: sinRuta.length,
+          clavesSinRuta: [...new Set(sinRuta.map((t) => t.sitio))].sort(compararNatural),
+        });
       if (!porTomar)
         return `No queda nada por tomar en ${ETIQUETA_MEDIO[medio]}: todo está tomado, quitado, cubierto por su sitio o en campañas cerradas.`;
       const libros = armarArchivosMonitoristas({
@@ -256,9 +300,60 @@ export default function DescargarExcel(props: PropsPestanaComp) {
         if (!e) avisar(`✓ ${lista[0].libro.nombreArchivo} · ${lista[0].renglones.toLocaleString('es-MX')} renglones`);
         return e;
       }
-      setArchivosMon({ medio, libros: lista });
+      setArchivosMon({ medio, libros: lista, hora: horaAhora() });
       return null;
     });
+
+  /**
+   * Vuelve a aplicar el plan que YA tiene cada campaña abierta del medio:
+   * comp_aplicar_planes copia la ruta y el monitorista de Rutas en cada toma
+   * del plan al generarla, y nada los recalcula si después se asignan en
+   * Rutas (revisión 2, punta-a-punta-3). Las tomas editadas a mano en
+   * Formato son de origen 'app' y no se tocan.
+   */
+  const actualizarRutas = (medio: MedioComp) => {
+    const ids = campanas
+      .filter((c) => c.medio === medio && c.estatus === 'abierta' && !c.retirada && !!c.plan_tomas)
+      .map((c) => c.id);
+    if (!ids.length) {
+      setErr('No hay campañas abiertas con plan de tomas en ' + ETIQUETA_MEDIO[medio] + '.');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Se vuelve a aplicar el plan que ya tiene cada una de las ${ids.length} campañas abiertas de ${ETIQUETA_MEDIO[medio]}: sus tomas toman la ruta y el monitorista que hoy dice Rutas. Las tomas que editaste a mano en Formato no se tocan. ¿Seguir?`
+      )
+    )
+      return;
+    return correrDescarga('rutas|' + medio, async () => {
+      let actualizadas = 0;
+      let nuevas = 0;
+      let borradas = 0;
+      for (let i = 0; i < ids.length; i += TANDA_PLAN) {
+        const r = await generarTomas(ids.slice(i, i + TANDA_PLAN), null);
+        if (!r.ok) {
+          props.recargar();
+          const hechas = i ? ` Ya se actualizaron ${i} de ${ids.length} campañas.` : '';
+          return (
+            (r.sinRed ? 'Sin señal o la red tardó: no se sabe si se guardó. Vuelve a armar para ver cómo quedó.' : r.error) + hechas
+          );
+        }
+        actualizadas += Number(r.data.tomas_actualizadas) || 0;
+        nuevas += Number(r.data.tomas_nuevas) || 0;
+        borradas += Number(r.data.tomas_borradas) || 0;
+      }
+      props.recargar();
+      setFaltaRepartir(null);
+      setArchivosMon(null);
+      avisar(
+        `✓ ${actualizadas.toLocaleString('es-MX')} tomas tomaron su ruta y monitorista` +
+          (nuevas ? ` · ${nuevas.toLocaleString('es-MX')} nuevas` : '') +
+          (borradas ? ` · ${borradas.toLocaleString('es-MX')} quitadas` : '') +
+          '. Vuelve a armar los archivos.'
+      );
+      return null;
+    });
+  };
 
   const bajarUno = (libro: LibroExcel) =>
     correrDescarga('uno|' + libro.nombreArchivo, async () => {
@@ -270,7 +365,9 @@ export default function DescargarExcel(props: PropsPestanaComp) {
   const bajarTodos = (libros: LibroExcel[]) =>
     correrDescarga('todos', async () => {
       const e = await bajarLibros(libros);
-      if (!e) avisar(`✓ ${libros.length} archivos`);
+      // El navegador puede pedir permiso para varias descargas: si se niega,
+      // no hay forma de saberlo desde aquí (revisión 2, uso-7).
+      if (!e) avisar(`✓ ${libros.length} archivos enviados al navegador · si pidió permiso para descargar varios, acéptalo`);
       return e;
     });
 
@@ -426,11 +523,35 @@ export default function DescargarExcel(props: PropsPestanaComp) {
               </div>
             )}
 
+            {faltaRepartir?.medio === medio && (
+              <div className="banner" style={{ marginTop: 12 }}>
+                {faltaRepartir.sinMonitorista.toLocaleString('es-MX')} toma{faltaRepartir.sinMonitorista === 1 ? '' : 's'} por
+                tomar van sin monitorista.
+                {faltaRepartir.sinRuta > 0 && (
+                  <>
+                    {' '}
+                    {faltaRepartir.sinRuta.toLocaleString('es-MX')} son de sitios que no están en ninguna ruta (
+                    {faltaRepartir.clavesSinRuta.slice(0, 12).join(', ')}
+                    {faltaRepartir.clavesSinRuta.length > 12 ? ` y ${faltaRepartir.clavesSinRuta.length - 12} más` : ''}): revisa
+                    sus claves en Rutas.
+                  </>
+                )}{' '}
+                Si ya les asignaste monitorista en Rutas, actualiza las tomas; si no, repártelas a mano en la pestaña Formato.
+                <div style={{ marginTop: 8 }}>
+                  <button type="button" className="btn sm" disabled={ocupado} onClick={() => actualizarRutas(medio)}>
+                    {trabajando === 'rutas|' + medio && <span className="spinner" />}
+                    Actualizar ruta y monitorista
+                  </button>
+                </div>
+              </div>
+            )}
+
             {mon && (
               <div style={{ marginTop: 12 }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
                   <b style={{ fontSize: 13, marginRight: 'auto' }}>
                     {mon.libros.length} archivos de monitoristas
+                    <span style={{ fontWeight: 400, color: 'var(--muted)' }}> · armados a las {mon.hora}</span>
                   </b>
                   <button
                     type="button"
@@ -455,7 +576,9 @@ export default function DescargarExcel(props: PropsPestanaComp) {
                         </div>
                         <div className="rt-fila-sub">
                           {x.renglones.toLocaleString('es-MX')} renglón{x.renglones === 1 ? '' : 'es'}
-                          {x.sinMonitorista ? ' · reparte estas tomas en la pestaña Formato' : ''}
+                          {x.sinMonitorista
+                            ? ' · asígnales monitorista en Rutas y toca «Actualizar ruta y monitorista», o repártelas en Formato'
+                            : ''}
                         </div>
                       </div>
                       <button

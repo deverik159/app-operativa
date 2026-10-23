@@ -425,13 +425,20 @@ export function PreviaCarga({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modo]);
 
-  const cargar = async () => {
+  /**
+   * Carga los medios de la previa. Con `solo`, únicamente esos (reintentar
+   * el que faltó sin volver a leer el archivo; revisión 2, uso-8): lo que ya
+   * se cargó antes se conserva en el resultado.
+   */
+  const cargar = async (solo?: Set<MedioComp>) => {
     setErr('');
     setFase('cargando');
     const periodoId = ctx.periodo.id;
+    const previos = solo ? resultados.filter((x) => x.reporte && !solo.has(x.medio)) : [];
     const out = await ctx.correr('Cargando campañas…', async () => {
       const res: Resultado[] = [];
       for (const rv of revs) {
+        if (solo && !solo.has(rv.medio)) continue;
         const e = entradas.find((x) => x.medio === rv.medio)!;
         // Lo cargado no debe haber cambiado desde la previa.
         const c = await cargadasDe(periodoId, rv.medio);
@@ -467,11 +474,17 @@ export function PreviaCarga({
     if (!vivo.current) return;
     if (!out) {
       setErr('Hay otra operación en curso. Espera a que termine y vuelve a intentar.');
-      setFase('previa');
+      setFase(previos.length ? 'hecho' : 'previa');
       return;
     }
+    // Los medios que no se intentaron (un error antes cortó el lote) cuentan
+    // como pendientes: se dicen y se pueden reintentar.
+    const intentados = new Set(out.map((x) => x.medio));
+    const sinIntentar: Resultado[] = revs
+      .filter((rv) => (!solo || solo.has(rv.medio)) && !intentados.has(rv.medio))
+      .map((rv) => ({ medio: rv.medio, reporte: null, error: '' }));
     const buenos = out.filter((x) => x.reporte);
-    setResultados(out);
+    setResultados([...previos, ...out, ...sinIntentar]);
     if (buenos.length) {
       // periodos: true → si el periodo era nuevo, el selector recibe su id.
       ctx.recargar({ periodos: true });
@@ -482,10 +495,15 @@ export function PreviaCarga({
         x.reporte!.campanas.filter((c) => c.id != null && c.estatus === 'abierta').map((c) => ({ id: c.id!, campana: c.campana, version: c.version }))
       );
       // Foto de los grupos AHORA: si se recalcularan con la lista nueva, el
-      // grupo desaparecería al aplicar el plan y con él su resultado.
-      setGrupos(gruposDePlan(ids, planesSugeridos, ctx.campanas));
+      // grupo desaparecería al aplicar el plan y con él su resultado. En un
+      // reintento se AGREGAN (los de antes pueden tener su plan a medias).
+      const nuevos = gruposDePlan(ids, planesSugeridos, ctx.campanas);
+      if (solo) {
+        const n = Date.now();
+        setGrupos((g) => [...g, ...nuevos.map((x) => ({ ...x, clave: `r${n}|${x.clave}` }))]);
+      } else setGrupos(nuevos);
     }
-    setFase(out.some((x) => x.error) && !buenos.length ? 'previa' : 'hecho');
+    setFase(out.some((x) => x.error) && !buenos.length && !previos.length ? 'previa' : 'hecho');
     if (out.some((x) => x.error)) setErr(out.filter((x) => x.error).map((x) => `${varios ? x.medio + ': ' : ''}${x.error}`).join(' '));
   };
 
@@ -498,12 +516,29 @@ export function PreviaCarga({
   const mostrarMedio = entradas.length > 1;
 
   if (fase === 'hecho') {
+    const cargados = resultados.filter((x) => x.reporte).map((x) => x.medio);
+    const faltan = revs.map((r) => r.medio).filter((m) => !cargados.includes(m));
     return (
       <div>
         {err && <div className="err">{err}</div>}
-        <div className="ok-msg">
-          <b>Listo: {ctx.periodo.etiqueta} quedó cargado.</b> Lo que contestó la base, abajo.
-        </div>
+        {faltan.length ? (
+          // Antes decía «Listo: … quedó cargado» aunque faltara un medio.
+          <div className="banner">
+            <b>
+              Se cargó {cargados.join(' y ')}; {faltan.join(' y ')} no.
+            </b>{' '}
+            Reintenta lo que faltó sin volver a leer el archivo.
+            <div style={{ marginTop: 8 }}>
+              <button type="button" className="btn sm" disabled={ocupado} onClick={() => void cargar(new Set(faltan))}>
+                Reintentar {faltan.join(' y ')}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="ok-msg">
+            <b>Listo: {ctx.periodo.etiqueta} quedó cargado.</b> Lo que contestó la base, abajo.
+          </div>
+        )}
         {resultados
           .filter((x) => x.reporte)
           .map((x) => (
@@ -511,7 +546,21 @@ export function PreviaCarga({
           ))}
         <PlanesDeTomas ctx={ctx} grupos={grupos} titulo="Siguiente paso: el plan de tomas de lo que acabas de cargar" />
         <div style={{ marginTop: 14 }}>
-          <button type="button" className="btn ghost" onClick={() => onVolver(true)} disabled={ocupado}>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => {
+              // Con un medio sin cargar, «Terminar» borraba los archivos que
+              // hacen falta para reintentarlo: se pregunta.
+              if (
+                faltan.length &&
+                !window.confirm(`${faltan.join(' y ')} no se cargó. Si terminas, para cargarlo hay que volver a subir el archivo. ¿Terminar?`)
+              )
+                return;
+              onVolver(true);
+            }}
+            disabled={ocupado}
+          >
             Terminar
           </button>
         </div>
@@ -586,7 +635,7 @@ export function PreviaCarga({
           {mostrarMedio ? ` (${revs.map((r) => r.medio).join(' y ')}, una carga por medio)` : ''}? Lo hecho en la app
           (analista, marcas, cancelados, cerradas, editados) se conserva.
           <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-            <button type="button" className="btn" onClick={cargar} disabled={ocupado}>
+            <button type="button" className="btn" onClick={() => void cargar()} disabled={ocupado}>
               Sí, cargar
             </button>
             <button type="button" className="btn ghost" onClick={() => setFase('previa')} disabled={ocupado}>

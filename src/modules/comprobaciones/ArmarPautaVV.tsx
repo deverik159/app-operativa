@@ -16,7 +16,7 @@
 // ============================================================
 
 import { useState } from 'react';
-import { desdePautaVV, type ResultadoPautaVV } from '../../lib/bitacoraComp';
+import { AVISO_PLANO_OTRO_MES, desdePautaVV, type ResultadoPautaVV } from '../../lib/bitacoraComp';
 import { leerFuentePautaVV, textoFallaComp, type FuentePautaVV } from '../../lib/comprobacionesApi';
 import type { PropsArmar } from './tiposComp';
 import { fmt, sitiosDe, type EntradaMedio } from './ArmarComun';
@@ -91,6 +91,13 @@ export default function ArmarPautaVV({ ctx }: { ctx: PropsArmar }) {
 
       {lectura && res && (
         <>
+          {res.avisos
+            .filter((a) => a.startsWith(AVISO_PLANO_OTRO_MES))
+            .map((a) => (
+              <div key={a} className="banner">
+                {a}
+              </div>
+            ))}
           <Caja titulo="Lo que llegó de Pauta VV y el plano">
             <div style={{ color: 'var(--muted)' }}>
               <b style={{ color: 'var(--txt)' }}>{fmt(lectura.fuente.campanas.length)}</b> campañas ·{' '}

@@ -321,6 +321,16 @@ test('desdePautaVV: el plano cubre lo que no está en Pauta VV, sin versión, co
   assert.ok(r.avisos.some((x) => /ya vienen de Pauta VV/.test(x)));
 });
 
+test('desdePautaVV: avisa cuando el plano que se usa es de otro mes (revisión 2)', () => {
+  // Plano de agosto para armar octubre: entra, pero se dice que puede faltar.
+  const viejo = OCUP_VV.filter((o) => o.origen === 'plano').map((o) => ({ ...o, plano_mes: '2026-08' }));
+  const r = B.desdePautaVV(CAMP_VV, PAUTAS_VV, viejo, { tipo: 'mes', anio: 2026, numero: 10 });
+  assert.ok(r.avisos[0].startsWith(B.AVISO_PLANO_OTRO_MES + '2026-08'), r.avisos[0]);
+  // Con el plano del mes, ningún aviso de ese tipo.
+  const bien = B.desdePautaVV(CAMP_VV, PAUTAS_VV, OCUP_VV, { tipo: 'mes', anio: 2026, numero: 10 });
+  assert.ok(!bien.avisos.some((a) => a.startsWith(B.AVISO_PLANO_OTRO_MES)));
+});
+
 test('desdePautaVV: catorcena sin fechas no adivina', () => {
   const r = B.desdePautaVV(CAMP_VV, PAUTAS_VV, [], { tipo: 'catorcena', anio: 2026, numero: 20 });
   assert.equal(r.porMedio.Columna.length, 0);

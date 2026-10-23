@@ -18,6 +18,7 @@ import Ic from '../../components/Ic';
 import { esErrorDeChunk } from '../../lib/cargaDiferida';
 import { leerBitacora, type PlanSugerido, type ResultadoBitacora } from '../../lib/bitacoraComp';
 import { mediosDe } from '../../lib/comprobacionesApi';
+import { errorLectorEnEspanol } from '../../lib/importadorComp';
 import type { MedioComp } from '../../lib/comprobaciones';
 import type { PropsArmar } from './tiposComp';
 import { fmt, leerLibroLigero, sitiosDe, type EntradaMedio, type EstadoInventario, type PasoLectura } from './ArmarComun';
@@ -89,10 +90,11 @@ export default function ArmarBitacora({ ctx, inventario }: { ctx: PropsArmar; in
         // El mismo archivo otra vez reemplaza al anterior (no se suma dos veces).
         setArchivos((a) => [...a.filter((x) => x.nombre !== f.name), { id, nombre: f.name, mb, quitadoMB, porMedio, sinInventario: !invBit }]);
       } catch (ex) {
+        console.warn('[comprobaciones] lector de Excel:', ex);
         errores.push(
           esErrorDeChunk(ex)
             ? 'No se pudo descargar el lector de Excel. Revisa tu señal e inténtalo de nuevo (si sigue, recarga la app).'
-            : `No se pudo leer «${f.name}»: ${(ex as Error)?.message || 'archivo dañado o no es Excel'}.`
+            : `No se pudo leer «${f.name}»: ${errorLectorEnEspanol(ex)}.`
         );
       }
     }

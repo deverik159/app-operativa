@@ -11,7 +11,7 @@
 // a los 8 s) y se enseña lo que contesta la base, sumado.
 // ============================================================
 
-import { createContext, useMemo, useState } from 'react';
+import { createContext, useId, useMemo, useState } from 'react';
 import {
   ETIQUETA_PLAN,
   MAX_CADA_N,
@@ -80,6 +80,9 @@ function EditorPlan({
   disabled: boolean;
 }) {
   const [dia, setDia] = useState('');
+  // Etiquetas ligadas a su campo (revisión 2, uso-10): VoiceOver leía
+  // «campo de número» sin nombre. useId: hay un editor por grupo de plan.
+  const uid = useId();
   return (
     <div>
       <div className="rt-chips rt-segmento" role="group" aria-label="Plan de tomas" style={{ flexWrap: 'wrap' }}>
@@ -98,8 +101,9 @@ function EditorPlan({
       </div>
       {valor.tipo === 'cada_n' && (
         <div className="field" style={{ marginTop: 10, maxWidth: 220 }}>
-          <label>Cada cuántos días</label>
+          <label htmlFor={uid + '-n'}>Cada cuántos días</label>
           <input
+            id={uid + '-n'}
             type="number"
             min={1}
             max={MAX_CADA_N}
@@ -112,9 +116,10 @@ function EditorPlan({
       )}
       {valor.tipo === 'fechas' && (
         <div className="field" style={{ marginTop: 10 }}>
-          <label>Fechas de toma (dentro del periodo)</label>
+          <label htmlFor={uid + '-f'}>Fechas de toma (dentro del periodo)</label>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <input
+              id={uid + '-f'}
               type="date"
               min={min}
               max={max}

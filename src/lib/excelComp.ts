@@ -917,8 +917,24 @@ export function letraColumna(c: number): string {
 }
 
 /** ¿Lleva RUTA? La de la unidad (Ecovallas y Biobox) o si alguna toma la trae. */
-function llevaRuta(cfg: ConfigMedio, tomas: TomaExcel[]): boolean {
-  return cfg.conRuta || tomas.some((t) => texto(t.ruta) !== null);
+function llevaRuta(cfg: ConfigMedio): boolean {
+  return cfg.conRuta;
+}
+
+/**
+ * RUTA de los medios que hoy NO la llevan (Vía Verde: se reparte por turno).
+ * Si alguna toma trae ruta, va al final, antes de LLAVE: antes se metía en la
+ * columna C y corría todas las demás una letra respecto al Excel de hoy
+ * (revisión 2, punta-a-punta-6).
+ */
+function rutaAlFinal(cfg: ConfigMedio, tomas: TomaExcel[]): boolean {
+  return !cfg.conRuta && tomas.some((t) => texto(t.ruta) !== null);
+}
+
+/** La ruta como la de hoy: número si son solo dígitos. */
+function celdaRuta(t: TomaExcel): Celda {
+  const ruta = texto(t.ruta);
+  return ruta !== null && /^\d+$/.test(ruta) ? Number(ruta) : ruta;
 }
 
 /** Las columnas comunes: FECHA · sitio · [RUTA] · CAMPAÑA · VERSIÓN · COMPROBACIÓN · HORARIO · OBSERVACIONES. */
@@ -935,11 +951,10 @@ function columnasBase(cfg: ConfigMedio, conRuta: boolean): { enc: string[]; anch
  * el horario del día de la toma.
  */
 function celdasBase(cfg: ConfigMedio, t: TomaExcel, conRuta: boolean): Celda[] {
-  const ruta = texto(t.ruta);
   return [
     celdaDia(t.fecha),
     texto(t.sitio),
-    ...(conRuta ? [ruta !== null && /^\d+$/.test(ruta) ? Number(ruta) : ruta] : []),
+    ...(conRuta ? [celdaRuta(t)] : []),
     texto(t.campana),
     texto(t.version),
     texto(t.comprobacion) ?? 'FOTO',
@@ -984,13 +999,22 @@ const mergeTitulo = (cfg: ConfigMedio): RangoExcel[] =>
  */
 export function armarFormatoGeneral(args: { medio: MedioComp; periodo: PeriodoExcel; tomas: TomaExcel[] }): LibroExcel {
   const cfg = CONFIG[args.medio];
-  const conRuta = llevaRuta(cfg, args.tomas);
+  const conRuta = llevaRuta(cfg);
+  const alFinal = rutaAlFinal(cfg, args.tomas);
   const base = columnasBase(cfg, conRuta);
-  const enc = [...base.enc, '', 'MONITORISTA', 'ESTATUS', ...cfg.seguimiento, 'LLAVE'];
+  const enc = [...base.enc, '', 'MONITORISTA', 'ESTATUS', ...cfg.seguimiento, ...(alFinal ? ['RUTA'] : []), 'LLAVE'];
   const filas: Celda[][] = [[], filaTitulo(cfg, args.periodo), [], enc.map((e) => e || null)];
   const vacias = cfg.seguimiento.map(() => null);
   for (const t of ordenarTomas(args.tomas)) {
-    filas.push([...celdasBase(cfg, t, conRuta), null, nombresMonitoristas(t), estatusToma(t), ...vacias, llaveToma(t)]);
+    filas.push([
+      ...celdasBase(cfg, t, conRuta),
+      null,
+      nombresMonitoristas(t),
+      estatusToma(t),
+      ...vacias,
+      ...(alFinal ? [celdaRuta(t)] : []),
+      llaveToma(t),
+    ]);
   }
   const ultima = letraColumna(enc.length - 1);
   return {
@@ -1000,7 +1024,7 @@ export function armarFormatoGeneral(args: { medio: MedioComp; periodo: PeriodoEx
         nombre: nombreHoja(cfg.hojaFormato(args.periodo)),
         filas,
         merges: mergeTitulo(cfg),
-        anchos: [...base.anchos, 2, 18, 13, ...cfg.seguimiento.map((s) => Math.max(12, s.length + 2)), 10],
+        anchos: [...base.anchos, 2, 18, 13, ...cfg.seguimiento.map((s) => Math.max(12, s.length + 2)), ...(alFinal ? [8.5] : []), 10],
         autofiltro: `A4:${ultima}${4 + args.tomas.length}`,
       },
     ],
@@ -1069,9 +1093,10 @@ const COLUMNAS_MONITORISTA = ['FOTO COMPROBATORIA', 'FECHA DE TOMA', 'OBSERVACIO
 
 /** El libro de UN grupo, con sus tomas ya filtradas y ordenadas. */
 function libroMonitorista(cfg: ConfigMedio, periodo: PeriodoExcel, etiqueta: string, suyas: TomaExcel[]): LibroExcel {
-  const conRuta = llevaRuta(cfg, suyas);
+  const conRuta = llevaRuta(cfg);
+  const alFinal = rutaAlFinal(cfg, suyas);
   const base = columnasBase(cfg, conRuta);
-  const enc = [...base.enc, '', ...COLUMNAS_MONITORISTA, 'LLAVE'];
+  const enc = [...base.enc, '', ...COLUMNAS_MONITORISTA, ...(alFinal ? ['RUTA'] : []), 'LLAVE'];
   const anota = base.enc.length + 1; // primera columna para anotar
   const fila2: Celda[] = [`TOMA COMPROBACIONES ${cfg.titulo} ${periodoTitulo(periodo)}`];
   fila2[anota] = 'REGISTRAR LA FECHA DEL DIA QUE SE TOMO';
@@ -1079,7 +1104,8 @@ function libroMonitorista(cfg: ConfigMedio, periodo: PeriodoExcel, etiqueta: str
   fila3[anota] = etiqueta;
   const filas: Celda[][] = [[], denso(fila2), denso(fila3), enc.map((e) => e || null)];
   const vacias = COLUMNAS_MONITORISTA.map(() => null);
-  for (const t of suyas) filas.push([...celdasBase(cfg, t, conRuta), null, ...vacias, llaveToma(t)]);
+  for (const t of suyas)
+    filas.push([...celdasBase(cfg, t, conRuta), null, ...vacias, ...(alFinal ? [celdaRuta(t)] : []), llaveToma(t)]);
   const ultima = letraColumna(enc.length - 1);
   return {
     nombreArchivo: nombreArchivo(`Formato Comprobaciones ${cfg.archivo} ${periodoArchivo(periodo)} ${etiqueta}.xlsx`),
@@ -1088,7 +1114,7 @@ function libroMonitorista(cfg: ConfigMedio, periodo: PeriodoExcel, etiqueta: str
         nombre: nombreHoja(`${etiqueta} ${periodoCorto(periodo)}`),
         filas,
         merges: [{ s: { r: 2, c: anota }, e: { r: 2, c: anota + COLUMNAS_MONITORISTA.length - 1 } }],
-        anchos: [...base.anchos, 2, 22, 14, 30, 10],
+        anchos: [...base.anchos, 2, 22, 14, 30, ...(alFinal ? [8.5] : []), 10],
         autofiltro: `A4:${ultima}${4 + suyas.length}`,
       },
     ],
@@ -1166,15 +1192,17 @@ export function armarArchivoMonitoristasCompartido(args: {
     }))
   );
   const personas = grupos.length ? grupos.map((g) => cortas.get(g.clave) ?? g.etiqueta) : ['MONITORISTA'];
-  const conRuta = llevaRuta(cfg, tomas);
+  const conRuta = llevaRuta(cfg);
+  const alFinal = rutaAlFinal(cfg, tomas);
   const base = columnasBase(cfg, conRuta);
-  const enc = [...base.enc, '', ...personas, 'LLAVE'];
+  const enc = [...base.enc, '', ...personas, ...(alFinal ? ['RUTA'] : []), 'LLAVE'];
   const anota = base.enc.length + 1;
   const fila2: Celda[] = [cfg.tituloFormato(args.periodo)];
   fila2[anota] = 'REGISTRAR LA FECHA DEL DIA QUE SE TOMO';
   const filas: Celda[][] = [[], denso(fila2), [], enc.map((e) => e || null)];
   const vacias = personas.map(() => null);
-  for (const t of tomas) filas.push([...celdasBase(cfg, t, conRuta), null, ...vacias, llaveToma(t)]);
+  for (const t of tomas)
+    filas.push([...celdasBase(cfg, t, conRuta), null, ...vacias, ...(alFinal ? [celdaRuta(t)] : []), llaveToma(t)]);
   const ultima = letraColumna(enc.length - 1);
   return {
     nombreArchivo: nombreArchivo(
@@ -1188,7 +1216,7 @@ export function armarArchivoMonitoristasCompartido(args: {
           ...mergeTitulo(cfg),
           ...(personas.length > 1 ? [{ s: { r: 1, c: anota }, e: { r: 1, c: anota + personas.length - 1 } }] : []),
         ],
-        anchos: [...base.anchos, 2, ...personas.map(() => 12), 10],
+        anchos: [...base.anchos, 2, ...personas.map(() => 12), ...(alFinal ? [8.5] : []), 10],
         autofiltro: `A4:${ultima}${4 + tomas.length}`,
       },
     ],

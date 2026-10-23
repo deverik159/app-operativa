@@ -526,3 +526,21 @@ export function rellenarCombinadas(
   }
   return out;
 }
+
+/**
+ * El error de SheetJS o fflate al abrir un archivo, en palabras de campo
+ * (revisión 2, uso-10): antes se enseñaba crudo y en inglés («File is
+ * password-protected», «invalid zip data»). Lo que no se reconoce se dice
+ * en general; el mensaje original queda para la consola.
+ */
+export function errorLectorEnEspanol(ex: unknown): string {
+  const msg = ex instanceof Error ? ex.message : typeof ex === 'string' ? ex : '';
+  if (/password|encrypt|protegid/i.test(msg)) return 'el archivo tiene contraseña; quítasela en Excel y vuelve a subirlo';
+  if (/zip|unexpected end|corrupt|crc|invalid (data|block|distance|stored)/i.test(msg))
+    return 'el archivo está dañado o no terminó de bajarse; vuelve a guardarlo en Excel';
+  if (/unsupported|not supported|unknown (file )?format|bad (file|header)|cannot find|is not a (spreadsheet|workbook)/i.test(msg))
+    return 'no parece un Excel; guárdalo como .xlsx y vuelve a subirlo';
+  if (/memory|allocation|array buffer|invalid array length|too large/i.test(msg))
+    return 'el archivo es demasiado grande para este equipo; ábrelo en una computadora o quita hojas que no se usan';
+  return 'archivo dañado o no es Excel';
+}

@@ -84,6 +84,9 @@ export function textoErrorComp(error: ErrorPg | unknown): string {
   if (code === '42501' || /permission denied/i.test(msg))
     return 'No tienes permiso para esto en Comprobaciones.';
   if (/JWT expired|invalid jwt/i.test(msg)) return 'Tu sesión venció: vuelve a entrar.';
+  // Número fuera de rango, texto que no es número o fecha inválida.
+  if (code === '22003' || code === '22P02' || code === '22008' || code === '22007')
+    return 'Hay un número o una fecha fuera de rango o que no se entiende. Revisa lo que escribiste.';
   return msg || 'Algo falló en la base.';
 }
 
@@ -106,18 +109,39 @@ export function textoFallaEscrituraComp(r: { error: string; sinRed: boolean }): 
 
 type RespPg = { data: unknown; error: ErrorPg; status: number };
 
+/** Status HTTP que no son contestación de la base (los mismos de enLinea). */
+const STATUS_SIN_RESPUESTA = new Set([0, 408, 502, 503, 504, 520, 521, 522, 523, 524]);
+
+/**
+ * ¿El error trae un código que solo pone la base o PostgREST? Un SQLSTATE
+ * (5 caracteres: «55P03», «57014», «P0001»…) o un «PGRSTxxx» quiere decir
+ * que la base CONTESTÓ: no es falta de señal aunque el texto diga «timeout»
+ * («canceling statement due to lock timeout»). Revisión 2, contrato-1.
+ */
+export function esRespuestaDeBase(error: unknown): boolean {
+  const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && (/^[0-9A-Z]{5}$/.test(code) || /^PGRST/.test(code));
+}
+
+/**
+ * Clasifica un error en «sin señal» o «la base contestó». Sin respuesta
+ * (status 0 o de gateway) siempre es sin señal; con código de la base nunca
+ * lo es; lo demás lo decide pareceSinRed por el texto.
+ */
+export function clasificarErrorComp(error: unknown, status?: number | null): { error: string; sinRed: boolean } {
+  const sinRespuesta = typeof status === 'number' && STATUS_SIN_RESPUESTA.has(status);
+  const sinRed = sinRespuesta || (!esRespuestaDeBase(error) && pareceSinRed(error, status));
+  return { error: sinRed ? 'Sin señal' : textoErrorComp(error), sinRed };
+}
+
 /** Clasifica una respuesta de postgrest-js. */
 function deRespuesta<T>(r: RespPg): ResultadoComp<T> {
-  if (r.error || r.status === 0) {
-    const sinRed = r.status === 0 || pareceSinRed(r.error, r.status);
-    return { ok: false, error: sinRed ? 'Sin señal' : textoErrorComp(r.error), sinRed };
-  }
+  if (r.error || r.status === 0) return { ok: false, ...clasificarErrorComp(r.error, r.status) };
   return { ok: true, data: r.data as T };
 }
 
 function deExcepcion<T>(e: unknown): ResultadoComp<T> {
-  const sinRed = pareceSinRed(e);
-  return { ok: false, error: sinRed ? 'Sin señal' : textoErrorComp(e), sinRed };
+  return { ok: false, ...clasificarErrorComp(e) };
 }
 
 /** Llama una RPC con tope. Nunca lanza. */
@@ -352,10 +376,10 @@ export type VwToma = {
   sitio_estado: EstadoSitio;
   sitio_fuera_de_carga: boolean;
   /**
-   * comp_sitios.comprobado_dia. TODAVÍA NO está en la vista (pendiente de la
-   * pieza SQL, 23-oct-2026): mientras no esté llega undefined y
-   * tomaCubiertaPorSitio toma como cubierta toda toma pendiente de un sitio
-   * comprobado.
+   * comp_sitios.comprobado_dia. NO está en la vista: lo llena leerTomas
+   * (completarDiaComprobado) solo en campañas cuyo plan lleva
+   * incluir_comprobados; en las demás llega undefined y tomaCubiertaPorSitio
+   * toma como cubierta toda toma pendiente de un sitio comprobado.
    */
   sitio_comprobado_dia?: string | null;
   fecha: string;
@@ -535,7 +559,7 @@ export function leerSitios(f: {
  * pasa de 5,000 renglones: siempre paginado. Por omisión SIN las quitadas
  * (estado 'cancelada'), que es lo que lleva el Excel.
  */
-export function leerTomas(f: {
+export async function leerTomas(f: {
   periodoId: number;
   unidad?: UnidadComp;
   medio?: MedioComp;
@@ -556,8 +580,55 @@ export function leerTomas(f: {
     if (!f.incluirQuitadas) q = q.neq('estado', 'cancelada');
     return q.order('id').range(d, h).abortSignal(s);
   };
-  if (f.campanaIds) return porTrozos<VwToma>(f.campanaIds, (t, d, h, s) => base(d, h, s, t));
-  return traerTodo<VwToma>((d, h, s) => base(d, h, s), 100);
+  const r = f.campanaIds
+    ? await porTrozos<VwToma>(f.campanaIds, (t, d, h, s) => base(d, h, s, t))
+    : await traerTodo<VwToma>((d, h, s) => base(d, h, s), 100);
+  if (!r.ok) return r;
+  return completarDiaComprobado(r.data);
+}
+
+/**
+ * vw_comp_tomas no trae comp_sitios.comprobado_dia (revisión 2, contrato-2;
+ * la vista está en producción y no se edita). Sin ese día, tomaCubiertaPorSitio
+ * da por cubierta TODA toma por hacer de un sitio comprobado, y la opción del
+ * plan «también los comprobados» (R11) no servía en los Excel. Aquí se llena
+ * SOLO en las campañas cuyo plan guardado lleva incluir_comprobados: ahí las
+ * tomas posteriores al día de la marca siguen yendo a campo. En las demás se
+ * deja vacío a propósito: comp_aplicar_planes conserva las tomas que un sitio
+ * tenía antes de marcarse y esas NO deben volver a campo.
+ * Si una de las dos lecturas falla, falla todo: un Excel con el día a medias
+ * mandaría (o dejaría de mandar) gente a campo sin que nadie lo note.
+ */
+async function completarDiaComprobado(tomas: VwToma[]): Promise<ResultadoComp<VwToma[]>> {
+  const conSitioComprobado = [...new Set(tomas.filter((t) => t.sitio_estado === 'comprobado').map((t) => t.campana_id))];
+  if (!conSitioComprobado.length) return { ok: true, data: tomas };
+  const planes = await porTrozos<{ id: number; plan_tomas: PlanGuardado }>(conSitioComprobado, (t, d, h, s) =>
+    sb.from('comp_campanas').select('id,plan_tomas').in('id', t).order('id').range(d, h).abortSignal(s)
+  );
+  if (!planes.ok) return planes;
+  const conR11 = planes.data.filter((c) => c.plan_tomas?.incluir_comprobados === true).map((c) => c.id);
+  if (!conR11.length) return { ok: true, data: tomas };
+  const sitios = await porTrozos<{ id: number; comprobado_dia: string | null }>(conR11, (t, d, h, s) =>
+    sb
+      .from('comp_sitios')
+      .select('id,comprobado_dia')
+      .in('campana_id', t)
+      .eq('estado', 'comprobado')
+      .order('id')
+      .range(d, h)
+      .abortSignal(s)
+  );
+  if (!sitios.ok) return sitios;
+  const dia = new Map(sitios.data.map((s) => [s.id, s.comprobado_dia]));
+  const r11 = new Set(conR11);
+  return {
+    ok: true,
+    data: tomas.map((t) =>
+      r11.has(t.campana_id) && t.sitio_estado === 'comprobado' && dia.get(t.sitio_id)
+        ? { ...t, sitio_comprobado_dia: dia.get(t.sitio_id) }
+        : t
+    ),
+  };
 }
 
 /** Comprobación diaria (vw_comp_diaria) de un periodo. */

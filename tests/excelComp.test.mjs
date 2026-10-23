@@ -463,10 +463,13 @@ test('armarFormatoGeneral Biobox, Vía Verde y Pórticos: títulos, hojas y colu
     'CAMPO',
     'LLAVE',
   ]);
-  // …pero si alguna toma trae ruta, la columna aparece.
-  const vvRuta = armarFormatoGeneral({ medio: 'Columna', periodo: AGOSTO, tomas: [{ ...t[0], ruta: 'R1' }] });
-  assert.equal(vvRuta.hojas[0].filas[3][2], 'RUTA');
-  assert.equal(vvRuta.hojas[0].filas[4][2], 'R1');
+  // …y si alguna toma trae ruta, la columna va al FINAL (antes de LLAVE),
+  // sin correr las demás letras respecto al Excel de hoy (revisión 2).
+  const vvRuta = armarFormatoGeneral({ medio: 'Columna', periodo: AGOSTO, tomas: [{ ...t[0], ruta: '7' }] });
+  assert.equal(vvRuta.hojas[0].filas[3][2], 'CAMPAÑA');
+  assert.deepEqual(vvRuta.hojas[0].filas[3].slice(-2), ['RUTA', 'LLAVE']);
+  assert.equal(vvRuta.hojas[0].filas[4].at(-2), 7);
+  assert.equal(vvRuta.hojas[0].anchos.length, vvRuta.hojas[0].filas[3].length);
   const po = armarFormatoGeneral({ medio: 'Pórtico', periodo: AGOSTO, tomas: t }).hojas[0];
   assert.equal(po.nombre, 'PORTICOS AGOSTO');
   assert.deepEqual(po.filas[3].slice(0, 2), ['FECHA', 'PORTICO']);
@@ -536,9 +539,12 @@ test('armarArchivosMonitoristas: uno por monitorista y uno de lo que falta repar
       `Formato Comprobaciones Columnas Agosto 2026 ${SIN_MONITORISTA_EXCEL}.xlsx`,
     ]
   );
-  // Vía Verde: con ruta en las tomas aparece RUTA; la de sin ruta no.
-  assert.equal(libros[0].hojas[0].filas[3][2], 'RUTA');
+  // Vía Verde: con ruta en las tomas aparece RUTA al final (antes de
+  // LLAVE); la de sin ruta no. La columna C sigue siendo CAMPAÑA.
+  assert.equal(libros[0].hojas[0].filas[3][2], 'CAMPAÑA');
+  assert.deepEqual(libros[0].hojas[0].filas[3].slice(-2), ['RUTA', 'LLAVE']);
   assert.equal(libros[2].hojas[0].filas[3][2], 'CAMPAÑA');
+  assert.notEqual(libros[2].hojas[0].filas[3].at(-2), 'RUTA');
   assert.equal(libros[2].hojas[0].filas.length, 5);
 });
 
@@ -1029,18 +1035,19 @@ test('tomasExcelDeVista: solo estado <> cancelada; ruta ← ruta_numero, horario
   assert.equal(ts[1].monitorista, null);
   // El formato general de Vía Verde lleva la franja del día y el ESTATUS.
   const h = armarFormatoGeneral({ medio: 'Columna', periodo: AGOSTO, tomas: ts }).hojas[0];
-  assert.equal(h.filas[3][2], 'RUTA'); // alguna trae ruta
-  assert.deepEqual(h.filas[4].slice(1, 8), [
+  // Alguna trae ruta: en Vía Verde va al final, antes de LLAVE (revisión 2).
+  assert.deepEqual(h.filas[3].slice(-2), ['RUTA', 'LLAVE']);
+  assert.equal(h.filas[4].at(-2), 4);
+  assert.deepEqual(h.filas[4].slice(1, 7), [
     'MX_CM_VV_COL_448',
-    4,
     'REFRESCO PRUEBA',
     'V1',
     'FOTO',
     '06:00 - 09:59',
     'TOMAS DE DÍA · LADO NORTE',
   ]);
-  assert.equal(h.filas[4][9], 'Saúl Prueba (MATUTINO)');
-  assert.equal(h.filas[5][10], 'COMPROBADA');
+  assert.equal(h.filas[4][8], 'Saúl Prueba (MATUTINO)');
+  assert.equal(h.filas[5][9], 'COMPROBADA');
   assert.equal(h.filas.length, 6);
 });
 

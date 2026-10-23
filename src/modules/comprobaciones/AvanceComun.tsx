@@ -6,7 +6,7 @@
 // las tres pantallas digan lo mismo con las mismas palabras.
 // ============================================================
 
-import { semaforoLimite, type Semaforo } from '../../lib/comprobaciones';
+import { hoyCdmx, semaforoLimite, type Semaforo } from '../../lib/comprobaciones';
 import type { EntregaTipo, VwCampana } from '../../lib/comprobacionesApi';
 import { colorTono, fondoTono, type Tono } from '../../lib/tonos';
 
@@ -24,9 +24,15 @@ export function diaSemanaDe(dia: string | null | undefined): number {
   return Number.isNaN(ms) ? -1 : new Date(ms).getUTCDay();
 }
 
-/** '2026-10-21' → 'mié 21 oct'. Vacío si no es fecha. */
+/**
+ * '2026-10-21' → 'mié 21 oct'. Vacío si no es fecha. Un timestamptz
+ * («2026-10-24T01:30:00+00:00», como lo manda PostgREST en UTC) se pasa
+ * antes al día de CDMX: si no, lo de después de las 18:00 salía al día
+ * siguiente (revisión 2, contrato-5).
+ */
 export function fechaCorta(dia: string | null | undefined): string {
-  const d = (dia || '').slice(0, 10);
+  const x = dia || '';
+  const d = x.length > 10 && x.includes('T') ? hoyCdmx(new Date(x)) || x.slice(0, 10) : x.slice(0, 10);
   const w = diaSemanaDe(d);
   if (w < 0) return '';
   return `${DIAS_CORTOS[w]} ${Number(d.slice(8, 10))} ${MESES_CORTOS[Number(d.slice(5, 7)) - 1] ?? ''}`;

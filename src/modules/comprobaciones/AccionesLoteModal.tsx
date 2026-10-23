@@ -39,7 +39,8 @@ export type AccionLote =
   | 'meta'
   | 'retirar'
   | 'regresar'
-  | 'full';
+  | 'full'
+  | 'arte';
 
 const ETIQUETA_ACCION: Record<AccionLote, string> = {
   asignar: 'Asignar a',
@@ -52,6 +53,9 @@ const ETIQUETA_ACCION: Record<AccionLote, string> = {
   // «Regresar» decía otra cosa en el detalle y en los reportes (23-oct-2026).
   regresar: 'Quitar retiro',
   full: 'FULL',
+  // Revisión 2 (punta-a-punta-4): la bitácora de Biobox y el plano de Vía
+  // Verde no traen ARTES; antes solo se capturaba en el alta manual.
+  arte: 'Arte',
 };
 
 type Props = ContextoComp & {
@@ -70,7 +74,7 @@ export default function AccionesLoteModal(props: Props) {
   const esVV = unidad === 'Vía Verde';
   const acciones = useMemo<AccionLote[]>(
     () =>
-      (['asignar', 'quitar', 'cerrar', 'reabrir', 'limite', 'meta', 'retirar', 'regresar', 'full'] as AccionLote[]).filter(
+      (['asignar', 'quitar', 'cerrar', 'reabrir', 'limite', 'meta', 'arte', 'retirar', 'regresar', 'full'] as AccionLote[]).filter(
         (a) => a !== 'full' || esVV
       ),
     [esVV]
@@ -81,6 +85,7 @@ export default function AccionesLoteModal(props: Props) {
   const [fecha, setFecha] = useState('');
   const [meta, setMeta] = useState('');
   const [full, setFull] = useState<'si' | 'no' | 'carga'>('si');
+  const [arte, setArte] = useState<'NUEVO' | 'REPITE' | 'carga'>('NUEVO');
   const [err, setErr] = useState('');
   const trabajando = !!ocupado;
   // Al abrir, el foco va al título (VoiceOver y teclado empiezan aquí).
@@ -176,7 +181,7 @@ export default function AccionesLoteModal(props: Props) {
       lanzar('Reabriendo…', () => cerrarCampanas(ids, false, motivo.trim() || null), (d) =>
         d.cambiadas ? `✓ ${fmtN(d.cambiadas)} reabierta${d.cambiadas === 1 ? '' : 's'}` : 'Sin cambios: ya estaban abiertas.'
       );
-  } else if (accion === 'limite' || accion === 'meta' || accion === 'full') {
+  } else if (accion === 'limite' || accion === 'meta' || accion === 'full' || accion === 'arte') {
     let cambios: CambiosCampana | null = null;
     if (accion === 'limite') {
       resumen = fecha
@@ -192,6 +197,12 @@ export default function AccionesLoteModal(props: Props) {
           : `Meta de ${fmtN(n)} sitios en ${fmtN(cuenta.abiertas)} abierta${cuenta.abiertas === 1 ? '' : 's'}.`;
       if (!ok) aviso = 'La meta es un número entero de 0 en adelante.';
       cambios = ok ? { meta_app: n } : null;
+    } else if (accion === 'arte') {
+      resumen =
+        arte === 'carga'
+          ? 'ARTES vuelve a lo que diga la próxima carga (si la fuente no lo trae, queda vacío).'
+          : `ARTES «${arte}» en ${fmtN(cuenta.abiertas)} abierta${cuenta.abiertas === 1 ? '' : 's'}: sale así en la Asignación y la próxima carga no lo pisa.`;
+      cambios = { arte: arte === 'carga' ? null : arte };
     } else {
       resumen =
         full === 'carga'
@@ -204,7 +215,14 @@ export default function AccionesLoteModal(props: Props) {
     if (cuenta.cerradas) aviso = (aviso ? aviso + ' ' : '') + `${fmtN(cuenta.cerradas)} cerrada${cuenta.cerradas === 1 ? '' : 's'} no se toca${cuenta.cerradas === 1 ? '' : 'n'}.`;
     puede = cuenta.abiertas > 0 && !!cambios;
     boton = `Guardar en ${fmtN(cuenta.abiertas)}`;
-    const etiqueta = accion === 'limite' ? 'Cambiando la fecha límite…' : accion === 'meta' ? 'Cambiando la meta…' : 'Cambiando FULL…';
+    const etiqueta =
+      accion === 'limite'
+        ? 'Cambiando la fecha límite…'
+        : accion === 'meta'
+          ? 'Cambiando la meta…'
+          : accion === 'arte'
+            ? 'Cambiando el arte…'
+            : 'Cambiando FULL…';
     ejecutar = () =>
       cambios &&
       lanzar(etiqueta, () => editarCampanas(ids, cambios as CambiosCampana), (d) => {
@@ -369,6 +387,29 @@ export default function AccionesLoteModal(props: Props) {
               <div className="phint" style={{ marginTop: 6 }}>
                 Vacía = cada campaña cuenta sus sitios activos (o la meta FULL).
               </div>
+            </div>
+          )}
+          {accion === 'arte' && (
+            <div className="rt-chips rt-segmento" role="group" aria-label="Arte">
+              {(
+                [
+                  ['NUEVO', 'NUEVO'],
+                  ['REPITE', 'REPITE'],
+                  ['carga', 'Lo que diga la carga'],
+                ] as const
+              ).map(([v, t]) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={'rt-chip' + (arte === v ? ' on' : '')}
+                  aria-pressed={arte === v}
+                  disabled={trabajando}
+                  onClick={() => setArte(v)}
+                >
+                  {arte === v ? '✓ ' : ''}
+                  {t}
+                </button>
+              ))}
             </div>
           )}
           {accion === 'full' && (

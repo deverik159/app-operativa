@@ -391,13 +391,19 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
   };
 
   // ---- Render ---------------------------------------------------------------
+  // En el teléfono NO va la tira de píldoras (revisión 2, uso-6): es una
+  // fila sin salto con scroll oculto y el select de campaña tomaba el ancho
+  // de su opción más larga (719 px), dejando Día, Monitorista, Ruta y Buscar
+  // fuera de la pantalla. Ahí cada filtro va en su renglón (.toolbar del
+  // teléfono: select a lo ancho) y con letra de 16 px para que iOS no haga zoom.
+  const letraTel = telefono ? { fontSize: 16 } : undefined;
   const filtros = (
-    <div className="toolbar filtros-pildora">
+    <div className={telefono ? 'toolbar' : 'toolbar filtros-pildora'}>
       <select
         aria-label="Campaña"
         className={campanaId != null ? 'on' : ''}
         value={campanaSel}
-        style={{ maxWidth: telefono ? undefined : 320 }}
+        style={telefono ? { maxWidth: '100%', minWidth: 0, fontSize: 16 } : { maxWidth: 320 }}
         onChange={(e) => {
           const v = e.target.value;
           cambiarFiltro(() => {
@@ -420,6 +426,7 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
         <button
           type="button"
           className="btn ghost sm"
+          style={telefono ? { minWidth: 44, minHeight: 44 } : undefined}
           aria-label="Día anterior"
           disabled={diaEf === TODOS || iDia <= 0}
           onClick={() => moverDia(-1)}
@@ -430,7 +437,7 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
           aria-label="Día"
           className={diaEf !== diaOmision ? 'on' : ''}
           value={diaEf}
-          style={{ flex: telefono ? '1 1 auto' : undefined, width: telefono ? '100%' : undefined }}
+          style={telefono ? { flex: '1 1 auto', width: '100%', minWidth: 0, fontSize: 16 } : undefined}
           onChange={(e) => {
             const v = e.target.value;
             cambiarFiltro(() => setDiaSel(v));
@@ -447,6 +454,7 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
         <button
           type="button"
           className="btn ghost sm"
+          style={telefono ? { minWidth: 44, minHeight: 44 } : undefined}
           aria-label="Día siguiente"
           disabled={diaEf === TODOS || iDia < 0 || iDia >= dias.length - 1}
           onClick={() => moverDia(1)}
@@ -458,6 +466,7 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
         aria-label="Monitorista"
         className={monSel ? 'on' : ''}
         value={monSel}
+        style={letraTel}
         onChange={(e) => {
           const v = e.target.value;
           cambiarFiltro(() => {
@@ -481,6 +490,7 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
           aria-label="Ruta"
           className={rutaSel ? 'on' : ''}
           value={rutaSel}
+          style={letraTel}
           onChange={(e) => {
             const v = e.target.value;
             cambiarFiltro(() => setRutaSel(v));
@@ -504,7 +514,14 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
           setBuscar(e.target.value);
           setLimite(PASO);
         }}
-        style={{ flex: telefono ? '1 1 100%' : '0 1 220px', width: 'auto', height: 34, borderRadius: 17, padding: '0 13px' }}
+        style={{
+          flex: telefono ? '1 1 100%' : '0 1 220px',
+          width: 'auto',
+          height: telefono ? 44 : 34,
+          borderRadius: telefono ? 22 : 17,
+          padding: '0 13px',
+          fontSize: telefono ? 16 : undefined,
+        }}
       />
     </div>
   );
@@ -842,13 +859,28 @@ function FilaToma({
       style={{ cursor: 'default', opacity: quitada ? 0.7 : 1, alignItems: 'flex-start' }}
     >
       {(editable || regresable) && (
-        <input
-          type="checkbox"
-          aria-label={`Elegir ${t.sitio_clave} · ${nombreCampana(t)}`}
-          style={{ width: 'auto', margin: '3px 0 0', flexShrink: 0 }}
-          checked={elegida}
-          onChange={onElegir}
-        />
+        // Área táctil de 44 px alrededor de la casilla (revisión 2, uso-6:
+        // la casilla sola medía 13 × 13 en el iPhone).
+        <label
+          style={{
+            minWidth: 44,
+            minHeight: 44,
+            margin: '-10px -6px -10px -10px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            type="checkbox"
+            aria-label={`Elegir ${t.sitio_clave} · ${nombreCampana(t)}`}
+            style={{ width: 20, height: 20, margin: 0, flexShrink: 0 }}
+            checked={elegida}
+            onChange={onElegir}
+          />
+        </label>
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="rt-fila-tit" style={{ textDecoration: quitada ? 'line-through' : undefined }}>

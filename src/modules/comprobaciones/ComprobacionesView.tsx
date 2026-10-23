@@ -156,9 +156,22 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firmaRoles]);
   const [unidadSel, setUnidadSel] = useState<string | null>(() => leerUnidadGuardada());
+  // Sin unidad guardada se abre donde la persona GESTIONA, luego donde lee
+  // todo y al final la primera (revisión 2, regresiones-1): Victor es
+  // supervisor en una unidad y analista en otra, y abría en «Mis campañas»
+  // vacía de la primera de la lista.
+  const unidadPorOmision = useMemo<UnidadComp | null>(
+    () =>
+      unidades.find((u) => permisosEn(roles, u).gestiona) ??
+      unidades.find((u) => permisosEn(roles, u).leeTodo) ??
+      unidades[0] ??
+      null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [unidades, firmaRoles]
+  );
   const unidad: UnidadComp | null = unidades.includes(unidadSel as UnidadComp)
     ? (unidadSel as UnidadComp)
-    : unidades[0] ?? null;
+    : unidadPorOmision;
 
   const permisos = useMemo<PermisosComp>(
     () => (unidad ? permisosEn(roles, unidad) : { gestiona: false, leeTodo: false, soloLectura: false, esAnalista: false }),
@@ -166,12 +179,23 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
     [firmaRoles, unidad]
   );
   const vistas = useMemo(() => vistasDe(permisos), [permisos]);
+  /** Armar ya se abrió alguna vez: desde ahí se queda montado (uso-2). */
+  const [armarVisto, setArmarVisto] = useState(false);
   const [vistaSel, setVistaSel] = useState<VistaComp>('campanas');
   const vista: VistaComp | null = vistas.includes(vistaSel)
     ? vistaSel
     : vistas.includes('campanas')
       ? 'campanas'
       : vistas[0] ?? null;
+  useEffect(() => {
+    if (vista === 'armar') setArmarVisto(true);
+  }, [vista]);
+  // Otra unidad es otro Armar (su estado va con la llave unidad + periodo):
+  // no se monta escondido hasta que se abra ahí.
+  useEffect(() => {
+    setArmarVisto(vistaSel === 'armar');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unidad]);
 
   // ---- Candado de una escritura a la vez -------------------------------
   const [ocupado, setOcupado] = useState<string | null>(null);
@@ -521,7 +545,12 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
     </div>
   );
 
-  const errores = [errPeriodos, errCampanas, errEquipo].filter(Boolean);
+  const listaLista = periodoId != null && campanasDe === periodoId;
+  // Sin la primera lista (sin señal) la pestaña se quedaba con «Leyendo…»
+  // girando para siempre bajo la caja roja y sin a qué tocar (revisión 2,
+  // uso-5): el error lleva su «Reintentar» y la pestaña no se monta.
+  const sinLista = !listaLista && !cargando && !!errCampanas && periodoId != null;
+  const errores = [errPeriodos, sinLista ? '' : errCampanas, errEquipo].filter(Boolean);
   const avisoCalendario = errCalendario && (
     <div className="err" role="alert">
       {errCalendario}{' '}
@@ -530,8 +559,6 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
       </button>
     </div>
   );
-  const listaLista = periodoId != null && campanasDe === periodoId;
-
   let contenido: JSX.Element | null = null;
   if (!vista) {
     contenido = <div className="empty">No tienes permiso para Comprobaciones en {ETIQUETA_UNIDAD_COMP[unidad]}.</div>;
@@ -549,20 +576,22 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
         </div>
       );
   } else if (vista === 'armar') {
-    contenido = (
-      <ArmarPeriodo
-        {...ctx}
-        periodo={periodo}
-        campanas={listaLista ? campanas : []}
-        cargando={cargando}
-        recargando={recargando}
-      />
-    );
+    // Armar se pinta aparte (abajo) y se queda montado al cambiar de pestaña.
+    contenido = null;
   } else if (periodo.id == null) {
     contenido = (
       <div className="empty">
         {periodo.etiqueta} todavía no tiene campañas cargadas.
         {permisos.gestiona ? ' Ármalo en la pestaña Armar.' : ''}
+      </div>
+    );
+  } else if (sinLista) {
+    contenido = (
+      <div className="err" role="alert">
+        {errCampanas}{' '}
+        <button type="button" className="btn ghost sm" onClick={() => cargarCampanas(periodoId, unidad, false)}>
+          Reintentar
+        </button>
       </div>
     );
   } else {
@@ -632,6 +661,32 @@ export default function ComprobacionesView({ email, roles, recargarSignal, vista
         {contenido}
       </Suspense>
       </ErrorBoundary>
+      {/* Armar se queda montado una vez abierto (revisión 2, uso-2): al ir a
+          Campañas y volver se perdían las bitácoras ya leídas (67-103 MB),
+          la previa y los planes sugeridos por confirmar. Se esconde con
+          hidden; su estado vive en ArmarInterno (key = unidad + periodo). */}
+      {periodo && unidad && vistas.includes('armar') && (armarVisto || vista === 'armar') && (
+        <div hidden={vista !== 'armar'}>
+          <ErrorBoundary modulo="comprobaciones:armar" resetKey={`${unidad}|${periodo.clave}|${recargarSignal ?? 0}`}>
+            <Suspense
+              fallback={
+                <div className="phint">
+                  <span className="spinner" />
+                  Abriendo {ETIQUETA_VISTA.armar}…
+                </div>
+              }
+            >
+              <ArmarPeriodo
+                {...ctx}
+                periodo={periodo}
+                campanas={listaLista ? campanas : []}
+                cargando={cargando}
+                recargando={recargando}
+              />
+            </Suspense>
+          </ErrorBoundary>
+        </div>
+      )}
       {aviso &&
         typeof document !== 'undefined' &&
         createPortal(

@@ -27,7 +27,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, CirclePlus, RotateCcw, Search, Undo2, X } from 'lucide-react';
+import { Check, CirclePlus, Pencil, RotateCcw, Search, Undo2, X } from 'lucide-react';
 import Ic from '../../components/Ic';
 import {
   compararNatural,
@@ -40,12 +40,14 @@ import {
 import {
   agregarSitios,
   cancelarSitios,
+  editarCampanas,
   leerCampana,
   leerSitios,
   marcarSitios,
   restaurarSitios,
   textoFallaComp,
   textoFallaEscrituraComp,
+  type CambiosCampana,
   type PeriodoCargado,
   type SitioComp,
   type TomasReaplicadas,
@@ -73,7 +75,17 @@ type Props = ContextoComp & {
 };
 
 type Filtro = 'pendientes' | 'comprobados' | 'cancelados' | 'todos';
-type Panel = null | 'cancelar' | 'agregar';
+type Panel = null | 'cancelar' | 'agregar' | 'datos';
+
+/** Datos de la campaña que el Supervisor captura aquí (revisión 2, punta-a-punta-4). */
+type BorradorDatos = { cliente: string; vendedor: string; administrador: string; arte: '' | 'NUEVO' | 'REPITE'; especificacion: string };
+const datosDe = (c: VwCampana): BorradorDatos => ({
+  cliente: c.cliente || '',
+  vendedor: c.vendedor || '',
+  administrador: c.administrador || '',
+  arte: c.arte || '',
+  especificacion: c.especificacion || '',
+});
 
 /** Renglones que se pintan de inicio (Vía Verde FULL puede pasar de 200 columnas). */
 const LIMITE = 150;
@@ -130,23 +142,25 @@ export default function DetalleCampana(props: Props) {
   const [errLeer, setErrLeer] = useState('');
   const pide = useRef(0);
 
-  const releer = async (conCampana: boolean) => {
+  /** Relee; devuelve los sitios leídos (null si falló o llegó otra lectura después). */
+  const releer = async (conCampana: boolean): Promise<SitioComp[] | null> => {
     const n = ++pide.current;
     setLeyendo(true);
     const [s, c] = await Promise.all([
       leerSitios({ campanaIds: [camp.id] }),
       conCampana ? leerCampana(camp.id) : Promise.resolve(null),
     ]);
-    if (n !== pide.current) return;
+    if (n !== pide.current) return null;
     setLeyendo(false);
     if (!s.ok) {
       setErrLeer('No se pudieron leer los sitios: ' + textoFallaComp(s));
-      return;
+      return null;
     }
     setErrLeer('');
     setSitios(s.data);
     setLeido(true);
     if (c && c.ok && c.data) setCamp(c.data);
+    return s.data;
   };
 
   useEffect(() => {
@@ -156,8 +170,9 @@ export default function DetalleCampana(props: Props) {
 
   /** Después de escribir: relee aquí y, en silencio, la lista del esqueleto. */
   const despues = async () => {
-    await releer(true);
+    const r = await releer(true);
     recargar();
+    return r;
   };
 
   // ---- Permisos de ESTA campaña (la base vuelve a validar todo) ----------
@@ -269,15 +284,29 @@ export default function DetalleCampana(props: Props) {
   const [claves, setClaves] = useState('');
   const panelCancelarRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (panel === 'cancelar') panelCancelarRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    // 'start' y no 'nearest' (revisión 2, uso-4): con 'nearest' el panel no
+    // se movía si ya «cabía», aunque el pie fijo le tapara el motivo y los
+    // botones en el iPhone.
+    if (panel === 'cancelar') panelCancelarRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }, [panel]);
 
   /**
    * Lo último que se marcó desde aquí, para «Deshacer» (revisión de
    * pantallas, 23-oct-2026): marcar en lote son dos toques y, para corregir,
    * había que quitar las marcas una por una.
+   * Guarda SOLO los sitios que cambió esta marca (revisión 2, contrato-6 y
+   * uso-3): comp_marcar_sitios devuelve conteos y no ids, y los que llegaron
+   * como «sin cambio» (ya marcados desde otro equipo o por otra persona) no
+   * se deben desmarcar. Se queda hasta la siguiente escritura, aunque se
+   * toque un renglón (uso-9).
    */
   const [ultimoMarcado, setUltimoMarcado] = useState<number[]>([]);
+  /** Sube con cada escritura: una marca que termina tarde no revive su «Deshacer». */
+  const escrituraN = useRef(0);
+  const olvidarUltimo = () => {
+    escrituraN.current++;
+    setUltimoMarcado([]);
+  };
 
   const marcar = async (lista: SitioComp[], enLote = false) => {
     const ids = lista.filter(marcable).map((s) => s.id);
@@ -296,7 +325,8 @@ export default function DetalleCampana(props: Props) {
       return;
     setErr('');
     setHecho('');
-    setUltimoMarcado([]);
+    olvidarUltimo();
+    const miEscritura = escrituraN.current;
     const dEnvio = diaParaEnviar();
     const r = await correr(ids.length === 1 ? 'Marcando…' : `Marcando ${ids.length}…`, () => marcarSitios(ids, true, dEnvio));
     if (!r) return;
@@ -319,29 +349,60 @@ export default function DetalleCampana(props: Props) {
     );
     setSel((prev) => new Set([...prev].filter((id) => !set.has(id))));
     const c = r.data.cambiados;
-    if (c) setUltimoMarcado(ids);
+    const sinCambio = r.data.sin_cambio;
     setHecho(
       `✓ ${nf(c)} ${c === 1 ? 'sitio marcado' : 'sitios marcados'} como comprobado${c === 1 ? '' : 's'} el ${fechaCorta(diaOk)}.` +
-        (r.data.sin_cambio ? ` ${nf(r.data.sin_cambio)} ya estaban marcados o cambiaron antes.` : '')
+        (sinCambio ? ` ${nf(sinCambio)} ya estaban marcados o cambiaron antes.` : '')
     );
-    despues();
+    const frescos = await despues();
+    // Otra escritura empezó mientras se releía: su «Deshacer» ya no vale.
+    if (!c || escrituraN.current !== miEscritura) return;
+    if (!sinCambio) {
+      setUltimoMarcado(ids);
+      return;
+    }
+    // Hubo «sin cambio»: los de ESTA marca comparten el mismo comprobado_en
+    // (now() de la transacción) y es el más reciente de los propios. Si no
+    // cuadra con lo que contestó la base, no se ofrece Deshacer.
+    if (!frescos) return;
+    const set2 = new Set(ids);
+    const propios = frescos.filter(
+      (s) =>
+        set2.has(s.id) &&
+        s.estado === 'comprobado' &&
+        s.comprobado_via === 'marca' &&
+        (s.comprobado_por || '').toLowerCase() === email &&
+        !!s.comprobado_en
+    );
+    const ultimo = propios.reduce((m, s) => ((s.comprobado_en as string) > m ? (s.comprobado_en as string) : m), '');
+    const deEsta = propios.filter((s) => s.comprobado_en === ultimo).map((s) => s.id);
+    if (deEsta.length === c) setUltimoMarcado(deEsta);
   };
 
   /** Quita la marca de lo último que se marcó aquí y dice lo que contestó la base. */
   const deshacer = async () => {
-    const ids = ultimoMarcado;
-    if (!ids.length) return;
+    // Solo lo que sigue marcado por esta persona: si alguien ya lo cambió,
+    // no se toca (y la base no rechaza el lote por un sitio ajeno).
+    const ids = ultimoMarcado.filter((id) => {
+      const s = porId.get(id);
+      return !s || (s.estado === 'comprobado' && s.comprobado_via === 'marca' && (s.comprobado_por || '').toLowerCase() === email);
+    });
+    if (!ids.length) {
+      olvidarUltimo();
+      setHecho('Nada que deshacer: esos sitios ya cambiaron.');
+      return;
+    }
     setErr('');
     setHecho('');
-    setUltimoMarcado([]);
     const r = await correr('Deshaciendo…', () => marcarSitios(ids, false, null));
     if (!r) return;
-    setUltimoMarcado([]);
     if (!r.ok) {
+      // Se queda para reintentar; si fue sin red, la relectura dirá qué quedó.
       setErr(textoFallaEscrituraComp(r));
       if (r.sinRed) despues();
       return;
     }
+    olvidarUltimo();
     const c = r.data.cambiados;
     setHecho(
       `✓ Deshecho: ${nf(c)} ${c === 1 ? 'sitio volvió' : 'sitios volvieron'} a pendientes.` +
@@ -355,7 +416,7 @@ export default function DetalleCampana(props: Props) {
     if (!ids.length) return;
     setErr('');
     setHecho('');
-    setUltimoMarcado([]);
+    olvidarUltimo();
     const r = await correr('Quitando marca…', () => marcarSitios(ids, false, null));
     if (!r) return;
     if (!r.ok) {
@@ -380,7 +441,7 @@ export default function DetalleCampana(props: Props) {
     }
     setErr('');
     setHecho('');
-    setUltimoMarcado([]);
+    olvidarUltimo();
     const r = await correr('Cancelando…', () => cancelarSitios(ids, m));
     if (!r) return;
     if (!r.ok) {
@@ -406,7 +467,7 @@ export default function DetalleCampana(props: Props) {
     if (!ids.length) return;
     setErr('');
     setHecho('');
-    setUltimoMarcado([]);
+    olvidarUltimo();
     const r = await correr('Regresando…', () => restaurarSitios(ids));
     if (!r) return;
     if (!r.ok) {
@@ -433,7 +494,7 @@ export default function DetalleCampana(props: Props) {
     }
     setErr('');
     setHecho('');
-    setUltimoMarcado([]);
+    olvidarUltimo();
     const r = await correr('Agregando columnas…', () => agregarSitios(camp.id, lista));
     if (!r) return;
     if (!r.ok) {
@@ -450,6 +511,57 @@ export default function DetalleCampana(props: Props) {
         textoTomas(r.data)
     );
     if (a) setFiltro('pendientes');
+    despues();
+  };
+
+  // ---- Datos de la campaña (solo quien gestiona) ---------------------------
+  // Arte, especificación, cliente, vendedor y ejecutivo: cuando la fuente no
+  // los trae, la Asignación salía sin ARTES ni VENDEDOR y no había dónde
+  // capturarlos (revisión 2, punta-a-punta-4). comp_editar_campanas los
+  // guarda en editado_app: la próxima carga no los pisa. Vacío = null, que
+  // los regresa a lo que diga la carga.
+  const [datos, setDatos] = useState<BorradorDatos>(() => datosDe(props.campana));
+  const abrirDatos = () => {
+    setErr('');
+    setDatos(datosDe(camp));
+    setPanel(panel === 'datos' ? null : 'datos');
+  };
+  const cambiosDatos = (): CambiosCampana => {
+    const antes = datosDe(camp);
+    const c: CambiosCampana = {};
+    const txt = (k: 'cliente' | 'vendedor' | 'administrador' | 'especificacion') => {
+      const v = datos[k].trim();
+      if (v !== antes[k].trim()) c[k] = v || null;
+    };
+    txt('cliente');
+    txt('vendedor');
+    txt('administrador');
+    txt('especificacion');
+    if (datos.arte !== antes.arte) c.arte = datos.arte || null;
+    return c;
+  };
+  const nCambiosDatos = Object.keys(cambiosDatos()).length;
+  const guardarDatos = async () => {
+    const cambios = cambiosDatos();
+    if (!Object.keys(cambios).length) return;
+    setErr('');
+    setHecho('');
+    olvidarUltimo();
+    const r = await correr('Guardando datos…', () => editarCampanas([camp.id], cambios));
+    if (!r) return;
+    if (!r.ok) {
+      setErr(textoFallaEscrituraComp(r));
+      if (r.sinRed) despues();
+      return;
+    }
+    setPanel(null);
+    setHecho(
+      r.data.cambiadas
+        ? '✓ Datos guardados: salen así en los Excel y la próxima carga no los pisa.'
+        : r.data.cerradas_omitidas
+          ? 'No se guardó: la campaña está cerrada.'
+          : 'Sin cambios.'
+    );
     despues();
   };
 
@@ -472,6 +584,8 @@ export default function DetalleCampana(props: Props) {
   const entrega = textoEntrega(camp.entrega_tipo);
   const titulo = camp.version ? `${camp.campana} · ${camp.version}` : camp.campana;
   const nSel = elegidos.length;
+  /** Botones chicos con área táctil de 44 px en el teléfono (revisión 2, uso-9). */
+  const tactil = telefono ? { minHeight: 44 } : undefined;
 
   const fila = (s: SitioComp) => {
     const elegido = sel.has(s.id) && accionable(s);
@@ -613,7 +727,15 @@ export default function DetalleCampana(props: Props) {
               </div>
             )}
           </div>
-          <button type="button" className="btn-icono" onClick={cerrar} disabled={ocupadoAqui} aria-label="Cerrar" title="Cerrar">
+          <button
+            type="button"
+            className="btn-icono"
+            onClick={cerrar}
+            disabled={ocupadoAqui}
+            aria-label="Cerrar"
+            title="Cerrar"
+            style={{ minWidth: 44, minHeight: 44 }}
+          >
             <X size={20} aria-hidden="true" />
           </button>
         </div>
@@ -711,6 +833,7 @@ export default function DetalleCampana(props: Props) {
             <button
               type="button"
               className="btn ghost sm"
+              style={tactil}
               disabled={ocupadoAqui}
               onClick={() => {
                 setHecho('');
@@ -735,8 +858,14 @@ export default function DetalleCampana(props: Props) {
             </button>
           )}
           {nSel > 0 && (
-            <button type="button" className="btn ghost sm" disabled={ocupadoAqui} onClick={() => setSel(new Set())}>
+            <button type="button" className="btn ghost sm" style={tactil} disabled={ocupadoAqui} onClick={() => setSel(new Set())}>
               Limpiar
+            </button>
+          )}
+          {permisos.gestiona && abierta && (
+            <button type="button" className="btn ghost sm" style={tactil} disabled={ocupadoAqui} onClick={abrirDatos} aria-expanded={panel === 'datos'}>
+              <Ic i={Pencil} />
+              Editar datos
             </button>
           )}
           {puedeAgregar && (
@@ -754,6 +883,67 @@ export default function DetalleCampana(props: Props) {
             </button>
           )}
         </div>
+
+        {panel === 'datos' && permisos.gestiona && (
+          <div className="rt-seccion">
+            <div className="rt-seccion-tit">Datos de la campaña</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+              Salen en la Asignación de clientes y en las OBSERVACIONES del Formato. Lo que guardes aquí la próxima carga no lo
+              pisa; deja un campo vacío para que vuelva a lo que diga la carga.
+            </div>
+            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: telefono ? '1fr' : '1fr 1fr' }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="comp-dat-cliente">Cliente</label>
+                <input id="comp-dat-cliente" value={datos.cliente} onChange={(e) => setDatos({ ...datos, cliente: e.target.value })} style={{ fontSize: 16 }} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="comp-dat-arte">Arte</label>
+                <select
+                  id="comp-dat-arte"
+                  value={datos.arte}
+                  onChange={(e) => setDatos({ ...datos, arte: e.target.value as BorradorDatos['arte'] })}
+                  style={{ fontSize: 16 }}
+                >
+                  <option value="">Sin dato (lo que diga la carga)</option>
+                  <option value="NUEVO">NUEVO</option>
+                  <option value="REPITE">REPITE</option>
+                </select>
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="comp-dat-vendedor">Vendedor</label>
+                <input id="comp-dat-vendedor" value={datos.vendedor} onChange={(e) => setDatos({ ...datos, vendedor: e.target.value })} style={{ fontSize: 16 }} />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="comp-dat-admin">Ejecutivo</label>
+                <input
+                  id="comp-dat-admin"
+                  value={datos.administrador}
+                  onChange={(e) => setDatos({ ...datos, administrador: e.target.value })}
+                  style={{ fontSize: 16 }}
+                />
+              </div>
+            </div>
+            <div className="field" style={{ margin: '8px 0' }}>
+              <label htmlFor="comp-dat-espec">Especificación (instrucciones para el monitorista)</label>
+              <textarea
+                id="comp-dat-espec"
+                rows={3}
+                value={datos.especificacion}
+                onChange={(e) => setDatos({ ...datos, especificacion: e.target.value })}
+                style={{ fontSize: 16 }}
+              />
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn ghost sm" style={tactil} onClick={() => setPanel(null)} disabled={ocupadoAqui}>
+                Cancelar
+              </button>
+              <button type="button" className="btn sm" style={tactil} onClick={guardarDatos} disabled={ocupadoAqui || !nCambiosDatos}>
+                {ocupado === 'Guardando datos…' && <span className="spinner" />}
+                Guardar{nCambiosDatos ? ` (${nCambiosDatos})` : ''}
+              </button>
+            </div>
+          </div>
+        )}
 
         {panel === 'agregar' && (
           <div className="rt-seccion">
@@ -790,7 +980,7 @@ export default function DetalleCampana(props: Props) {
             (revisión de pantallas, 23-oct-2026). En el pie, con el teclado
             abierto en un iPhone chico, el campo quedaba tapado. */}
         {puedeEscribir && panel === 'cancelar' && (
-          <div className="rt-seccion" ref={panelCancelarRef}>
+          <div className="rt-seccion" ref={panelCancelarRef} style={{ scrollMarginTop: 8 }}>
             <div className="rt-seccion-tit">
               Cancelar {nf(selCancelar.length)} {selCancelar.length === 1 ? 'sitio' : 'sitios'}
             </div>
@@ -809,10 +999,10 @@ export default function DetalleCampana(props: Props) {
               <input id="comp-motivo" value={motivo} onChange={(e) => setMotivo(e.target.value)} style={{ fontSize: 16 }} />
             </div>
             <div className="modal-actions">
-              <button type="button" className="btn ghost sm" onClick={() => setPanel(null)} disabled={ocupadoAqui}>
+              <button type="button" className="btn ghost sm" style={tactil} onClick={() => setPanel(null)} disabled={ocupadoAqui}>
                 No cancelar
               </button>
-              <button type="button" className="btn sm warn" onClick={cancelar} disabled={ocupadoAqui || !motivo.trim() || !selCancelar.length}>
+              <button type="button" className="btn sm warn" style={tactil} onClick={cancelar} disabled={ocupadoAqui || !motivo.trim() || !selCancelar.length}>
                 {ocupado === 'Cancelando…' && <span className="spinner" />}
                 Cancelar {nf(selCancelar.length)}
               </button>
@@ -861,19 +1051,20 @@ export default function DetalleCampana(props: Props) {
             {hecho && !err && (
               <div className="ok-msg" role="status" style={{ flex: '1 1 100%', margin: 0 }}>
                 {hecho}
-                {ultimoMarcado.length > 0 && (
-                  <>
-                    {' '}
-                    <button type="button" className="btn ghost sm" disabled={ocupadoAqui} onClick={deshacer}>
-                      {ocupado === 'Deshaciendo…' && <span className="spinner" />}
-                      <Ic i={Undo2} />
-                      Deshacer
-                    </button>
-                  </>
-                )}
               </div>
             )}
-            {!camp.retirada && (
+            {/* Deshacer no depende del mensaje: tocar un renglón lo borraba
+                y con él el botón (revisión 2, uso-9). */}
+            {ultimoMarcado.length > 0 && (
+              <button type="button" className="btn ghost sm" style={tactil} disabled={ocupadoAqui} onClick={deshacer}>
+                {ocupado === 'Deshaciendo…' && <span className="spinner" />}
+                <Ic i={Undo2} />
+                Deshacer la última marca ({nf(ultimoMarcado.length)})
+              </button>
+            )}
+            {/* Con el panel de cancelar abierto el Día no sirve y el pie
+                tapaba el motivo en el iPhone (revisión 2, uso-4). */}
+            {!camp.retirada && panel !== 'cancelar' && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', flex: telefono ? '1 1 100%' : '0 1 auto' }}>
                 Día
                 <select
@@ -899,7 +1090,7 @@ export default function DetalleCampana(props: Props) {
               </span>
             )}
             {selRestaurar.length > 0 && (
-              <button type="button" className="btn ghost sm" disabled={ocupadoAqui} onClick={restaurar}>
+              <button type="button" className="btn ghost sm" style={tactil} disabled={ocupadoAqui} onClick={restaurar}>
                 {ocupado === 'Regresando…' && <span className="spinner" />}
                 <Ic i={RotateCcw} />
                 Regresar ({nf(selRestaurar.length)})
@@ -909,7 +1100,9 @@ export default function DetalleCampana(props: Props) {
               <button
                 type="button"
                 className="btn ghost sm"
+                style={tactil}
                 disabled={ocupadoAqui}
+                aria-expanded={panel === 'cancelar'}
                 onClick={() => {
                   setErr('');
                   setPanel(panel === 'cancelar' ? null : 'cancelar');
@@ -919,14 +1112,14 @@ export default function DetalleCampana(props: Props) {
               </button>
             )}
             {selQuitar.length > 0 && (
-              <button type="button" className="btn ghost sm" disabled={ocupadoAqui} onClick={quitarMarca}>
+              <button type="button" className="btn ghost sm" style={tactil} disabled={ocupadoAqui} onClick={quitarMarca}>
                 {ocupado === 'Quitando marca…' && <span className="spinner" />}
                 <Ic i={Undo2} />
                 Quitar marca ({nf(selQuitar.length)})
               </button>
             )}
             {selMarcar.length > 0 && (
-              <button type="button" className="btn ok" disabled={ocupadoAqui || !diaSel} onClick={() => marcar(selMarcar, true)}>
+              <button type="button" className="btn ok" style={tactil} disabled={ocupadoAqui || !diaSel} onClick={() => marcar(selMarcar, true)}>
                 {ocupado?.startsWith('Marcando') && <span className="spinner" />}
                 <Ic i={Check} />
                 Marcar {nf(selMarcar.length)} {selMarcar.length === 1 ? 'comprobado' : 'comprobados'}

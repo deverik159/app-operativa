@@ -1849,6 +1849,9 @@ function sitioVV(espacio: string): { clave: string | null; espacio: string; medi
  * primero después. Lo capturado en la app (origen 'app') siempre cuenta.
  * Así, si se pasan los renglones de varios planos, no se duplican.
  */
+/** Inicio del aviso de plano de otro mes (la pantalla lo pone como banner). */
+export const AVISO_PLANO_OTRO_MES = 'El plano más reciente es de ';
+
 function planoVigente(filas: VVOcupacionFila[], mesPeriodo: string): string | null {
   const meses = [...new Set(filas.filter((f) => f.origen === 'plano' && f.plano_mes).map((f) => f.plano_mes!))].sort();
   const antes = meses.filter((m) => m <= mesPeriodo);
@@ -2171,6 +2174,13 @@ export function desdePautaVV(
   if (nPlano) avisos.push(`${nPlano} campaña(s) salen solo del plano: sin versión ni cliente; complétalas si hace falta.`);
   if (edoMex.size) avisos.push(`${edoMex.size} espacio(s) de EDO MEX omitidos (de baja): ${[...edoMex].join(', ')}.`);
   if (ocupacion.length && !vigente && !ocupacion.some((o) => o.origen === 'app')) avisos.push('No hay plano importado para el periodo.');
+  // El plano de un mes ANTERIOR se usa como foto completa del periodo: se
+  // dice, porque lo vendido después de ese plano no está (revisión 2,
+  // punta-a-punta-7). Va primero para que se vea.
+  if (vigente && vigente !== mesP)
+    avisos.unshift(
+      `${AVISO_PLANO_OTRO_MES}${vigente} y el periodo es de ${mesP}: solo entran sus líneas que siguen vigentes, y lo vendido después de ese plano no está. Puede estar incompleto; importa el plano de ${mesP} si ya existe.`
+    );
   return { porMedio, avisos, errores };
 }
 

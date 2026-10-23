@@ -6,8 +6,9 @@
 //
 //   · Tarjetas del periodo: campañas, meta, comprobados, hoy, pendientes,
 //     vencidas y sin analista (de vw_comp_campanas, que ya trae el esqueleto).
-//   · Por analista (vw_comp_avance_analista): la CARGA (campañas, meta,
-//     pendientes, vencidas) es de quien lleva la campaña HOY; el CRÉDITO
+//   · Por analista: la CARGA (campañas, meta, pendientes, vencidas) se
+//     calcula de la lista con las reglas de las tarjetas (sin retiradas) y
+//     es de quien lleva la campaña HOY; el CRÉDITO (vw_comp_avance_analista)
 //     (marcó, hoy) es de quien marcó. Así «pasar lo pendiente» no le suma a B
 //     lo que comprobó A (crítica de la fase 2).
 //   · Comprobación diaria (vw_comp_diaria + pivotDiaria): una fila por
@@ -125,9 +126,66 @@ export default function AvanceComprobaciones(props: PropsPestanaComp) {
   }, [campanas]);
 
   // ---- Por analista --------------------------------------------------------
+  // La CARGA (campañas, abiertas, meta, pendientes, comprobados en sus
+  // campañas, vencidas) se calcula aquí con las MISMAS reglas que las
+  // tarjetas: sin retiradas y sin contar como vencida la que no tiene nada
+  // por comprobar. vw_comp_avance_analista suma las retiradas (meta 0 →
+  // «vencida» en rojo) y contradecía las tarjetas (revisión 2, contrato-3).
+  // De la vista solo se toma el CRÉDITO (marcó, hoy), que va por quien marcó.
+  const conCarga = useMemo(() => {
+    const filas = new Map<string, VwAvanceAnalista>();
+    const fila = (email: string | null): VwAvanceAnalista => {
+      const k = email ? email.toLowerCase() : '';
+      let f = filas.get(k);
+      if (!f) {
+        f = {
+          unidad,
+          periodo_id: periodo.id,
+          analista_email: email ? email.toLowerCase() : null,
+          campanas: 0,
+          abiertas: 0,
+          meta: 0,
+          pendientes: 0,
+          comprobados_en_sus_campanas: 0,
+          comprobados: 0,
+          hoy: 0,
+          vencidas: 0,
+        };
+        filas.set(k, f);
+      }
+      return f;
+    };
+    for (const c of campanas) {
+      if (c.retirada) continue;
+      const f = fila(c.analista_email);
+      f.campanas++;
+      f.meta += c.meta || 0;
+      f.comprobados_en_sus_campanas += c.comprobados || 0;
+      if (c.estatus !== 'abierta') continue;
+      f.abiertas++;
+      f.pendientes += c.pendientes || 0;
+      if (!c.completa && !sinPorComprobar(c) && c.dias_restantes != null && c.dias_restantes < 0) f.vencidas++;
+    }
+    const sinRegistro: VwAvanceAnalista[] = [];
+    for (const a of avance) {
+      if (!a.analista_email) {
+        // La vista junta en NULL dos cosas: la carga «Sin analista» (ya
+        // calculada arriba) y el crédito de marcas sin quien las hizo.
+        if (a.campanas === 0 && a.comprobados > 0)
+          sinRegistro.push({ ...a, abiertas: 0, meta: 0, pendientes: 0, comprobados_en_sus_campanas: 0, vencidas: 0 });
+        continue;
+      }
+      if (!a.comprobados && !a.hoy) continue;
+      const f = fila(a.analista_email);
+      f.comprobados += a.comprobados || 0;
+      f.hoy += a.hoy || 0;
+    }
+    return [...filas.values(), ...sinRegistro];
+  }, [avance, campanas, unidad, periodo.id]);
+
   const porAnalista = useMemo(
     () =>
-      [...avance]
+      [...conCarga]
         .filter((a) => a.campanas > 0 || a.comprobados > 0)
         .sort(
           (a, b) =>
@@ -136,7 +194,7 @@ export default function AvanceComprobaciones(props: PropsPestanaComp) {
             b.meta - a.meta ||
             (a.analista_email || '').localeCompare(b.analista_email || '')
         ),
-    [avance]
+    [conCarga]
   );
 
   // ---- Tabla diaria ----------------------------------------------------------

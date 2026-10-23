@@ -247,3 +247,13 @@ test('versionSinMedida: la extensión con coma («-C,png», bitácora real de Ec
   assert.equal(L.versionSinMedida('PAN PRUEBA-C,png'), 'PAN PRUEBA-C');
   assert.equal(L.versionSinMedida('PAN PRUEBA-C,png'), L.versionSinMedida('PAN PRUEBA-C.png'));
 });
+
+test('errorLectorEnEspanol: los errores de SheetJS y fflate en palabras de campo (revisión 2)', () => {
+  assert.match(L.errorLectorEnEspanol(new Error('File is password-protected')), /contraseña/);
+  assert.match(L.errorLectorEnEspanol(new Error('invalid zip data')), /dañado/);
+  assert.match(L.errorLectorEnEspanol(new Error('Unsupported file 0x1234')), /no parece un Excel/);
+  assert.match(L.errorLectorEnEspanol(new RangeError('Invalid array length')), /demasiado grande/);
+  // Nada en inglés para lo que no se reconoce.
+  assert.equal(L.errorLectorEnEspanol(new Error('something odd')), 'archivo dañado o no es Excel');
+  assert.equal(L.errorLectorEnEspanol(undefined), 'archivo dañado o no es Excel');
+});

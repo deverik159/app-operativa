@@ -29,7 +29,7 @@
 // esqueleto (correr) y se cuenta con lo que DEVUELVE la base: la RLS niega
 // en silencio. Después se relee en silencio (recargar) sin desmontar.
 // ============================================================
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   cargaPorAnalista,
   CLAVE_SIN_REGISTRO,
@@ -263,6 +263,8 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
 
   const visibles = filtradas.slice(0, limite);
   const elegidas = useMemo(() => campanas.filter((c) => sel.has(c.id)), [campanas, sel]);
+  /** El plan en lote ya se aplicó: la selección se limpia al cerrar su ventana. */
+  const planAplicado = useRef(false);
   // Elegidas que el filtro de ahora esconde: se avisa en la barra y en
   // Acciones para que el lote no se lleve campañas que no se ven.
   const elegidasOcultas = useMemo(() => {
@@ -965,9 +967,20 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
         <PlanTomasModal
           {...props}
           elegidas={elegidas}
-          onCerrar={() => setModal(null)}
-          // Plan aplicado a todas: la selección ya cumplió (23-oct-2026).
-          onAplicado={() => setSel(new Set())}
+          // Plan aplicado: la selección ya cumplió (23-oct-2026), pero se
+          // limpia al CERRAR. Limpiarla en onAplicado desmontaba el modal en
+          // el mismo instante y Victor nunca veía el resultado (borradas,
+          // comprobados omitidos, campañas sin tomas). Revisión 2, uso-1.
+          onCerrar={() => {
+            setModal(null);
+            if (planAplicado.current) {
+              planAplicado.current = false;
+              setSel(new Set());
+            }
+          }}
+          onAplicado={() => {
+            planAplicado.current = true;
+          }}
         />
       )}
       {detalleVivo && <DetalleCampana {...props} campana={detalleVivo} onCerrar={() => setDetalle(null)} />}
