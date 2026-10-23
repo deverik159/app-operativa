@@ -1,0 +1,181 @@
+// Pruebas de las utilidades de lectura de Excel de Comprobaciones
+// (src/lib/importadorComp.ts, fase 2, 23-oct-2026). Desde el rediseño de
+// Erik (23-oct) el lector de los Excel de comprobaciones de hoy salió: aquí
+// quedan las piezas que usa el lector de la bitácora (bitacoraComp.ts).
+// La paridad de llaveComp con comp_llave() vive en comprobaciones.test.mjs.
+// Las filas tienen la FORMA de los Excel reales (celdas sucias) con nombres
+// INVENTADOS: el repo es público y los Excel nunca entran aquí.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { fileURLToPath } from 'node:url';
+
+const { outputFiles } = await build({
+  entryPoints: [fileURLToPath(new URL('../src/lib/importadorComp.ts', import.meta.url))],
+  bundle: true,
+  write: false,
+  format: 'esm',
+  platform: 'neutral',
+});
+const L = await import('data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64'));
+
+// sheet_to_json deja las fechas en la medianoche LOCAL: así se arman aquí.
+const D = (a, m, d) => new Date(a, m - 1, d);
+
+test('textoCelda y normTexto: errores de Excel, espacios y acentos', () => {
+  assert.equal(L.textoCelda('  RESIDENTE   MALO '), 'RESIDENTE MALO');
+  for (const nada of [null, undefined, '', '   ', '#N/A', '#REF!', '#NAME?']) assert.equal(L.textoCelda(nada), null, String(nada));
+  assert.equal(L.textoCelda(D(2026, 10, 15)), '2026-10-15');
+  assert.equal(L.normTexto(' Ubicación  Señal '), 'UBICACION SENAL');
+});
+
+test('buscarEncabezado: la fila y las columnas por nombre, con columnas de más', () => {
+  const filas = [
+    ['CLIENTE', 'TIENDAS PRUEBA'],
+    [],
+    ['PLAZA', 'ID COLUMNA', 'VERSION', 'INICIO', 'NOTAS', 'INICIO'],
+    ['CDMX', '101', 'V1', '2026-10-01', null, null],
+  ];
+  const enc = L.buscarEncabezado(filas, { sitio: /^ID COLUMNA$/, version: /^VERSION$/, inicio: /^INICIO$/ }, ['sitio', 'version']);
+  // La PRIMERA columna que cumple gana (INICIO repetido más a la derecha).
+  assert.deepEqual(enc, { fila: 2, col: { sitio: 1, version: 2, inicio: 3 } });
+  assert.equal(L.buscarEncabezado(filas, { x: /^NO EXISTE$/ }, ['x']), null);
+});
+
+// ------------------------------------------------------------
+// Celdas sueltas
+// ------------------------------------------------------------
+
+test('limpiarClave: espacios, ceros, texto pegado, pórticos y EDO MEX', () => {
+  assert.deepEqual(L.limpiarClave('MX_CM_EV_MGP_16_3606     '), { clave: 'MX_CM_EV_MGP_16_3606', cambios: ['espacios'], edoMex: false });
+  assert.deepEqual(L.limpiarClave('MX_CM_BB_MED_ 0114'), { clave: 'MX_CM_BB_MED_0114', cambios: ['espacios'], edoMex: false });
+  assert.deepEqual(L.limpiarClave('MX_CM_BB_MED_00106'), { clave: 'MX_CM_BB_MED_0106', cambios: ['ceros'], edoMex: false });
+  assert.deepEqual(L.limpiarClave('MX_CM_BB_IID_0001 (PLANTEL NORTE)'), { clave: 'MX_CM_BB_IID_0001', cambios: ['texto_pegado'], edoMex: false });
+  assert.deepEqual(L.limpiarClave('MX_CM_BB_IID_0001 PLANTEL NORTE'), { clave: 'MX_CM_BB_IID_0001', cambios: ['texto_pegado'], edoMex: false });
+  assert.deepEqual(L.limpiarClave('POR_0008'), { clave: 'MX_CM_VV_POR_0008', cambios: ['alias_portico'], edoMex: false });
+  assert.deepEqual(L.limpiarClave('POR_00015'), { clave: 'MX_CM_VV_POR_0015', cambios: ['alias_portico', 'ceros'], edoMex: false });
+  assert.deepEqual(L.limpiarClave('MX_CM_VV_COL_0448'), { clave: 'MX_CM_VV_COL_448', cambios: ['ceros'], edoMex: false });
+  // EDO MEX: A04 no es número y no se toca; se marca para omitir.
+  assert.deepEqual(L.limpiarClave('MX_EM_VV_COL_A04'), { clave: 'MX_EM_VV_COL_A04', cambios: [], edoMex: true });
+  assert.equal(L.limpiarClave('MX_EM_EV_MGP_08_0002').edoMex, true);
+  assert.equal(L.limpiarClave('mx_cm_vv_col_551').clave, 'MX_CM_VV_COL_551');
+  for (const nada of [null, '', '   ', '#N/A', '(NADA)', '---']) assert.equal(L.limpiarClave(nada).clave, null, JSON.stringify(nada));
+});
+
+test('leerFechaCelda: Date, serial, «01/08(26» y celdas de error', () => {
+  assert.equal(L.leerFechaCelda(D(2026, 8, 1)), '2026-08-01');
+  assert.equal(L.leerFechaCelda(46235), '2026-08-01');
+  assert.equal(L.leerFechaCelda('01/08(26'), '2026-08-01');
+  assert.equal(L.leerFechaCelda('14/09/2026'), '2026-09-14');
+  assert.equal(L.leerFechaCelda('2026-09-03'), '2026-09-03');
+  assert.equal(L.leerFechaCelda('31/02/2026'), null);
+  for (const nada of [null, undefined, '', '#N/A', 'PENDIENTE', 'TIENE FECHA DE JULIO']) assert.equal(L.leerFechaCelda(nada), null, String(nada));
+});
+
+test('versionSinMedida: las 3 medidas de Ecovallas son la misma versión', () => {
+  const v = ['OBRA DE PRUEBA (3ULTIMAS) 1440x405.jpg', 'OBRA DE PRUEBA (3ULTIMAS) 1152X324.jpg', 'OBRA DE PRUEBA (3ULTIMAS) 989X240.jpg'].map(L.versionSinMedida);
+  assert.deepEqual(v, ['OBRA DE PRUEBA (3ULTIMAS)', 'OBRA DE PRUEBA (3ULTIMAS)', 'OBRA DE PRUEBA (3ULTIMAS)']);
+  assert.equal(L.versionSinMedida('OBRAS_MES_1440X405 LA FUNCION.jpg'), 'OBRAS_MES LA FUNCION');
+  assert.equal(L.versionSinMedida('V1-R1 Revista Prueba 1056x324'), 'V1-R1 Revista Prueba');
+  assert.equal(L.versionSinMedida('PENDIENTE'), 'PENDIENTE');
+});
+
+test("separarEntrega: el sufijo (INICIAL) o (FINAL) sale del nombre", () => {
+  assert.deepEqual(L.separarEntrega('JARABE PRUEBA ADICIONAL (INICIAL)'), { campana: 'JARABE PRUEBA ADICIONAL', entrega: 'inicial' });
+  assert.deepEqual(L.separarEntrega('SERIE PRUEBA (FINAL)'), { campana: 'SERIE PRUEBA', entrega: 'final' });
+  assert.deepEqual(L.separarEntrega(' MARCA SIN SUFIJO '), { campana: 'MARCA SIN SUFIJO', entrega: null });
+});
+
+test('leerHorario: 24 h, franjas con a/AM/PM/hrs, FULL de minutos, por fecha y programmatic', () => {
+  const h = (t) => L.leerHorario(t);
+  assert.deepEqual(h('24 HRS').franjas, [[0, 1439]]);
+  assert.equal(h('24 HORAS').tipo, '24h');
+  assert.deepEqual(h('7 a 9 am / 18 a 20 hrs').franjas, [[420, 539], [1080, 1199]]);
+  assert.deepEqual(h('3:00 PM A 4:59 PM').franjas, [[900, 1019]]);
+  assert.deepEqual(h('19:00 - 24:00HRS').franjas, [[1140, 1439]]);
+  assert.deepEqual(h('07:00 - 22:59HRS').franjas, [[420, 1379]]);
+  assert.deepEqual(h('19.00 - 19:06').franjas, [[1140, 1146]]);
+  assert.deepEqual(h('22:00 - 02:00').franjas, [[1320, 1439], [0, 119]]);
+  const full = h('19:00 - 19:50');
+  assert.equal(full.tipo, 'franjas');
+  assert.equal(full.minutos, 50);
+  assert.equal(h('PROGRAMMATIC').tipo, 'programmatic');
+  const porFecha = h('DEL 01 AL 03 DE (8:00 AM A 9:59 AM), (1:00 PM A 2:59 PM)');
+  assert.equal(porFecha.tipo, 'por_fecha');
+  assert.equal(porFecha.franjas, null);
+  assert.equal(h('L-V 09:00 - 09:59 // S-D 14:00 - 16:00').tipo, 'por_fecha');
+  assert.deepEqual(h(null), { tipo: 'sin', franjas: null, llave: '', minutos: null, entendido: true });
+  assert.equal(h('CUANDO SE PUEDA').entendido, false);
+  // Dos horarios distintos del mismo día tienen llave distinta.
+  assert.notEqual(h('07:45 - 08:15').llave, h('19:00 - 19:03').llave);
+});
+
+test('leerObservacion: ventana, límite, banderas y «DEL08 AL 14DE»', () => {
+  const sep = { anio: 2026, mes: 9 };
+  const ago = { anio: 2026, mes: 8 };
+  assert.deepEqual(L.leerObservacion('DEL 01 AL 14 DE SEPTIEMBRE. TOMAS MEDIAS', sep), {
+    ventanaInicio: '2026-09-01', ventanaFin: '2026-09-14', fechaLimite: null, banderas: ['medias'], entendido: true,
+  });
+  const b = L.leerObservacion('DEL 01 AL 31 DE AGOSTO. FOTOS A MAS TARDAR EL 10 DE AGOSTO. (CONSIDERAR TOMAS NORMALES Y POR LADO)', ago);
+  assert.equal(b.ventanaInicio, '2026-08-01');
+  assert.equal(b.ventanaFin, '2026-08-31');
+  assert.equal(b.fechaLimite, '2026-08-10');
+  assert.deepEqual(b.banderas, ['por_lado']);
+  const pegado = L.leerObservacion('DEL08 AL 14DE SEPTIEMBRE', sep);
+  assert.equal(pegado.ventanaInicio, '2026-09-08');
+  assert.equal(pegado.ventanaFin, '2026-09-14');
+  assert.deepEqual(L.leerObservacion('DEL 28 DE AGOSTO AL 07 DE SEPTIEMBRE', ago).ventanaFin, '2026-09-07');
+  assert.equal(L.leerObservacion('UNICAMENTE EL 03 DE SEPTIEMBRE.', sep).ventanaFin, '2026-09-03');
+  assert.equal(L.leerObservacion('A PARTIR DEL 15 DE AGOSTO', ago).ventanaFin, null);
+  assert.equal(L.leerObservacion('11 Y 12 DE AGOSTO', ago).ventanaFin, '2026-08-12');
+  assert.equal(L.leerObservacion('SUBE EL 07 DE AGOSTO (ENVIAR ANTES)', ago).ventanaInicio, '2026-08-07');
+  // Cruce de año: diciembre leído con base enero es del año anterior.
+  assert.equal(L.leerObservacion('DEL 28 DE DICIEMBRE AL 03 DE ENERO', { anio: 2027, mes: 1 }).ventanaInicio, '2026-12-28');
+  const lista = L.leerObservacion('TOMAS MEDIAS (SOLO SE COMPRUEBA UNA VEZ DE AMBAS CATORCENAS) TENER LISTA PERO NO ENVIAR', sep);
+  assert.deepEqual(lista.banderas, ['lista_sin_enviar', 'una_vez', 'medias']);
+  assert.equal(lista.entendido, false);
+  assert.deepEqual(L.leerObservacion('DETENIDA', sep).banderas, ['detenida']);
+  assert.deepEqual(L.leerObservacion('TOMAS CORRESPONDIENTES A CAT 02 NO SE COMPRUEBAN', ago).banderas, ['no_se_comprueba']);
+  assert.equal(L.leerObservacion(null, ago).entendido, true);
+});
+
+test('rellenarCombinadas copia la esquina a toda la combinación sin tocar el original', () => {
+  const filas = [['A', 'texto', null], ['B', null, null], ['C', null, null]];
+  const out = L.rellenarCombinadas(filas, [{ s: { r: 0, c: 1 }, e: { r: 2, c: 1 } }]);
+  assert.deepEqual(out.map((f) => f[1]), ['texto', 'texto', 'texto']);
+  assert.equal(filas[1][1], null);
+});
+
+test('rellenarCombinadas resta el origen de la hoja (!ref desde B1)', () => {
+  // La matriz empieza en B1 (columna A vacía) y el merge viene en coordenadas de hoja: G4:G5.
+  const filas = [['x'], [], [], [null, null, null, null, null, 'V1'], [null, null, null, null, null, null]];
+  const out = L.rellenarCombinadas(filas, [{ s: { r: 3, c: 6 }, e: { r: 4, c: 6 } }], { r: 0, c: 1 });
+  assert.equal(out[4][5], 'V1');
+  // Sin el origen caería una columna a la derecha (el error de la revisión del 23-oct-2026).
+  assert.equal(L.rellenarCombinadas(filas, [{ s: { r: 3, c: 6 }, e: { r: 4, c: 6 } }])[4][5], null);
+});
+
+test('leerFechaCelda: un serial con hora de la tarde se queda en su día', () => {
+  assert.equal(L.leerFechaCelda(46310), '2026-10-15');
+  assert.equal(L.leerFechaCelda(46310.75), '2026-10-15');
+  assert.equal(L.leerFechaCelda(46310.999), '2026-10-15');
+  assert.equal(L.leerFechaCelda(Number.NaN), null);
+});
+
+test('horaExcel: la hora tecleada como hora de Excel', () => {
+  assert.equal(L.horaExcel(0.291666), '07:00');
+  assert.equal(L.horaExcel(0), '00:00');
+  assert.equal(L.horaExcel(0.999999), '23:59');
+  assert.equal(L.horaExcel(new Date(1899, 11, 30, 19, 30)), '19:30');
+  for (const no of [1, 46310.5, '07:00', null, new Date(2026, 9, 1)]) assert.equal(L.horaExcel(no), null, String(no));
+});
+
+// ------------------------------------------------------------
+// Libros y periodo
+// ------------------------------------------------------------
+
+test('leerHorario: el formato de la Bitácora VV («02:00 - 09:59HRS», «00:00 - 23:59HRS»)', () => {
+  assert.deepEqual(L.leerHorario('02:00 - 09:59HRS').franjas, [[120, 599]]);
+  assert.equal(L.leerHorario('00:00 - 23:59HRS').tipo, '24h');
+  assert.equal(L.leerHorario('07:00 - 21:59HRS / 23:00 - 23:59HRS').franjas.length, 2);
+});

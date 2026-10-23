@@ -6,6 +6,7 @@
 // ============================================================
 
 import { PORTICOS_LADO_FIJO } from './constants';
+import { UNIDADES_COMP, type UnidadComp } from './comprobaciones';
 
 /**
  * Id aleatorio corto (8 hex) para record_id / reassign_id.
@@ -581,6 +582,73 @@ export const ROLES_FIJACION_EXTERNA: readonly string[] = ['reparacion'];
  * analista revisa las fotos que le manda el coordinador (20-oct-2026).
  */
 export const ROLES_PAUTA: readonly string[] = ['coordinador', 'monitorista', 'fijador', 'analista'];
+
+/**
+ * Roles que abren Comprobaciones (Erik, 22/23-oct-2026): el Supervisor
+ * (Victor) reparte y cierra; el analista marca lo que comprobó de SUS
+ * campañas; el coordinador lee todo en solo lectura (P3). Qué puede hacer
+ * cada uno lo decide la base (RPC y RLS); esto solo abre la pestaña.
+ * El supervisor NO va en ROLES_PAUTA: Victor conserva su fila de analista
+ * de Ecovallas para Pauta.
+ */
+export const ROLES_COMPROBACIONES: readonly string[] = ['supervisor', 'analista', 'coordinador'];
+
+/**
+ * Unidades de Comprobaciones que ve quien tiene estas filas de rol. Espejo
+ * de comp_mis_unidades() en SQL; si cambia una, cambia la otra:
+ *   · rol y unidad se leen de la MISMA fila (lección del 8-oct-2026, ver
+ *     abreModuloEcovallasImpreso): Dafne es analista de Vía Verde y además
+ *     reportante; eso no le abre las demás unidades;
+ *   · fila con unidad NULL = las 3; el manager = las 3. Una unidad '' NO es
+ *     «todas»: en SQL '' no es null y no es igual a ninguna;
+ *   · la unidad se compara EXACTA, letra por letra, como
+ *     `ur.unidad_negocio = u.unidad` en SQL: ni "Biobox Perú", ni "Via
+ *     Verde" sin acento, ni "biobox" o " Biobox " entran. Antes aquí se
+ *     recortaba y se ignoraban mayúsculas, y la SQL no: la pestaña abría
+ *     vacía y sin error (revisión del núcleo, 23-oct-2026);
+ *   · en Ecovallas solo cuentan las pantallas: medio NULL o que empiece con
+ *     «digital» (sin recortar, como `ur.medio ilike 'digital%'`). Impreso,
+ *     '' o ' Digital' no abren Ecovallas. En las otras unidades el medio no
+ *     importa.
+ *
+ * OJO, por decidir con Erik (revisión del núcleo, 23-oct-2026): Usuarios
+ * solo guarda el medio del validador (UsuariosView), así que HOY todas las
+ * filas de coordinador y analista de Ecovallas tienen medio NULL, también
+ * las del equipo de Pauta (Impreso). Con la regla de arriba, «sin medio =
+ * ambos» (la misma de abreModuloEcovallasImpreso), ese equipo abre
+ * Ecovallas Digital: el coordinador lee sus campañas (P3) y el analista
+ * queda asignable. No se cambió aquí porque pedir medio = 'Digital' dejaría
+ * a Ecovallas Digital sin analistas hasta que Usuarios guarde el medio, y
+ * tendría que cambiar a la vez en comp_mis_unidades. La prueba «forma real»
+ * de tests/alcanceComprobaciones.test.mjs deja escrito el comportamiento.
+ */
+export function unidadesComprobaciones(
+  roles: { rol: string; unidad_negocio: string | null; medio?: string | null }[],
+  rolesDelModulo: readonly string[] = ROLES_COMPROBACIONES
+): Set<UnidadComp> {
+  const out = new Set<UnidadComp>();
+  for (const r of roles) {
+    if (r.rol === 'manager') {
+      UNIDADES_COMP.forEach((u) => out.add(u));
+      continue;
+    }
+    if (!rolesDelModulo.includes(r.rol)) continue;
+    // null/undefined = sin unidad (todas); cualquier texto se compara exacto.
+    const unidad = r.unidad_negocio ?? null;
+    const medio = r.medio ?? null;
+    for (const u of UNIDADES_COMP) {
+      if (unidad !== null && unidad !== u) continue;
+      if (u === 'Ecovallas' && medio !== null && !/^digital/i.test(medio)) continue;
+      out.add(u);
+    }
+  }
+  return out;
+}
+
+/** ¿Ve la pestaña Comprobaciones? */
+export const abreComprobaciones = (
+  roles: { rol: string; unidad_negocio: string | null; medio?: string | null }[]
+): boolean => unidadesComprobaciones(roles).size > 0;
 
 /**
  * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas IMPRESO
