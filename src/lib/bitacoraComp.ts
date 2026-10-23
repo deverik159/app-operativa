@@ -15,11 +15,15 @@
 //      QUANTUM / ESPECIFICACIONES DE TOMAS y una tabla de pautas (ID, TIPO,
 //      UBICACIÓN, CAMPAÑA, TIPO (VENTA O BONUS), VERSION, INICIO, FIN,
 //      HORARIO L-V, HORARIO S-D, TESTIGOS, OBSERVACIONES, ESTATUS).
-//      Erik dejará un archivo real de Ecovallas y otro de Biobox; mientras
-//      tanto el lector es TOLERANTE: busca encabezados y etiquetas por
-//      nombre (con variantes), acepta columnas de más, varias hojas, varios
-//      bloques en una hoja y claves sucias. Agregar una variante es agregar
-//      un patrón en ENC_TABLA o ETIQUETAS.
+//      Con las bitácoras REALES de Biobox y Ecovallas Digital (Erik,
+//      23-oct-2026) el lector es TOLERANTE: busca encabezados y etiquetas
+//      por nombre (con variantes y desplazados), deduce por contenido las
+//      columnas sin nombre (o la tabla entera si falta su encabezado), lee
+//      varias versiones por celda (Biobox «V5, V6, V7») o por columna
+//      (Ecovallas «VERSIÓN 1..N», sin la medida pegada), salta las hojas
+//      que no son campaña y saca del encabezado el plan sugerido (Biobox
+//      «COMPROBACIÓN») y los testigos marcados (Ecovallas). Agregar una
+//      variante es agregar un patrón en ENC_TABLA, ETIQUETAS o CLASES.
 //   2. desdePautaVV: Vía Verde, de lo que ya vive en la app (vv_campanas +
 //      vv_pautas y, para lo que no esté ahí, el plano vv_ocupacion).
 //   3. armarAlta: el alta a mano del Supervisor (sobre todo Biobox), con
@@ -31,29 +35,44 @@
 // campaña-VERSIÓN; la llave es (periodo, medio, comp_llave(campana),
 // comp_llave(version)). Cada sitio lleva SU vigencia y SUS horarios: el plan
 // de tomas (comp_generar_tomas) genera los renglones dentro de esa vigencia,
-// recortada al periodo. Este archivo NO recorta al periodo ni inventa
-// fechas: si un sitio no trae vigencia va null y la base usa la de la
-// campaña (y si tampoco, la del periodo). OJO: la lista de sitios de cada
+// recortada al periodo. leerBitacora también la recorta al periodo si se
+// le pasa (23-oct-2026: Biobox trae campañas de marzo a diciembre), pero
+// no inventa fechas: si un sitio no trae vigencia va null y la base usa la
+// de la campaña (y si tampoco, la del periodo). Los planes sugeridos van
+// FUERA del contrato (ResultadoBitacora.planesSugeridos). OJO: la lista de sitios de cada
 // entrada MANDA (lo que no viene se da de baja en la base), por eso aquí
 // nada se manda a medias: una lectura incompleta de Pauta VV no carga nada.
 //
 // ES PURO: sin React ni Supabase. Los libros se leen con hojaDeLibro (lee
 // desde A1, con los valores crudos y el texto formateado). Las pruebas
-// están en tests/bitacoraComp.test.mjs; la validación con la exportación
-// real de Pauta VV, en un script local fuera del repo (el repo es público).
+// están en tests/bitacoraComp.test.mjs (con la forma real y nombres
+// inventados); la validación con los archivos reales de Pauta VV, Biobox y
+// Ecovallas, en scripts locales fuera del repo (el repo es público).
 // ============================================================
 
 import { claveEspacio, franjasTexto } from './ocupacionVV';
-import { llaveComp, type MedioComp, type UnidadComp } from './comprobaciones';
+import { llaveComp, type MedioComp, type PlanTomas, type UnidadComp } from './comprobaciones';
+import {
+  llaveContrato,
+  type CampanaContrato,
+  type FuenteComp,
+  type PeriodoBit,
+  type PlanSugerido,
+  type SitioContrato,
+  type TipoVenta,
+} from './contratoComp';
 import {
   buscarEncabezado,
+  esSoloMesDia,
   horaExcel,
+  leerFechaBitacora,
   leerFechaCelda,
   leerHorario,
   limpiarClave,
   normTexto,
   rellenarCombinadas,
   textoCelda,
+  versionSinMedida,
   type CambioClave,
   type Merge,
 } from './importadorComp';
@@ -61,53 +80,11 @@ import {
 // ------------------------------------------------------------
 // Contrato de comp_cargar_campanas (23-oct-2026)
 // ------------------------------------------------------------
+// Los tipos viven en contratoComp.ts (una sola definición); se vuelven a
+// exportar aquí para no romper los imports que ya existen.
 
-export type FuenteComp = 'bitacora' | 'pauta_vv' | 'plano' | 'manual';
-export type TipoVenta = 'VENTA' | 'BONUS';
-
-export type SitioContrato = {
-  /** Con la forma de inventario.vendor_face_id (MX_CM_VV_COL_856, MX_CM_BB_MED_0114). */
-  sitio_clave: string;
-  /** Como venía en el archivo o en la base ('856', 'MX_CM_BB_MED_ 0114'). */
-  sitio_original: string;
-  /** Vía Verde: la clave de vv_espacios ('856', 'POR_0008'); en lo demás null. */
-  espacio_vv: string | null;
-  inicio: string | null;
-  fin: string | null;
-  horario_lv: string | null;
-  horario_sd: string | null;
-  tipo_venta: TipoVenta | null;
-  testigos: boolean | null;
-  observaciones: string | null;
-};
-
-export type CampanaContrato = {
-  fuente: FuenteComp;
-  /** Bitácora: 'archivo · hoja'; Pauta VV: id de vv_campanas; plano: 'plano AAAA-MM'. */
-  origen_ref: string | null;
-  cliente: string | null;
-  campana: string;
-  version: string;
-  vendedor: string | null;
-  administrador: string | null;
-  quantum: string | null;
-  mediamonitor: boolean | null;
-  especificacion: string | null;
-  arte: 'NUEVO' | 'REPITE' | null;
-  inicio: string | null;
-  fin: string | null;
-  es_full: boolean;
-  full_minutos: number | null;
-  /**
-   * PROPUESTA de analista: la base solo la usa si la campaña es nueva o si
-   * su analista también vino de archivo; nunca pisa la asignada en la app.
-   */
-  analista_email: string | null;
-  sitios: SitioContrato[];
-};
-
-/** Periodo del contrato; inicio/fin hacen falta en catorcena (el calendario vive en la base). */
-export type PeriodoBit = { tipo: 'catorcena' | 'mes'; anio: number; numero: number; inicio?: string | null; fin?: string | null };
+export type { FuenteComp, TipoVenta, SitioContrato, CampanaContrato, PeriodoBit, PlanSugerido } from './contratoComp';
+export { llaveContrato } from './contratoComp';
 
 /** Fila de vv_espacios (lo que hace falta para omitir inactivas y EDO MEX y para ver un FULL). */
 export type EspacioVV = { clave: string; activo: boolean; tramo: string | null };
@@ -142,11 +119,13 @@ const diaMes = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 // ------------------------------------------------------------
 // Vigencias separadas del mismo sitio (revisión del 23-oct-2026)
 // ------------------------------------------------------------
-// El contrato admite UN renglón por (campaña, sitio). Si el mismo sitio y
-// versión vienen del 1 al 5 y del 25 al 31, se manda del 1 al 31 y el hueco
-// va en observaciones («SIN AIRE DEL 06/10 AL 24/10»), con aviso, para que
-// el Supervisor ajuste las tomas de esos días. El arreglo de fondo (varias
-// vigencias por sitio en el contrato) queda pendiente en las dos piezas.
+// leerBitacora ya NO junta las vigencias separadas (revisión del
+// 23-oct-2026): manda un renglón por tramo del mismo sitio y la base los
+// agrupa en comp_sitios.tramos (R10), así el plan no cae en el hueco.
+// desdePautaVV y armarAlta todavía los juntan: si el mismo sitio y versión
+// vienen del 1 al 5 y del 25 al 31, se manda del 1 al 31 y el hueco va en
+// observaciones («SIN AIRE DEL 06/10 AL 24/10»), con aviso. Pasarlos a
+// tramos también queda pendiente (el plano de Vía Verde junta por sitio).
 
 type Vig = [string | null, string | null];
 
@@ -241,9 +220,6 @@ export function claveDeSitio(t: unknown, unidad: UnidadComp): ClaveSitio {
   return { clave: l.clave, espacioVV, medio, edoMex: l.edoMex, cambios: l.cambios };
 }
 
-/** ¿Tiene la forma de una clave de inventario (MX_CM_EV_MGP_16_3606…)? */
-export const esClaveInventario = (c: string) => /^(MX|PE)_[A-Z]{2}_[A-Z]{2}_[0-9A-Z_]+$/.test(c);
-
 /**
  * Una celda con varias claves ('856, 857', '856 / 857', '856 y 857') → una
  * por clave. No parte lo que está entre paréntesis ('…_0001 (NORTE, CDMX)'
@@ -289,24 +265,69 @@ export function leerSiNo(v: unknown): boolean | null {
   return null;
 }
 
-/** 'VENTA' / 'BONUS' / 'BONIFICACIÓN' / 'BONO'; lo demás (INTERCAMBIO, CORTESÍA) → null. */
+/** Negociación sin puntuación: 'VENTA.' → 'VENTA', 'VENTA - EXCLUISVA' → 'VENTA EXCLUISVA'. */
+const textoNegociacion = (v: unknown) => normTexto(v).replace(/[^A-Z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * 'VENTA' / 'BONUS' / 'BONIFICACIÓN' / 'BONO'; lo demás (INTERCAMBIO, CORTESÍA) → null.
+ * Se reconoce el PREFIJO sin puntuación (revisión del 23-oct-2026): Biobox
+ * real trae «VENTA.» (39 renglones), «VENTA - EXCLUISVA» (42) y «VENTA
+ * EXCLUSIVA» (5), que quedaban sin VENTA. Lo que sigue (EXCLUSIVA) lo pone
+ * extraNegociacion en observaciones.
+ */
 export function leerTipoVenta(v: unknown): TipoVenta | null {
-  const t = normTexto(v);
-  if (/^VENTAS?$/.test(t)) return 'VENTA';
-  if (/^BON(US|O|IFICACION|IFICADO)S?$/.test(t)) return 'BONUS';
+  const t = textoNegociacion(v);
+  if (/^VENTAS?\b/.test(t)) return 'VENTA';
+  if (/^BON(US|OS?|IFICACION(ES)?|IFICADOS?)\b/.test(t)) return 'BONUS';
   return null;
+}
+
+/** Lo que la negociación dice además de VENTA/BONUS y va a observaciones: «EXCLUSIVA» (también mal escrita: EXCLUISVA). */
+function extraNegociacion(v: unknown, tipo: TipoVenta | null): string | null {
+  if (!tipo) return textoCelda(v);
+  return /\bEXCLU/.test(textoNegociacion(v)) ? 'EXCLUSIVA' : null;
 }
 
 /**
  * ESTATUS de un renglón que NO se comprueba (revisión del 23-oct-2026: se
  * cargaban como pendientes y contaban en la meta). Los de Pauta VV («Por
- * programar», «Programada», «Cerrada») sí entran.
+ * programar», «Programada», «Cerrada») sí entran, y también los de Ecovallas
+ * («SAME PRINT», «NEW PRINT», «REPITE»: dicen si el arte es nuevo).
  */
 const ESTATUS_FUERA = /\bCANCELAD[AO]S?\b|\bCANCELACION\b|\bBAJA\b|\bSUSPENDID[AO]S?\b|\bNO SE COMPRUEBAN?\b|\bDETENID[AO]S?\b/;
 
-// Etiquetas del encabezado (arriba de la tabla): el valor es la celda a su
-// derecha. Ojo con el orden: FECHA INICIO antes que cualquier «INICIO».
-const ETIQUETAS: [keyof Encabezado, RegExp][] = [
+// ------------------------------------------------------------
+// Encabezado de la hoja (arriba de la tabla)
+// ------------------------------------------------------------
+// Bitácoras REALES (Erik, 23-oct-2026; la forma está en el scratchpad,
+// nunca en el repo):
+//   · Biobox: etiquetas en la columna C (o B), valor a la derecha:
+//     CAMPAÑA: · MES · VENDEDOR: · FECHA INICIO: · ADMINISTRADOR: · FECHA FIN:
+//     · CLIENTE: · TIPO DE PAUTA · COMPROBACIÓN: (MENSUAL / CATORCENAL) ·
+//     OBSERVACIONES: (cómo van los testigos) · CONTRATO QUANTUM · FECHA DE ENVIO.
+//   · Ecovallas Digital: CAMPAÑA(:) · CATORCENA: / CAT · número · TESTIGOS y
+//     casillas true/false con el tipo de testigo a su derecha · VENDEDOR: ·
+//     FECHA INICIO: · ADMINISTRADOR: · FECHA FIN: · CLIENTE: · UBICACIÓN: / PLAZA:.
+// Las etiquetas que no se usan (MES, PLAZA…) se reconocen igual: así nunca
+// se toman como el VALOR de otra etiqueta que vino vacía.
+
+type CampoEnc =
+  | 'cliente'
+  | 'campana'
+  | 'vendedor'
+  | 'administrador'
+  | 'inicio'
+  | 'fin'
+  | 'mediamonitor'
+  | 'quantum'
+  | 'especificacion'
+  | 'comprobacion'
+  | 'notas'
+  | 'catorcena';
+const OTRA = '_otra';
+
+// Ojo con el orden: FECHA INICIO antes que cualquier «INICIO».
+const ETIQUETAS: [CampoEnc | typeof OTRA, RegExp][] = [
   ['cliente', /^(NOMBRE DEL )?CLIENTES?$/],
   ['campana', /^(NOMBRE DE LA )?CAMPANAS?$/],
   ['vendedor', /^(VENDEDOR(A|ES)?|EJECUTIVO COMERCIAL)$/],
@@ -314,8 +335,12 @@ const ETIQUETAS: [keyof Encabezado, RegExp][] = [
   ['inicio', /^FECHA (DE )?INICIO$/],
   ['fin', /^FECHA (DE )?(FIN|FINAL|TERMINO)$/],
   ['mediamonitor', /^MEDIA ?MONITOR$/],
-  ['quantum', /^QUANTUM$/],
+  ['quantum', /^(CONTRATO )?QUANTUM$/],
   ['especificacion', /^ESPECIFICACI(ON|ONES)( DE (LAS )?TOMAS)?$/],
+  ['comprobacion', /^COMPROBACI(ON|ONES)$/],
+  ['notas', /^OBSERVACI(ON|ONES)$/],
+  ['catorcena', /^(CATORCENA|CAT)$/],
+  [OTRA, /^(MES(ES)?|TIPO DE PAUTA|FECHA DE ENVIO|PLAZA|UBICACION|TESTIGOS|CONTRATOS?)$/],
 ];
 
 type Encabezado = {
@@ -328,17 +353,32 @@ type Encabezado = {
   mediamonitor: boolean | null;
   quantum: string | null;
   especificacion: string | null;
+  /** Biobox: «COMPROBACIÓN: MENSUAL / CATORCENAL» → plan sugerido. */
+  comprobacion: string | null;
+  /** Biobox: «OBSERVACIONES:» del encabezado (cómo van los testigos). */
+  notas: string | null;
+  /** Ecovallas: «CATORCENA: 21». */
+  catorcena: number | null;
+  /** Ecovallas: las casillas de TESTIGOS marcadas (true), con su texto. */
+  testigos: string[];
 };
 
-const esEtiqueta = (v: unknown) => {
+const esEtiqueta = (v: unknown): CampoEnc | typeof OTRA | null => {
+  if (typeof v === 'boolean' || typeof v === 'number') return null;
   const t = normTexto(v).replace(/\s*:$/, '');
   return ETIQUETAS.find(([, re]) => re.test(t))?.[0] ?? null;
 };
 /** 'CLIENTE: TIENDAS X' → ['cliente', 'TIENDAS X']. */
-const etiquetaPegada = (t: string): [keyof Encabezado, string] | null => {
+const etiquetaPegada = (t: string): [CampoEnc, string] | null => {
   const p = t.match(/^([^:]{3,40}):\s*(.+)$/);
   const k = p ? esEtiqueta(p[1]) : null;
-  return k ? [k, p![2]] : null;
+  return k && k !== OTRA ? [k, p![2]] : null;
+};
+
+const esCasilla = (v: unknown): boolean | null => {
+  if (typeof v === 'boolean') return v;
+  const t = normTexto(v);
+  return /^(TRUE|VERDADERO)$/.test(t) ? true : /^(FALSE|FALSO)$/.test(t) ? false : null;
 };
 
 /**
@@ -347,8 +387,14 @@ const etiquetaPegada = (t: string): [keyof Encabezado, string] | null => {
  * Luis') o en la misma celda ('CLIENTE: TIENDAS X'). `crudos` dice qué
  * etiquetas sí venían (para que un bloque nuevo solo cambie esas).
  */
-function leerEncabezadoHoja(filas: unknown[][], hasta: number): { enc: Encabezado; crudos: Partial<Record<keyof Encabezado, unknown>> } {
-  const crudos: Partial<Record<keyof Encabezado, unknown>> = {};
+function leerEncabezadoHoja(
+  filas: unknown[][],
+  hasta: number,
+  refFecha: string | null = null,
+): { enc: Encabezado; crudos: Partial<Record<CampoEnc, unknown>> } {
+  const crudos: Partial<Record<CampoEnc, unknown>> = {};
+  const testigos: string[] = [];
+  let filaCampana = -1;
   for (let i = 0; i < hasta; i++) {
     const f = filas[i] || [];
     for (let j = 0; j < f.length; j++) {
@@ -357,10 +403,34 @@ function leerEncabezadoHoja(filas: unknown[][], hasta: number): { enc: Encabezad
       const pegada = etiquetaPegada(t);
       if (pegada) {
         if (crudos[pegada[0]] === undefined) crudos[pegada[0]] = pegada[1];
+        if (pegada[0] === 'campana' && filaCampana < 0) filaCampana = i;
         continue;
       }
       const k = esEtiqueta(t);
-      if (!k || crudos[k] !== undefined) continue;
+      if (!k) continue;
+      if (k === OTRA) {
+        // TESTIGOS de Ecovallas: casillas en la columna de al lado (una por
+        // fila) y el tipo de testigo más a la derecha. Las marcadas (true)
+        // son lo que se pide → especificación de la campaña.
+        if (normTexto(t).replace(/\s*:$/, '') === 'TESTIGOS' && esCasilla(f[j + 1]) !== null) {
+          for (let r = i; r < hasta; r++) {
+            const fr = filas[r] || [];
+            const b = esCasilla(fr[j + 1]);
+            if (b === null) break;
+            if (!b) continue;
+            for (let jj = j + 2; jj < fr.length; jj++) {
+              const x = textoCelda(fr[jj]);
+              if (x) {
+                testigos.push(x);
+                break;
+              }
+            }
+          }
+        }
+        continue;
+      }
+      if (k === 'campana' && filaCampana < 0) filaCampana = i;
+      if (crudos[k] !== undefined) continue;
       // El valor: la siguiente celda con algo, si no es otra etiqueta.
       let vecinaEtiqueta = true;
       for (let jj = j + 1; jj < f.length; jj++) {
@@ -379,7 +449,25 @@ function leerEncabezadoHoja(filas: unknown[][], hasta: number): { enc: Encabezad
       if (crudos[k] === undefined) crudos[k] = null;
     }
   }
-  const txt = (k: keyof Encabezado) => textoCelda(crudos[k]);
+  const txt = (k: CampoEnc) => (typeof crudos[k] === 'boolean' ? null : textoCelda(crudos[k]));
+  const numCat = (v: unknown) => {
+    const n = typeof v === 'number' ? v : /^\d{1,2}$/.test(String(v ?? '').trim()) ? Number(String(v).trim()) : NaN;
+    return Number.isInteger(n) && n >= 1 && n <= 27 ? n : null;
+  };
+  let catorcena = numCat(crudos.catorcena);
+  // 'CAMPAÑA: | X | (sin etiqueta) | 21' (Ecovallas): el número suelto de la fila de la campaña.
+  if (catorcena === null && crudos.catorcena === undefined && filaCampana >= 0)
+    for (const v of filas[filaCampana] || []) if (typeof v === 'number' && (catorcena = numCat(v)) !== null) break;
+  // FECHA INICIO / FECHA FIN con leerFechaBitacora (revisión del 23-oct-2026):
+  // con leerFechaCelda un «11 SEP» del encabezado no se leía, los renglones
+  // «11 SEP» quedaban sin año y el sitio entraba con vigencia null (= todo
+  // el periodo en la base). El año sale del otro extremo si es fecha, si no
+  // de refFecha (el periodo o el nombre del archivo).
+  const fechaEnc = (v: unknown, otro: unknown) => {
+    const otroF = leerFechaCelda(otro);
+    const base = otroF ?? refFecha;
+    return leerFechaBitacora(v, base ? { inicio: base, fin: base } : null).fecha;
+  };
   return {
     crudos,
     enc: {
@@ -387,33 +475,68 @@ function leerEncabezadoHoja(filas: unknown[][], hasta: number): { enc: Encabezad
       campana: txt('campana'),
       vendedor: txt('vendedor'),
       administrador: txt('administrador'),
-      inicio: leerFechaCelda(crudos.inicio),
-      fin: leerFechaCelda(crudos.fin),
+      inicio: fechaEnc(crudos.inicio, crudos.fin),
+      fin: fechaEnc(crudos.fin, crudos.inicio),
       mediamonitor: leerSiNo(crudos.mediamonitor),
       quantum: txt('quantum'),
       especificacion: txt('especificacion'),
+      comprobacion: txt('comprobacion'),
+      notas: txt('notas'),
+      catorcena,
+      testigos,
     },
   };
 }
 
-// Columnas de la tabla. Se busca la PRIMERA que cumpla cada patrón; las
-// columnas que no se reconocen se ignoran (UBICACIÓN, TIPO… se leen pero
-// no van a la carga).
+/**
+ * «COMPROBACIÓN» del encabezado de Biobox → plan de tomas SUGERIDO (lectura
+ * de Claude, 23-oct-2026, por confirmar con Erik/Victor):
+ *   · MENSUAL(ES) → «al inicio»: una toma por sitio en el mes, al inicio de
+ *     su vigencia dentro del mes (la ventana ya está recortada al periodo);
+ *   · CATORCENAL(ES) → «cada 14 días»: una por catorcena desde el inicio de
+ *     la vigencia del sitio en el periodo;
+ *   · QUINCENAL → cada 15; SEMANAL → cada 7; DIARIA → diario.
+ * Lo demás → null (sin sugerencia).
+ */
+export function planDeComprobacion(t: unknown): { plan: PlanTomas; lectura: string } | null {
+  const s = normTexto(t);
+  if (!s) return null;
+  if (/MENSUAL/.test(s)) return { plan: { tipo: 'inicio' }, lectura: 'mensual: una toma por sitio en el mes, al inicio de su vigencia dentro del mes' };
+  if (/CATORCENAL/.test(s))
+    return { plan: { tipo: 'cada_n', cada_n: 14 }, lectura: 'catorcenal: una toma por catorcena (cada 14 días desde el inicio de la vigencia del sitio)' };
+  if (/QUINCENAL/.test(s)) return { plan: { tipo: 'cada_n', cada_n: 15 }, lectura: 'quincenal: una toma cada 15 días' };
+  if (/SEMANAL/.test(s)) return { plan: { tipo: 'cada_n', cada_n: 7 }, lectura: 'semanal: una toma cada 7 días' };
+  if (/DIARI/.test(s)) return { plan: { tipo: 'diario' }, lectura: 'diaria: una toma cada día' };
+  return null;
+}
+
+// ------------------------------------------------------------
+// Tabla de pautas
+// ------------------------------------------------------------
+// Columnas por NOMBRE (la primera que cumple cada patrón; las que no se
+// reconocen se ignoran). Variantes de las bitácoras reales (23-oct-2026):
+// «ID BIOBOX», «CLAVE», «NEGOCIACIÓN», «HORAS», «C QTM» / «CONTRATO»,
+// «VERSIÓN 1 | VERSION 2 | VERISÓN 4», «TOMA DE TESTIGOS», «COMENTARIOS»,
+// «HORARIO (3 HORARIOS EN 1 DÍA)», «DIRECCIÓN» en vez de UBICACIÓN.
 const ENC_TABLA: Record<string, RegExp> = {
+  no: /^(NO\.?|N°|NUM(ERO)?|#|\d{1,3})$/,
   sitio: /^(ID|CLAVE|SITIO|ESPACIO|VENDOR FACE ID|FACE ID)( (DE )?(LA |EL )?(COLUMNA|SITIO|PANTALLA|BIOBOX|MAQUINA|ESPACIO|PORTICO|CARA|UBICACION))?$|^(COLUMNAS?|PORTICOS?|PANTALLAS?|BIOBOX|MAQUINAS?)$/,
   tipo: /^TIPO$/,
-  ubicacion: /^UBICACION(ES)?$/,
+  ubicacion: /^(UBICACION(ES)?|DIRECCION)$/,
+  medio: /^MEDIOS?$/,
+  medidas: /^(MEDIDAS?|PIXELES)$/,
   campana: /^CAMPANAS?$/,
-  tipoVenta: /^TIPO \(?VENTA|^VENTA (O|\/) BONUS$|^TIPO DE VENTA$/,
-  version: /^VERSION(ES)?$/,
+  tipoVenta: /^TIPO \(?VENTA|^VENTA (O|\/) BONUS$|^TIPO DE VENTA$|^NEGOCIACI(ON|ONES)$/,
+  version: /^VER(SI|IS)ON(ES)?( ?\d{1,2})?$/,
   inicio: /^(FECHA (DE )?)?INICIO$/,
   fin: /^(FECHA (DE )?)?(FIN|FINAL|TERMINO)$/,
   horarioLV: /^HORARIO (DE )?(L(UNES)? ?(A|-|AL) ?V(IERNES)?|ENTRE SEMANA)$/,
   horarioSD: /^HORARIO (DE )?(S(ABADOS?)? ?(Y|A|-|AL) ?D(OMINGOS?)?|FIN(ES)? DE SEMANA)$/,
-  horario: /^HORARIOS?$/,
-  testigos: /^TESTIGOS?$/,
-  observaciones: /^OBSERVACI(ON|ONES)$/,
+  horario: /^(HORARIOS?|HORAS)( \(.*\))?$/,
+  testigos: /^(TOMA DE )?TESTIGOS?$/,
+  observaciones: /^(OBSERVACI(ON|ONES)|COMENTARIOS?)$/,
   estatus: /^(ESTATUS|STATUS)$/,
+  quantum: /^(C\.? ?QTM|CONTRATO( QUANTUM)?|QUANTUM)$/,
 };
 
 /** La fila de encabezado de la tabla de pautas (o null). */
@@ -421,6 +544,181 @@ const tablaEn = (filas: unknown[][], max: number) =>
   buscarEncabezado(filas, ENC_TABLA, ['sitio', 'version'], max) ||
   buscarEncabezado(filas, ENC_TABLA, ['sitio', 'inicio'], max) ||
   buscarEncabezado(filas, ENC_TABLA, ['sitio', 'horarioLV'], max);
+
+/** ¿Tiene la forma de una clave de inventario (MX_CM_EV_MGP_16_3606, MX_CM_EV_MGV_2-4_3492…)? */
+export const esClaveInventario = (c: string) => /^(MX|PE)_[A-Z]{2}_[A-Z]{2}_[0-9A-Z_-]+$/.test(c);
+
+const claveLimpiaDe = (v: unknown) => {
+  if (typeof v !== 'string') return null;
+  const c = limpiarClave(v).clave;
+  return c && esClaveInventario(c) ? c : null;
+};
+
+/** 'V5', 'V 12', 'V3A': el código corto de versión de Biobox. */
+const VERSION_CORTA = /^V ?\d{1,3}[A-Z]?$/;
+
+/**
+ * Las versiones de una celda. Biobox trae VARIAS en una: 'V5, V6, V7',
+ * 'V1 Y V2' y, con la marca delante, 'COLGATE V16, V17, V18' o 'P&G V14 Y
+ * 15' (→ 'COLGATE V16', 'COLGATE V17'…). Solo se parte una lista de códigos
+ * cortos: un nombre de arte con coma ('ARTISTA, OTRA Y OTRA-1440x405') es
+ * una sola versión.
+ */
+export function partirVersiones(t: string): string[] {
+  // Separadores repetidos o al final («V33,, V34» y «V5, V6,» en la bitácora
+  // real de Biobox, 23-oct-2026) daban una versión falsa con la coma dentro.
+  const s = t
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([,;/&])(?:\s*[,;/&])+\s*/g, '$1 ')
+    .replace(/[\s,;/&]+$/, '')
+    .trim();
+  const m = s.match(/^(.*?)\bV ?(\d{1,3}[A-Z]?)((?:\s*(?:,|;|\/|&|\bY\b)\s*(?:V ?)?\d{1,3}[A-Z]?)+)\s*$/i);
+  if (!m) return [s];
+  const prefijo = m[1].replace(/[\s,;/-]+$/, '').trim();
+  const nums = [m[2], ...m[3].split(/\s*(?:,|;|\/|&|\bY\b)\s*/i).map((x) => x.replace(/^V ?/i, '').trim()).filter(Boolean)];
+  return nums.map((n) => `${prefijo ? prefijo + ' ' : ''}V${n.toUpperCase()}`);
+}
+
+/** Las columnas de versión: todas las VERSIÓN n y las que las siguen sin nombre (o con solo un número). */
+function columnasVersion(fila: unknown[]): number[] {
+  const out: number[] = [];
+  let racha = false;
+  let extra = 0;
+  for (let j = 0; j < fila.length; j++) {
+    const t = normTexto(fila[j]);
+    if (ENC_TABLA.version.test(t)) {
+      out.push(j);
+      racha = true;
+      extra = 0;
+    } else if (racha && (!t || /^\d{1,2}$/.test(t)) && extra < 6) {
+      out.push(j);
+      extra++;
+    } else racha = false;
+  }
+  return out;
+}
+
+// Para deducir una columna sin nombre por lo que trae (bitácora real de
+// Ecovallas: 'CLAVE | | | NEGOCIACIÓN | | INICIO…'; Biobox: hojas sin la
+// fila de encabezado). Una columna es de una clase si al menos el 60% de sus
+// celdas con algo la cumplen.
+const esFechaValor = (v: unknown) =>
+  v instanceof Date ||
+  (typeof v === 'number' && v > 30000 && v < 80000) ||
+  (typeof v === 'string' && /^(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{2}-\d{2})$/.test(v.trim()));
+const CLASES: [string, (v: unknown) => boolean][] = [
+  ['medio', (v) => /^(MEGA ?PANTALLA|MEGA ?VALLA|PANTALLA( SENCILLA)?|VALLA( SENCILLA)?|LUMINA|LANDMARK\b.*|MURO)$/.test(normTexto(v))],
+  ['tipoVenta', (v) => /^(VENTA|BONUS|BONO|BONIFICACION|BONIFICADO|INTERCAMBIO|EXCLUSIVA|CORTESIA)S?\b/.test(textoNegociacion(v))],
+  ['horario', (v) => /^24 ?H|^\d{1,2}(:\d{2})? ?(HRS?|AM|PM)? ?(A|-) ?\d/.test(normTexto(v))],
+  ['fecha', esFechaValor],
+  [
+    'version',
+    (v) => {
+      if (typeof v !== 'string') return false;
+      const t = normTexto(v);
+      if (VERSION_CORTA.test(t) || partirVersiones(t).length > 1) return true;
+      return /\d{3,4} ?[X×] ?\d{3,4}|\.(JPE?G|PNG|MP4)$/.test(t) && /[A-WYZ]{3,}/.test(t.replace(/PX/g, ''));
+    },
+  ],
+  ['testigos', (v) => typeof v === 'string' && /TESTIG|TOMAS?\b/.test(normTexto(v)) && normTexto(v).length > 12],
+  ['no', (v) => /^(\d{1,3}|REU.*)$/.test(normTexto(v))],
+];
+
+type Columnas = { col: Record<string, number>; versiones: number[]; deducidas: string[] };
+
+/**
+ * Completa por contenido las columnas que no traen nombre. `encFila` es la
+ * fila de encabezado (null si la hoja no tiene: se deduce todo). Solo mira
+ * los renglones cuya clave tiene forma de inventario.
+ */
+function deducirColumnas(filas: unknown[][], desde: number, encFila: unknown[] | null, base: Record<string, number>): Columnas {
+  const col = { ...base };
+  const deducidas: string[] = [];
+  const muestra: unknown[][] = [];
+  for (let i = desde; i < filas.length && muestra.length < 40; i++) {
+    const f = filas[i] || [];
+    if (i > desde && tablaEn([f], 1)) break;
+    if (col.sitio !== undefined && claveLimpiaDe(f[col.sitio])) muestra.push(f);
+  }
+  if (!muestra.length) return { col, versiones: encFila ? columnasVersion(encFila) : [], deducidas };
+  const ancho = Math.max(...muestra.map((f) => f.length));
+  const libre = (j: number) => j !== col.sitio && (!encFila || !normTexto(encFila[j])) && !Object.values(col).includes(j);
+  const clase: (string | null)[] = [];
+  for (let j = 0; j < ancho; j++) {
+    clase[j] = null;
+    if (!libre(j)) continue;
+    const vals = muestra.map((f) => f[j]).filter((v) => v !== null && v !== undefined && String(v).trim() !== '' && typeof v !== 'boolean');
+    if (!vals.length) continue;
+    for (const [c, ok] of CLASES) {
+      if (c === 'no' && j > col.sitio!) continue;
+      if (vals.filter(ok).length / vals.length >= 0.6) {
+        clase[j] = c;
+        break;
+      }
+    }
+  }
+  const poner = (campo: string, j: number | undefined) => {
+    if (j === undefined || col[campo] !== undefined) return;
+    col[campo] = j;
+    deducidas.push(campo);
+  };
+  const fechas = clase.map((c, j) => (c === 'fecha' && j > col.sitio! ? j : -1)).filter((j) => j >= 0);
+  if (col.inicio === undefined && col.fin === undefined) {
+    poner('inicio', fechas[0]);
+    poner('fin', fechas[1]);
+  } else if (col.fin === undefined) poner('fin', fechas.find((j) => j > col.inicio!));
+  for (const c of ['medio', 'tipoVenta', 'horario', 'testigos', 'no']) poner(c, clase.findIndex((x) => x === c) >= 0 ? clase.indexOf(c) : undefined);
+  let versiones = encFila ? columnasVersion(encFila) : [];
+  if (!versiones.length) {
+    versiones = clase.map((c, j) => (c === 'version' ? j : -1)).filter((j) => j >= 0);
+    if (versiones.length) {
+      col.version = versiones[0];
+      deducidas.push('version');
+    }
+  }
+  return { col, versiones, deducidas };
+}
+
+/** Columnas a partir de una fila de encabezado encontrada (con lo que falte deducido). */
+function columnasDeEncabezado(filas: unknown[][], fila: number, col: Record<string, number>): Columnas {
+  const c = { ...col };
+  // «No» solo cuenta a la izquierda de la clave (un «2» suelto más a la derecha es una versión).
+  if (c.no !== undefined && c.sitio !== undefined && c.no >= c.sitio) delete c.no;
+  return deducirColumnas(filas, fila + 1, filas[fila] || [], c);
+}
+
+/**
+ * Hoja SIN fila de encabezado de tabla (Biobox real: una hoja trae el
+ * encabezado de la campaña y los renglones, pero no la fila «No | ID BIOBOX
+ * | …»). Solo si arriba hay etiquetas de campaña y abajo claves con forma de
+ * inventario: la columna de la clave es la que más claves trae y lo demás
+ * se deduce por contenido.
+ */
+function inferirTabla(filas: unknown[][]): { fila: number; cols: Columnas } | null {
+  let conCampana = false;
+  for (let i = 0; i < Math.min(filas.length, 15) && !conCampana; i++)
+    conCampana = (filas[i] || []).some((v) => {
+      const t = textoCelda(v);
+      return !!t && (esEtiqueta(t) === 'campana' || etiquetaPegada(t)?.[0] === 'campana');
+    });
+  if (!conCampana) return null;
+  let primera = -1;
+  const votos = new Map<number, number>();
+  for (let i = 0; i < Math.min(filas.length, 400); i++) {
+    const f = filas[i] || [];
+    for (let j = 0; j < f.length; j++)
+      if (claveLimpiaDe(f[j])) {
+        if (primera < 0) primera = i;
+        votos.set(j, (votos.get(j) ?? 0) + 1);
+        break;
+      }
+  }
+  if (primera < 0) return null;
+  const sitio = [...votos].sort((a, b) => b[1] - a[1])[0][0];
+  const cols = deducirColumnas(filas, primera, null, { sitio });
+  if (cols.col.inicio === undefined && !cols.versiones.length) return null;
+  return { fila: primera - 1, cols: { ...cols, deducidas: ['sitio', ...cols.deducidas] } };
+}
 
 // ------------------------------------------------------------
 // Lectura del libro (integración con SheetJS)
@@ -453,6 +751,9 @@ export type UtilsXlsx = {
  * está vacía Excel guarda `!ref` desde B1 y las combinadas caían una columna
  * corridas: revisión del 23-oct-2026), con los valores crudos y el texto
  * formateado. `oculta`: wb.Workbook.Sheets[i].Hidden.
+ * Las bitácoras reales pesan 67-103 MB por las imágenes: la pantalla debe
+ * leer el libro con XLSX.read(datos, { cellStyles: false, cellHTML: false })
+ * (las imágenes no se cargan en las celdas).
  */
 export function hojaDeLibro(utils: UtilsXlsx, ws: Record<string, unknown> | null | undefined, nombre: string, oculta = false): HojaBitacora {
   const ref = ws?.['!ref'];
@@ -511,21 +812,51 @@ function revisarFull(cs: CampanaContrato[], medio: MedioComp, espaciosVV: Espaci
 // leerBitacora
 // ------------------------------------------------------------
 
+/** Un renglón de inventario con su tipo de medio (SELECT vendor_face_id, tipo_medio). */
+export type InventarioBit = { clave: string; tipo_medio?: string | null };
+
 export type CtxBitacora = {
   unidad: UnidadComp;
   medio: MedioComp;
   /** Nombre del archivo, para origen_ref y los avisos. */
   archivo?: string | null;
-  /** Si viene, lo que no toque el periodo se deja fuera (y se avisa). */
+  /**
+   * Si viene, lo que no toque el periodo se deja fuera (y se avisa) y la
+   * vigencia de cada sitio se RECORTA al periodo (Biobox trae campañas de
+   * marzo a diciembre; en la Asignación de octubre va solo octubre).
+   */
   periodo?: { inicio: string; fin: string } | null;
-  /** vendor_face_id de la unidad (para avisar «sin inventario»); sin esto no se revisa. */
-  inventario?: Iterable<string> | null;
+  /** Ecovallas: el número de catorcena que se arma; avisa las hojas de otra catorcena. */
+  catorcena?: number | null;
+  /**
+   * vendor_face_id de la unidad (para avisar «sin inventario»); sin esto no
+   * se revisa. Con tipo_medio, en Ecovallas Digital lo que no es 'Digital'
+   * no entra (con aviso); en Biobox solo se avisa.
+   */
+  inventario?: Iterable<string | InventarioBit> | null;
   /** Vía Verde: vv_espacios (para omitir inactivas y EDO MEX, como la base, y ver un FULL). */
   espaciosVV?: EspacioVV[] | null;
 };
 
 export type DescartadaBit = { hoja: string; fila: number; motivo: string; valor?: string };
 export type ClaveCorregida = { hoja: string; fila: number; original: string; clave: string; cambios: CambioClave[] };
+
+/** Cómo quedó cada hoja del libro (para la previa y para validar contra el Excel). */
+export type ResumenHoja = {
+  nombre: string;
+  estado: 'leida' | 'oculta' | 'sin_tabla' | 'vacia';
+  campana: string | null;
+  cliente: string | null;
+  catorcena: number | null;
+  comprobacion: string | null;
+  /** Ecovallas: casillas de TESTIGOS marcadas. */
+  testigos: string[];
+  /** Columnas que se dedujeron por contenido (sin nombre en el encabezado). */
+  deducidas: string[];
+  /** Renglones que entraron (al menos una versión con un sitio). */
+  renglones: number;
+  descartados: number;
+};
 
 export type ResultadoBitacora = {
   /** p_campanas del contrato: una entrada por campaña-versión, solo del medio de ctx. */
@@ -539,10 +870,25 @@ export type ResultadoBitacora = {
   otroMedio: { medio: MedioComp; sitios: number }[];
   /** Hojas que no se leen: ocultas o sin la tabla de pautas. */
   hojasIgnoradas: string[];
+  /** Cada hoja del libro: leída, oculta, sin tabla o vacía. */
+  hojas: ResumenHoja[];
+  /**
+   * Planes de tomas que propone el encabezado (Biobox «COMPROBACIÓN»), por
+   * llaveContrato (campaña|versión). FUERA del contrato: la pantalla los
+   * aplica con comp_generar_tomas cuando Victor los confirma.
+   */
+  planesSugeridos: Record<string, PlanSugerido>;
 };
 
-type SitioAc = SitioContrato & { _filas: number[]; _vig: Vig[] };
-type Acum = CampanaContrato & { _sitios: Map<string, SitioAc>; _hojas: Set<string> };
+type SitioAc = SitioContrato & { _filas: number[]; _testigosTxt: string | null };
+type Acum = CampanaContrato & {
+  /** Clave → sus renglones, UNO POR TRAMO de vigencia (ver «Tramos» en leerBitacora). */
+  _sitios: Map<string, SitioAc[]>;
+  _hojas: Set<string>;
+  _quantum: Set<string>;
+  _arte: Set<'NUEVO' | 'REPITE'>;
+  _plan: PlanSugerido | null;
+};
 
 /**
  * Junta dos renglones del mismo sitio en la misma versión (VENTA + BONUS,
@@ -560,36 +906,164 @@ function juntarSitio(a: SitioContrato, b: SitioContrato): string[] {
   // Una venta manda sobre el bonus: el sitio se vendió.
   a.tipo_venta = a.tipo_venta === 'VENTA' || b.tipo_venta === 'VENTA' ? 'VENTA' : a.tipo_venta || b.tipo_venta;
   a.testigos = a.testigos || b.testigos ? true : a.testigos === false || b.testigos === false ? false : null;
-  const obs = [...new Set([a.observaciones, b.observaciones].filter((x): x is string => !!x))];
-  a.observaciones = obs.length ? obs.join(' · ') : null;
+  // Por partes y con unir() (revisión del 23-oct-2026): con un Set de textos
+  // enteros salía «REUBICACIÓN · INTERCAMBIO · MONITOREO EXTERNO · INTERCAMBIO · …».
+  a.observaciones = unir([a.observaciones, b.observaciones].flatMap((x) => (x ? x.split(' · ') : [])));
   return avisos;
+}
+
+/** Une textos sin repetir (compara con llaveComp; uno contenido en otro no se repite). */
+function unir(xs: (string | null | undefined)[], sep = ' · '): string | null {
+  const out: string[] = [];
+  for (const x of xs) {
+    const t = x?.replace(/\s+/g, ' ').trim();
+    if (!t) continue;
+    const k = llaveComp(t);
+    if (out.some((o) => llaveComp(o).includes(k))) continue;
+    for (let i = out.length - 1; i >= 0; i--) if (k.includes(llaveComp(out[i]))) out.splice(i, 1);
+    out.push(t);
+  }
+  return out.length ? out.join(sep) : null;
+}
+
+/** ESTATUS de Ecovallas → arte: NEW PRINT es arte nuevo; SAME PRINT / REPITE, el mismo. */
+const arteDeEstatus = (t: string | null): 'NUEVO' | 'REPITE' | null => {
+  const s = normTexto(t);
+  // «SAME PRNT» (7 renglones de la bitácora real, 23-oct-2026) es SAME PRINT.
+  if (/^NEW PRI?NT$|^NUEVO$/.test(s)) return 'NUEVO';
+  if (/^SAME PRI?NT$|^REPITE$/.test(s)) return 'REPITE';
+  return null;
+};
+
+/**
+ * Ecovallas Digital: lo IMPRESO no entra. Manda el tipo_medio del
+ * inventario si se pasó; si no, la columna MEDIO (MEGAVALLA, VALLA SENCILLA,
+ * ECOVALLA) y, sin MEDIO, el código de la clave (MGV, EVA). En la bitácora
+ * real una hoja dice MEGAPANTALLA con claves EVA (que el inventario tiene
+ * como Impreso): por eso el inventario va primero.
+ */
+function impresoEco(medioTxt: string | null, clave: string, tipoMedio: string | undefined): string | null {
+  if (tipoMedio) return normTexto(tipoMedio) === 'DIGITAL' ? null : `impreso según inventario (${tipoMedio})`;
+  const m = normTexto(medioTxt);
+  if (m) return /VALLA/.test(m) ? `impreso (${medioTxt})` : null;
+  const cod = clave.match(/^MX_[A-Z]{2}_EV_(MGV|EVA)_/)?.[1];
+  return cod ? `impreso (${cod})` : null;
+}
+
+/**
+ * Junta los tramos del mismo sitio que se tocan o se enciman Y traen
+ * exactamente lo mismo (horarios, venta, testigos, observaciones). Solo
+ * compacta: la base y ventanasToma ya juntan las ventanas que se tocan, así
+ * que el plan no cambia, pero un programmatic diario de Mercado Libre
+ * mandaba 63 renglones para 8 pantallas (bitácora real, 23-oct-2026). Lo
+ * que trae otra cosa (REUBICACIÓN, otro horario) se queda en su tramo.
+ */
+function compactarTramos(lista: SitioAc[]): SitioAc[] {
+  if (lista.length < 2 || lista.some((s) => !s.inicio || !s.fin)) return lista;
+  const igual = (a: SitioAc, b: SitioAc) =>
+    a.horario_lv === b.horario_lv &&
+    a.horario_sd === b.horario_sd &&
+    a.tipo_venta === b.tipo_venta &&
+    a.testigos === b.testigos &&
+    a.observaciones === b.observaciones &&
+    a._testigosTxt === b._testigosTxt;
+  const xs = [...lista].sort((a, b) => (a.inicio! < b.inicio! ? -1 : a.inicio! > b.inicio! ? 1 : 0));
+  const out: SitioAc[] = [];
+  for (const s of xs) {
+    const prev = out.find((p) => igual(p, s) && s.inicio! <= sumarDia(p.fin!, 1) && s.fin! >= sumarDia(p.inicio!, -1));
+    if (!prev) out.push(s);
+    else {
+      if (s.fin! > prev.fin!) prev.fin = s.fin;
+      prev._filas.push(...s._filas);
+    }
+  }
+  // Vuelve al orden en que llegaron (el primero manda en la base: horario y sitio_original).
+  return lista.filter((s) => out.includes(s));
+}
+
+/** Códigos de contrato Quantum de un texto ('C560270 - C560270-R1 -- C560270-R2' → {C560270}). */
+const contratosDe = (q: string | null | undefined) => new Set(normTexto(q).match(/\bC\d{5,}\b/g) ?? []);
+
+const MESES_NOMBRE = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+
+/**
+ * Fecha de referencia sacada del nombre del archivo ('BITACORA BIOBOX
+ * OCTUBRE 2026.xlsx' → '2026-10-01'), para el año de un «11 SEP» cuando no
+ * hay periodo. Sin mes, julio: así el año no se corre (ver leerFechaBitacora).
+ */
+export function fechaDeArchivo(nombre: string | null | undefined): string | null {
+  const t = normTexto(nombre);
+  const a = t.match(/(?:^|\D)(20\d\d)(?:\D|$)/);
+  if (!a) return null;
+  const m = MESES_NOMBRE.findIndex((x) => t.includes(x));
+  return `${a[1]}-${dos(m >= 0 ? m + 1 : 7)}-01`;
 }
 
 /**
  * Lee un libro BITACORA (una hoja por campaña) y devuelve el p_campanas de
  * comp_cargar_campanas: una entrada por campaña-VERSIÓN con sus sitios, más
- * los avisos para la previa. Reglas:
- *   · La tabla se busca por nombre (ID…/VERSION/INICIO/FIN/HORARIO…); las
- *     filas de arriba son el encabezado de la campaña. Si a media hoja
- *     viene OTRO bloque (sus etiquetas CLIENTE/CAMPAÑA… y/o la fila de
- *     encabezado repetida), se lee como bloque nuevo: nunca como pauta.
- *   · Campaña: la columna CAMPAÑA del renglón; si viene vacía, la del
- *     encabezado; si tampoco, el nombre de la hoja (con aviso). Si la misma
- *     campaña viene con OTRO cliente (otra hoja), se carga aparte como
- *     «CAMPAÑA · CLIENTE» (si no, la base las fundiría en una).
- *   · Versión vacía → '' (una sola versión).
+ * los avisos para la previa. Sirve para la exportación de Pauta VV y para
+ * las bitácoras REALES de Biobox y Ecovallas Digital (23-oct-2026). Reglas:
+ *   · La tabla se busca por nombre (ID…/CLAVE/VERSION/INICIO/FIN/HORARIO…);
+ *     las filas de arriba son el encabezado de la campaña. Una columna sin
+ *     nombre se deduce por lo que trae (medio, fechas, versiones…) y una
+ *     hoja sin la fila de encabezado de la tabla también (con aviso). Si a
+ *     media hoja viene OTRO bloque (sus etiquetas y/o la fila de encabezado
+ *     repetida), se lee como bloque nuevo: nunca como pauta.
+ *   · Una hoja que no trae tabla con claves (LISTADO DE PANTALLAS, LISTA,
+ *     EXCLUSIVAS…) se salta con aviso; las ocultas también.
+ *   · Campaña: la del ENCABEZADO de la hoja (hoja = campaña); si no trae, la
+ *     columna CAMPAÑA del renglón; si tampoco, el nombre de la hoja (con
+ *     aviso). La misma campaña con OTRO cliente va aparte como «CAMPAÑA ·
+ *     CLIENTE»; con el mismo cliente, dos hojas se juntan, SALVO que sean
+ *     otro contrato (revisión del 23-oct-2026): si el CONTRATO QUANTUM del
+ *     encabezado no comparte ningún código con el de la primera hoja, o si
+ *     la columna CAMPAÑA de los renglones dice otro nombre (Biobox «BOSQUE
+ *     REAL» y «BOSQUE REAL DESIGNO», las dos con CAMPAÑA: BOSQUE REAL) y no
+ *     es el mismo contrato, la segunda va aparte con el nombre de la columna
+ *     o «CAMPAÑA · hoja». En Biobox las versiones son V1, V2…: juntarlas
+ *     mezclaba los artes de dos contratos. Ecovallas no trae el quantum en el
+ *     encabezado (va por renglón) y su hoja bonus se sigue juntando.
+ *   · Versiones: Biobox trae varias en una celda ('V5, V6, V7') y Ecovallas
+ *     varias columnas VERSIÓN 1..N con la medida pegada (versionSinMedida):
+ *     el sitio entra en CADA versión. Versión vacía → '' (una sola versión).
+ *   · NEGOCIACIÓN: VENTA / BONUS (BONIFICACIÓN), también «VENTA.» o «VENTA -
+ *     EXCLUSIVA» (la EXCLUSIVA va a observaciones); INTERCAMBIO, EXCLUSIVA o
+ *     CORTESÍA solas van a observaciones. «REU» en la columna No → «REUBICACIÓN».
+ *   · Vigencia por sitio (INICIO/FIN), RECORTADA al periodo si se pasa; '-'
+ *     en las dos es «sin vigencia» (no entra, con aviso por hoja); FIN antes
+ *     de INICIO no entra (con aviso por hoja); un texto '10/13/2026' (mes
+ *     primero) se lee mes/día con aviso, y entonces TODA la hoja lee sus
+ *     fechas ambiguas mes/día. Si las fechas del renglón no se leen y la
+ *     campaña tampoco tiene, el renglón no entra («sin vigencia legible»):
+ *     con null la base le daría todo el periodo.
+ *   · Horario: Biobox y Ecovallas son 24 horas (Erik, 23-oct-2026): sin
+ *     columna o vacío → '24 HRS'. Vía Verde sí va por franjas (L-V y S-D).
+ *     Las campañas programáticas de Biobox y Ecovallas que SÍ traen franjas
+ *     se guardan tal cual y se avisan (no son 24 horas).
  *   · ESTATUS cancelada / baja / suspendida → no se carga (descartadas).
  *   · Clave de sitio: limpia (claveDeSitio); una celda con varias claves se
- *     parte. Vía Verde: '856' → MX_CM_VV_COL_856; lo que no es columna ni
- *     pórtico se descarta; EDO MEX (de baja) y, si se pasa vv_espacios, las
- *     inactivas se omiten con aviso, como lo hace la base.
+ *     parte. Biobox y Ecovallas: lo que no tiene forma de clave de
+ *     inventario no entra ('PENDIENTE DE REUBICACIÓN'). Ecovallas: lo impreso
+ *     (MEGAVALLA, valla; o tipo_medio del inventario ≠ Digital) no entra,
+ *     con aviso; las MX_EM_EV_ (Edo. Méx.) SÍ entran. Vía Verde: '856' →
+ *     MX_CM_VV_COL_856; EDO MEX (de baja) y las inactivas se omiten.
  *   · ID 'TODAS' (FULL de Vía Verde): la versión queda es_full, sin ese
  *     renglón como sitio; full_minutos sale del horario si dura menos de 24 h.
- *   · Un sitio repetido en la misma versión se junta (juntarSitio); si sus
- *     vigencias están separadas, el hueco va en observaciones.
- *   · Vigencia de la versión: de la primera a la última fecha de sus
- *     renglones; si algún renglón no trae fecha, la del encabezado.
- *   · La misma campaña-versión en dos hojas (mismo cliente) se junta con aviso.
+ *   · Tramos (revisión del 23-oct-2026): un sitio repetido en la misma
+ *     versión se junta (juntarSitio) SOLO si trae la misma vigencia (VENTA y
+ *     BONUS el mismo día). Con otra vigencia va como OTRO renglón del mismo
+ *     sitio: comp_cargar_campanas los agrupa por (campaña, sitio) y guarda
+ *     sus tramos (comp_sitios.tramos, R10), y el plan de tomas solo cae
+ *     dentro de ellos. Antes se mandaba un solo renglón del primer al último
+ *     día con «SIN AIRE…» en observaciones y las tomas caían en el hueco.
+ *     Las observaciones (REUBICACIÓN…) quedan en el tramo que las trae.
+ *   · Especificación: ESPECIFICACIONES DE TOMAS, OBSERVACIONES del
+ *     encabezado (Biobox), las casillas de TESTIGOS marcadas (Ecovallas) y
+ *     la columna TESTIGOS si es la misma en todos los sitios (si no, va en
+ *     las observaciones de cada sitio).
+ *   · Quantum: el del encabezado o los C QTM / CONTRATO de los renglones.
+ *     Arte: NEW PRINT → NUEVO, SAME PRINT / REPITE → REPITE, si todos dicen lo mismo.
  * No se descarta en silencio nada que traiga datos: va a `descartadas`.
  */
 export function leerBitacora(libro: { hojas: HojaBitacora[] }, ctx: CtxBitacora): ResultadoBitacora {
@@ -597,110 +1071,283 @@ export function leerBitacora(libro: { hojas: HojaBitacora[] }, ctx: CtxBitacora)
   const descartadas: DescartadaBit[] = [];
   const clavesCorregidas: ClaveCorregida[] = [];
   const hojasIgnoradas: string[] = [];
+  const hojas: ResumenHoja[] = [];
   const ocultas: string[] = [];
   const sinTabla: string[] = [];
   const otro = new Map<MedioComp, Set<string>>();
-  const inventario = ctx.inventario ? new Set([...ctx.inventario].map((c) => String(c).trim().toUpperCase())) : null;
+  let inventario: Set<string> | null = null;
+  const tipoMedioInv = new Map<string, string>();
+  if (ctx.inventario) {
+    inventario = new Set();
+    for (const x of ctx.inventario) {
+      const c = String(typeof x === 'string' ? x : x?.clave ?? '').trim().toUpperCase();
+      if (!c) continue;
+      inventario.add(c);
+      if (typeof x !== 'string' && x?.tipo_medio) tipoMedioInv.set(c, String(x.tipo_medio));
+    }
+  }
   const espacios = ctx.espaciosVV ? new Map(ctx.espaciosVV.map((e) => [String(e.clave).trim().toUpperCase(), e])) : null;
   const sinInv = new Map<string, { clave: string; hoja: string; filas: number[] }>();
   const edoMex = new Set<string>();
   const inactivas = new Set<string>();
   const porLlave = new Map<string, Acum>();
   const orden: Acum[] = [];
-  /** Llave → nombre de cada campaña-versión vista, entre o no (para avisar las que se pierden). */
-  const vistas = new Map<string, string>();
+  /** Llave → campaña-versión vista, entre o no (para avisar las que se pierden). */
+  const vistas = new Map<string, { nombre: string; campana: string; version: string }>();
   const deOtroMedio = new Set<string>();
+  /** Campañas-versión que traían sitios impresos (Ecovallas): si quedan vacías ya se avisó por qué. */
+  const deImpresos = new Set<string>();
   /** Llave de la campaña → llave del cliente con que llegó primero. */
   const duenos = new Map<string, string>();
   const renombradas = new Set<string>();
+  /** Llave de la campaña → la hoja que la trajo primero, con su contrato (para no juntar dos contratos). */
+  const hojaDueno = new Map<string, { hoja: string; contratos: Set<string>; nombreFilas: string | null }>();
+  /** `hoja|llave de la campaña` → nombre con que se carga en esa hoja. */
+  const nombreEnHoja = new Map<string, string>();
+  /** `hoja|motivo` → filas descartadas por la vigencia (FIN antes de INICIO, «-», ilegible). */
+  const sinVigencia = new Map<string, { hoja: string; motivo: string; filas: number[] }>();
+  /** Campañas de Biobox/Ecovallas con horario por franjas o por día (no son 24 horas). */
+  const conFranjas = new Set<string>();
   const porEstatus: string[] = [];
+  const impresos = new Map<string, Set<string>>();
+  const impresosBiobox = new Set<string>();
+  const mesDia = new Set<string>();
+  const distintos = new Map<string, { sitios: Set<string>; ej: string }>();
+  const fechasMal = new Map<string, { hoja: string; lado: string; texto: string; filas: number[] }>();
+  /** Campaña → sus sitios en tramos separados (un aviso por campaña, informativo). */
+  const huecos = new Map<string, { sitios: Map<string, string>; versiones: Set<string> }>();
+  const deducidasAviso: string[] = [];
+  const otraCatorcena: string[] = [];
   let fueraDePeriodo = 0;
+  let recortados = 0;
+  let sin24 = 0;
   const VV = ctx.unidad === 'Vía Verde';
+  const per = ctx.periodo ?? null;
+  /** Para el año de una fecha en texto sin año («11 SEP») cuando el encabezado no trae. */
+  const refFecha = per?.inicio ?? fechaDeArchivo(ctx.archivo);
 
   for (const h of libro.hojas) {
-    if (h.oculta) {
-      hojasIgnoradas.push(h.nombre);
-      if (tablaEn(h.filas || [], 60)) ocultas.push(h.nombre);
-      continue;
-    }
+    const res: ResumenHoja = {
+      nombre: h.nombre,
+      estado: 'leida',
+      campana: null,
+      cliente: null,
+      catorcena: null,
+      comprobacion: null,
+      testigos: [],
+      deducidas: [],
+      renglones: 0,
+      descartados: 0,
+    };
+    hojas.push(res);
+    const descartar = (d: DescartadaBit) => {
+      descartadas.push(d);
+      res.descartados++;
+    };
     const origen = h.origen ?? { r: 0, c: 0 };
-    const filas = rellenarCombinadas(h.filas || [], h.merges, origen);
-    const textos = h.textos ? rellenarCombinadas(h.textos, h.merges, origen) : null;
-    const enc = tablaEn(filas, 60);
-    if (!enc) {
-      if (filas.some((f) => (f || []).some((v) => textoCelda(v)))) {
-        hojasIgnoradas.push(h.nombre);
-        sinTabla.push(h.nombre);
+    if (h.oculta) {
+      res.estado = 'oculta';
+      hojasIgnoradas.push(h.nombre);
+      // Solo se avisan las ocultas que tocan el periodo (revisión del
+      // 23-oct-2026): en CAT 21 de Ecovallas el aviso listaba ocho hojas de
+      // catorcenas viejas (CAT 9, 10, 14…) y tapaba los avisos de verdad.
+      const fo = rellenarCombinadas(h.filas || [], h.merges, origen);
+      const eo = tablaEn(fo, 60);
+      if (eo) {
+        const co = leerEncabezadoHoja(fo, eo.fila, refFecha).enc;
+        const fueraPorFecha = !!per && !!(co.inicio || co.fin) && !tocan(co.inicio, co.fin, per.inicio, per.fin);
+        const fueraPorCat = !co.inicio && !co.fin && !!ctx.catorcena && !!co.catorcena && co.catorcena !== ctx.catorcena;
+        if (!fueraPorFecha && !fueraPorCat) ocultas.push(h.nombre);
       }
       continue;
     }
-    let col = enc.col;
-    let cab = leerEncabezadoHoja(filas, enc.fila).enc;
+    const filas = rellenarCombinadas(h.filas || [], h.merges, origen);
+    const textos = h.textos ? rellenarCombinadas(h.textos, h.merges, origen) : null;
+    let cols: Columnas;
+    let filaEnc: number;
+    const enc = tablaEn(filas, 60);
+    if (enc) {
+      filaEnc = enc.fila;
+      cols = columnasDeEncabezado(filas, enc.fila, enc.col);
+    } else {
+      const inf = inferirTabla(filas);
+      if (!inf) {
+        if (filas.some((f) => (f || []).some((v) => textoCelda(v)))) {
+          res.estado = 'sin_tabla';
+          hojasIgnoradas.push(h.nombre);
+          sinTabla.push(h.nombre);
+        } else res.estado = 'vacia';
+        continue;
+      }
+      filaEnc = inf.fila;
+      cols = inf.cols;
+    }
+    let col = cols.col;
+    let versionesCol = cols.versiones;
+    const notarDeducidas = (c: Columnas) => {
+      for (const d of c.deducidas) if (!res.deducidas.includes(d)) res.deducidas.push(d);
+    };
+    notarDeducidas(cols);
+    // El encabezado de la campaña son las filas ANTES de la tabla (sin la
+    // fila de encabezado: sus «CAMPAÑA», «TESTIGOS»… son nombres de columna).
+    let cab = leerEncabezadoHoja(filas, enc ? filaEnc : filaEnc + 1, refFecha).enc;
+    res.campana = cab.campana;
+    res.cliente = cab.cliente;
+    res.catorcena = cab.catorcena;
+    res.comprobacion = cab.comprobacion;
+    res.testigos = cab.testigos;
+    if (ctx.catorcena && cab.catorcena && cab.catorcena !== ctx.catorcena) otraCatorcena.push(`${h.nombre} (${cab.catorcena})`);
     const cel = (f: unknown[], k: string) => (col[k] === undefined ? null : f[col[k]]);
     /** Texto como se ve en Excel (si se pasó `textos`); si no, el crudo. */
-    const visto = (i: number, f: unknown[], k: string) =>
-      (textos && col[k] !== undefined ? textoCelda(textos[i]?.[col[k]]) : null) ?? textoCelda(cel(f, k));
+    const vistoJ = (i: number, f: unknown[], j: number | undefined) =>
+      j === undefined ? null : (textos ? textoCelda(textos[i]?.[j]) : null) ?? (typeof f[j] === 'boolean' ? null : textoCelda(f[j]));
+    const visto = (i: number, f: unknown[], k: string) => vistoJ(i, f, col[k]);
     const ref = ctx.archivo ? `${ctx.archivo} · ${h.nombre}` : h.nombre;
     const avisoFechasCab = () => {
       if (cab.inicio && cab.fin && cab.fin < cab.inicio) avisos.push(`Hoja «${h.nombre}»: FECHA FIN antes de FECHA INICIO en el encabezado.`);
     };
     avisoFechasCab();
     let campanaDeHoja = false;
+    // Pasada previa por la tabla (revisión del 23-oct-2026):
+    //  · mesPrimero: si alguna fecha de la hoja SOLO cuadra como mes/día
+    //    ('10/13/2026'), toda la hoja escribe el mes primero y las ambiguas
+    //    ('11/12/2026') también se leen mes/día;
+    //  · nombreFilas: el nombre que trae la columna CAMPAÑA si es el mismo en
+    //    todos los renglones con clave (para separar dos contratos que
+    //    comparten la CAMPAÑA del encabezado, ver separarPorContrato).
+    let mesPrimero = false;
+    let nombreFilas: string | null = null;
+    {
+      const nombres = new Map<string, string>();
+      for (let i = filaEnc + 1; i < filas.length; i++) {
+        const f = filas[i] || [];
+        if (!mesPrimero && (esSoloMesDia(cel(f, 'inicio')) || esSoloMesDia(cel(f, 'fin')))) mesPrimero = true;
+        if (col.campana === undefined || !textoCelda(cel(f, 'sitio')) || (!VV && !claveLimpiaDe(cel(f, 'sitio')))) continue;
+        const t = visto(i, f, 'campana');
+        if (t && !nombres.has(llaveComp(t))) nombres.set(llaveComp(t), t);
+      }
+      if (nombres.size === 1) nombreFilas = [...nombres.values()][0];
+    }
+    /**
+     * Dos hojas con la misma CAMPAÑA y el mismo cliente se juntan, salvo que
+     * sean OTRO contrato (revisión del 23-oct-2026; ver la regla en la
+     * documentación de leerBitacora). Se decide una vez por hoja y campaña.
+     * La hoja «dueña» de un nombre es la primera con un renglón que ENTRA
+     * (reclamarNombre): una hoja vieja, toda fuera del periodo, no le quita
+     * el nombre a la que sí se carga.
+     */
+    const separarPorContrato = (nombre: string): string => {
+      const lc = llaveComp(nombre);
+      const memo = nombreEnHoja.get(`${h.nombre}|${lc}`);
+      if (memo !== undefined) return memo;
+      let final = nombre;
+      const contratos = contratosDe(cab.quantum);
+      const d = hojaDueno.get(lc);
+      if (!d) return nombre;
+      if (d.hoja !== h.nombre) {
+        const ambos = contratos.size > 0 && d.contratos.size > 0;
+        const mismoContrato = ambos && [...contratos].some((x) => d.contratos.has(x));
+        const otroContrato = ambos && !mismoContrato;
+        const otroNombre =
+          !mismoContrato && !!nombreFilas && llaveComp(nombreFilas) !== lc && llaveComp(nombreFilas) !== llaveComp(d.nombreFilas ?? nombre)
+            ? nombreFilas
+            : null;
+        if (otroContrato || otroNombre) {
+          final = otroNombre ?? `${nombre} · ${h.nombre.trim()}`;
+          const ocupado = hojaDueno.get(llaveComp(final));
+          if (ocupado && ocupado.hoja !== h.nombre) final = `${nombre} · ${h.nombre.trim()}`;
+          const porque = otroContrato
+            ? `otro contrato (${[...contratos].join(', ')}; en «${d.hoja}»: ${[...d.contratos].join(', ')})`
+            : `otro nombre en la columna CAMPAÑA («${nombreFilas}»)`;
+          avisos.push(`«${nombre}» viene también en la hoja «${h.nombre}» con ${porque}: no se junta con «${d.hoja}» y se carga aparte como «${final}».`);
+        }
+      }
+      nombreEnHoja.set(`${h.nombre}|${lc}`, final);
+      return final;
+    };
+    const reclamarNombre = (nombre: string) => {
+      if (!hojaDueno.has(llaveComp(nombre))) hojaDueno.set(llaveComp(nombre), { hoja: h.nombre, contratos: contratosDe(cab.quantum), nombreFilas });
+    };
 
-    for (let i = enc.fila + 1; i < filas.length; i++) {
+    for (let i = filaEnc + 1; i < filas.length; i++) {
       const f = filas[i] || [];
       const fila = i + 1 + origen.r;
       // Otro bloque en la misma hoja (revisión del 23-oct-2026): la fila de
       // encabezado repetida se volvía la campaña «CAMPAÑA / VERSION» con el
-      // sitio «IDCOLUMNA».
+      // sitio «IDCOLUMNA». Biobox real repite la fila por semana o por mes.
       const otraTabla = tablaEn([f], 1);
       if (otraTabla) {
-        col = otraTabla.col;
+        const c2 = columnasDeEncabezado(filas, i, otraTabla.col);
+        col = c2.col;
+        versionesCol = c2.versiones;
+        notarDeducidas(c2);
         continue;
       }
       // Etiquetas del bloque nuevo (CLIENTE, CAMPAÑA, FECHA INICIO…) a la
       // izquierda de la clave: cambian el encabezado de lo que sigue.
       const hastaSitio = col.sitio ?? 0;
       if (f.slice(0, hastaSitio + 1).some((v) => {
-        const t = textoCelda(v);
+        const t = typeof v === 'string' ? textoCelda(v) : null;
         return !!t && (!!esEtiqueta(t) || !!etiquetaPegada(t));
       })) {
-        const { enc: e2, crudos } = leerEncabezadoHoja([f], 1);
+        const { enc: e2, crudos } = leerEncabezadoHoja([f], 1, cab.inicio ?? cab.fin ?? refFecha);
         cab = { ...cab };
-        for (const k of Object.keys(crudos) as (keyof Encabezado)[]) (cab as Record<string, unknown>)[k] = e2[k];
+        for (const k of Object.keys(crudos) as CampoEnc[]) (cab as Record<string, unknown>)[k] = e2[k];
         avisoFechasCab();
         continue;
       }
       const sitioTxt = textoCelda(cel(f, 'sitio'));
-      const versionTxt = visto(i, f, 'version');
-      const iniTxt = cel(f, 'inicio');
-      const finTxt = cel(f, 'fin');
-      const conDatos = [versionTxt, textoCelda(iniTxt), textoCelda(finTxt), textoCelda(cel(f, 'horarioLV')), textoCelda(cel(f, 'horario'))].some(Boolean);
+      // Versiones del renglón: todas las columnas de versión, cada celda
+      // partida ('V5, V6, V7') y, fuera de Vía Verde, sin la medida pegada.
+      const versiones: string[] = [];
+      {
+        const vistos = new Set<string>();
+        const cols = versionesCol.length ? versionesCol : col.version !== undefined ? [col.version] : [];
+        for (const j of cols) {
+          const t = vistoJ(i, f, j);
+          if (!t) continue;
+          for (const p of partirVersiones(t)) {
+            const v = VV ? p : versionSinMedida(p);
+            const k = llaveComp(v);
+            if (!k || vistos.has(k)) continue;
+            vistos.add(k);
+            versiones.push(v);
+          }
+        }
+      }
+      // Sin fechas en el encabezado, el año de un «11 SEP» sale del periodo
+      // (o del nombre del archivo).
+      const rango = cab.inicio || cab.fin ? { inicio: cab.inicio, fin: cab.fin } : per ?? (refFecha ? { inicio: refFecha, fin: refFecha } : null);
+      const fi = leerFechaBitacora(cel(f, 'inicio'), rango, { mesPrimero });
+      const ff = leerFechaBitacora(cel(f, 'fin'), rango, { mesPrimero });
+      const conDatos = [versiones.length > 0, fi.fecha || fi.ilegible, ff.fecha || ff.ilegible, textoCelda(cel(f, 'horarioLV')), textoCelda(cel(f, 'horario'))].some(Boolean);
       if (!sitioTxt) {
-        if (conDatos) descartadas.push({ hoja: h.nombre, fila, motivo: 'sin clave de sitio' });
+        if (conDatos) descartar({ hoja: h.nombre, fila, motivo: 'sin clave de sitio' });
         continue;
       }
-      // Pies y notas al final de la tabla ('TOTAL 12', 'NOTA: …'): sin versión ni fechas no son pautas.
-      if (/^(TOTAL(ES)?|NOTAS?)\b/.test(normTexto(sitioTxt)) && !conDatos) continue;
+      // Pies y notas al final de la tabla ('TOTAL 12', 'NOTA: …', 'CROQUIS …'): sin versión ni fechas no son pautas.
+      if (!conDatos && (/^(TOTAL(ES)?|NOTAS?)\b/.test(normTexto(sitioTxt)) || (!VV && !claveLimpiaDe(sitioTxt)))) continue;
       const estatus = textoCelda(cel(f, 'estatus'));
       if (estatus && ESTATUS_FUERA.test(normTexto(estatus))) {
-        descartadas.push({ hoja: h.nombre, fila, motivo: `estatus «${estatus}»`, valor: sitioTxt });
+        descartar({ hoja: h.nombre, fila, motivo: `estatus «${estatus}»`, valor: sitioTxt });
         porEstatus.push(`${sitioTxt} (${estatus})`);
         continue;
       }
 
-      let campana = visto(i, f, 'campana') || cab.campana;
+      let campana = cab.campana || visto(i, f, 'campana');
       if (!campana) {
         campana = h.nombre.trim();
         campanaDeHoja = true;
       }
       // La misma campaña con otro cliente: aparte, con el cliente en el nombre.
+      // 'PERNOD RICARD' y 'Pernod Ricard México, S.A. de C.V.' son el mismo
+      // (bitácora real, 23-oct-2026): uno empieza con el otro.
       {
         const lc = llaveComp(campana);
         const cl = llaveComp(cab.cliente);
         const d = duenos.get(lc);
         if (d === undefined || (!d && cl)) duenos.set(lc, cl);
-        else if (d && cl && d !== cl) {
+        else if (d && cl && !d.startsWith(cl) && !cl.startsWith(d)) {
           const nuevo = `${campana} · ${cab.cliente}`;
           if (!renombradas.has(nuevo)) {
             renombradas.add(nuevo);
@@ -709,13 +1356,50 @@ export function leerBitacora(libro: { hojas: HojaBitacora[] }, ctx: CtxBitacora)
           campana = nuevo;
         }
       }
-      const version = versionTxt || '';
-      const inicio = leerFechaCelda(iniTxt);
-      const fin = leerFechaCelda(finTxt);
-      if (textoCelda(iniTxt) && !inicio) avisos.push(`Hoja «${h.nombre}» fila ${fila}: INICIO «${textoCelda(iniTxt)}» no es fecha; se toma la de la campaña.`);
-      if (textoCelda(finTxt) && !fin) avisos.push(`Hoja «${h.nombre}» fila ${fila}: FIN «${textoCelda(finTxt)}» no es fecha; se toma la de la campaña.`);
+      campana = separarPorContrato(campana);
+      if (!versiones.length) versiones.push('');
+      const llaves = versiones.map((v) => llaveContrato({ campana, version: v }));
+      /** Las que quedan sin sitios se avisan; las que solo traían renglones de otro periodo, no. */
+      const verVistas = () =>
+        versiones.forEach((v, n) => {
+          if (!vistas.has(llaves[n])) vistas.set(llaves[n], { nombre: `${campana}${v ? ' / ' + v : ''}`, campana: campana!, version: v });
+        });
+      /** Descartes por la vigencia: van a `descartadas` y a un aviso por hoja (antes solo a `descartadas`). */
+      const sinVig = (motivo: string, valor: string) => {
+        descartar({ hoja: h.nombre, fila, motivo, valor });
+        const g = sinVigencia.get(`${h.nombre}|${motivo}`) ?? { hoja: h.nombre, motivo, filas: [] };
+        g.filas.push(fila);
+        sinVigencia.set(`${h.nombre}|${motivo}`, g);
+      };
+
+      if (fi.guion && ff.guion) {
+        verVistas();
+        sinVig('sin vigencia (INICIO y FIN «-»)', sitioTxt);
+        continue;
+      }
+      let inicio = fi.fecha;
+      let fin = ff.fecha;
+      if (fi.mesDia || ff.mesDia) mesDia.add(h.nombre);
+      // Fechas que no se leen y la campaña tampoco tiene (revisión del
+      // 23-oct-2026): con null la base le daba TODO el periodo a un renglón
+      // que podía ser de otro mes. No entra.
+      if ((fi.ilegible || ff.ilegible) && !(inicio ?? cab.inicio) && !(fin ?? cab.fin)) {
+        verVistas();
+        sinVig('sin vigencia legible (ni el renglón ni la campaña)', `${textoCelda(cel(f, 'inicio')) ?? '?'} → ${textoCelda(cel(f, 'fin')) ?? '?'}`);
+        continue;
+      }
+      // Agrupado por hoja y texto: la bitácora real trae 58 renglones con
+      // «13/10/0206» en una sola hoja (23-oct-2026).
+      for (const [lado, fx, k] of [['INICIO', fi, 'inicio'], ['FIN', ff, 'fin']] as const) {
+        if (!fx.ilegible) continue;
+        const kk = `${h.nombre}|${lado}|${textoCelda(cel(f, k))}`;
+        const g = fechasMal.get(kk) ?? { hoja: h.nombre, lado, texto: textoCelda(cel(f, k)) ?? '', filas: [] };
+        g.filas.push(fila);
+        fechasMal.set(kk, g);
+      }
       if (inicio && fin && fin < inicio) {
-        descartadas.push({ hoja: h.nombre, fila, motivo: 'FIN antes de INICIO', valor: `${inicio} → ${fin}` });
+        verVistas();
+        sinVig('FIN antes de INICIO', `${inicio} → ${fin}`);
         continue;
       }
       // Horario: texto tal cual. Una hora de Excel (0.2916 o un Date de
@@ -737,110 +1421,179 @@ export function leerBitacora(libro: { hojas: HojaBitacora[] }, ctx: CtxBitacora)
         return t;
       };
       const hUnico = col.horario !== undefined ? leerHz('horario') : null;
-      const horarioLV = (col.horarioLV !== undefined ? leerHz('horarioLV') : null) ?? hUnico;
-      const horarioSD = (col.horarioSD !== undefined ? leerHz('horarioSD') : null) ?? hUnico;
+      let horarioLV = (col.horarioLV !== undefined ? leerHz('horarioLV') : null) ?? hUnico;
+      let horarioSD = (col.horarioSD !== undefined ? leerHz('horarioSD') : null) ?? hUnico;
+      // Biobox y Ecovallas no van por franjas: todo es 24 horas (Erik, 23-oct-2026).
+      if (!VV && !horarioLV && !horarioSD) {
+        horarioLV = horarioSD = '24 HRS';
+        sin24++;
+      }
       const tvTxt = textoCelda(cel(f, 'tipoVenta'));
       const tipoVenta = leerTipoVenta(tvTxt);
       const obsTxt = textoCelda(cel(f, 'observaciones'));
-      const observaciones = [tvTxt && !tipoVenta ? tvTxt : null, obsTxt].filter(Boolean).join(' · ') || null;
-
-      if (ctx.periodo && !tocan(inicio ?? cab.inicio, fin ?? cab.fin, ctx.periodo.inicio, ctx.periodo.fin)) {
-        fueraDePeriodo++;
-        descartadas.push({ hoja: h.nombre, fila, motivo: 'fuera del periodo', valor: `${inicio ?? cab.inicio ?? '?'} → ${fin ?? cab.fin ?? '?'}` });
-        continue;
+      const reu = col.no !== undefined && /^REU/.test(normTexto(cel(f, 'no')));
+      const observaciones = unir([reu ? 'REUBICACIÓN' : null, extraNegociacion(tvTxt, tipoVenta), obsTxt]);
+      // TESTIGOS: SI/NO, o (Biobox) la instrucción de cómo van los testigos.
+      const testigosCel = cel(f, 'testigos');
+      let testigos = leerSiNo(testigosCel);
+      let testigosTxt: string | null = null;
+      if (testigos === null && typeof testigosCel === 'string' && textoCelda(testigosCel)) {
+        testigosTxt = textoCelda(testigosCel);
+        testigos = !/^NO\b/.test(normTexto(testigosTxt));
       }
 
-      const llave = `${llaveComp(campana)}|${llaveComp(version)}`;
-      const nombreCV = `${campana}${version ? ' / ' + version : ''}`;
-      if (!vistas.has(llave)) vistas.set(llave, nombreCV);
+      if (per && !tocan(inicio ?? cab.inicio, fin ?? cab.fin, per.inicio, per.fin)) {
+        fueraDePeriodo++;
+        descartar({ hoja: h.nombre, fila, motivo: 'fuera del periodo', valor: `${inicio ?? cab.inicio ?? '?'} → ${fin ?? cab.fin ?? '?'}` });
+        continue;
+      }
+      verVistas();
+      reclamarNombre(campana);
+      // Programáticas de Biobox/Ecovallas con franjas (revisión del
+      // 23-oct-2026): no son 24 horas; se guardan tal cual y se avisan.
+      if (!VV && [horarioLV, horarioSD].some((x) => x && !['24h', 'sin'].includes(leerHorario(x).tipo))) conFranjas.add(campana);
+      // La vigencia de cada sitio, recortada al periodo (la base también lo
+      // hace al generar tomas; así la Asignación y los avisos ya cuadran).
+      if (per) {
+        let r = false;
+        if (inicio && inicio < per.inicio) [inicio, r] = [per.inicio, true];
+        if (fin && fin > per.fin) [fin, r] = [per.fin, true];
+        if (r) recortados++;
+      }
+      const recorta = (x: string | null, lado: 'i' | 'f') => (!x || !per ? x : lado === 'i' ? (x < per.inicio ? per.inicio : x) : x > per.fin ? per.fin : x);
+      const cabIni = recorta(cab.inicio, 'i');
+      const cabFin = recorta(cab.fin, 'f');
+      const quantumFila = textoCelda(cel(f, 'quantum'));
+      const arte = arteDeEstatus(estatus);
+      const medioTxt = textoCelda(cel(f, 'medio'));
+
       // La campaña-versión se crea con su PRIMER sitio aceptado: una versión
       // que solo trae sitios del otro medio (o descartados) no entra vacía.
       // La vigencia de la versión es la de sus renglones aceptados (la del
       // encabezado si el renglón no trae).
-      const nuevaAcum = (): Acum => ({
-        fuente: 'bitacora',
-        origen_ref: ref,
-        cliente: cab.cliente,
-        campana: campana!,
-        version,
-        vendedor: cab.vendedor,
-        administrador: cab.administrador,
-        quantum: cab.quantum,
-        mediamonitor: cab.mediamonitor,
-        especificacion: cab.especificacion,
-        arte: null,
-        inicio: null,
-        fin: null,
-        es_full: /^FULL\b/.test(normTexto(campana)),
-        full_minutos: null,
-        analista_email: null,
-        sitios: [],
-        _sitios: new Map(),
-        _hojas: new Set([h.nombre]),
-      });
-      const obtener = (): Acum => {
+      const sugerido = cab.comprobacion ? planDeComprobacion(cab.comprobacion) : null;
+      const obtener = (llave: string, version: string): Acum => {
         let c = porLlave.get(llave);
+        const nombreCV = `${campana}${version ? ' / ' + version : ''}`;
         if (!c) {
-          c = nuevaAcum();
+          c = {
+            fuente: 'bitacora',
+            origen_ref: ref,
+            cliente: cab.cliente,
+            campana: campana!,
+            version,
+            vendedor: cab.vendedor,
+            administrador: cab.administrador,
+            quantum: cab.quantum,
+            mediamonitor: cab.mediamonitor,
+            especificacion: unir([
+              cab.especificacion,
+              cab.notas,
+              cab.testigos.length ? `TESTIGOS: ${cab.testigos.join(' / ')}` : null,
+            ]),
+            arte: null,
+            inicio: null,
+            fin: null,
+            es_full: /^FULL\b/.test(normTexto(campana)),
+            full_minutos: null,
+            analista_email: null,
+            sitios: [],
+            _sitios: new Map(),
+            _hojas: new Set([h.nombre]),
+            _quantum: new Set(),
+            _arte: new Set(),
+            _plan: sugerido
+              ? { plan: sugerido.plan, comprobacion: cab.comprobacion!, lectura: sugerido.lectura, hojas: [h.nombre], porConfirmar: true }
+              : null,
+          };
           porLlave.set(llave, c);
           orden.push(c);
         } else if (!c._hojas.has(h.nombre)) {
           if (c._hojas.size === 1) avisos.push(`«${nombreCV}» viene en más de una hoja (${[...c._hojas][0]}, ${h.nombre}): se juntan sus sitios.`);
           c._hojas.add(h.nombre);
+          if (sugerido && !c._plan)
+            c._plan = { plan: sugerido.plan, comprobacion: cab.comprobacion!, lectura: sugerido.lectura, hojas: [h.nombre], porConfirmar: true };
+          else if (sugerido && c._plan && JSON.stringify(c._plan.plan) !== JSON.stringify(sugerido.plan))
+            avisos.push(`«${nombreCV}»: la hoja «${h.nombre}» pide comprobación «${cab.comprobacion}» y otra hoja «${c._plan.comprobacion}»; se sugiere la primera.`);
+          else if (c._plan && !c._plan.hojas.includes(h.nombre)) c._plan.hojas.push(h.nombre);
         }
-        c.inicio = minF([c.inicio, inicio ?? cab.inicio]);
-        c.fin = maxF([c.fin, fin ?? cab.fin]);
+        c.inicio = minF([c.inicio, inicio ?? cabIni]);
+        c.fin = maxF([c.fin, fin ?? cabFin]);
+        if (quantumFila) c._quantum.add(quantumFila);
+        if (arte) c._arte.add(arte);
         return c;
       };
 
       // FULL «TODAS»: todas las columnas; las agrega quien lleva la campaña.
       // En Vía Verde el FULL es de columnas (así viene en el formato GENERAL).
       if (llaveComp(sitioTxt) === 'TODAS') {
-        if (VV && ctx.medio !== 'Columna') {
-          // Es de la otra llamada (Columna): no es una campaña «perdida».
-          deOtroMedio.add(llave);
-          if (!otro.has('Columna')) otro.set('Columna', new Set());
-          otro.get('Columna')!.add(`TODAS|${llave}`);
-          continue;
-        }
-        const c = obtener();
-        c.es_full = true;
-        const min = leerHorario(horarioLV ?? horarioSD).minutos;
-        if (min && min < 1440) c.full_minutos = Math.max(c.full_minutos ?? 0, min);
+        versiones.forEach((version, n) => {
+          const llave = llaves[n];
+          if (VV && ctx.medio !== 'Columna') {
+            // Es de la otra llamada (Columna): no es una campaña «perdida».
+            deOtroMedio.add(llave);
+            if (!otro.has('Columna')) otro.set('Columna', new Set());
+            otro.get('Columna')!.add(`TODAS|${llave}`);
+            return;
+          }
+          const c = obtener(llave, version);
+          c.es_full = true;
+          const min = leerHorario(horarioLV ?? horarioSD).minutos;
+          if (min && min < 1440) c.full_minutos = Math.max(c.full_minutos ?? 0, min);
+        });
+        res.renglones++;
         continue;
       }
 
+      let entro = false;
       const partes = partirClaves(sitioTxt);
       for (const parte of partes) {
         // Una sola clave: al limpiador va la celda cruda (los espacios de más se avisan).
         const k = claveDeSitio(partes.length === 1 ? cel(f, 'sitio') : parte, ctx.unidad);
         if (!k.clave) {
-          descartadas.push({ hoja: h.nombre, fila, motivo: VV ? 'clave de Vía Verde ilegible (ni columna ni pórtico)' : 'clave de sitio ilegible', valor: parte });
+          descartar({ hoja: h.nombre, fila, motivo: VV ? 'clave de Vía Verde ilegible (ni columna ni pórtico)' : 'clave de sitio ilegible', valor: parte });
           continue;
         }
+        // La omisión de EDO MEX es SOLO de Vía Verde (MX_EM_VV_). En
+        // Ecovallas las MX_EM_EV_ son pantallas activas y entran.
         if (VV && k.edoMex) {
           edoMex.add(k.espacioVV || k.clave);
-          descartadas.push({ hoja: h.nombre, fila, motivo: 'EDO MEX (de baja)', valor: parte });
+          descartar({ hoja: h.nombre, fila, motivo: 'EDO MEX (de baja)', valor: parte });
           continue;
         }
         if (VV && espacios && k.espacioVV) {
           const e = espacios.get(k.espacioVV.toUpperCase());
           if (e && (!e.activo || /^EDO MEX/i.test(e.tramo || ''))) {
             (e.activo ? edoMex : inactivas).add(k.espacioVV);
-            descartadas.push({ hoja: h.nombre, fila, motivo: e.activo ? 'EDO MEX (de baja)' : 'espacio inactivo en vv_espacios', valor: parte });
+            descartar({ hoja: h.nombre, fila, motivo: e.activo ? 'EDO MEX (de baja)' : 'espacio inactivo en vv_espacios', valor: parte });
             continue;
           }
         }
-        if (!esClaveInventario(k.clave) && !version && !inicio && !fin) {
-          descartadas.push({ hoja: h.nombre, fila, motivo: 'no parece un sitio (sin versión ni fechas)', valor: parte });
-          continue;
+        if (!esClaveInventario(k.clave)) {
+          // Biobox y Ecovallas: 'PENDIENTE DE REUBICACIÓN' o una dirección no es un sitio.
+          if (!VV || (!versiones.some(Boolean) && !inicio && !fin)) {
+            descartar({ hoja: h.nombre, fila, motivo: VV ? 'no parece un sitio (sin versión ni fechas)' : 'no es una clave de inventario', valor: parte });
+            continue;
+          }
         }
         if (k.medio && k.medio !== ctx.medio) {
           if (!otro.has(k.medio)) otro.set(k.medio, new Set());
           otro.get(k.medio)!.add(k.clave);
-          deOtroMedio.add(llave);
+          for (const l of llaves) deOtroMedio.add(l);
           continue;
         }
+        // Ecovallas Digital: lo impreso (MEGAVALLA, valla) no se comprueba aquí.
+        const tm = tipoMedioInv.get(k.clave);
+        const impreso = ctx.unidad === 'Ecovallas' ? impresoEco(medioTxt, k.clave, tm) : null;
+        if (impreso) {
+          descartar({ hoja: h.nombre, fila, motivo: impreso, valor: parte });
+          for (const l of llaves) deImpresos.add(l);
+          const etq = normTexto(medioTxt) || k.clave.split('_')[3] || 'IMPRESO';
+          if (!impresos.has(etq)) impresos.set(etq, new Set());
+          impresos.get(etq)!.add(k.clave);
+          continue;
+        }
+        if (ctx.unidad === 'Biobox' && tm && normTexto(tm) !== 'DIGITAL') impresosBiobox.add(k.clave);
         if (k.cambios.length || (k.clave !== parte && !VV))
           clavesCorregidas.push({ hoja: h.nombre, fila, original: parte, clave: k.clave, cambios: k.cambios });
         if (!esClaveInventario(k.clave))
@@ -848,67 +1601,162 @@ export function leerBitacora(libro: { hojas: HojaBitacora[] }, ctx: CtxBitacora)
         // Misma regla que la base: solo el inventario dice «sin inventario».
         if (inventario && !inventario.has(k.clave)) {
           const s = sinInv.get(k.clave) || { clave: k.clave, hoja: h.nombre, filas: [] };
-          s.filas.push(fila);
+          if (!s.filas.includes(fila)) s.filas.push(fila);
           sinInv.set(k.clave, s);
         }
-        const nuevo: SitioAc = {
-          sitio_clave: k.clave,
-          sitio_original: parte,
-          espacio_vv: k.espacioVV,
-          inicio,
-          fin,
-          horario_lv: horarioLV,
-          horario_sd: horarioSD,
-          tipo_venta: tipoVenta,
-          testigos: leerSiNo(cel(f, 'testigos')),
-          observaciones,
-          _filas: [fila],
-          _vig: [[inicio, fin]],
-        };
-        const c = obtener();
-        const previo = c._sitios.get(k.clave);
-        if (!previo) c._sitios.set(k.clave, nuevo);
-        else {
-          previo._filas.push(fila);
-          previo._vig.push([inicio, fin]);
-          for (const a of juntarSitio(previo, nuevo))
-            avisos.push(`«${nombreCV}», sitio ${k.clave} (filas ${previo._filas.join(', ')}): ${a}.`);
-        }
+        versiones.forEach((version, n) => {
+          const nuevo: SitioAc = {
+            sitio_clave: k.clave!,
+            sitio_original: parte,
+            espacio_vv: k.espacioVV,
+            inicio,
+            fin,
+            horario_lv: horarioLV,
+            horario_sd: horarioSD,
+            tipo_venta: tipoVenta,
+            testigos,
+            observaciones,
+            _filas: [fila],
+            _testigosTxt: testigosTxt,
+          };
+          const c = obtener(llaves[n], version);
+          // Tramos: solo se junta con el renglón de la MISMA vigencia; con
+          // otra vigencia va como otro tramo del mismo sitio (la base guarda
+          // comp_sitios.tramos y el plan no cae en el hueco).
+          const lista = c._sitios.get(k.clave!) ?? [];
+          if (!lista.length) c._sitios.set(k.clave!, lista);
+          const previo = lista.find((s) => s.inicio === inicio && s.fin === fin);
+          if (!previo) lista.push(nuevo);
+          else {
+            previo._filas.push(fila);
+            previo._testigosTxt = unir([previo._testigosTxt, testigosTxt]);
+            const nombreCV = `${campana}${version ? ' / ' + version : ''}`;
+            for (const a of juntarSitio(previo, nuevo)) {
+              // Agrupado por campaña-versión: un programmatic con 3 horarios
+              // por día daba cientos de avisos iguales (bitácora real).
+              const g = distintos.get(nombreCV) ?? { sitios: new Set<string>(), ej: a };
+              g.sitios.add(k.clave!);
+              distintos.set(nombreCV, g);
+            }
+          }
+        });
+        entro = true;
       }
+      if (entro) res.renglones++;
     }
     if (campanaDeHoja) avisos.push(`Hoja «${h.nombre}»: sin nombre de campaña; se usa el nombre de la hoja.`);
+    const importan = res.deducidas.filter((d) => d !== 'medio');
+    if (importan.length) deducidasAviso.push(`${h.nombre} (${importan.join(', ')})`);
   }
 
-  const campanas: CampanaContrato[] = orden.map(({ _sitios, _hojas, ...c }) => ({
-    ...c,
-    sitios: [..._sitios.values()].map(({ _filas, _vig, ...s }) => {
-      const a = anotarHuecos(s, _vig);
-      if (a) avisos.push(`«${c.campana}${c.version ? ' / ' + c.version : ''}», sitio ${s.sitio_clave} (filas ${_filas.join(', ')}): ${a}.`);
-      return s;
-    }),
-  }));
+  const planesSugeridos: Record<string, PlanSugerido> = {};
+  const campanas: CampanaContrato[] = orden.map(({ _sitios, _hojas, _quantum, _arte, _plan, ...c }) => {
+    for (const [clave, lista] of _sitios) _sitios.set(clave, compactarTramos(lista));
+    // Un renglón por tramo: el mismo sitio puede venir varias veces (la base los agrupa).
+    const sitios = [..._sitios.values()].flat();
+    // TESTIGOS de la tabla: si todos los sitios dicen lo mismo, es de la
+    // campaña (especificación); si no, va en las observaciones de cada sitio.
+    const txts = new Set(sitios.map((s) => llaveComp(s._testigosTxt)).filter(Boolean));
+    const especificacion = txts.size === 1 ? unir([c.especificacion, sitios.find((s) => s._testigosTxt)!._testigosTxt]) : c.especificacion;
+    if (_plan) planesSugeridos[llaveContrato(c)] = _plan;
+    const nombreCV = `${c.campana}${c.version ? ' / ' + c.version : ''}`;
+    for (const [clave, lista] of _sitios) {
+      if (lista.length < 2) continue;
+      // La base guarda UN horario por sitio (el del primer tramo): si los
+      // tramos traen otro, se avisa (Mercado Libre programmatic por semana).
+      for (const [lado, campo] of [['L-V', 'horario_lv'], ['S-D', 'horario_sd']] as const) {
+        const hs = [...new Map(lista.filter((s) => s[campo]).map((s) => [llaveComp(s[campo]), s[campo]!])).values()];
+        if (hs.length < 2) continue;
+        const g = distintos.get(nombreCV) ?? { sitios: new Set<string>(), ej: `horario ${lado} distinto por tramo («${hs[1]}»): la base guarda «${hs[0]}»` };
+        g.sitios.add(clave);
+        distintos.set(nombreCV, g);
+      }
+      // Aviso informativo: los tramos separados ya no se juntan.
+      const h = huecosVigencia(lista.map((s) => [s.inicio, s.fin] as Vig));
+      if (!h.length) continue;
+      const g = huecos.get(c.campana) ?? { sitios: new Map<string, string>(), versiones: new Set<string>() };
+      if (!g.sitios.has(clave)) g.sitios.set(clave, notaHuecos(h));
+      if (c.version) g.versiones.add(c.version);
+      huecos.set(c.campana, g);
+    }
+    return {
+      ...c,
+      especificacion,
+      quantum: c.quantum ?? (_quantum.size ? [..._quantum].join(' -- ') : null),
+      arte: _arte.size === 1 ? [..._arte][0] : null,
+      sitios: sitios.map(({ _filas, _testigosTxt, ...s }) => {
+        if (txts.size > 1 && _testigosTxt) s.observaciones = unir([s.observaciones, _testigosTxt]);
+        return s;
+      }),
+    };
+  });
+  for (const [campana, g] of huecos) {
+    const vs = [...g.versiones];
+    const quien = vs.length > 1 ? ` (${vs.length} versiones: ${vs.slice(0, 4).join(', ')}${vs.length > 4 ? '…' : ''})` : vs.length ? ` / ${vs[0]}` : '';
+    const ej = [...g.sitios].slice(0, 4).map(([s, n]) => `${s} ${n}`).join('; ');
+    avisos.push(
+      `«${campana}»${quien}: ${g.sitios.size} sitio(s) corren en tramos separados (${ej}${g.sitios.size > 4 ? '…' : ''}): van por tramo y las tomas solo caen dentro de cada tramo.`,
+    );
+  }
+  for (const [n, g] of distintos)
+    avisos.push(`«${n}»: ${g.sitios.size} sitio(s) vienen en varios renglones con datos distintos (${g.ej}); revisa sus tomas.`);
   if (VV) revisarFull(campanas, ctx.medio, ctx.espaciosVV, avisos);
   for (const c of campanas)
     if (c.es_full && !c.sitios.length)
       avisos.push(`«${c.campana}${c.version ? ' / ' + c.version : ''}» es FULL sin sitios: las columnas se agregan en la app.`);
   if (porEstatus.length)
     avisos.push(`${porEstatus.length} renglón(es) con ESTATUS de cancelación, baja o suspensión: no se cargan (${porEstatus.slice(0, 8).join(', ')}${porEstatus.length > 8 ? '…' : ''}).`);
-  const perdidas = [...vistas].filter(([l]) => !porLlave.has(l) && !deOtroMedio.has(l)).map(([, n]) => n);
-  if (perdidas.length) avisos.push(`${perdidas.length} campaña(s)-versión quedaron sin sitios válidos y no se cargan: ${perdidas.join(', ')}.`);
+  // La versión '' de una campaña que SÍ entró con otra versión no se perdió:
+  // es un renglón sin versión ni clave («PENDIENTE DE REUBICACIÓN») que ya
+  // fue a descartadas (revisión del 23-oct-2026, aviso falso en FOOD & WINE OCT).
+  const cargadas = new Set(orden.map((c) => llaveComp(c.campana)));
+  const perdidas = [...vistas]
+    .filter(([l, v]) => !porLlave.has(l) && !deOtroMedio.has(l) && !deImpresos.has(l) && !(!llaveComp(v.version) && cargadas.has(llaveComp(v.campana))))
+    .map(([, v]) => v.nombre);
+  if (perdidas.length) avisos.push(`${perdidas.length} campaña(s)-versión quedaron sin sitios válidos y no se cargan: ${perdidas.slice(0, 12).join(', ')}${perdidas.length > 12 ? '…' : ''}.`);
   if (edoMex.size) avisos.push(`${edoMex.size} sitio(s) de EDO MEX omitidos (de baja): ${[...edoMex].join(', ')}.`);
   if (inactivas.size) avisos.push(`${inactivas.size} espacio(s) inactivos omitidos: ${[...inactivas].join(', ')}.`);
   if (fueraDePeriodo) avisos.push(`${fueraDePeriodo} renglón(es) fuera del periodo: no se cargan.`);
+  if (recortados) avisos.push(`${recortados} renglón(es) con vigencia más larga que el periodo: se recorta al periodo.`);
+  if (sin24) avisos.push(`${sin24} renglón(es) sin horario: van como 24 HRS (Biobox y Ecovallas son 24 horas).`);
+  if (conFranjas.size)
+    avisos.push(
+      `${conFranjas.size} campaña(s) traen horario por franjas o por día (no son 24 horas; se guarda tal cual y la toma debe caer en ese horario): ${[...conFranjas].slice(0, 8).join(', ')}${conFranjas.size > 8 ? '…' : ''}.`,
+    );
+  for (const g of sinVigencia.values())
+    avisos.push(`Hoja «${g.hoja}» ${g.filas.length > 1 ? 'filas' : 'fila'} ${g.filas.slice(0, 8).join(', ')}${g.filas.length > 8 ? '…' : ''}: ${g.motivo}; no se cargan.`);
+  for (const g of fechasMal.values())
+    avisos.push(`Hoja «${g.hoja}» ${g.filas.length > 1 ? 'filas' : 'fila'} ${g.filas.slice(0, 6).join(', ')}${g.filas.length > 6 ? '…' : ''}: ${g.lado} «${g.texto}» no es fecha; se toma la de la campaña.`);
+  if (mesDia.size) avisos.push(`Fechas escritas con el mes primero (10/13/2026) en: ${[...mesDia].join(', ')}; se leyeron mes/día, revísalas.`);
+  for (const [medio, cs] of impresos)
+    avisos.push(`${cs.size} sitio(s) ${medio} son impresos y no entran a Ecovallas Digital: ${[...cs].slice(0, 8).join(', ')}${cs.size > 8 ? '…' : ''}.`);
+  if (impresosBiobox.size) avisos.push(`${impresosBiobox.size} máquina(s) son Impreso en el inventario (entran; revisa): ${[...impresosBiobox].join(', ')}.`);
   const otroMedio = [...otro].map(([medio, s]) => ({ medio, sitios: s.size }));
   for (const o of otroMedio) avisos.push(`${o.sitios} sitio(s) son de ${o.medio}: se cargan aparte, eligiendo ese medio.`);
   const sinInventario = [...sinInv.values()];
   if (sinInventario.length)
     avisos.push(`${sinInventario.length} clave(s) no están en el inventario (entran, marcadas para revisar): ${sinInventario.map((s) => s.clave).join(', ')}.`);
   if (clavesCorregidas.length) avisos.push(`${clavesCorregidas.length} clave(s) se limpiaron (espacios, ceros, texto pegado).`);
+  if (deducidasAviso.length) avisos.push(`Columnas sin nombre deducidas por su contenido: ${deducidasAviso.join('; ')}. Revisa la previa.`);
+  if (otraCatorcena.length) avisos.push(`Hojas de OTRA catorcena (se leen; el periodo decide qué entra): ${otraCatorcena.join(', ')}.`);
   if (ocultas.length) avisos.push(`Hojas OCULTAS con tabla de pautas (no se leen; si van, muéstralas en Excel y vuelve a subir el libro): ${ocultas.join(', ')}.`);
-  if (sinTabla.length) avisos.push(`Hojas sin tabla de bitácora (no se leen): ${sinTabla.join(', ')}.`);
+  if (sinTabla.length) avisos.push(`Hojas que no son campaña, sin tabla de bitácora (no se leen): ${sinTabla.join(', ')}.`);
+  const nPlanes = Object.keys(planesSugeridos).length;
+  if (nPlanes)
+    avisos.push(`${nPlanes} campaña(s)-versión traen COMPROBACIÓN en el encabezado: se sugiere su plan de tomas (por confirmar).`);
   if (!campanas.length && !otroMedio.length) avisos.push('El libro no trae campañas: revisa que sea la bitácora (tabla ID / VERSION / INICIO / FIN / HORARIO).');
   // Sin repetir (el mismo aviso de L-V y de S-D, por ejemplo).
-  return { campanas, avisos: [...new Set(avisos)], descartadas, clavesCorregidas, sinInventario, otroMedio, hojasIgnoradas };
+  return {
+    campanas,
+    avisos: [...new Set(avisos)],
+    descartadas,
+    clavesCorregidas,
+    sinInventario,
+    otroMedio,
+    hojasIgnoradas,
+    hojas,
+    planesSugeridos,
+  };
 }
 
 // ------------------------------------------------------------

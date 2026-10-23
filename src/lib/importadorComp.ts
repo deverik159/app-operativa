@@ -18,6 +18,8 @@
 //   · leerHorario: '24 HRS', '7 a 9 am / 18 a 20 hrs', '02:00 - 09:59HRS'…;
 //     horaExcel: una hora tecleada como hora de Excel (0.2916 → '07:00');
 //   · leerObservacion: ventana, fecha límite y banderas de un texto libre;
+//   · leerFechaBitacora: lo mismo más '10/13/2026' (mes primero), '17 SEP'
+//     y '-' (sin fecha) de las bitácoras reales (23-oct-2026);
 //   · versionSinMedida, separarEntrega, rellenarCombinadas.
 //
 // ES PURA: sin React ni Supabase. Recibe lo que da
@@ -30,7 +32,7 @@
 import { aFecha } from './ocupacionVV';
 import { llaveComp } from './comprobaciones';
 
-export type CambioClave = 'espacios' | 'ceros' | 'texto_pegado' | 'alias_portico';
+export type CambioClave = 'espacios' | 'ceros' | 'texto_pegado' | 'alias_portico' | 'prefijo';
 export type TipoHorario = '24h' | 'franjas' | 'programmatic' | 'por_fecha' | 'sin';
 export type Merge = { s: { r: number; c: number }; e: { r: number; c: number } };
 
@@ -139,9 +141,12 @@ const esForma = (s: string) => FORMA_CLAVE.test(s) || FORMA_PORTICO.test(s);
  *   · 'POR_0008' / 'POR_00015' → 'MX_CM_VV_POR_0008' / '…_0015';
  *   · ceros de más o de menos: el número final va a 4 dígitos (3 en las
  *     columnas de Vía Verde: COL_448). Las de EDO MEX (A04) no son números.
- * `edoMex` marca las ^MX_EM_ (EDO MEX). En Vía Verde está de baja y
- * el lector de la bitácora las omite: la crítica del 22-oct encontró MX_EM_VV_COL_A04,
- * que ni existe en vv_espacios y se habría colado como «sin inventario».
+ * `edoMex` marca las ^MX_EM_ (EDO MEX). Es SOLO un dato: la omisión es
+ * únicamente de Vía Verde (MX_EM_VV_, de baja; la crítica del 22-oct
+ * encontró MX_EM_VV_COL_A04, que ni existe en vv_espacios) y la hace el
+ * lector de la bitácora solo con unidad 'Vía Verde'. En Ecovallas las
+ * MX_EM_EV_ (Edo. Méx.) son pantallas Digital activas y SÍ entran (Erik,
+ * 23-oct-2026); en Biobox las MX_EM_BB_ también.
  * Clave vacía o sin letras ni números → null: la fila se descarta, nunca
  * se vuelve una toma «TODAS».
  */
@@ -166,6 +171,11 @@ export function limpiarClave(t: unknown): { clave: string | null; cambios: Cambi
     if (!cambios.includes('texto_pegado')) cambios.push('texto_pegado');
   } else if (/\s/.test(s)) cambios.push('espacios');
   if (!/[A-Z0-9]/.test(c)) return nada;
+  // 'X_CM_BB_MED_0049': se comió la «M» de MX (bitácora real de Biobox, 23-oct-2026).
+  if (/^X_[A-Z]{2}_[A-Z]{2}_/.test(c)) {
+    c = 'M' + c;
+    cambios.push('prefijo');
+  }
   const por = c.match(/^POR_?(\d+)$/);
   if (por) {
     c = `MX_CM_VV_POR_${por[1]}`;
@@ -183,21 +193,129 @@ export function limpiarClave(t: unknown): { clave: string | null; cambios: Cambi
 }
 
 /**
- * Versión de Ecovallas sin la medida ni la extensión: el formato trae un
+ * Versión de Ecovallas sin la medida ni la extensión. En la bitácora real
+ * (CAT 21, 23-oct-2026) la medida viene pegada al nombre del arte de mil
+ * formas: 'SMARTFIT_15 ANIV-1440x405', 'INFORME - 1440 X 405-01.jpg',
+ * 'GLOWUP 1440x405 V2.jpg', '…-1440×405', '…-1440X405PX_Sucursal'. La misma
+ * versión en pantallas de medidas distintas es UNA versión.: el formato trae un
  * renglón por medida de pantalla ('…(3ULTIMAS) 1440x405.jpg', '…1152X324.jpg')
  * y es la misma versión. El texto original se guarda en la toma.
  */
 export function versionSinMedida(nombre: unknown): string {
   const original = String(nombre ?? '').replace(/\s+/g, ' ').trim();
   const s = original
-    .replace(/\.(jpe?g|png|gif|mp4|mov|avi|webm)$/i, '')
-    .replace(/[ _-]*\d{3,4}\s*[xX×]\s*\d{3,4}(?:\s*px)?/g, '')
+    // '[.,]': la bitácora real trae «…-C,png» (coma por punto, 23-oct-2026)
+    // y daba una versión distinta de la misma pieza.
+    .replace(/[.,](jpe?g|png|gif|mp4|mov|avi|webm|psd|psb|pdf|tiff?)$/i, '')
+    // 'PX' también en mayúsculas: '…-1440X405PX_Altavista' (bitácora real
+    // de Ecovallas, 23-oct-2026) dejaba 'PX' pegado y daba otra versión.
+    .replace(/[ _-]*\d{3,4}\s*[xX×]\s*\d{2,4}(?:\s*px)?/gi, '')
     .replace(/[ _-]+$/, '')
     .trim();
   return s || original;
 }
 
 /** 'JARABE PRUEBA ADICIONAL (INICIAL)' → campaña sin el sufijo y entrega 'inicial'. */
+/** Fecha leída de la bitácora, con lo que hizo falta para leerla (para avisar). */
+export type FechaLeida = {
+  fecha: string | null;
+  /** La celda decía '-', '—', 'N/A' o 'NA': «sin fecha» a propósito, no un error. */
+  guion: boolean;
+  /** Texto que solo cuadra como mes/día ('10/13/2026') o que se leyó así por la vigencia. */
+  mesDia: boolean;
+  /** Había texto y no es fecha. */
+  ilegible: boolean;
+};
+
+const GUION = /^(-+|—+|–+|N\/?A|S\/F|SIN FECHA)$/i;
+
+/**
+ * Fecha de una celda de la bitácora comercial (23-oct-2026). Igual que
+ * leerFechaCelda, más dos cosas que trae el archivo real de Ecovallas:
+ *   · texto con el mes PRIMERO ('10/13/2026', '10/26/2026' en la hoja de una
+ *     campaña de octubre): si como día/mes no existe y como mes/día sí, se
+ *     lee mes/día. Si las dos lecturas existen ('10/05/2026'), manda día/mes,
+ *     salvo que solo la de mes/día caiga en `rango` (la vigencia del
+ *     encabezado de la hoja);
+ *   · '-' o 'N/A' en INICIO/FIN (Biobox): «sin fecha» marcado, no error.
+ * `mesPrimero` (revisión del 23-oct-2026): la HOJA escribe el mes primero
+ * (alguna de sus fechas solo cuadra como mes/día, ver esSoloMesDia). Entonces
+ * las ambiguas también se leen mes/día: con '10/13/2026' de INICIO, el FIN
+ * '11/12/2026' es 12 de noviembre, no 11 de diciembre (celda por celda
+ * ganaba día/mes si las dos lecturas caían en la vigencia del encabezado).
+ */
+export function leerFechaBitacora(
+  v: unknown,
+  rango?: { inicio?: string | null; fin?: string | null } | null,
+  opts?: { mesPrimero?: boolean } | null,
+): FechaLeida {
+  const r: FechaLeida = { fecha: null, guion: false, mesDia: false, ilegible: false };
+  if (v === null || v === undefined || v === '') return r;
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (!s) return r;
+    if (GUION.test(s)) {
+      r.guion = true;
+      return r;
+    }
+    const m = s.match(/^(\d{1,2})\s*[/\-.]\s*(\d{1,2})\s*[/\-.]\s*(\d{2,4})$/);
+    if (m) {
+      const a = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+      const dm = fechaValida(a, Number(m[2]), Number(m[1]));
+      const md = fechaValida(a, Number(m[1]), Number(m[2]));
+      const dentro = (f: string | null) =>
+        !!f && !!rango?.inicio && !!rango?.fin && f >= rango.inicio && f <= rango.fin;
+      if (opts?.mesPrimero && md && md !== dm) {
+        r.fecha = md;
+        r.mesDia = true;
+      } else if (dm && (!md || md === dm || dentro(dm) || !dentro(md))) r.fecha = dm;
+      else if (md) {
+        r.fecha = md;
+        r.mesDia = true;
+      }
+      r.fecha = anioRazonable(r.fecha);
+      r.ilegible = !r.fecha;
+      return r;
+    }
+    // '17 SEP', '11 sep', '5 DE OCTUBRE 2026' (Biobox real): el año sale de
+    // la vigencia del encabezado (cruza de año si el mes queda a más de 6).
+    const t = normTexto(s).replace(/\./g, '');
+    const mm = t.match(new RegExp(`^(\\d{1,2})\\s*(?:DE\\s+)?${MES_RE}(?:\\s*(?:DE\\s+|/|-)?\\s*(\\d{4}))?$`));
+    if (mm) {
+      const base = rango?.inicio || rango?.fin || null;
+      const mes = MES_NUM[mm[2]];
+      let anio = mm[3] ? Number(mm[3]) : base ? Number(base.slice(0, 4)) : NaN;
+      if (!mm[3] && base) {
+        const mBase = Number(base.slice(5, 7));
+        if (mBase - mes > 6) anio++;
+        if (mes - mBase > 6) anio--;
+      }
+      r.fecha = Number.isFinite(anio) ? anioRazonable(fechaValida(anio, mes, Number(mm[1]))) : null;
+      r.ilegible = !r.fecha;
+      return r;
+    }
+  }
+  r.fecha = anioRazonable(leerFechaCelda(v));
+  r.ilegible = !r.fecha && (!!textoCelda(v) || typeof v === 'number');
+  return r;
+}
+
+/** '13/10/0206' (año tecleado mal) no es una fecha de campaña: fuera de 2000-2100 → null. */
+const anioRazonable = (f: string | null) => (f && /^20\d\d-\d\d-\d\d$/.test(f) ? f : null);
+
+/**
+ * ¿Es un texto 'aa/bb/aaaa' que SOLO cuadra con el mes primero ('10/13/2026')?
+ * Con una sola celda así, la hoja escribe mes/día (leerFechaBitacora con
+ * mesPrimero). Revisión del 23-oct-2026.
+ */
+export function esSoloMesDia(v: unknown): boolean {
+  if (typeof v !== 'string') return false;
+  const m = v.trim().match(/^(\d{1,2})\s*[/\-.]\s*(\d{1,2})\s*[/\-.]\s*(\d{2,4})$/);
+  if (!m) return false;
+  const a = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+  return !fechaValida(a, Number(m[2]), Number(m[1])) && !!anioRazonable(fechaValida(a, Number(m[1]), Number(m[2])));
+}
+
 export function separarEntrega(campana: unknown): { campana: string; entrega: 'inicial' | 'final' | null } {
   const s = String(campana ?? '').replace(/\s+/g, ' ').trim();
   const m = s.match(/^(.*?)[\s_-]*\(\s*(INICIAL|FINAL)\s*\)$/i);
@@ -243,7 +361,11 @@ export function leerHorario(t: unknown): Horario {
   if (RE_POR_FECHA.test(s)) return { tipo: 'por_fecha', franjas: null, llave: llaveComp(s), minutos: null, entendido: true };
   const franjas: [number, number][] = [];
   let minutos = 0;
-  for (const m of s.matchAll(RE_FRANJA)) {
+  // '12:00 HRS A 13:00 HRS', '15:00 hrs a 15:59hrs' (bitácora real de
+  // Ecovallas, 23-oct-2026): el «HRS» entre la hora y el «A» no dejaba leer
+  // la franja. Se quita antes de buscar (la llave sigue saliendo de las franjas).
+  const sf = s.replace(/(\d)\s*H(RS?|ORAS?)\b\.?/g, '$1');
+  for (const m of sf.matchAll(RE_FRANJA)) {
     let h1 = Number(m[1]);
     let h2 = Number(m[4]);
     const m1 = Number(m[2] || 0);

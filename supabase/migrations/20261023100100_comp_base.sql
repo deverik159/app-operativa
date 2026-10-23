@@ -82,12 +82,34 @@
 --   · Sitio ya comprobado (R11, sin confirmar con Victor): el plan conserva
 --     sus tomas pendientes pero no le crea nuevas, salvo que el plan diga
 --     incluir_comprobados = true.
+--   · Integración con la app (23-oct-2026, pendientes de las piezas TS):
+--     - Plano → Pauta VV: si una campaña del plano (versión '') llega
+--       después de Pauta VV con UNA versión, se ADOPTA la fila del plano
+--       (cambia su versión) en lugar de crear otra y retirar la vieja: así
+--       no se pierde lo que ya se trabajó en ella (marcas, analista, plan).
+--       Solo con entradas de Pauta VV (o del plano ya con versión, que es
+--       como desdePautaVV manda lo del plano de una campaña de Pauta VV) y
+--       nunca sobre una fila retirada (revisión del 23-oct-2026).
+--     - es_full se puede corregir en la app (comp_editar_campanas) y la
+--       recarga ya no lo pisa (editado_app). FULL solo existe en Vía Verde
+--       (Erik, 23-oct-2026: Biobox y Ecovallas son 24 h, sin FULL).
+--     - comp_fuente_pauta_vv: el Supervisor no puede leer vv_campanas,
+--       vv_pautas, vv_ocupacion ni vv_espacios (sus políticas son de
+--       comercial, pautas y manager, y NO se tocan). La RPC le entrega, de
+--       solo lectura y en un solo jsonb, lo que la app necesita para armar
+--       la carga de Vía Verde.
+--     - Biobox y Ecovallas Digital son todo 24 horas, sin franjas (Erik,
+--       23-oct-2026); Vía Verde sí va por franjas. La base guarda el texto
+--       del horario tal como llega: no cambia nada aquí.
 --
 -- CORRECCIONES DE LA REVISIÓN ADVERSARIAL (22-oct-2026) QUE SIGUEN AQUÍ
 --   #1  Pórticos: vv_espacios.tramo es NULL en los 4; el filtro usa coalesce.
 --   #2  En Vía Verde las claves ^MX_EM_ (EDO MEX, dado de baja) no entran
 --       aunque falten en vv_espacios. Una CDMX inactiva se reporta aparte.
---       En Biobox y Ecovallas Digital las MX_EM_ están activas: sí entran.
+--       En Biobox y Ecovallas Digital las MX_EM_ están activas: sí entran
+--       (revisado el 23-oct-2026: la regla va SOLO con p_unidad / c.unidad
+--       = 'Vía Verde' en comp_cargar_campanas y comp_agregar_sitios; las
+--       caras Digital MX_EM_EV_ de Ecovallas entran como cualquier otra).
 --   #3  La meta descuenta lo cancelado (sale de los sitios activos).
 --   #4  El crédito de lo comprobado va por comprobado_por (no se mueve al
 --       reasignar); la carga va por analista_email.
@@ -236,6 +258,12 @@ $$;
 --     (null, '') se ignoran y UNA que no se entienda rechaza todo el plan
 --     ('2026-10-5', '05/10/2026', '2026-02-30', '2026-10-04T23:30:00-06:00',
 --     un número). Antes la base leía '05/10/2026' con DateStyle MDY.
+--     Contrato exacto (23-oct-2026, igual que el TS): btrim(x) debe cumplir
+--     ^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?$ y la fecha es
+--     left(btrim(x), 10)::date. Aquí \d se escribe [0-9]: en Postgres \d
+--     puede aceptar dígitos de otros alfabetos según el locale y en JS no.
+--     Los casos compartidos están en tests/comprobaciones.test.mjs
+--     (CASOS_PLAN) y la prueba de PGlite los repite con el MISMO texto.
 --   · incluir_comprobados (R11): solo si viene true se guarda; sin él, el
 --     plan no crea tomas NUEVAS para un sitio ya comprobado. La pantalla lo
 --     ignora (leerPlan se queda con tipo, cada_n y fechas).
@@ -1042,6 +1070,25 @@ end $$;
 --    (recargar una sola campaña). Con otras fuentes se reportan los
 --    posibles_duplicados (misma campaña abierta con otra versión que no
 --    vino) y no se tocan.
+--    Plano → Pauta VV (23-oct-2026, hallazgo #7 de la revisión de la
+--    bitácora): si llega una entrada CON versión de una campaña que en este
+--    periodo y medio solo existe como fila del plano con versión ''
+--    (abierta y no retirada), esa fila se ADOPTA: toma la versión nueva y
+--    sigue con su id, sus sitios marcados, su analista y su plan. Antes se
+--    creaba otra fila y la del plano se retiraba (y si alguien ya la había
+--    trabajado, quedaba partida en dos). Solo si de esa campaña llega UNA
+--    versión y no llega también la del plano ('') en la misma carga; si
+--    llegan varias, no se adivina cuál es: la del plano se retira como
+--    antes (R2). Se reporta en campanas_adoptadas.
+--    Qué entradas adoptan (revisión del 23-oct-2026): las de Pauta VV y las
+--    del plano que YA traen versión (desdePautaVV le pone a lo del plano la
+--    versión única de Pauta VV, aunque esa versión esté en el otro medio).
+--    La bitácora y el alta manual NO adoptan: el plano no se entera y en la
+--    siguiente foto volvería a mandar la campaña con versión '', creando
+--    otra fila con los mismos sitios. Con ellas queda como antes
+--    (posibles_duplicados). Una fila del plano ya retirada tampoco se
+--    adopta: revivirla dejaría retirada la versión que la reemplazó, con su
+--    trabajo.
 --    El plan de tomas se vuelve a aplicar solo a las campañas que cambiaron
 --    (sitios nuevos, cambiados o de baja, vigencia, retiro): una recarga
 --    igual no rehace miles de tomas (revisión de rendimiento, 23-oct-2026).
@@ -1063,7 +1110,7 @@ declare
   v_c_nue int := 0; v_c_act int := 0; v_c_dup int := 0; v_app_cons int := 0; v_sin_analista int := 0;
   v_s_nue int := 0; v_s_act int := 0; v_s_baja int := 0; v_s_fuera int := 0;
   v_cerradas jsonb; v_sin_inv jsonb; v_edomex jsonb; v_inactivas jsonb; v_otro_medio jsonb; v_no_rec jsonb;
-  v_fuera_per jsonb; v_repetidos jsonb; v_dups jsonb;
+  v_fuera_per jsonb; v_repetidos jsonb; v_dups jsonb; v_adoptadas jsonb;
 begin
   -- 1) Validación y permiso (antes de tocar nada)
   if v_email = '' then
@@ -1221,7 +1268,49 @@ begin
 
     select count(*) - count(distinct (cl, vl)) into v_c_dup from pg_temp.comp_car_cam;
 
+    -- Plano → Pauta VV (23-oct-2026): la fila del plano (versión '') se
+    -- adopta cuando llega la misma campaña con UNA versión. Va antes de
+    -- comp_car_antes para que la adoptada cuente como campaña que ya
+    -- existía (no nueva) y el upsert de abajo la encuentre por su llave
+    -- nueva y la actualice con los datos de Pauta VV.
+    -- Revisión del 23-oct-2026: (a) cuenta TODA entrada con versión, venga
+    -- de Pauta VV o del plano (desdePautaVV manda lo del plano con la
+    -- versión única de la campaña aunque esa versión esté en el otro
+    -- medio; antes eso no adoptaba y la campaña quedaba partida); (b) exige
+    -- que alguna sea de Pauta VV o del plano: la bitácora y el alta manual
+    -- no adoptan, porque el plano seguiría mandando la '' y la siguiente
+    -- foto crearía otra fila con los mismos sitios; (c) nunca una fila
+    -- retirada: revivirla dejaría retirada la versión que la reemplazó.
+    drop table if exists pg_temp.comp_car_adop;
+    create temp table comp_car_adop on commit drop as
+    with una as (   -- campañas que llegan con UNA sola versión no vacía
+      select t.cl, min(t.vl) as vl
+        from pg_temp.comp_car_cam t
+       where t.vl <> ''
+       group by t.cl
+      having count(distinct t.vl) = 1 and bool_or(t.fuente in ('pauta_vv', 'plano')))
+    select c.id, u.cl, u.vl,
+           (select btrim(coalesce(t.version, '')) from pg_temp.comp_car_cam t
+             where t.cl = u.cl and t.vl = u.vl order by (t.fuente = 'pauta_vv') desc, t.i limit 1) as version
+      from una u
+      join comp_campanas c on c.periodo_id = v_pid and c.medio = p_medio and c.campana_llave = u.cl
+                          and c.version_llave = '' and c.fuente = 'plano' and c.estatus = 'abierta'
+                          and not c.retirada
+     where not exists (select 1 from pg_temp.comp_car_cam t where t.cl = u.cl and t.vl = '')
+       and not exists (select 1 from comp_campanas c2
+                        where c2.periodo_id = v_pid and c2.medio = p_medio
+                          and c2.campana_llave = u.cl and c2.version_llave = u.vl);
+    select coalesce(jsonb_agg(jsonb_build_object('id', c.id, 'campana', c.campana, 'version_antes', c.version,
+                                                 'version', a.version) order by c.campana), '[]')
+      into v_adoptadas
+      from pg_temp.comp_car_adop a join comp_campanas c on c.id = a.id;
+    update comp_campanas c set version = a.version, version_llave = a.vl, actualizado_en = now()
+      from pg_temp.comp_car_adop a
+     where c.id = a.id;
+
     -- Analista puesta en la app que la carga habría cambiado (se reporta).
+    -- Va DESPUÉS de la adopción (revisión del 23-oct-2026): la fila adoptada
+    -- ya tiene su llave nueva y también cuenta.
     select count(*) into v_app_cons
       from (select distinct on (t.cl, t.vl) t.* from pg_temp.comp_car_cam t order by t.cl, t.vl, t.i) t
       join comp_campanas c on c.periodo_id = v_pid and c.medio = p_medio
@@ -1263,7 +1352,10 @@ begin
              nullif(btrim(s.vendedor), ''), nullif(btrim(s.administrador), ''), nullif(btrim(s.quantum), ''),
              s.mediamonitor, nullif(btrim(s.especificacion), ''),
              case when upper(btrim(s.arte)) in ('NUEVO', 'REPITE') then upper(btrim(s.arte)) end,
-             s.inicio, s.fin, coalesce(s.es_full, false), case when s.full_minutos >= 0 then s.full_minutos end,
+             -- FULL solo en Vía Verde (Erik, 23-oct-2026); fuera, un es_full
+             -- de la carga se ignora.
+             s.inicio, s.fin, coalesce(s.es_full, false) and p_unidad = 'Vía Verde',
+             case when s.full_minutos >= 0 then s.full_minutos end,
              case when coalesce(s.es_full, false) and p_unidad = 'Vía Verde'
                   then comp_meta_full_propuesta(p_medio, s.full_minutos) end,
              case when s.analista_ok then s.analista_in end,
@@ -1272,7 +1364,10 @@ begin
         from src s
       on conflict (periodo_id, medio, campana_llave, version_llave) do update set
         fuente = excluded.fuente, origen_ref = excluded.origen_ref,
-        campana = excluded.campana, version = excluded.version, es_full = excluded.es_full,
+        campana = excluded.campana, version = excluded.version,
+        -- es_full corregido en la app no lo pisa la recarga (23-oct-2026,
+        -- hallazgo #9: el FULL con rotación que la app no reconoce).
+        es_full = case when 'es_full' = any (c.editado_app) then c.es_full else excluded.es_full end,
         cliente = case when 'cliente' = any (c.editado_app) then c.cliente else excluded.cliente end,
         vendedor = case when 'vendedor' = any (c.editado_app) then c.vendedor else excluded.vendedor end,
         administrador = case when 'administrador' = any (c.editado_app) then c.administrador else excluded.administrador end,
@@ -1284,7 +1379,8 @@ begin
         fin = case when 'fin' = any (c.editado_app) then c.fin else excluded.fin end,
         full_minutos = case when 'full_minutos' = any (c.editado_app) then c.full_minutos else excluded.full_minutos end,
         meta_full = case when 'meta_full' = any (c.editado_app) then c.meta_full
-                         when excluded.es_full and c.unidad = 'Vía Verde'
+                         when case when 'es_full' = any (c.editado_app) then c.es_full else excluded.es_full end
+                              and c.unidad = 'Vía Verde'
                            then comp_meta_full_propuesta(c.medio, case when 'full_minutos' = any (c.editado_app)
                                                                        then c.full_minutos else excluded.full_minutos end)
                          else null end,
@@ -1513,6 +1609,7 @@ begin
                                  else v_ret->'lista' end,
       'campanas_borradas', (v_ret->>'borradas')::int,
       'posibles_duplicados', v_dups,
+      'campanas_adoptadas', v_adoptadas,
       'analista_de_la_app_conservada', v_app_cons,
       'sitios_recibidos', v_nsit, 'sitios_nuevos', v_s_nue, 'sitios_actualizados', v_s_act,
       'sitios_baja', v_s_baja, 'sitios_fuera_de_carga', v_s_fuera,
@@ -2224,7 +2321,9 @@ begin
   if c.retirada then
     raise exception 'La campaña está retirada: regrésala antes de agregarle sitios.';
   end if;
-  if not v_gest and not c.es_full then
+  -- FULL solo existe en Vía Verde (Erik, 23-oct-2026): un es_full en otra
+  -- unidad (dato raro de una carga) no abre esta puerta a la analista.
+  if not v_gest and not (c.es_full and c.unidad = 'Vía Verde') then
     raise exception 'La analista solo agrega sitios a una campaña FULL; en las demás, pídeselo al Supervisor.';
   end if;
 
@@ -2408,6 +2507,10 @@ end $$;
 --    plan o a proponer la meta. La vigencia de la campaña recorta la de
 --    TODOS sus sitios (comp_ventanas, R3): acortarla quita las tomas del plan
 --    que quedan fuera y reporta las editadas a mano que quedan fuera.
+--    es_full (23-oct-2026, hallazgo #9): el Supervisor corrige un FULL que
+--    la app no reconoció (rotación) o uno que no lo era; sí/no, y null lo
+--    devuelve a lo que diga la carga. Al volverse FULL en Vía Verde se
+--    propone la meta por minutos, salvo que meta_full ya se haya editado.
 create or replace function public.comp_editar_campanas(p_campana_ids bigint[], p_cambios jsonb)
 returns jsonb language plpgsql security definer
 set search_path to 'public', 'pg_temp'
@@ -2417,7 +2520,7 @@ declare
   v_email text := lower(coalesce(auth_email(), ''));
   v_permitidas text[] := array['fecha_limite', 'meta_app', 'meta_full', 'full_minutos', 'entrega_tipo',
                                'especificacion', 'arte', 'inicio', 'fin', 'cliente', 'vendedor',
-                               'administrador', 'quantum', 'mediamonitor'];
+                               'administrador', 'quantum', 'mediamonitor', 'es_full'];
   v_otras text; v_set text[]; v_null text[];
   v_ids bigint[]; v_n int; v_cerr int; v_cambiadas int := 0; v_cams bigint[]; v_tom jsonb := '{}';
 begin
@@ -2436,6 +2539,9 @@ begin
   if p_cambios ? 'entrega_tipo' and p_cambios->>'entrega_tipo' not in ('enviar', 'lista_sin_enviar', 'no_se_comprueba') then
     raise exception 'Entrega no válida: %.', p_cambios->>'entrega_tipo';
   end if;
+  if p_cambios ? 'es_full' and jsonb_typeof(p_cambios->'es_full') not in ('boolean', 'null') then
+    raise exception 'FULL es sí o no.';
+  end if;
   if p_cambios ? 'arte' and p_cambios->>'arte' is not null and upper(btrim(p_cambios->>'arte')) not in ('NUEVO', 'REPITE') then
     raise exception 'Arte no válido: %. Usa NUEVO o REPITE.', p_cambios->>'arte';
   end if;
@@ -2452,6 +2558,14 @@ begin
   if v_n > 0 then
     raise exception 'Solo el Supervisor (o el Admin) edita campañas. No se cambió nada.';
   end if;
+  -- FULL solo existe en Vía Verde (Erik, 23-oct-2026: Biobox y Ecovallas
+  -- son 24 h, sin FULL por minutos). Marcarlo en otra unidad abriría
+  -- comp_agregar_sitios a la analista. Quitarlo (false) o devolverlo a la
+  -- carga (null) sí se deja.
+  if jsonb_typeof(p_cambios->'es_full') = 'boolean' and (p_cambios->>'es_full')::boolean
+     and exists (select 1 from comp_campanas c where c.id = any (v_ids) and c.unidad <> 'Vía Verde') then
+    raise exception 'FULL solo existe en Vía Verde. No se cambió nada.';
+  end if;
   select count(*) into v_cerr from comp_campanas c where c.id = any (v_ids) and c.estatus = 'cerrada';
 
   begin
@@ -2460,10 +2574,19 @@ begin
         fecha_limite = case when p_cambios ? 'fecha_limite' then (p_cambios->>'fecha_limite')::date else c.fecha_limite end,
         meta_app = case when p_cambios ? 'meta_app' then (p_cambios->>'meta_app')::int else c.meta_app end,
         full_minutos = case when p_cambios ? 'full_minutos' then (p_cambios->>'full_minutos')::int else c.full_minutos end,
+        -- es_full null = sin cambio aquí (la columna es not null): solo sale
+        -- de editado_app y la próxima carga lo vuelve a decidir.
+        es_full = case when jsonb_typeof(p_cambios->'es_full') = 'boolean' then (p_cambios->>'es_full')::boolean
+                       else c.es_full end,
         meta_full = case when p_cambios ? 'meta_full' then (p_cambios->>'meta_full')::int
-                         when p_cambios ? 'full_minutos' and c.es_full and c.unidad = 'Vía Verde'
+                         when (p_cambios ? 'full_minutos' or jsonb_typeof(p_cambios->'es_full') = 'boolean')
+                              and case when jsonb_typeof(p_cambios->'es_full') = 'boolean'
+                                       then (p_cambios->>'es_full')::boolean else c.es_full end
+                              and c.unidad = 'Vía Verde'
                               and not ('meta_full' = any (c.editado_app))
-                           then comp_meta_full_propuesta(c.medio, (p_cambios->>'full_minutos')::int)
+                           then comp_meta_full_propuesta(c.medio, case when p_cambios ? 'full_minutos'
+                                                                       then (p_cambios->>'full_minutos')::int
+                                                                       else c.full_minutos end)
                          else c.meta_full end,
         entrega_tipo = case when p_cambios ? 'entrega_tipo' then p_cambios->>'entrega_tipo' else c.entrega_tipo end,
         especificacion = case when p_cambios ? 'especificacion' then nullif(btrim(p_cambios->>'especificacion'), '')
@@ -2567,6 +2690,98 @@ begin
   return true;
 end $$;
 
+-- p) Fuente de Vía Verde para armar la carga (23-oct-2026, hallazgo #1 de la
+--    revisión de la bitácora). El Supervisor (Victor) arma la carga de Vía
+--    Verde con desdePautaVV (src/lib/bitacoraComp.ts), pero las políticas de
+--    vv_campanas, vv_pautas, vv_ocupacion y vv_espacios solo dejan leer a
+--    comercial, pautas y manager: para él llegaban VACÍAS y la carga (foto
+--    completa) habría retirado todo. Esas políticas NO se tocan (son de
+--    Pauta VV y del plano); esta RPC de SOLO LECTURA le entrega lo justo,
+--    protegida con comp_gestiona('Vía Verde') (Supervisor de Vía Verde o
+--    manager).
+--    Devuelve un solo jsonb (no hay corte de 1,000 filas de PostgREST):
+--      campanas   = las de vv_campanas que tienen pautas en la lista
+--      pautas     = las de vv_pautas que tocan [p_desde, p_hasta]
+--      ocupacion  = las del plano que tocan el rango: lo capturado en la app
+--                   (origen 'app') y el plano vigente (plano_mes), con la
+--                   regla de planoVigente() del TS: el más reciente que no
+--                   sea posterior al mes de p_desde; si no hay, el primero
+--                   después. Se elige aquí con TODOS los planos, así que el
+--                   TS, al repetir la regla con lo que llega, da el mismo.
+--                   Todas las estatus: el filtro (vendida/pautada) es del TS.
+--      espacios   = vv_espacios completo (clave, tipo_espacio, tramo, activo)
+--      totales    = count(*) de cada lista. Salen del MISMO select que arma
+--                   la lista, así que aquí siempre coinciden con su largo:
+--                   solo servirían si la app partiera o paginara la
+--                   respuesta (revisión del 23-oct-2026). Lo que de verdad
+--                   evita una lectura incompleta es que todo venga en este
+--                   único jsonb: si la RPC falla, la pantalla no arma nada.
+--    Solo las columnas que usa desdePautaVV: sin creada_por (correos).
+--    Rango: hasta 93 días contando los dos extremos (un mes o una catorcena
+--    con holgura).
+create or replace function public.comp_fuente_pauta_vv(p_desde date, p_hasta date)
+returns jsonb language plpgsql stable security definer
+set search_path to 'public', 'pg_temp'
+as $$
+declare
+  v_mes text; v_plano text; v_cam jsonb; v_pau jsonb; v_ocu jsonb; v_esp jsonb;
+  v_nc int; v_np int; v_no int; v_ne int;
+begin
+  if not comp_gestiona('Vía Verde') then
+    raise exception 'Solo el Supervisor de Vía Verde (o el Admin) lee Pauta VV y el plano para armar la carga.';
+  end if;
+  if p_desde is null or p_hasta is null or p_hasta < p_desde then
+    raise exception 'Rango no válido: elige el inicio y el fin del periodo.';
+  end if;
+  if p_hasta - p_desde + 1 > 93 then
+    raise exception 'Rango demasiado largo (% días): pide un mes o una catorcena.', p_hasta - p_desde + 1;
+  end if;
+  v_mes := to_char(p_desde, 'YYYY-MM');
+  select coalesce(max(o.plano_mes) filter (where o.plano_mes <= v_mes), min(o.plano_mes))
+    into v_plano
+    from vv_ocupacion o where o.origen = 'plano' and o.plano_mes is not null;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', p.id, 'campana_id', p.campana_id, 'espacio_clave', p.espacio_clave, 'tipo_venta', p.tipo_venta,
+           'version', p.version, 'inicio', p.inicio, 'fin', p.fin, 'horario_lv', p.horario_lv,
+           'horario_sd', p.horario_sd, 'testigos', p.testigos, 'observaciones', p.observaciones,
+           'estatus', p.estatus) order by p.id), '[]'), count(*)::int
+    into v_pau, v_np
+    from vv_pautas p
+   where p.inicio <= p_hasta and p.fin >= p_desde;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', c.id, 'cliente', c.cliente, 'nombre', c.nombre, 'vendedor', c.vendedor,
+           'administrador', c.administrador, 'quantum', c.quantum, 'fecha_inicio', c.fecha_inicio,
+           'fecha_fin', c.fecha_fin, 'mediamonitor', c.mediamonitor, 'espec_tomas', c.espec_tomas,
+           'estatus', c.estatus) order by c.id), '[]'), count(*)::int
+    into v_cam, v_nc
+    from vv_campanas c
+   where exists (select 1 from vv_pautas p
+                  where p.campana_id = c.id and p.inicio <= p_hasta and p.fin >= p_desde);
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'id', o.id, 'espacio_clave', o.espacio_clave, 'slot', o.slot, 'campana', o.campana,
+           'negociacion', o.negociacion, 'convencional', o.convencional, 'inicio', o.inicio, 'fin', o.fin,
+           'dias', o.dias, 'horas', o.horas, 'estatus', o.estatus, 'origen', o.origen,
+           'plano_mes', o.plano_mes) order by o.id), '[]'), count(*)::int
+    into v_ocu, v_no
+    from vv_ocupacion o
+   where o.inicio <= p_hasta and o.fin >= p_desde
+     and (o.origen = 'app' or o.plano_mes = v_plano);
+
+  select coalesce(jsonb_agg(jsonb_build_object('clave', e.clave, 'tipo_espacio', e.tipo_espacio,
+                                               'tramo', e.tramo, 'activo', e.activo) order by e.clave), '[]'),
+         count(*)::int
+    into v_esp, v_ne
+    from vv_espacios e;
+
+  return jsonb_build_object('desde', p_desde, 'hasta', p_hasta, 'plano_mes', v_plano,
+                            'campanas', v_cam, 'pautas', v_pau, 'ocupacion', v_ocu, 'espacios', v_esp,
+                            'totales', jsonb_build_object('campanas', v_nc, 'pautas', v_np,
+                                                          'ocupacion', v_no, 'espacios', v_ne));
+end $$;
+
 -- ------------------------------------------------------------
 -- 7) Permisos de las funciones. Nada para anon ni PUBLIC; las internas
 --    (comp_tiene_rol_en, comp_es_analista_de, comp_sitios_ajenos,
@@ -2593,7 +2808,8 @@ revoke all on function public.comp_llave(text), public.comp_clave_sitio(text), p
   public.comp_marcar_sitios(bigint[], boolean, date),
   public.comp_cancelar_sitios(bigint[], text), public.comp_restaurar_sitios(bigint[]),
   public.comp_agregar_sitios(bigint, text[]), public.comp_cerrar_campanas(bigint[], boolean, text),
-  public.comp_editar_campanas(bigint[], jsonb), public.comp_guardar_regla(jsonb), public.comp_borrar_regla(bigint)
+  public.comp_editar_campanas(bigint[], jsonb), public.comp_guardar_regla(jsonb), public.comp_borrar_regla(bigint),
+  public.comp_fuente_pauta_vv(date, date)
   from public, anon, authenticated;
 
 grant execute on function public.comp_llave(text), public.comp_clave_sitio(text), public.comp_espacio_vv(text),
@@ -2607,5 +2823,6 @@ grant execute on function public.comp_llave(text), public.comp_clave_sitio(text)
   public.comp_marcar_sitios(bigint[], boolean, date),
   public.comp_cancelar_sitios(bigint[], text), public.comp_restaurar_sitios(bigint[]),
   public.comp_agregar_sitios(bigint, text[]), public.comp_cerrar_campanas(bigint[], boolean, text),
-  public.comp_editar_campanas(bigint[], jsonb), public.comp_guardar_regla(jsonb), public.comp_borrar_regla(bigint)
+  public.comp_editar_campanas(bigint[], jsonb), public.comp_guardar_regla(jsonb), public.comp_borrar_regla(bigint),
+  public.comp_fuente_pauta_vv(date, date)
   to authenticated;

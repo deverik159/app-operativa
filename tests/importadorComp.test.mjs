@@ -179,3 +179,71 @@ test('leerHorario: el formato de la Bitácora VV («02:00 - 09:59HRS», «00:00 
   assert.equal(L.leerHorario('00:00 - 23:59HRS').tipo, '24h');
   assert.equal(L.leerHorario('07:00 - 21:59HRS / 23:00 - 23:59HRS').franjas.length, 2);
 });
+
+// ------------------------------------------------------------
+// Celdas de las bitácoras REALES (23-oct-2026), con valores inventados.
+// ------------------------------------------------------------
+
+test('leerFechaBitacora: mes primero, «17 SEP», «-» y años tecleados mal', () => {
+  const R = { inicio: '2026-10-13', fin: '2026-10-26' };
+  const f = (v, r = R) => L.leerFechaBitacora(v, r);
+  assert.deepEqual(f('10/13/2026'), { fecha: '2026-10-13', guion: false, mesDia: true, ilegible: false });
+  assert.deepEqual(f('13/10/2026'), { fecha: '2026-10-13', guion: false, mesDia: false, ilegible: false });
+  // Las dos lecturas existen: manda día/mes, salvo que solo mes/día caiga en la vigencia.
+  assert.equal(f('05/10/2026', { inicio: '2026-10-01', fin: '2026-10-31' }).fecha, '2026-10-05');
+  assert.deepEqual(f('10/05/2026', { inicio: '2026-10-01', fin: '2026-10-31' }), { fecha: '2026-10-05', guion: false, mesDia: true, ilegible: false });
+  assert.equal(f('17 SEP', { inicio: '2026-08-18', fin: '2026-12-31' }).fecha, '2026-09-17');
+  assert.equal(f('11 sep.', { inicio: '2026-08-18', fin: null }).fecha, '2026-09-11');
+  assert.equal(f('5 DE ENERO', { inicio: '2026-11-01', fin: null }).fecha, '2027-01-05', 'cruza de año');
+  assert.equal(f('5 DE OCTUBRE 2026', null).fecha, '2026-10-05');
+  for (const g of ['-', ' — ', 'N/A', 'NA']) assert.deepEqual(f(g), { fecha: null, guion: true, mesDia: false, ilegible: false });
+  for (const mal of ['13/10/0206', '14/16/26', '26/210/2026', '15/2026', 'PENDIENTE']) assert.deepEqual([mal, f(mal).fecha, f(mal).ilegible], [mal, null, true]);
+  assert.equal(f(46308).fecha, '2026-10-13');
+  assert.equal(f(D(2026, 10, 26)).fecha, '2026-10-26');
+  assert.deepEqual(f(null), { fecha: null, guion: false, mesDia: false, ilegible: false });
+});
+
+test('versionSinMedida: variantes de la bitácora real de Ecovallas', () => {
+  const v = L.versionSinMedida;
+  assert.equal(v('SMARTFIT_PRUEBA-1440x405'), 'SMARTFIT_PRUEBA');
+  assert.equal(v('INFORME PRUEBA - 1440 X 405-01.jpg'), v('INFORME PRUEBA - 1152X324-01.jpg'));
+  assert.equal(v('GLOW PRUEBA 1440x405 V2.jpg'), 'GLOW PRUEBA V2');
+  assert.equal(v('MARCA PRUEBA_CRISTAL-1440×405'), 'MARCA PRUEBA_CRISTAL');
+  assert.equal(v('BOLSA PRUEBA-1440X405PX_Sucursal'), 'BOLSA PRUEBA_Sucursal');
+  assert.equal(v('R1 PRUEBA_NAP_A_362X45 LMP.psb'), 'R1 PRUEBA_NAP_A LMP');
+});
+
+test('leerHorario: «HRS» entre la hora y el «A» (bitácora real de Ecovallas)', () => {
+  assert.deepEqual(L.leerHorario('12:00 HRS A 13:00 HRS').franjas, [[720, 779]]);
+  assert.deepEqual(L.leerHorario('15:00 hrs a 15:59hrs').franjas, [[900, 959]]);
+  assert.deepEqual(L.leerHorario('(8:00 AM A 09:59 AM), (3:00 PM A 7:59 PM)').franjas, [[480, 599], [900, 1199]]);
+  assert.equal(L.leerHorario('24 HORAS').tipo, '24h');
+});
+
+test('limpiarClave: la «M» perdida de MX y las claves con guion de las megavallas', () => {
+  assert.deepEqual(L.limpiarClave('X_CM_BB_MED_0049'), { clave: 'MX_CM_BB_MED_0049', cambios: ['prefijo'], edoMex: false });
+  assert.deepEqual(L.limpiarClave('MX_CM_EV_MGV_2-4_3492'), { clave: 'MX_CM_EV_MGV_2-4_3492', cambios: [], edoMex: false });
+  // MX_EM_ solo se MARCA: la omisión es de Vía Verde y la hace el lector con esa unidad.
+  assert.equal(L.limpiarClave('MX_EM_EV_MGP_02_0010').edoMex, true);
+});
+
+test('leerFechaBitacora con mesPrimero y esSoloMesDia (revisión del 23-oct-2026)', () => {
+  // Una celda que SOLO cuadra con el mes primero marca toda la hoja.
+  assert.equal(L.esSoloMesDia('10/13/2026'), true);
+  assert.equal(L.esSoloMesDia('11/12/2026'), false, 'ambigua');
+  assert.equal(L.esSoloMesDia('13/10/2026'), false, 'día primero');
+  assert.equal(L.esSoloMesDia('10/13/0206'), false, 'año tecleado mal');
+  assert.equal(L.esSoloMesDia(46308), false);
+  const R = { inicio: '2026-10-01', fin: '2026-12-31' };
+  // Celda por celda, la ambigua se lee día/mes (las dos lecturas caen en la vigencia)…
+  assert.equal(L.leerFechaBitacora('11/12/2026', R).fecha, '2026-12-11');
+  // …con la hoja en mes primero, mes/día.
+  assert.deepEqual(L.leerFechaBitacora('11/12/2026', R, { mesPrimero: true }), { fecha: '2026-11-12', guion: false, mesDia: true, ilegible: false });
+  assert.equal(L.leerFechaBitacora('10/10/2026', R, { mesPrimero: true }).fecha, '2026-10-10');
+  assert.equal(L.leerFechaBitacora('13/10/2026', R, { mesPrimero: true }).fecha, '2026-10-13', 'si mes/día no existe, día/mes');
+});
+
+test('versionSinMedida: la extensión con coma («-C,png», bitácora real de Ecovallas)', () => {
+  assert.equal(L.versionSinMedida('PAN PRUEBA-C,png'), 'PAN PRUEBA-C');
+  assert.equal(L.versionSinMedida('PAN PRUEBA-C,png'), L.versionSinMedida('PAN PRUEBA-C.png'));
+});

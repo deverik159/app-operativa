@@ -42,6 +42,8 @@ import {
   diasEntre,
   esCompleta,
   esFinDeSemana,
+  HORARIO_24H,
+  horarioParaMostrar,
   llaveComp,
   observacionesToma,
   pivotDiaria,
@@ -296,6 +298,12 @@ type ConfigMedio = {
   hojaFormato: (p: PeriodoExcel) => string;
   /** ¿El formato de hoy trae RUTA? (Vía Verde no: se reparte por turno). */
   conRuta: boolean;
+  /**
+   * HORARIO fijo «24 HORAS» en todos los renglones (Ecovallas Digital y
+   * Biobox; Erik, 23-oct-2026: no tienen pautas por horario). Vía Verde
+   * lleva el horario del día de cada toma.
+   */
+  horario24h: boolean;
   /** Columnas de seguimiento que hoy se llenan a mano, después de MONITORISTA y ESTATUS. */
   seguimiento: string[];
   anchoSitio: number;
@@ -317,6 +325,7 @@ const CONFIG: Record<MedioComp, ConfigMedio> = {
     avisoFormato: null,
     hojaFormato: (p) => `ECOVALLAS DIGITALES ${periodoCorto(p)}`,
     conRuta: true,
+    horario24h: true,
     seguimiento: [
       'FOTO COMPROBATORIA',
       'TOMA CORTA',
@@ -344,6 +353,7 @@ const CONFIG: Record<MedioComp, ConfigMedio> = {
     avisoFormato: 'TOMAR LAS FOTOS DE ACUERDO A LA FECHA LIMITE',
     hojaFormato: (p) => periodoCorto(p),
     conRuta: true,
+    horario24h: true,
     seguimiento: ['TOMA CORTA', 'TOMA MEDIA', 'TOMA LARGA', 'PANTALLA TOUCH', 'FECHA DE TOMA', 'QUIEN TOMA', 'OBSERVACIONES'],
     anchoSitio: 27,
   },
@@ -363,6 +373,7 @@ const CONFIG: Record<MedioComp, ConfigMedio> = {
     avisoFormato: null,
     hojaFormato: () => 'GENERAL',
     conRuta: false,
+    horario24h: false,
     seguimiento: ['COLOR CAMPO', 'CAMPO'],
     anchoSitio: 25.5,
   },
@@ -383,6 +394,7 @@ const CONFIG: Record<MedioComp, ConfigMedio> = {
     avisoFormato: null,
     hojaFormato: (p) => `PORTICOS ${periodoCorto(p)}`,
     conRuta: false,
+    horario24h: false,
     seguimiento: [],
     anchoSitio: 15.7,
   },
@@ -421,6 +433,13 @@ export type CampanaExcel = {
   cerrada_en?: string | null;
   /** comp_campanas.especificacion: va en la hoja de especificación. */
   especificacion?: string | null;
+  /**
+   * vw_comp_campanas.retirada: ya no vino en la carga o la reemplazó otra
+   * versión. Va con ESTATUS «RETIRADA» (no «COMPLETA»: su meta ya no cuenta
+   * pendientes) y SIEMPRE entra en la COMPROBACIÓN DIARIA, para que lo que
+   * se comprobó en ella no se pierda (revisión 3, 23-oct-2026).
+   */
+  retirada?: boolean | null;
 };
 
 export const SIN_ANALISTA_EXCEL = 'SIN ASIGNAR';
@@ -435,11 +454,14 @@ export function campanaConVersion(campana: string | null | undefined, version: s
 /**
  * ESTATUS de la fila. Hoy el Excel pone «CERRADA» solo con llegar al 100 %;
  * en la app cerrar es del Supervisor a mano (P1, 23-oct-2026), así que:
- * «CERRADA» si la cerró, «COMPLETA» si llegó a la meta pero sigue abierta, y
- * vacío en lo demás.
+ * «CERRADA» si la cerró, «RETIRADA» si salió de la carga (su meta ya es lo
+ * comprobado y sin esto saldría COMPLETA al 100 % sin serlo; revisión 3,
+ * 23-oct-2026), «COMPLETA» si llegó a la meta pero sigue abierta, y vacío en
+ * lo demás.
  */
-export function estatusExcel(c: Pick<CampanaExcel, 'estatus' | 'venta' | 'comprobados'>): string {
+export function estatusExcel(c: Pick<CampanaExcel, 'estatus' | 'venta' | 'comprobados' | 'retirada'>): string {
   if (c.estatus === 'cerrada') return 'CERRADA';
+  if (c.retirada === true) return 'RETIRADA';
   return esCompleta(num(c.comprobados), num(c.venta)) ? 'COMPLETA' : '';
 }
 
@@ -677,6 +699,12 @@ function hojaEspecificacion(cfg: ConfigMedio, campanas: CampanaExcel[], nota?: s
  * campañas que se descargan). `soloHabiles` (por omisión sí) copia la hoja de
  * hoy, que solo trae lunes a viernes. `notaEspecificacion` = fila 1 de la
  * hoja de especificación.
+ * Campañas RETIRADAS (revisión 3, 23-oct-2026): por omisión van en las tres
+ * hojas, con ESTATUS «RETIRADA». `omitirRetiradas` las quita SOLO de la
+ * ASIGNACIÓN (filas, TOTAL y pie DISEÑADORES) y de la ESPECIFICACIÓN; la
+ * COMPROBACIÓN DIARIA siempre las lleva, porque lo comprobado en ellas es
+ * crédito de la analista y, sin ellas, su TOTAL no cuadraba con
+ * vw_comp_diaria ni con el avance por analista.
  */
 export function armarAsignacion(args: {
   medio: MedioComp;
@@ -685,15 +713,17 @@ export function armarAsignacion(args: {
   marcas?: FilaDiaria[];
   soloHabiles?: boolean;
   notaEspecificacion?: string | null;
+  omitirRetiradas?: boolean;
 }): LibroExcel {
   const cfg = CONFIG[args.medio];
   const dis = disenadores(args.campanas);
+  const visibles = args.omitirRetiradas ? args.campanas.filter((c) => c.retirada !== true) : args.campanas;
   return {
     nombreArchivo: nombreArchivo(`Asignación de Clientes ${cfg.archivo} ${periodoArchivo(args.periodo)}.xlsx`),
     hojas: [
-      hojaAsignacion(cfg, args.periodo, args.campanas, dis),
+      hojaAsignacion(cfg, args.periodo, visibles, dis),
       hojaDiaria(cfg, args.periodo, args.campanas, args.marcas ?? [], args.soloHabiles ?? true, dis),
-      hojaEspecificacion(cfg, args.campanas, args.notaEspecificacion),
+      hojaEspecificacion(cfg, visibles, args.notaEspecificacion),
     ],
   };
 }
@@ -742,23 +772,60 @@ export type TomaExcel = {
   campana_estatus?: 'abierta' | 'cerrada' | null;
   /** vw_comp_tomas.sitio_estado. */
   sitio_estado?: 'pendiente' | 'comprobado' | 'cancelado' | null;
+  /**
+   * Día en que se marcó comprobado el sitio (comp_sitios.comprobado_dia).
+   * Con él, las tomas del sitio hasta ese día quedan cubiertas y las
+   * posteriores (las que pidió incluir_comprobados) siguen yendo a campo.
+   * Sin él, TODA toma por hacer de un sitio comprobado queda cubierta.
+   */
+  sitio_comprobado_dia?: string | null;
   /** Texto libre para ESTATUS; si viene, gana sobre el estado calculado. */
   estatus?: string | null;
 };
+
+/** Lo que se le pide a una toma para saber si su sitio ya la cubre. */
+type DatosCubierta = Pick<TomaExcel, 'estado' | 'sitio_estado' | 'sitio_comprobado_dia' | 'fecha'>;
+
+/**
+ * ¿La toma ya no hace falta porque su SITIO ya quedó comprobado? En la fase 2
+ * se marca por sitio (comp_marcar_sitios) y sus tomas siguen 'pendiente', así
+ * que una toma pendiente de un sitio comprobado seguía en el archivo del
+ * monitorista y sin ESTATUS en el Formato general: alguien iba otra vez a un
+ * sitio ya comprobado (revisión 3, 23-oct-2026). Cubierta = toma por hacer
+ * (pendiente o regresada) de un sitio 'comprobado' cuya fecha es ≤ el día en
+ * que se comprobó. Si no se sabe ese día (vw_comp_tomas todavía no lo trae)
+ * o la toma no tiene fecha, cuenta como cubierta: es mejor no mandar a
+ * alguien a campo que mandarlo de más.
+ */
+export function tomaCubiertaPorSitio(t: DatosCubierta): boolean {
+  if (t.sitio_estado !== 'comprobado') return false;
+  const e = t.estado ?? 'pendiente';
+  if (e !== 'pendiente' && e !== 'regresada') return false;
+  const dia = diaIso(t.sitio_comprobado_dia);
+  const fecha = diaIso(t.fecha);
+  return dia === null || fecha === null || fecha <= dia;
+}
+
+/** ESTATUS de una toma que su sitio ya cubre (tomaCubiertaPorSitio). */
+export const ESTATUS_SITIO_COMPROBADO = 'SITIO COMPROBADO';
 
 /**
  * ESTATUS legible de la toma en el Formato general. Antes era texto libre y
  * nada decía que una toma estaba quitada o su campaña cerrada (revisión del
  * núcleo, 23-oct-2026):
  *   QUITADA (toma cancelada o sitio cancelado) · COMPROBADA · CERRADA (la
- *   campaña) · POR REVISAR · REGRESADA · vacío si está pendiente.
+ *   campaña) · SITIO COMPROBADO (tomaCubiertaPorSitio; revisión 3,
+ *   23-oct-2026) · POR REVISAR · REGRESADA · vacío si está pendiente.
  */
-export function estatusToma(t: Pick<TomaExcel, 'estatus' | 'estado' | 'campana_estatus' | 'sitio_estado'>): string | null {
+export function estatusToma(
+  t: Pick<TomaExcel, 'estatus' | 'estado' | 'campana_estatus' | 'sitio_estado' | 'sitio_comprobado_dia' | 'fecha'>
+): string | null {
   const libre = texto(t.estatus);
   if (libre) return libre;
   if (t.estado === 'cancelada' || t.sitio_estado === 'cancelado') return 'QUITADA';
   if (t.estado === 'comprobada') return 'COMPROBADA';
   if (t.campana_estatus === 'cerrada') return 'CERRADA';
+  if (tomaCubiertaPorSitio(t)) return ESTATUS_SITIO_COMPROBADO;
   if (t.estado === 'por_revisar') return 'POR REVISAR';
   if (t.estado === 'regresada') return 'REGRESADA';
   return null;
@@ -766,13 +833,21 @@ export function estatusToma(t: Pick<TomaExcel, 'estatus' | 'estado' | 'campana_e
 
 /**
  * ¿Le toca ir a campo por esta toma? Pendiente o regresada, de una campaña
- * abierta y un sitio no cancelado. Lo quitado, lo de campañas cerradas y lo
- * ya tomado (por revisar, comprobada) NO va en los archivos de los
- * monitoristas: si no, alguien iba a campo por fotos que ya no se necesitan.
+ * abierta y un sitio no cancelado. Lo quitado, lo de campañas cerradas, lo
+ * ya tomado (por revisar, comprobada) y lo que su sitio ya cubre
+ * (tomaCubiertaPorSitio) NO va en los archivos de los monitoristas: si no,
+ * alguien iba a campo por fotos que ya no se necesitan.
  */
-export function tomaParaCampo(t: Pick<TomaExcel, 'estado' | 'campana_estatus' | 'sitio_estado'>): boolean {
+export function tomaParaCampo(
+  t: Pick<TomaExcel, 'estado' | 'campana_estatus' | 'sitio_estado' | 'sitio_comprobado_dia' | 'fecha'>
+): boolean {
   const e = t.estado ?? 'pendiente';
-  return (e === 'pendiente' || e === 'regresada') && t.campana_estatus !== 'cerrada' && t.sitio_estado !== 'cancelado';
+  return (
+    (e === 'pendiente' || e === 'regresada') &&
+    t.campana_estatus !== 'cerrada' &&
+    t.sitio_estado !== 'cancelado' &&
+    !tomaCubiertaPorSitio(t)
+  );
 }
 
 /** Las personas de una toma, sin vacías. */
@@ -853,7 +928,13 @@ function columnasBase(cfg: ConfigMedio, conRuta: boolean): { enc: string[]; anch
   return { enc, anchos };
 }
 
-function celdasBase(t: TomaExcel, conRuta: boolean): Celda[] {
+/**
+ * Las celdas comunes de una toma. HORARIO: en Ecovallas Digital y Biobox
+ * siempre «24 HORAS» (cfg.horario24h; Erik, 23-oct-2026), aunque la toma
+ * traiga el «24 HRS» de la bitácora o nada en sábado y domingo; en Vía Verde
+ * el horario del día de la toma.
+ */
+function celdasBase(cfg: ConfigMedio, t: TomaExcel, conRuta: boolean): Celda[] {
   const ruta = texto(t.ruta);
   return [
     celdaDia(t.fecha),
@@ -862,7 +943,7 @@ function celdasBase(t: TomaExcel, conRuta: boolean): Celda[] {
     texto(t.campana),
     texto(t.version),
     texto(t.comprobacion) ?? 'FOTO',
-    texto(t.horario),
+    cfg.horario24h ? HORARIO_24H : texto(t.horario),
     observacionesToma(t.especificacion, t.observaciones),
   ];
 }
@@ -895,8 +976,11 @@ const mergeTitulo = (cfg: ConfigMedio): RangoExcel[] =>
  * OBSERVACIONES = especificación de la campaña · observación (como hoy).
  * MONITORISTA sustituye al BUSCARV a la «Hoja 2» / «ASIGNACIÓN COLUMNAS» de
  * hoy; ESTATUS sale del estado de la toma (estatusToma); LLAVE, que hoy va
- * vacía, lleva el id de la toma. Van TODAS las tomas, también las quitadas
- * y las de campañas cerradas, con su ESTATUS: es la hoja maestra de Victor.
+ * vacía, lleva el id de la toma. Van TODAS las tomas que se le pasen, con
+ * su ESTATUS (también las de campañas cerradas y las ya comprobadas): es la
+ * hoja maestra de Victor. La pantalla las pasa por tomasExcelDeVista, que
+ * deja fuera las canceladas (23-oct-2026); si se le pasa una cancelada a
+ * mano, sale como QUITADA. HORARIO: «24 HORAS» en Ecovallas Digital y Biobox.
  */
 export function armarFormatoGeneral(args: { medio: MedioComp; periodo: PeriodoExcel; tomas: TomaExcel[] }): LibroExcel {
   const cfg = CONFIG[args.medio];
@@ -906,7 +990,7 @@ export function armarFormatoGeneral(args: { medio: MedioComp; periodo: PeriodoEx
   const filas: Celda[][] = [[], filaTitulo(cfg, args.periodo), [], enc.map((e) => e || null)];
   const vacias = cfg.seguimiento.map(() => null);
   for (const t of ordenarTomas(args.tomas)) {
-    filas.push([...celdasBase(t, conRuta), null, nombresMonitoristas(t), estatusToma(t), ...vacias, llaveToma(t)]);
+    filas.push([...celdasBase(cfg, t, conRuta), null, nombresMonitoristas(t), estatusToma(t), ...vacias, llaveToma(t)]);
   }
   const ultima = letraColumna(enc.length - 1);
   return {
@@ -995,7 +1079,7 @@ function libroMonitorista(cfg: ConfigMedio, periodo: PeriodoExcel, etiqueta: str
   fila3[anota] = etiqueta;
   const filas: Celda[][] = [[], denso(fila2), denso(fila3), enc.map((e) => e || null)];
   const vacias = COLUMNAS_MONITORISTA.map(() => null);
-  for (const t of suyas) filas.push([...celdasBase(t, conRuta), null, ...vacias, llaveToma(t)]);
+  for (const t of suyas) filas.push([...celdasBase(cfg, t, conRuta), null, ...vacias, llaveToma(t)]);
   const ultima = letraColumna(enc.length - 1);
   return {
     nombreArchivo: nombreArchivo(`Formato Comprobaciones ${cfg.archivo} ${periodoArchivo(periodo)} ${etiqueta}.xlsx`),
@@ -1090,7 +1174,7 @@ export function armarArchivoMonitoristasCompartido(args: {
   fila2[anota] = 'REGISTRAR LA FECHA DEL DIA QUE SE TOMO';
   const filas: Celda[][] = [[], denso(fila2), [], enc.map((e) => e || null)];
   const vacias = personas.map(() => null);
-  for (const t of tomas) filas.push([...celdasBase(t, conRuta), null, ...vacias, llaveToma(t)]);
+  for (const t of tomas) filas.push([...celdasBase(cfg, t, conRuta), null, ...vacias, llaveToma(t)]);
   const ultima = letraColumna(enc.length - 1);
   return {
     nombreArchivo: nombreArchivo(
@@ -1133,6 +1217,153 @@ export function armarArchivosMonitoristas(args: {
   const cfg = CONFIG[args.medio];
   const tomas = ordenarTomas(args.incluirTodas ? args.tomas : args.tomas.filter(tomaParaCampo));
   return repartirPorMonitorista(tomas).map((g) => libroMonitorista(cfg, args.periodo, g.etiqueta, g.tomas));
+}
+
+// ------------------------------------------------------------
+// De las vistas de la base a lo que arman los Excel
+// ------------------------------------------------------------
+//
+// Revisión de la SQL (23-oct-2026): la pantalla lee vw_comp_campanas y
+// vw_comp_tomas, y los nombres de las columnas no son los del Excel. Para que
+// cada pantalla no haga su propio mapeo (y uno se equivoque de columna), se
+// hace aquí UNA vez:
+//   CampanaExcel ← vw_comp_campanas: venta ← meta (la de la vista: meta_app,
+//     meta_full si es FULL, o los sitios activos), ejecutivo ← administrador
+//     (el EJECUTIVO del Excel es el ADMINISTRADOR de la bitácora).
+//   TomaExcel ← vw_comp_tomas: sitio ← sitio_clave, ruta ← ruta_numero,
+//     horario ← horario_texto (o «24 HORAS» en Ecovallas Digital y Biobox) y
+//     solo estado <> 'cancelada': ese filtro deja fuera las tomas de sitios
+//     cancelados, de sitios que salieron de la carga y de campañas retiradas
+//     (R4 de la SQL), y las que Victor quitó a mano. NO basta para los
+//     sitios YA COMPROBADOS (revisión 3, 23-oct-2026): sus tomas siguen
+//     'pendiente'; de esas se encarga tomaCubiertaPorSitio (ESTATUS «SITIO
+//     COMPROBADO» y fuera de los archivos de los monitoristas).
+
+/** Lo que se usa de una fila de vw_comp_campanas (PostgREST puede mandar números como texto). */
+export type FilaVistaCampana = {
+  id: number | string;
+  campana: string;
+  version?: string | null;
+  vendedor?: string | null;
+  administrador?: string | null;
+  arte?: string | null;
+  analista_email?: string | null;
+  meta?: number | string | null;
+  comprobados?: number | string | null;
+  estatus?: 'abierta' | 'cerrada' | null;
+  cerrada_en?: string | null;
+  especificacion?: string | null;
+  retirada?: boolean | null;
+};
+
+/** Lo que se usa de una fila de vw_comp_tomas. */
+export type FilaVistaToma = {
+  id?: number | string | null;
+  medio?: MedioComp | string | null;
+  campana: string;
+  version?: string | null;
+  especificacion?: string | null;
+  campana_estatus?: 'abierta' | 'cerrada' | null;
+  sitio_clave: string;
+  sitio_estado?: 'pendiente' | 'comprobado' | 'cancelado' | null;
+  /** comp_sitios.comprobado_dia (pendiente en la vista: ver tomaCubiertaPorSitio). */
+  sitio_comprobado_dia?: string | Date | null;
+  /** PostgREST manda texto; otros clientes (PGlite) mandan Date. */
+  fecha: string | Date | null;
+  horario_texto?: string | null;
+  observaciones?: string | null;
+  comprobacion?: string | null;
+  turno?: string | null;
+  ruta_numero?: number | string | null;
+  monitorista_email?: string | null;
+  estado?: EstadoToma | null;
+};
+
+/** Correo → nombre (de comp_equipo o comp_monitoristas); se busca en minúsculas. */
+export type NombresPorCorreo = Map<string, string> | Record<string, string | null | undefined> | null | undefined;
+
+function nombreDe(nombres: NombresPorCorreo, email: string | null | undefined): string | null {
+  const e = (email || '').trim().toLowerCase();
+  if (!e || !nombres) return null;
+  const n = nombres instanceof Map ? nombres.get(e) : nombres[e];
+  return texto(n);
+}
+
+/**
+ * Filas de vw_comp_campanas → CampanaExcel, TODAS y en el mismo orden.
+ * `nombres` pone el nombre de la analista en DISEÑADOR (sin él va su correo,
+ * que nombreCorto recorta). Las campañas RETIRADAS (ya no vienen en Pauta VV
+ * o el plano, o las reemplazó otra versión) también van, con `retirada`:
+ * antes se quitaban aquí y con ellas se perdía lo comprobado en la
+ * COMPROBACIÓN DIARIA y en el pie DISEÑADORES (revisión 3, 23-oct-2026).
+ * Ahora salen con ESTATUS «RETIRADA», y armarAsignacion({ omitirRetiradas })
+ * las quita solo de la hoja de ASIGNACIÓN si Victor no las quiere ver.
+ */
+export function campanasExcelDeVista(filas: FilaVistaCampana[], opts: { nombres?: NombresPorCorreo } = {}): CampanaExcel[] {
+  return filas.map((c) => ({
+      id: c.id,
+      campana: c.campana,
+      version: c.version ?? null,
+      vendedor: c.vendedor ?? null,
+      ejecutivo: c.administrador ?? null,
+      arte: c.arte ?? null,
+      analista: nombreDe(opts.nombres, c.analista_email) ?? texto(c.analista_email),
+      analista_email: texto(c.analista_email)?.toLowerCase() ?? null,
+      venta: c.meta ?? null,
+      comprobados: c.comprobados ?? null,
+      estatus: c.estatus ?? null,
+      cerrada_en: c.cerrada_en ?? null,
+      especificacion: c.especificacion ?? null,
+      retirada: c.retirada === true,
+    }));
+}
+
+/**
+ * Día 'YYYY-MM-DD' de una fecha de la vista. PostgREST manda texto, pero
+ * otros clientes (PGlite, un arnés de pruebas) mandan Date y antes eso se
+ * volvía null sin aviso: TODAS las tomas caían al final como «en espera»
+ * (revisión 3, 23-oct-2026). Un Date de una columna date viene a la
+ * medianoche UTC, así que se lee su día UTC. null si no se entiende.
+ */
+export function diaDeVista(x: unknown): string | null {
+  if (x instanceof Date) return Number.isNaN(x.getTime()) ? null : x.toISOString().slice(0, 10);
+  return diaIso(x);
+}
+
+/**
+ * Filas de vw_comp_tomas → TomaExcel, solo las que no están canceladas
+ * (estado <> 'cancelada'), en el mismo orden. `nombres` pone el nombre del
+ * monitorista (sin él, el archivo se llama como el usuario del correo).
+ * El horario sale de horarioParaMostrar: «24 HORAS» en Ecovallas Digital y
+ * Biobox, el horario_texto del día en Vía Verde. Si la fila no trae `medio`,
+ * el horario va tal cual y lo corrige el Excel con la unidad que se arma.
+ */
+export function tomasExcelDeVista(filas: FilaVistaToma[], opts: { nombres?: NombresPorCorreo } = {}): TomaExcel[] {
+  const out: TomaExcel[] = [];
+  for (const t of filas) {
+    if (t.estado === 'cancelada') continue;
+    const email = texto(t.monitorista_email)?.toLowerCase() ?? null;
+    out.push({
+      id: t.id ?? null,
+      fecha: diaDeVista(t.fecha),
+      sitio: t.sitio_clave,
+      ruta: t.ruta_numero ?? null,
+      campana: t.campana,
+      version: t.version ?? null,
+      comprobacion: t.comprobacion ?? null,
+      horario: horarioParaMostrar(t.medio, t.horario_texto),
+      especificacion: t.especificacion ?? null,
+      observaciones: t.observaciones ?? null,
+      monitorista: nombreDe(opts.nombres, email),
+      monitorista_email: email,
+      turno: t.turno ?? null,
+      estado: t.estado ?? null,
+      campana_estatus: t.campana_estatus ?? null,
+      sitio_estado: t.sitio_estado ?? null,
+      sitio_comprobado_dia: diaDeVista(t.sitio_comprobado_dia),
+    });
+  }
+  return out;
 }
 
 // ------------------------------------------------------------

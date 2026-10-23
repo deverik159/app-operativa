@@ -394,11 +394,17 @@ const {
   describirPlan,
   generarFechasPlan,
   ventanaToma,
+  ventanasToma,
   esFinDeSemana,
   horarioDelDia,
+  HORARIO_24H,
+  esMedio24h,
+  horarioParaMostrar,
   observacionesToma,
   compararNatural,
   sitioEntraAlPlan,
+  sitioRecibeTomasNuevas,
+  campanaOmitidaDelPlan,
   generarRenglonesPlan,
   resumenPlan,
   diasEntre,
@@ -459,7 +465,24 @@ const CASOS_PLAN = {
     { "nombre": "la campaña sigue en el mes siguiente: se recorta al periodo", "sitio": { "inicio": null, "fin": null }, "campana": { "inicio": "2026-08-10", "fin": "2026-09-15" }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventana": { "inicio": "2026-08-10", "fin": "2026-08-31" } },
     { "nombre": "el sitio corre en otro mes: sin ventana", "sitio": { "inicio": "2026-09-01", "fin": "2026-09-10" }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventana": null },
     { "nombre": "la vigencia del sitio gana a la de la campaña", "sitio": { "inicio": "2026-08-03", "fin": "2026-08-07" }, "campana": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventana": { "inicio": "2026-08-03", "fin": "2026-08-07" } },
-    { "nombre": "catorcena: sitio que acaba el primer día", "sitio": { "inicio": "2026-10-01", "fin": "2026-10-12" }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-10-12", "fin": "2026-10-25" }, "ventana": { "inicio": "2026-10-12", "fin": "2026-10-12" } }
+    { "nombre": "catorcena: sitio que acaba el primer día", "sitio": { "inicio": "2026-10-01", "fin": "2026-10-12" }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-10-12", "fin": "2026-10-25" }, "ventana": { "inicio": "2026-10-12", "fin": "2026-10-12" } },
+    { "nombre": "el sitio corre más allá de la campaña: se recorta a la campaña (intersección)", "sitio": { "inicio": "2026-07-25", "fin": "2026-08-31" }, "campana": { "inicio": "2026-08-05", "fin": "2026-08-20" }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventana": { "inicio": "2026-08-05", "fin": "2026-08-20" } },
+    { "nombre": "campaña recortada en la app: el sitio también", "sitio": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "campana": { "inicio": "2026-08-10", "fin": "2026-08-12" }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventana": { "inicio": "2026-08-10", "fin": "2026-08-12" } },
+    { "nombre": "la campaña acaba antes de que empiece el sitio: sin ventana", "sitio": { "inicio": "2026-08-20", "fin": "2026-08-31" }, "campana": { "inicio": "2026-08-01", "fin": "2026-08-15" }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventana": null },
+    { "nombre": "sitio sin inicio y campaña sin fin que no se tocan: sin ventana", "sitio": { "inicio": null, "fin": "2026-08-20" }, "campana": { "inicio": "2026-08-25", "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventana": null }
+  ],
+  "ventanasToma": [
+    { "nombre": "sin tramos: la intersección de siempre", "sitio": { "inicio": "2026-07-25", "fin": "2026-08-10", "tramos": null }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [{ "inicio": "2026-08-01", "fin": "2026-08-10" }] },
+    { "nombre": "tramos vacíos = un solo tramo con inicio y fin del sitio", "sitio": { "inicio": "2026-08-03", "fin": "2026-08-04", "tramos": [] }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [{ "inicio": "2026-08-03", "fin": "2026-08-04" }] },
+    { "nombre": "dos tramos separados: dos ventanas", "sitio": { "inicio": "2026-08-01", "fin": "2026-08-25", "tramos": [{ "inicio": "2026-08-01", "fin": "2026-08-05" }, { "inicio": "2026-08-20", "fin": "2026-08-25" }] }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [{ "inicio": "2026-08-01", "fin": "2026-08-05" }, { "inicio": "2026-08-20", "fin": "2026-08-25" }] },
+    { "nombre": "tramos que se tocan se juntan (1-5 y 6-9)", "sitio": { "tramos": [{ "inicio": "2026-08-01", "fin": "2026-08-05" }, { "inicio": "2026-08-06", "fin": "2026-08-09" }] }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [{ "inicio": "2026-08-01", "fin": "2026-08-09" }] },
+    { "nombre": "un día de hueco no se junta (1-5 y 7-9)", "sitio": { "tramos": [{ "inicio": "2026-08-01", "fin": "2026-08-05" }, { "inicio": "2026-08-07", "fin": "2026-08-09" }] }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [{ "inicio": "2026-08-01", "fin": "2026-08-05" }, { "inicio": "2026-08-07", "fin": "2026-08-09" }] },
+    { "nombre": "tramos encimados y en desorden se juntan", "sitio": { "tramos": [{ "inicio": "2026-08-10", "fin": "2026-08-20" }, { "inicio": "2026-08-01", "fin": "2026-08-12" }] }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [{ "inicio": "2026-08-01", "fin": "2026-08-20" }] },
+    { "nombre": "un tramo fuera del periodo se descarta, el otro se recorta", "sitio": { "tramos": [{ "inicio": "2026-07-01", "fin": "2026-07-10" }, { "inicio": "2026-08-28", "fin": "2026-09-05" }] }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [{ "inicio": "2026-08-28", "fin": "2026-08-31" }] },
+    { "nombre": "los tramos también se recortan por la campaña", "sitio": { "tramos": [{ "inicio": "2026-08-01", "fin": "2026-08-05" }, { "inicio": "2026-08-20", "fin": "2026-08-25" }] }, "campana": { "inicio": "2026-08-03", "fin": "2026-08-21" }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [{ "inicio": "2026-08-03", "fin": "2026-08-05" }, { "inicio": "2026-08-20", "fin": "2026-08-21" }] },
+    { "nombre": "con tramos, el inicio y fin del sitio no cuentan", "sitio": { "inicio": "2026-08-01", "fin": "2026-08-31", "tramos": [{ "inicio": "2026-08-10", "fin": "2026-08-12" }] }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [{ "inicio": "2026-08-10", "fin": "2026-08-12" }] },
+    { "nombre": "un tramo con un extremo vacío toma el de la campaña", "sitio": { "tramos": [{ "inicio": null, "fin": "2026-08-05" }] }, "campana": { "inicio": "2026-08-02", "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [{ "inicio": "2026-08-02", "fin": "2026-08-05" }] },
+    { "nombre": "ningún tramo cae en el periodo: sin ventanas", "sitio": { "tramos": [{ "inicio": "2026-09-01", "fin": "2026-09-05" }] }, "campana": { "inicio": null, "fin": null }, "periodo": { "inicio": "2026-08-01", "fin": "2026-08-31" }, "ventanas": [] }
   ],
   "horarioDelDia": [
     { "nombre": "lunes: el de lunes a viernes", "lv": "24 HRS", "sd": "07:00 - 22:00", "fecha": "2026-08-03", "horario": "24 HRS" },
@@ -482,10 +505,38 @@ test('generarFechasPlan: tabla compartida con comp_plan_normal / comp_generar_to
   }
 });
 
-test('ventanaToma: tabla compartida con comp_generar_tomas', () => {
+test('ventanaToma: tabla compartida con comp_ventanas (intersección de sitio, campaña y periodo)', () => {
   for (const c of CASOS_PLAN.ventanaToma) {
     assert.deepEqual(ventanaToma(c.sitio, c.campana, c.periodo), c.ventana, c.nombre);
+    // Sin tramos, ventanasToma es la misma ventana (o ninguna).
+    assert.deepEqual(ventanasToma(c.sitio, c.campana, c.periodo), c.ventana ? [c.ventana] : [], 'ventanas · ' + c.nombre);
   }
+});
+
+test('ventanasToma: tabla compartida con comp_ventanas (tramos, R10)', () => {
+  for (const c of CASOS_PLAN.ventanasToma) {
+    assert.deepEqual(ventanasToma(c.sitio, c.campana, c.periodo), c.ventanas, c.nombre);
+    // ventanaToma = del primer inicio al último fin.
+    const env = c.ventanas.length ? { inicio: c.ventanas[0].inicio, fin: c.ventanas.at(-1).fin } : null;
+    assert.deepEqual(ventanaToma(c.sitio, c.campana, c.periodo), env, 'envolvente · ' + c.nombre);
+  }
+});
+
+test('ventanaToma: la intersección nunca se sale de la campaña ni del periodo (barrido)', () => {
+  const D = [null, '2026-07-25', '2026-08-01', '2026-08-05', '2026-08-20', '2026-08-31', '2026-09-03'];
+  const P = { inicio: '2026-08-01', fin: '2026-08-31' };
+  const max = (...x) => x.filter(Boolean).sort().at(-1) ?? null;
+  const min = (...x) => x.filter(Boolean).sort()[0] ?? null;
+  let n = 0;
+  for (const si of D) for (const sf of D) for (const ci of [null, '2026-08-05']) for (const cf of [null, '2026-08-25']) {
+    if (si && sf && sf < si) continue;
+    n++;
+    const a = max(si, ci, P.inicio);
+    const b = min(sf, cf, P.fin);
+    const esperado = a && b && a <= b ? { inicio: a, fin: b } : null;
+    assert.deepEqual(ventanaToma({ inicio: si, fin: sf }, { inicio: ci, fin: cf }, P), esperado, JSON.stringify({ si, sf, ci, cf }));
+  }
+  assert.equal(n, 136);
 });
 
 test('horarioDelDia: tabla compartida con comp_generar_tomas', () => {
@@ -632,13 +683,13 @@ test('generarRenglonesPlan: sitio × fecha dentro de la vigencia de cada sitio, 
   const r = generarRenglonesPlan({ tipo: 'cada_n', cada_n: 7 }, campana, sitios, PERIODO_AGO);
   const esp = campana.especificacion;
   assert.deepEqual(r, [
-    { sitio_clave: 'MX_CM_BB_MED_0902', fecha: '2026-08-01', horario: '10:00 - 18:00', observaciones: 'TOMAS POR LADO', observacionesExcel: `${esp} · TOMAS POR LADO` },
+    { sitio_clave: 'MX_CM_BB_MED_0902', fecha: '2026-08-01', horario: '10:00 - 18:00', horarioMostrar: '10:00 - 18:00', observaciones: 'TOMAS POR LADO', observacionesExcel: `${esp} · TOMAS POR LADO` },
     // Mismo día: orden natural (901 antes que 0902).
-    { sitio_clave: 'MX_CM_BB_MED_901', fecha: '2026-08-08', horario: null, observaciones: null, observacionesExcel: esp },
-    { sitio_clave: 'MX_CM_BB_MED_0902', fecha: '2026-08-08', horario: '10:00 - 18:00', observaciones: 'TOMAS POR LADO', observacionesExcel: `${esp} · TOMAS POR LADO` },
-    { sitio_clave: 'MX_CM_BB_MED_901', fecha: '2026-08-15', horario: null, observaciones: null, observacionesExcel: esp },
-    { sitio_clave: 'MX_CM_BB_MED_901', fecha: '2026-08-22', horario: null, observaciones: null, observacionesExcel: esp },
-    { sitio_clave: 'MX_CM_BB_MED_901', fecha: '2026-08-29', horario: null, observaciones: null, observacionesExcel: esp },
+    { sitio_clave: 'MX_CM_BB_MED_901', fecha: '2026-08-08', horario: null, horarioMostrar: null, observaciones: null, observacionesExcel: esp },
+    { sitio_clave: 'MX_CM_BB_MED_0902', fecha: '2026-08-08', horario: '10:00 - 18:00', horarioMostrar: '10:00 - 18:00', observaciones: 'TOMAS POR LADO', observacionesExcel: `${esp} · TOMAS POR LADO` },
+    // El 901 corre hasta el 31, pero la campaña acaba el 14: la ventana es
+    // la intersección (comp_ventanas, 23-oct-2026), así que ya no hay tomas
+    // el 15, 22 y 29 (con coalesce sí las había y la base no las creaba).
   ]);
   assert.deepEqual(generarRenglonesPlan({ tipo: 'cada_n', cada_n: 0 }, campana, sitios, PERIODO_AGO), []);
   assert.deepEqual(generarRenglonesPlan({ tipo: 'inicio' }, campana, [], PERIODO_AGO), []);
@@ -699,4 +750,191 @@ test('resumenPlan cuenta lo mismo que generarRenglonesPlan (todos los casos de l
       assert.equal(resumenPlan(c.plan, { inicio: c.inicio, fin: c.fin }, sitios, p).renglones, n, c.nombre);
     }
   }
+});
+
+// ------------------------------------------------------------
+// Pendientes del núcleo tras la revisión de la SQL (23-oct-2026)
+// ------------------------------------------------------------
+
+test('leerPlan: incluir_comprobados solo si viene exactamente true (como comp_plan_normal)', () => {
+  assert.deepEqual(normalizarPlan({ tipo: 'diario', incluir_comprobados: true }), {
+    tipo: 'diario',
+    cada_n: null,
+    fechas: null,
+    incluir_comprobados: true,
+  });
+  // 'true' como texto, 1 o false: no se guarda (la llave ni siquiera existe).
+  for (const v of ['true', 1, false, null]) {
+    const p = normalizarPlan({ tipo: 'inicio', incluir_comprobados: v });
+    assert.deepEqual(p, { tipo: 'inicio', cada_n: null, fechas: null }, String(v));
+    assert.equal('incluir_comprobados' in p, false);
+  }
+  assert.equal(describirPlan({ tipo: 'inicio', incluir_comprobados: true }), 'Al inicio (también comprobados)');
+  assert.equal(describirPlan({ tipo: 'cada_n', cada_n: 3, incluir_comprobados: true }), 'Cada 3 días (también comprobados)');
+  assert.equal(describirPlan({ tipo: 'inicio' }), 'Al inicio');
+});
+
+test('sitioRecibeTomasNuevas: un sitio comprobado no recibe tomas nuevas salvo incluir_comprobados (R11)', () => {
+  assert.equal(sitioRecibeTomasNuevas({ estado: 'pendiente' }, { tipo: 'diario' }), true);
+  assert.equal(sitioRecibeTomasNuevas({}, null), true);
+  assert.equal(sitioRecibeTomasNuevas({ estado: 'comprobado' }, { tipo: 'diario' }), false);
+  assert.equal(sitioRecibeTomasNuevas({ estado: 'comprobado' }, { tipo: 'diario', incluir_comprobados: true }), true);
+  assert.equal(sitioRecibeTomasNuevas({ estado: 'cancelado' }, { tipo: 'diario', incluir_comprobados: true }), false);
+  assert.equal(sitioRecibeTomasNuevas({ fuera_de_carga: true }, { tipo: 'diario', incluir_comprobados: true }), false);
+});
+
+test('generarRenglonesPlan y resumenPlan: por tramo, y sin tomas nuevas para los comprobados', () => {
+  const sitios = [
+    // Dos tramos separados: «al inicio» da una toma por tramo.
+    { sitio_clave: 'MX_CM_VV_COL_448', tramos: [{ inicio: '2026-08-01', fin: '2026-08-05' }, { inicio: '2026-08-20', fin: '2026-08-25' }] },
+    // Tramos que se tocan: uno solo.
+    { sitio_clave: 'MX_CM_VV_COL_491', tramos: [{ inicio: '2026-08-03', fin: '2026-08-05' }, { inicio: '2026-08-06', fin: '2026-08-09' }] },
+    { sitio_clave: 'MX_CM_VV_COL_606', estado: 'comprobado' },
+  ];
+  const r = generarRenglonesPlan({ tipo: 'inicio' }, null, sitios, PERIODO_AGO);
+  assert.deepEqual(
+    r.map((x) => [x.sitio_clave, x.fecha]),
+    [
+      ['MX_CM_VV_COL_448', '2026-08-01'],
+      ['MX_CM_VV_COL_491', '2026-08-03'],
+      ['MX_CM_VV_COL_448', '2026-08-20'],
+    ]
+  );
+  const res = resumenPlan({ tipo: 'inicio' }, null, sitios, PERIODO_AGO);
+  assert.equal(res.renglones, 3);
+  assert.equal(res.sitiosConTomas, 2);
+  assert.deepEqual(res.sitiosComprobados, ['MX_CM_VV_COL_606']);
+  // Con incluir_comprobados el comprobado sí entra.
+  const conComp = { tipo: 'inicio', incluir_comprobados: true };
+  assert.equal(generarRenglonesPlan(conComp, null, sitios, PERIODO_AGO).length, 4);
+  const res2 = resumenPlan(conComp, null, sitios, PERIODO_AGO);
+  assert.deepEqual([res2.renglones, res2.sitiosComprobados], [4, []]);
+  // Diario por tramos: 5 + 6 días del 448 y 7 del 491, sin los huecos.
+  assert.equal(generarRenglonesPlan({ tipo: 'diario' }, null, sitios, PERIODO_AGO).length, 18);
+  assert.equal(resumenPlan({ tipo: 'diario' }, null, sitios, PERIODO_AGO).renglones, 18);
+  // La campaña recorta los tramos: el 448 queda del 3 al 5 y del 20 al 21.
+  const camp = { inicio: '2026-08-03', fin: '2026-08-21' };
+  assert.deepEqual(
+    generarRenglonesPlan({ tipo: 'inicio_fin' }, camp, [sitios[0]], PERIODO_AGO).map((x) => x.fecha),
+    ['2026-08-03', '2026-08-05', '2026-08-20', '2026-08-21']
+  );
+});
+
+test('resumenPlan cuenta lo mismo que generarRenglonesPlan también con tramos y comprobados', () => {
+  const sitios = [
+    { sitio_clave: 'A', tramos: [{ inicio: '2026-08-01', fin: '2026-08-04' }, { inicio: '2026-08-15', fin: '2026-08-18' }] },
+    { sitio_clave: 'B', tramos: [{ inicio: '2026-10-10', fin: '2026-10-14' }, { inicio: '2026-10-15', fin: '2026-10-30' }] },
+    { sitio_clave: 'C', estado: 'comprobado', inicio: '2026-08-05', fin: '2026-08-12' },
+    { sitio_clave: 'D', inicio: '2026-12-20', fin: '2027-01-05' },
+  ];
+  const periodos = [PERIODO_AGO, { inicio: '2026-10-12', fin: '2026-10-25' }, { inicio: '2026-12-28', fin: '2027-01-10' }];
+  for (const c of CASOS_PLAN.generarFechasPlan) {
+    for (const p of periodos) {
+      for (const plan of [c.plan, c.plan && typeof c.plan === 'object' ? { ...c.plan, incluir_comprobados: true } : c.plan]) {
+        const n = generarRenglonesPlan(plan, { inicio: c.inicio, fin: c.fin }, sitios, p).length;
+        assert.equal(resumenPlan(plan, { inicio: c.inicio, fin: c.fin }, sitios, p).renglones, n, c.nombre);
+      }
+    }
+  }
+});
+
+test('horario de 24 horas: Ecovallas Digital y Biobox sin franjas; Vía Verde con el del día', () => {
+  assert.equal(HORARIO_24H, '24 HORAS');
+  for (const m of ['Pantalla', 'Máquina', 'Ecovallas', 'Biobox']) assert.equal(esMedio24h(m), true, m);
+  for (const m of ['Columna', 'Pórtico', 'Vía Verde', 'Via Verde', '', null, undefined, 'Pantallas', 'Biobox Perú']) assert.equal(esMedio24h(m), false, String(m));
+  assert.equal(horarioParaMostrar('Pantalla', '24 HRS'), '24 HORAS');
+  assert.equal(horarioParaMostrar('Máquina', null), '24 HORAS');
+  assert.equal(horarioParaMostrar('Biobox', '10:00 - 18:00'), '24 HORAS');
+  assert.equal(horarioParaMostrar('Columna', '  06:00 - 09:59 '), '06:00 - 09:59');
+  assert.equal(horarioParaMostrar('Pórtico', '   '), null);
+  assert.equal(horarioParaMostrar(null, '24 HRS'), '24 HRS');
+});
+
+// ---- Revisión 3 del núcleo (23-oct-2026) ----
+
+test('esMedio24h acepta la etiqueta de la vista y no depende de acentos ni mayúsculas', () => {
+  // vw_comp_campanas.unidad_etiqueta dice 'Ecovallas Digital' (comp_etiqueta_unidad).
+  for (const m of ['Ecovallas Digital', 'ECOVALLAS DIGITAL', 'Maquina', 'BIOBOX', 'máquina', ' pantalla ']) {
+    assert.equal(esMedio24h(m), true, m);
+  }
+  assert.equal(horarioParaMostrar('Ecovallas Digital', '24 HRS'), '24 HORAS');
+  assert.equal(horarioParaMostrar('Via Verde', ' 06:00 - 09:59 '), '06:00 - 09:59');
+});
+
+test('ventanaToma / ventanasToma: sin periodo completo no hay ventana (la SQL nunca recibe uno así)', () => {
+  const sitio = { inicio: '2026-01-01', fin: '2026-12-31' };
+  assert.equal(ventanaToma(sitio, null, {}), null);
+  assert.equal(ventanaToma(sitio, null, null), null);
+  assert.equal(ventanaToma(sitio, { inicio: '2026-08-01', fin: '2026-08-31' }, { inicio: '2026-08-01', fin: null }), null);
+  assert.equal(ventanaToma(sitio, null, { inicio: null, fin: '2026-08-31' }), null);
+  // Periodo al revés o con una fecha que no existe.
+  assert.deepEqual(ventanasToma(sitio, null, { inicio: '2026-08-31', fin: '2026-08-01' }), []);
+  assert.deepEqual(ventanasToma(sitio, null, { inicio: '2026-02-30', fin: '2026-03-10' }), []);
+  // Con tramos también.
+  assert.deepEqual(ventanasToma({ tramos: [{ inicio: '2026-08-01', fin: '2026-08-05' }] }, null, {}), []);
+  // La vista previa ya no ofrece tomas sin periodo: antes eran 365 por sitio.
+  assert.deepEqual(generarRenglonesPlan({ tipo: 'diario' }, null, [{ sitio_clave: 'S1', ...sitio }], {}), []);
+  const r = resumenPlan({ tipo: 'diario' }, null, [{ sitio_clave: 'S1', ...sitio }], {});
+  assert.deepEqual([r.renglones, r.sitiosSinVentana], [0, ['S1']]);
+  // Con periodo de un solo día sí hay ventana.
+  assert.deepEqual(ventanaToma(sitio, null, { inicio: '2026-08-10', fin: '2026-08-10' }), { inicio: '2026-08-10', fin: '2026-08-10' });
+});
+
+test('campanaOmitidaDelPlan: cerrada o retirada no reciben tomas del plan (comp_ap_cam / comp_ap_sit)', () => {
+  assert.equal(campanaOmitidaDelPlan(null), null);
+  assert.equal(campanaOmitidaDelPlan(undefined), null);
+  assert.equal(campanaOmitidaDelPlan({}), null);
+  assert.equal(campanaOmitidaDelPlan({ estatus: 'abierta', retirada: false }), null);
+  assert.equal(campanaOmitidaDelPlan({ estatus: 'cerrada' }), 'cerrada');
+  assert.equal(campanaOmitidaDelPlan({ retirada: true }), 'retirada');
+  // La base filtra primero por estatus.
+  assert.equal(campanaOmitidaDelPlan({ estatus: 'cerrada', retirada: true }), 'cerrada');
+  // Solo true cuenta (la columna es boolean not null).
+  assert.equal(campanaOmitidaDelPlan({ retirada: 'true' }), null);
+});
+
+test('generarRenglonesPlan y resumenPlan: 0 en campañas cerradas o retiradas, y dicen por qué', () => {
+  // El caso de la revisión: plan diario, 8 días; la base crea 0 en las dos.
+  const per = { inicio: '2026-08-01', fin: '2026-08-08' };
+  const sitios = [{ sitio_clave: 'MX_CM_BB_MED_0001' }];
+  const plan = { tipo: 'diario' };
+  assert.equal(generarRenglonesPlan(plan, { estatus: 'abierta' }, sitios, per).length, 8);
+  assert.equal(resumenPlan(plan, { estatus: 'abierta' }, sitios, per).campanaOmitida, null);
+  for (const [camp, motivo] of [
+    [{ estatus: 'abierta', retirada: true }, 'retirada'],
+    [{ estatus: 'cerrada', retirada: false }, 'cerrada'],
+  ]) {
+    assert.deepEqual(generarRenglonesPlan(plan, camp, sitios, per), [], motivo);
+    const r = resumenPlan(plan, camp, sitios, per);
+    assert.deepEqual(
+      [r.error, r.renglones, r.sitiosConTomas, r.sitiosSinVentana, r.sitiosComprobados, r.campanaOmitida],
+      [null, 0, 0, [], [], motivo]
+    );
+  }
+  // Un plan malo sigue diciendo su error aunque la campaña esté cerrada (la base lo rechaza antes).
+  const malo = resumenPlan({ tipo: 'cada_n', cada_n: 0 }, { estatus: 'cerrada' }, sitios, per);
+  assert.deepEqual([malo.error, malo.campanaOmitida], [MENSAJES_PLAN.cada_n, null]);
+});
+
+test('generarRenglonesPlan: horarioMostrar «24 HORAS» en Biobox y Ecovallas; horario sigue siendo el de la base', () => {
+  // 3 y 4 de oct de 2026 son sábado y domingo; la bitácora de Biobox solo trae una columna.
+  const per = { inicio: '2026-10-02', fin: '2026-10-04' };
+  const sitios = [{ sitio_clave: 'MX_CM_BB_MED_0001', horario_lv: '24 HRS', horario_sd: null }];
+  for (const camp of [{ medio: 'Máquina' }, { unidad: 'Biobox' }, { unidad: 'Ecovallas Digital' }]) {
+    const r = generarRenglonesPlan({ tipo: 'diario' }, camp, sitios, per);
+    assert.deepEqual(r.map((x) => x.horario), ['24 HRS', null, null], JSON.stringify(camp));
+    assert.deepEqual(r.map((x) => x.horarioMostrar), ['24 HORAS', '24 HORAS', '24 HORAS'], JSON.stringify(camp));
+  }
+  // Vía Verde: el del día, igual que horario.
+  const vv = generarRenglonesPlan(
+    { tipo: 'diario' },
+    { medio: 'Columna' },
+    [{ sitio_clave: 'MX_CM_VV_COL_448', horario_lv: '06:00 - 09:59', horario_sd: '24 HRS' }],
+    per
+  );
+  assert.deepEqual(vv.map((x) => x.horarioMostrar), ['06:00 - 09:59', '24 HRS', '24 HRS']);
+  assert.deepEqual(vv.map((x) => x.horarioMostrar), vv.map((x) => x.horario));
+  // Sin medio: horarioMostrar = horario.
+  const sin = generarRenglonesPlan({ tipo: 'diario' }, null, sitios, per);
+  assert.deepEqual(sin.map((x) => x.horarioMostrar), sin.map((x) => x.horario));
 });

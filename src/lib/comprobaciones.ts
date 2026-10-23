@@ -344,11 +344,27 @@ export type CampanaFila = DatosMeta & {
   comprobados_hoy?: number | null;
   /** La de la vista; si no viene, se calcula con metaDe. */
   meta?: number | null;
+  /** De dónde salió la meta, como vw_comp_campanas.meta_fuente. */
+  meta_fuente?: 'app' | 'full' | 'sitios' | null;
   pct?: number | null;
   completa?: boolean | null;
   fecha_limite_efectiva?: string | null;
-  fecha_limite_fuente?: 'archivo' | 'app' | 'regla' | 'fin' | null;
+  /**
+   * Como vw_comp_campanas.fecha_limite_fuente: 'app' (la puso el
+   * Supervisor), 'regla' (comp_reglas) o 'fin' (fin de la campaña o del
+   * periodo). Ya no hay 'archivo': con el rediseño (23-oct-2026) las
+   * campañas no salen de un Excel de comprobaciones con fecha límite, y la
+   * vista dejó de devolverlo; si el tipo lo conservara, la pantalla
+   * seguiría pintando una etiqueta que nunca llega.
+   */
+  fecha_limite_fuente?: 'app' | 'regla' | 'fin' | null;
   dias_restantes?: number | null;
+  /**
+   * La campaña ya no vino en la carga completa de Pauta VV o del plano, o
+   * la reemplazó otra versión (R1/R2 de la SQL, 23-oct-2026): sigue abierta
+   * pero sin pendientes ni tomas por hacer.
+   */
+  retirada?: boolean | null;
 };
 
 /** Sitios comprobados por alguien (vw_comp_diaria, ya filtrada al periodo y unidad). */
@@ -472,6 +488,12 @@ export type PlanTomas = {
   cada_n?: number | null;
   /** Solo 'fechas': 'YYYY-MM-DD'. */
   fechas?: string[] | null;
+  /**
+   * R11 de la SQL (23-oct-2026): sin esto, el plan NO le crea tomas nuevas a
+   * un sitio que ya está comprobado (conserva las que tenía). Solo existe si
+   * es true, igual que en comp_plan_normal.
+   */
+  incluir_comprobados?: true;
 };
 
 export const TIPOS_PLAN: readonly TipoPlan[] = ['inicio', 'inicio_fin', 'cada_n', 'diario', 'fechas'];
@@ -571,6 +593,10 @@ export type LecturaPlan = { plan: PlanTomas; error: null } | { plan: null; error
  *     pero UNA que no se entienda rechaza todo el plan, como la base. Antes
  *     aquí se tiraba sin avisar y la base rechazaba el lote completo.
  *     Quedan sin repetir y en orden.
+ *   · incluir_comprobados: se conserva SOLO si viene exactamente true (como
+ *     p->'incluir_comprobados' = 'true'::jsonb); 'true' como texto o 1 no.
+ *     Antes aquí se tiraba, y la vista previa contaba tomas nuevas para
+ *     sitios comprobados que la base no iba a crear (23-oct-2026).
  * Lo demás del objeto se ignora (cada_n en un plan diario, etc.).
  */
 export function leerPlan(x: unknown): LecturaPlan {
@@ -599,7 +625,11 @@ export function leerPlan(x: unknown): LecturaPlan {
     if (!dias.size) return { plan: null, error: MENSAJES_PLAN.sinFechas };
     fechas = [...dias].sort();
   }
-  return { plan: { tipo: tipo as TipoPlan, cada_n: n, fechas }, error: null };
+  const plan: PlanTomas = { tipo: tipo as TipoPlan, cada_n: n, fechas };
+  // La llave solo existe si es true: un plan sin ella sale idéntico al de
+  // antes (deepEqual estricto distingue «undefined» de «no está»).
+  if (o.incluir_comprobados === true) plan.incluir_comprobados = true;
+  return { plan, error: null };
 }
 
 /** El plan limpio (lo que guarda comp_plan_normal) o null si no sirve. */
@@ -637,13 +667,16 @@ export function describirPlan(x: unknown): string {
     }
     return 'Sin plan';
   }
-  if (plan.tipo === 'cada_n') return plan.cada_n === 1 ? 'Cada día' : `Cada ${plan.cada_n} días`;
+  // R11 (23-oct-2026): que se vea en la lista que este plan sí vuelve a
+  // pedir toma de los sitios ya comprobados.
+  const extra = plan.incluir_comprobados ? ' (también comprobados)' : '';
+  if (plan.tipo === 'cada_n') return (plan.cada_n === 1 ? 'Cada día' : `Cada ${plan.cada_n} días`) + extra;
   if (plan.tipo === 'fechas') {
     const f = plan.fechas ?? [];
     const muestra = f.slice(0, 4).map(diaCorto).join(', ');
-    return `Fechas: ${muestra}${f.length > 4 ? ` y ${f.length - 4} más` : ''}`;
+    return `Fechas: ${muestra}${f.length > 4 ? ` y ${f.length - 4} más` : ''}${extra}`;
   }
-  return ETIQUETA_PLAN[plan.tipo];
+  return ETIQUETA_PLAN[plan.tipo] + extra;
 }
 
 /** Días de a hasta b, dos 'YYYY-MM-DD' válidos. */
@@ -653,7 +686,8 @@ function restaDias(a: string, b: string): number {
 
 /**
  * Las fechas de toma de UN sitio: espejo de comp_generar_tomas.
- * `inicio` y `fin` son la ventana YA recortada (ventanaToma), inclusiva.
+ * `inicio` y `fin` son UNA ventana YA recortada (ventanasToma), inclusiva;
+ * con tramos separados se llama una vez por ventana.
  *   · 'inicio'     → [inicio]
  *   · 'inicio_fin' → [inicio, fin]; una sola si coinciden
  *   · 'cada_n'     → inicio, inicio+n, inicio+2n… mientras ≤ fin. El fin
@@ -723,28 +757,119 @@ function contarFechas(p: PlanTomas, a: string, b: string): number {
 
 type Vigencia = { inicio?: string | null; fin?: string | null } | null | undefined;
 
+/** Un tramo de vigencia del mismo sitio en la misma versión (comp_sitios.tramos, R10). */
+export type TramoVigencia = { inicio?: string | null; fin?: string | null };
+
+/** Vigencia del sitio: su inicio y fin y, si corre en tramos separados, la lista. */
+export type VigenciaSitio =
+  | { inicio?: string | null; fin?: string | null; tramos?: TramoVigencia[] | null }
+  | null
+  | undefined;
+
+export type Ventana = { inicio: string; fin: string };
+
+/** El día siguiente de un 'YYYY-MM-DD' válido (para juntar tramos que se tocan). */
+const diaSiguiente = (d: string) => sumarDiasIso(d, 1);
+
+/** greatest()/least() de Postgres: IGNORAN los NULL; todos NULL → null. */
+function mayorDia(...xs: (string | null)[]): string | null {
+  let r: string | null = null;
+  for (const x of xs) if (x !== null && (r === null || x > r)) r = x;
+  return r;
+}
+function menorDia(...xs: (string | null)[]): string | null {
+  let r: string | null = null;
+  for (const x of xs) if (x !== null && (r === null || x < r)) r = x;
+  return r;
+}
+
 /**
- * Ventana de toma de un sitio, espejo de comp_generar_tomas:
- *   inicio = greatest(coalesce(sitio.inicio, campaña.inicio, periodo.inicio), periodo.inicio)
- *   fin    = least(coalesce(sitio.fin, campaña.fin, periodo.fin), periodo.fin)
- * Cada extremo por separado: un sitio que solo trae FIN toma el inicio de la
- * campaña. Nunca se sale del periodo (las tomas de otra catorcena son de
- * otro periodo). null si el periodo no trae fechas o si la ventana queda
- * vacía (inicio > fin: el sitio no corre en este periodo).
+ * Ventanas de toma de un sitio: ESPEJO EXACTO de comp_ventanas en SQL
+ * (rediseño del 23-oct-2026, R3 y R10 de la revisión de la SQL). Antes aquí
+ * se usaba coalesce (la vigencia del sitio GANABA a la de la campaña) y la
+ * base ya usaba la intersección: en 139 de 306 casos la vista previa
+ * mostraba tomas que la base no iba a crear, todos con el sitio corriendo
+ * más allá de la campaña (p. ej. Victor recorta la campaña en la app y la
+ * pantalla seguía ofreciendo los días recortados).
+ *
+ * Regla: la vigencia del sitio RECORTADA por la de la campaña y la del
+ * periodo, por cada tramo del sitio:
+ *   inicio = greatest(tramo.inicio, campaña.inicio, periodo.inicio)
+ *   fin    = least(tramo.fin, campaña.fin, periodo.fin)
+ * greatest/least ignoran los vacíos, así que un extremo sin fecha toma el
+ * de la campaña y, si tampoco, el del periodo. Un tramo queda solo si
+ * inicio ≤ fin (en SQL, un extremo NULL tampoco pasa el filtro a <= b).
+ *   · Sin `tramos` (o arreglo vacío) el único tramo es inicio/fin del sitio;
+ *     con `tramos`, SOLO cuentan los tramos (como la SQL, que ignora
+ *     inicio/fin del sitio en ese caso).
+ *   · Los tramos que se enciman o se tocan (del 1 al 5 y del 6 al 9) se
+ *     juntan en uno: «al inicio» no da dos tomas.
+ *   · [] = el sitio no corre en este periodo, o el periodo no trae sus dos
+ *     fechas (o vienen al revés): sin periodo no se ofrecen tomas.
+ * Una fecha que no se entiende cuenta como vacía (la SQL ni siquiera la
+ * aceptaría: la columna es date). Orden: por inicio.
  */
-export function ventanaToma(
-  sitio: Vigencia,
+export function ventanasToma(
+  sitio: VigenciaSitio,
   campana: Vigencia,
-  periodo: { inicio?: string | null; fin?: string | null }
-): { inicio: string; fin: string } | null {
+  periodo: Vigencia
+): Ventana[] {
+  const ci = diaIso(campana?.inicio);
+  const cf = diaIso(campana?.fin);
   const pi = diaIso(periodo?.inicio);
   const pf = diaIso(periodo?.fin);
-  if (!pi || !pf || pi > pf) return null;
-  const ini = diaIso(sitio?.inicio) ?? diaIso(campana?.inicio) ?? pi;
-  const fn = diaIso(sitio?.fin) ?? diaIso(campana?.fin) ?? pf;
-  const inicio = ini > pi ? ini : pi;
-  const fin = fn < pf ? fn : pf;
-  return inicio <= fin ? { inicio, fin } : null;
+  // Sin periodo completo no hay ventana (revisión 3 del núcleo, 23-oct-2026).
+  // greatest/least ignoran los vacíos, así que un periodo sin fechas (una
+  // catorcena de la tabla con fechas null) dejaba la ventana solo con el
+  // sitio o la campaña y la vista previa ofrecía hasta 400 tomas por sitio
+  // que la base nunca crea. En SQL no pasa: comp_periodos siempre trae las
+  // dos fechas, así que la paridad con comp_ventanas no cambia.
+  if (pi === null || pf === null || pi > pf) return [];
+  const tramos: TramoVigencia[] =
+    Array.isArray(sitio?.tramos) && sitio.tramos.length ? sitio.tramos : [{ inicio: sitio?.inicio, fin: sitio?.fin }];
+  const recortados: Ventana[] = [];
+  for (const t of tramos) {
+    const a = mayorDia(diaIso(t?.inicio), ci, pi);
+    const b = menorDia(diaIso(t?.fin), cf, pf);
+    if (a !== null && b !== null && a <= b) recortados.push({ inicio: a, fin: b });
+  }
+  recortados.sort((x, y) => (x.inicio < y.inicio ? -1 : x.inicio > y.inicio ? 1 : x.fin < y.fin ? -1 : x.fin > y.fin ? 1 : 0));
+  const out: Ventana[] = [];
+  for (const v of recortados) {
+    const ult = out[out.length - 1];
+    // Se toca o se encima con lo anterior (a ≤ máximo fin + 1 día): se junta.
+    if (ult && v.inicio <= diaSiguiente(ult.fin)) {
+      if (v.fin > ult.fin) ult.fin = v.fin;
+    } else {
+      out.push({ ...v });
+    }
+  }
+  return out;
+}
+
+/**
+ * La ventana de toma de un sitio en una sola pieza: del inicio del primer
+ * tramo al fin del último (ventanasToma). Sin tramos es exactamente la
+ * intersección de la vigencia del sitio, la de la campaña y la del periodo
+ * (comp_ventanas). Nunca se sale del periodo ni de la campaña. null si el
+ * sitio no corre en este periodo. Para generar tomas usa ventanasToma: con
+ * tramos separados, esta ventana incluye el hueco.
+ */
+export function ventanaToma(sitio: VigenciaSitio, campana: Vigencia, periodo: Vigencia): Ventana | null {
+  const vs = ventanasToma(sitio, campana, periodo);
+  if (!vs.length) return null;
+  return { inicio: vs[0].inicio, fin: vs[vs.length - 1].fin };
+}
+
+/**
+ * Las fechas del plan para un sitio, por cada una de sus ventanas (como
+ * comp_aplicar_planes: comp_fechas_plan por ventana y distinct). Las
+ * ventanas ya vienen juntadas y en orden, así que no se repiten fechas.
+ */
+function fechasDeVentanas(p: PlanTomas, vs: Ventana[]): string[] {
+  const out: string[] = [];
+  for (const v of vs) for (const d of generarFechasPlan(p, v.inicio, v.fin)) out.push(d);
+  return out;
 }
 
 /** ¿Sábado o domingo? (isodow 6 o 7 en SQL). El día ya es de CDMX: se lee en UTC para no moverlo. */
@@ -775,6 +900,48 @@ export function horarioDelDia(
   if (typeof t !== 'string') return null;
   const limpio = btrim(t);
   return limpio === '' ? null : limpio;
+}
+
+/**
+ * Erik (23-oct-2026): «Biobox y Ecovallas no tienen pautas por horarios,
+ * todo es 24 hrs, como en Vía Verde que sí lo hace por franjas horarias».
+ * Así que en Ecovallas Digital (Pantalla) y Biobox (Máquina) el horario de
+ * TODA toma es «24 HORAS», sin lunes a viernes ni sábado y domingo y sin
+ * franjas; solo Vía Verde (Columna y Pórtico) lleva el horario del día.
+ */
+export const HORARIO_24H = '24 HORAS';
+
+/**
+ * Llaves (llaveComp) de los medios y unidades que corren 24 horas. Incluye
+ * la etiqueta que da la propia vista (vw_comp_campanas.unidad_etiqueta =
+ * 'Ecovallas Digital'): antes solo se aceptaban los nombres exactos y con
+ * esa etiqueta, o con 'Maquina' sin acento o 'BIOBOX', se enseñaba el
+ * horario crudo (revisión 3 del núcleo, 23-oct-2026).
+ */
+const LLAVES_24H = new Set(['PANTALLA', 'MAQUINA', 'ECOVALLAS', 'ECOVALLASDIGITAL', 'BIOBOX']);
+
+/**
+ * ¿Este medio (o unidad) corre 24 horas, sin franjas? Pantalla/Máquina,
+ * Ecovallas/Ecovallas Digital o Biobox; sin importar acentos, mayúsculas ni
+ * espacios. Vía Verde, Columna y Pórtico no.
+ */
+export function esMedio24h(medioOUnidad: MedioComp | UnidadComp | string | null | undefined): boolean {
+  return LLAVES_24H.has(llaveComp(medioOUnidad));
+}
+
+/**
+ * El HORARIO que se le enseña a la gente (Excel, pantalla): «24 HORAS» en
+ * Ecovallas Digital y Biobox, aunque la bitácora haya dicho «24 HRS», venga
+ * vacío en sábado y domingo o traiga algo raro; en Vía Verde, el horario
+ * del día tal como lo guardó la base (horario_texto), recortado.
+ */
+export function horarioParaMostrar(
+  medioOUnidad: MedioComp | UnidadComp | string | null | undefined,
+  horario: string | null | undefined
+): string | null {
+  if (esMedio24h(medioOUnidad)) return HORARIO_24H;
+  const s = typeof horario === 'string' ? horario.trim() : '';
+  return s === '' ? null : s;
 }
 
 /**
@@ -838,6 +1005,8 @@ export type SitioPlan = {
   sitio_clave: string;
   inicio?: string | null;
   fin?: string | null;
+  /** comp_sitios.tramos: vigencias separadas del mismo sitio (R10); null = un solo tramo. */
+  tramos?: TramoVigencia[] | null;
   horario_lv?: string | null;
   horario_sd?: string | null;
   observaciones?: string | null;
@@ -847,11 +1016,44 @@ export type SitioPlan = {
   fuera_de_carga?: boolean | null;
 };
 
-/** Lo que se usa de la campaña: su vigencia y su especificación de tomas. */
+/**
+ * Lo que se usa de la campaña: su vigencia, su especificación de tomas y
+ * (revisión 3 del núcleo, 23-oct-2026) su estatus, si está retirada y su
+ * medio o unidad. Sin estatus ni retirada se toma como abierta y vigente,
+ * como antes.
+ */
 export type CampanaPlan =
-  | { inicio?: string | null; fin?: string | null; especificacion?: string | null }
+  | {
+      inicio?: string | null;
+      fin?: string | null;
+      especificacion?: string | null;
+      /** comp_campanas.estatus: una 'cerrada' no recibe tomas del plan. */
+      estatus?: 'abierta' | 'cerrada' | null;
+      /** comp_campanas.retirada: tampoco recibe tomas del plan. */
+      retirada?: boolean | null;
+      /** Medio o unidad: con él sale horarioMostrar («24 HORAS» en Ecovallas y Biobox). */
+      medio?: MedioComp | string | null;
+      unidad?: UnidadComp | string | null;
+    }
   | null
   | undefined;
+
+/** Por qué el plan no toca una campaña: cerrada o retirada. */
+export type CampanaOmitida = 'cerrada' | 'retirada';
+
+/**
+ * ¿El plan se salta esta campaña? Espejo de comp_aplicar_planes: comp_ap_cam
+ * solo toma las de estatus 'abierta' y comp_ap_sit deja fuera las retiradas
+ * (where not c.retirada). Antes la vista previa les contaba todos sus
+ * renglones (8 en una retirada y 8 en una cerrada donde la base crea 0;
+ * revisión 3 del núcleo, 23-oct-2026). Cerrada gana a retirada porque es la
+ * primera que filtra la base. null = el plan sí la toca.
+ */
+export function campanaOmitidaDelPlan(campana: CampanaPlan): CampanaOmitida | null {
+  if (campana?.estatus === 'cerrada') return 'cerrada';
+  if (campana?.retirada === true) return 'retirada';
+  return null;
+}
 
 /**
  * ¿El plan le crea tomas a este sitio? Mismo filtro que comp_aplicar_plan:
@@ -863,11 +1065,37 @@ export function sitioEntraAlPlan(s: Pick<SitioPlan, 'estado' | 'fuera_de_carga'>
   return s.estado !== 'cancelado' && !s.fuera_de_carga;
 }
 
+/**
+ * ¿El plan le CREA tomas nuevas a este sitio? Además de entrar al plan, un
+ * sitio ya comprobado no recibe tomas nuevas salvo que el plan traiga
+ * incluir_comprobados (R11 de la SQL, 23-oct-2026: «crea» en
+ * comp_aplicar_planes). OJO: no conserva TODAS sus tomas de antes; la base
+ * solo le deja las pendientes del plan que también da el plan nuevo (y las
+ * hechas a mano o ya trabajadas); las demás pendientes del plan se borran
+ * (paso 3 de comp_aplicar_planes; revisión 3 del núcleo, 23-oct-2026). Aquí
+ * solo se cuenta lo nuevo.
+ */
+export function sitioRecibeTomasNuevas(
+  s: Pick<SitioPlan, 'estado' | 'fuera_de_carga'>,
+  plan: Pick<PlanTomas, 'incluir_comprobados'> | null | undefined
+): boolean {
+  return sitioEntraAlPlan(s) && (s.estado !== 'comprobado' || plan?.incluir_comprobados === true);
+}
+
 /** Un renglón generado del Formato general (una toma de comp_tomas). */
 export type RenglonPlan = {
   sitio_clave: string;
   fecha: string;
+  /** El que guarda la base (comp_tomas.horario_texto): horarioDelDia. La paridad con la SQL va con este. */
   horario: string | null;
+  /**
+   * El que se le enseña a Victor: horarioParaMostrar con el medio (o la
+   * unidad) de la campaña. «24 HORAS» en Ecovallas y Biobox, igual que el
+   * Excel; antes la vista previa enseñaba el crudo (null en sábado y domingo
+   * si la bitácora de Biobox solo trae una columna) y el Excel «24 HORAS»
+   * (revisión 3 del núcleo, 23-oct-2026). Sin medio, igual a horario.
+   */
+  horarioMostrar: string | null;
   /** La del sitio: lo que guarda comp_tomas.observaciones. */
   observaciones: string | null;
   /** Lo que verá el monitorista en OBSERVACIONES: especificación · observación (observacionesToma). */
@@ -875,12 +1103,16 @@ export type RenglonPlan = {
 };
 
 /**
- * Vista previa de lo que generará comp_generar_tomas para una campaña: un
- * renglón por sitio × fecha del plan, dentro de la ventana de cada sitio y
- * con el horario del día, sin los sitios cancelados ni los que quedaron
- * fuera de la carga. Lo que se guarda lo decide la base, que además respeta
- * las tomas editadas a mano: la pantalla debe decir «hasta N renglones».
- * Para solo contar, resumenPlan (no arma los objetos).
+ * Vista previa de las tomas NUEVAS que creará comp_generar_tomas para una
+ * campaña: un renglón por sitio × fecha del plan, dentro de las ventanas de
+ * cada sitio (ventanasToma: su vigencia recortada por la de la campaña y la
+ * del periodo, por tramo) y con el horario del día, sin los sitios
+ * cancelados, los que quedaron fuera de la carga ni, salvo
+ * incluir_comprobados, los ya comprobados (sitioRecibeTomasNuevas). Lo que
+ * se guarda lo decide la base, que además respeta las tomas editadas a
+ * mano: la pantalla debe decir «hasta N renglones». Una campaña cerrada o
+ * retirada no da renglones (campanaOmitidaDelPlan), como en la base. Para
+ * solo contar, resumenPlan (no arma los objetos).
  * Orden: fecha, luego la clave del sitio en orden natural.
  */
 export function generarRenglonesPlan(
@@ -890,22 +1122,27 @@ export function generarRenglonesPlan(
   periodo: { inicio?: string | null; fin?: string | null }
 ): RenglonPlan[] {
   const p = normalizarPlan(plan);
-  if (!p) return [];
+  if (!p || campanaOmitidaDelPlan(campana)) return [];
+  const medio = campana?.medio ?? campana?.unidad ?? null;
   // Se ordenan los sitios una vez y se genera en ese orden; el sort por
   // fecha es estable, así que dentro del día queda el orden natural sin
   // volver a comparar claves en cada renglón.
-  const orden = sitios.filter(sitioEntraAlPlan).sort((x, y) => compararNatural(x.sitio_clave, y.sitio_clave));
+  const orden = sitios
+    .filter((s) => sitioRecibeTomasNuevas(s, p))
+    .sort((x, y) => compararNatural(x.sitio_clave, y.sitio_clave));
   const out: RenglonPlan[] = [];
   for (const s of orden) {
-    const v = ventanaToma(s, campana, periodo);
-    if (!v) continue;
+    const vs = ventanasToma(s, campana, periodo);
+    if (!vs.length) continue;
     const obs = (s.observaciones || '').trim() || null;
     const obsExcel = observacionesToma(campana?.especificacion, obs);
-    for (const fecha of generarFechasPlan(p, v.inicio, v.fin)) {
+    for (const fecha of fechasDeVentanas(p, vs)) {
+      const horario = horarioDelDia(s.horario_lv, s.horario_sd, fecha);
       out.push({
         sitio_clave: s.sitio_clave,
         fecha,
-        horario: horarioDelDia(s.horario_lv, s.horario_sd, fecha),
+        horario,
+        horarioMostrar: medio ? horarioParaMostrar(medio, horario) : horario,
         observaciones: obs,
         observacionesExcel: obsExcel,
       });
@@ -927,6 +1164,21 @@ export type ResumenPlan = {
   sitiosSinFechas: string[];
   /** Cancelados o fuera de la carga: el plan no los toca. */
   sitiosExcluidos: number;
+  /**
+   * Ya comprobados: el plan no les crea tomas nuevas (R11) salvo
+   * incluir_comprobados. NO conservan todas sus tomas: la base solo les deja
+   * las pendientes del plan que también da el plan nuevo, y borra las demás
+   * pendientes del plan (paso 3 de comp_aplicar_planes). Se listan para que
+   * Victor decida (revisión 3 del núcleo, 23-oct-2026: el texto anterior
+   * decía que conservaban sus tomas).
+   */
+  sitiosComprobados: string[];
+  /**
+   * La campaña está cerrada o retirada: la base no le crea ni le cambia
+   * tomas del plan, así que todo va en 0 y la pantalla dice por qué
+   * (campanaOmitidaDelPlan). null = el plan sí la toca.
+   */
+  campanaOmitida: CampanaOmitida | null;
 };
 
 /**
@@ -949,23 +1201,32 @@ export function resumenPlan(
     sitiosSinVentana: [],
     sitiosSinFechas: [],
     sitiosExcluidos: 0,
+    sitiosComprobados: [],
+    campanaOmitida: null,
   };
   const { plan: p, error } = leerPlan(plan);
   if (!p) {
     r.error = error;
     return r;
   }
+  r.campanaOmitida = campanaOmitidaDelPlan(campana);
+  if (r.campanaOmitida) return r;
   for (const s of sitios) {
     if (!sitioEntraAlPlan(s)) {
       r.sitiosExcluidos++;
       continue;
     }
-    const v = ventanaToma(s, campana, periodo);
-    if (!v) {
+    if (!sitioRecibeTomasNuevas(s, p)) {
+      r.sitiosComprobados.push(s.sitio_clave);
+      continue;
+    }
+    const vs = ventanasToma(s, campana, periodo);
+    if (!vs.length) {
       r.sitiosSinVentana.push(s.sitio_clave);
       continue;
     }
-    const n = contarFechas(p, v.inicio, v.fin);
+    let n = 0;
+    for (const v of vs) n += contarFechas(p, v.inicio, v.fin);
     if (!n) {
       r.sitiosSinFechas.push(s.sitio_clave);
       continue;
@@ -975,6 +1236,7 @@ export function resumenPlan(
   }
   r.sitiosSinVentana.sort(compararNatural);
   r.sitiosSinFechas.sort(compararNatural);
+  r.sitiosComprobados.sort(compararNatural);
   return r;
 }
 

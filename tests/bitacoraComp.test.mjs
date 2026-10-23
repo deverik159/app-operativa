@@ -146,8 +146,9 @@ test('leerBitacora tolera variantes: etiquetas distintas, columnas de más, clav
     ['PLAZA', 'CLAVE', 'MEDIDA', 'Versión', 'Fecha Inicio', 'Fecha Fin', 'Horario', 'Tipo de venta', 'Testigos', 'Observaciones'],
     ['CDMX', 'MX_CM_EV_MGP_16_3606     ', '1440x405', 'V1 AROMA', D(2026, 9, 1), D(2026, 9, 14), '24 HRS', 'VENTA', 'x', null],
     ['CDMX', 'MX_CM_EV_MGP_01_02920', '1152x324', 'V1 AROMA', D(2026, 9, 1), D(2026, 9, 7), '3:00 PM A 4:59 PM', 'BONIFICACIÓN', null, 'SOLO CÁMARAS'],
-    // El mismo sitio otra vez en la misma versión: VENTA + BONUS se juntan.
-    ['CDMX', 'MX_CM_EV_MGP_01_2920', '1152x324', 'V1 AROMA', D(2026, 9, 8), D(2026, 9, 14), '3:00 PM A 4:59 PM', 'VENTA', 'SI', 'CAMBIO DE ARTE'],
+    // El mismo sitio otra vez en la misma versión y con la MISMA vigencia:
+    // VENTA + BONUS se juntan (con otra vigencia irían como otro tramo).
+    ['CDMX', 'MX_CM_EV_MGP_01_2920', '1152x324', 'V1 AROMA', D(2026, 9, 1), D(2026, 9, 7), '3:00 PM A 4:59 PM', 'VENTA', 'SI', 'CAMBIO DE ARTE'],
     ['CDMX', null, null, 'V1 AROMA', D(2026, 9, 1), null, null, null, null, null],
     ['CDMX', 'MX_CM_EV_MGP_99_0001', null, 'V2 AROMA', null, null, 'CUANDO SE PUEDA', 'CORTESÍA', 'NO', null],
     ['TOTAL', null, null, null, null, null, null, null, null, null],
@@ -172,7 +173,7 @@ test('leerBitacora tolera variantes: etiquetas distintas, columnas de más, clav
   assert.equal(a.horario_lv, '24 HRS');
   assert.equal(a.horario_sd, '24 HRS');
   assert.equal(a.testigos, true);
-  assert.deepEqual([b.inicio, b.fin, b.tipo_venta, b.testigos], ['2026-09-01', '2026-09-14', 'VENTA', true]);
+  assert.deepEqual([b.inicio, b.fin, b.tipo_venta, b.testigos], ['2026-09-01', '2026-09-07', 'VENTA', true]);
   assert.equal(b.observaciones, 'SOLO CÁMARAS · CAMBIO DE ARTE');
   assert.equal(b.sitio_original, 'MX_CM_EV_MGP_01_02920');
   // Sin vigencia propia: null (la base usa la de la campaña), y el tipo de
@@ -439,14 +440,21 @@ test('FULL «TODAS» en la llamada de Pórtico: sin avisos falsos', () => {
   assert.ok(!r.avisos.some((a) => /sin sitios válidos|no trae campañas/.test(a)), r.avisos.join(' | '));
 });
 
-test('vigencias separadas del mismo sitio: el hueco va en observaciones y se avisa', () => {
+test('vigencias separadas del mismo sitio: un renglón por tramo (la base guarda comp_sitios.tramos) y aviso informativo', () => {
   assert.deepEqual(B.huecosVigencia([['2026-10-25', '2026-10-31'], ['2026-10-01', '2026-10-05']]), [['2026-10-06', '2026-10-24']]);
   assert.deepEqual(B.huecosVigencia([['2026-10-01', '2026-10-05'], ['2026-10-06', '2026-10-31']]), []);
   assert.deepEqual(B.huecosVigencia([['2026-10-01', '2026-10-05'], [null, null]]), []);
+  // Revisión del 23-oct-2026: antes salía UN renglón del 1 al 31 con «SIN
+  // AIRE…» en observaciones y el plan de tomas caía en el hueco.
   const r = leer1(hojaPautaVV('BITACORA', CAB, [fOct('856', 'V1', { fin: '2026-10-05' }), fOct('856', 'V1', { ini: '2026-10-07', fin: '2026-10-07' }), fOct('856', 'V1', { ini: '2026-10-25' })]).filas);
-  const s = r.campanas[0].sitios[0];
-  assert.deepEqual([s.inicio, s.fin, s.observaciones], ['2026-10-01', '2026-10-31', 'SIN AIRE EL 06/10, DEL 08/10 AL 24/10']);
-  assert.ok(r.avisos.some((a) => /vigencias separadas/.test(a) && /filas 9, 10, 11/.test(a)));
+  cumpleContrato(r.campanas);
+  const ss = r.campanas[0].sitios;
+  assert.deepEqual(ss.map((s) => [s.sitio_clave, s.inicio, s.fin, s.observaciones]), [
+    ['MX_CM_VV_COL_856', '2026-10-01', '2026-10-05', null],
+    ['MX_CM_VV_COL_856', '2026-10-07', '2026-10-07', null],
+    ['MX_CM_VV_COL_856', '2026-10-25', '2026-10-31', null],
+  ]);
+  assert.ok(r.avisos.some((a) => /tramos separados/.test(a) && /SIN AIRE EL 06\/10, DEL 08\/10 AL 24\/10/.test(a)), r.avisos.join(' | '));
 });
 
 test('hojaDeLibro: lee desde A1 (columna A vacía), combinadas en su lugar, versión «01» y horas de Excel', () => {
@@ -606,4 +614,420 @@ test('revisarContraCargadas: la campaña que venía del plano sin versión y aho
   const nuevas = B.desdePautaVV([campVV(21, 'MARCA Y')], [pauta(5, 21, '857', 'V1', '2026-10-01', '2026-10-31')], [], OCT).porMedio.Columna;
   const r = B.revisarContraCargadas(nuevas, [delPlano], 'Columna');
   assert.ok(r.avisos.some((a) => /se cargó del plano sin versión y ahora llega con versión \(V1\)/.test(a)));
+});
+
+// ------------------------------------------------------------
+// Bitácoras REALES de comercial (23-oct-2026): Biobox y Ecovallas Digital.
+// Las filas tienen la FORMA de los archivos que dejó Erik (encabezados
+// desplazados, columnas sin nombre, varias versiones por celda o por
+// columna, fechas como serial de Excel); clientes, campañas, personas y
+// claves son INVENTADOS. Los Excel reales nunca entran al repo.
+// ------------------------------------------------------------
+
+/** Serial de Excel de un día (46296 = 1-oct-2026). */
+const SER = (a, m, d) => (Date.UTC(a, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000;
+const OCT_MES = { inicio: '2026-10-01', fin: '2026-10-31' };
+const ENC_BB = ['No', 'ID BIOBOX', 'UBICACIÓN', 'CAMPAÑA', 'NEGOCIACIÓN', 'MODULACION', 'VERSION ', 'INICIO', 'FIN', 'DÍAS PROYECCIÓN', 'HORARIO', 'TESTIGOS', 'OBSERVACIONES', 'ESTATUS'];
+const TESTIGOS_BB = 'TESTIGOS PRUEBA COMPLETOS ANTES DE 10 DÍAS';
+/** Renglón de Biobox: columna A vacía y B «No» (la tabla empieza en B). */
+const fBB = (no, clave, neg, version, ini, fin, extra = {}) => [
+  null, no, clave, 'Calle Inventada 1', extra.campana ?? 'CAFÉ PRUEBA', neg, null, version, ini, fin, 'Lunes a domingo', extra.horario ?? '24 HORAS',
+  extra.testigos ?? TESTIGOS_BB, extra.obs ?? null, null,
+];
+/** Hoja de Biobox: etiquetas en la columna C y valores a la derecha, como el archivo real. */
+const hojaBB = (nombre, cab, filas, conEncabezado = true) => ({
+  nombre,
+  filas: [
+    [],
+    [null, null, 'CAMPAÑA:', cab.campana, 'MES', 'AGOSTO - DICIEMBRE'],
+    [null, null, 'VENDEDOR:', 'Vendedora Ficticia', 'FECHA INICIO:', cab.ini],
+    [null, null, 'ADMINISTRADOR:', 'Admin Inventado', 'FECHA FIN:', cab.fin],
+    [null, null, 'CLIENTE:', cab.cliente ?? 'CLIENTE INVENTADO SA', 'TIPO DE PAUTA', 'DIGITAL'],
+    [null, null, 'COMPROBACIÓN:', cab.comprobacion ?? 'MENSUAL', 'OBSERVACIONES:', cab.obs ?? null],
+    [null, null, 'CONTRATO QUANTUM', cab.quantum ?? 'Q-001 -- Q-001-R2', 'FECHA DE ENVIO'],
+    [],
+    [],
+    conEncabezado ? [null, ...ENC_BB] : [],
+    ...filas,
+  ],
+});
+
+test('Biobox real: varias versiones por celda, REU, NEGOCIACIÓN, vigencia recortada al mes y plan sugerido MENSUAL', () => {
+  const hoja = hojaBB('CAFÉ PRUEBA ', { campana: 'CAFÉ PRUEBA', ini: SER(2026, 8, 18), fin: SER(2026, 12, 31), obs: 'TOMAS DE 5 VISTAS POR SITIO' }, [
+    fBB(1, 'MX_CM_BB_MED_0901', 'VENTA', 'V5, V6, V7', SER(2026, 8, 18), SER(2026, 12, 31)),
+    fBB(2, 'MX_CM_BB_MED_0902', 'VENTA ', 'V4, V6, V7', SER(2026, 10, 5), SER(2026, 10, 20)),
+    fBB('REU', 'MX_CM_BB_MED_0903', 'BONUS', 'V5', SER(2026, 10, 21), SER(2026, 11, 15)),
+    fBB(3, 'MX_EM_BB_OXD_0904', 'INTERCAMBIO', 'V5', SER(2026, 10, 1), SER(2026, 10, 31)),
+    fBB(4, 'MX_CM_BB_MED_0905', 'VENTA', 'V5', '-', '-'),
+    fBB(5, 'MX_CM_BB_MED_0906', 'VENTA', 'V5', SER(2026, 9, 1), SER(2026, 9, 30)),
+    fBB(6, 'MX_CM_BB_MED_0907', 'VENTA', 'V5', '17 SEP', SER(2026, 10, 10)),
+    [null, null, 'CROQUIS CAFÉ M4', 'CROQUIS CAFÉ M4R2'],
+  ]);
+  const r = B.leerBitacora({ hojas: [hoja] }, { unidad: 'Biobox', medio: 'Máquina', archivo: 'BITACORA PRUEBA.xlsx', periodo: OCT_MES });
+  cumpleContrato(r.campanas);
+  const v = Object.fromEntries(r.campanas.map((c) => [c.version, c]));
+  assert.deepEqual(Object.keys(v), ['V5', 'V6', 'V7', 'V4']);
+  assert.deepEqual(v.V5.sitios.map((s) => s.sitio_clave), ['MX_CM_BB_MED_0901', 'MX_CM_BB_MED_0903', 'MX_EM_BB_OXD_0904', 'MX_CM_BB_MED_0907']);
+  assert.deepEqual(v.V4.sitios.map((s) => s.sitio_clave), ['MX_CM_BB_MED_0902']);
+  assert.deepEqual(v.V6.sitios.map((s) => s.sitio_clave), ['MX_CM_BB_MED_0901', 'MX_CM_BB_MED_0902']);
+  const [s1, s3, s4, s7] = v.V5.sitios;
+  // Vigencia por sitio recortada al periodo; 24 HORAS en L-V y S-D.
+  assert.deepEqual([s1.inicio, s1.fin, s1.horario_lv, s1.horario_sd], ['2026-10-01', '2026-10-31', '24 HORAS', '24 HORAS']);
+  assert.deepEqual([s3.inicio, s3.fin, s3.tipo_venta, s3.observaciones], ['2026-10-21', '2026-10-31', 'BONUS', 'REUBICACIÓN']);
+  assert.deepEqual([s4.tipo_venta, s4.observaciones], [null, 'INTERCAMBIO'], 'INTERCAMBIO no es VENTA ni BONUS: va a observaciones');
+  assert.deepEqual([s7.inicio, s7.fin], ['2026-10-01', '2026-10-10'], '«17 SEP» se lee con el año del encabezado y se recorta');
+  // Encabezado: campaña, cliente, quantum y especificación (OBSERVACIONES + TESTIGOS, igual en todos).
+  assert.deepEqual([v.V5.campana, v.V5.cliente, v.V5.vendedor, v.V5.quantum], ['CAFÉ PRUEBA', 'CLIENTE INVENTADO SA', 'Vendedora Ficticia', 'Q-001 -- Q-001-R2']);
+  assert.equal(v.V5.especificacion, `TOMAS DE 5 VISTAS POR SITIO · ${TESTIGOS_BB}`);
+  assert.equal(s1.testigos, true);
+  assert.deepEqual([v.V5.inicio, v.V5.fin, v.V5.origen_ref], ['2026-10-01', '2026-10-31', 'BITACORA PRUEBA.xlsx · CAFÉ PRUEBA ']);
+  // Descartadas: «-» en las dos fechas y fuera del mes; el croquis sin datos no cuenta.
+  assert.deepEqual(r.descartadas.map((d) => [d.fila, d.motivo]), [[15, 'sin vigencia (INICIO y FIN «-»)'], [16, 'fuera del periodo']]);
+  // Plan sugerido FUERA del contrato, por llave de campaña-versión.
+  assert.deepEqual(Object.keys(r.planesSugeridos).sort(), ['CAFEPRUEBA|V4', 'CAFEPRUEBA|V5', 'CAFEPRUEBA|V6', 'CAFEPRUEBA|V7']);
+  const p = r.planesSugeridos[B.llaveContrato({ campana: 'CAFÉ PRUEBA', version: 'V5' })];
+  assert.deepEqual([p.plan, p.comprobacion, p.porConfirmar, p.hojas], [{ tipo: 'inicio' }, 'MENSUAL', true, ['CAFÉ PRUEBA ']]);
+  assert.ok(!('plan' in v.V5) && !('planesSugeridos' in v.V5), 'el contrato no cambia');
+  assert.ok(r.avisos.some((a) => /se recorta al periodo/.test(a)));
+  assert.deepEqual(r.hojas.map((h) => [h.estado, h.campana, h.comprobacion, h.renglones]), [['leida', 'CAFÉ PRUEBA', 'MENSUAL', 5]]);
+});
+
+test('Biobox real: bloques repetidos por semana, versiones con marca y hoja SIN fila de encabezado de tabla', () => {
+  const bloques = hojaBB('PLAN TOTAL PRUEBA', { campana: 'PLAN TOTAL PRUEBA', ini: SER(2026, 6, 1), fin: SER(2027, 6, 30), comprobacion: 'CATORCENAL' }, [
+    fBB('REU', 'MX_CM_BB_MED_0911', 'INTERCAMBIO', 'V21, V22', SER(2026, 10, 12), SER(2026, 10, 17), { campana: 'TOTAL PRUEBA' }),
+    fBB(1, 'MX_CM_BB_MED_0912', 'INTERCAMBIO', 'MARCA X V16, V17 Y 18', SER(2026, 10, 12), SER(2026, 10, 17), { campana: 'TOTAL PRUEBA' }),
+    [],
+    [null, ...ENC_BB],
+    fBB('REU', 'MX_CM_BB_MED_0911', 'INTERCAMBIO', 'V15, V16', SER(2026, 10, 1), SER(2026, 10, 9), { campana: 'TOTAL PRUEBA' }),
+  ]);
+  const sinEnc = hojaBB('SIN ENCABEZADO', { campana: 'LUJO PRUEBA', ini: SER(2026, 5, 1), fin: SER(2026, 11, 30), comprobacion: 'TESTIGS CATORCENALES' }, [
+    fBB(1, 'MX_CM_BB_MED_0921', 'VENTA', 'V4, V5', SER(2026, 10, 2), SER(2026, 10, 14), { horario: '24 HRS' }),
+    fBB('REU', 'MX_CM_BB_MED_0922', 'BONUS', 'V4, V5', SER(2026, 10, 15), SER(2026, 10, 28)),
+    fBB(2, 'MX_CM_BB_MED_0923', 'VENTA', 'V4', SER(2026, 10, 15), SER(2026, 10, 1)),
+  ], false);
+  const r = B.leerBitacora({ hojas: [bloques, sinEnc] }, { unidad: 'Biobox', medio: 'Máquina', periodo: OCT_MES });
+  cumpleContrato(r.campanas);
+  const resumen = r.campanas.map((c) => [c.campana, c.version, c.sitios.map((s) => `${s.sitio_clave.slice(-4)} ${s.inicio.slice(8)}-${s.fin.slice(8)}`).join(' ')]);
+  assert.deepEqual(resumen, [
+    ['PLAN TOTAL PRUEBA', 'V21', '0911 12-17'],
+    ['PLAN TOTAL PRUEBA', 'V22', '0911 12-17'],
+    ['PLAN TOTAL PRUEBA', 'MARCA X V16', '0912 12-17'],
+    ['PLAN TOTAL PRUEBA', 'MARCA X V17', '0912 12-17'],
+    ['PLAN TOTAL PRUEBA', 'MARCA X V18', '0912 12-17'],
+    ['PLAN TOTAL PRUEBA', 'V15', '0911 01-09'],
+    ['PLAN TOTAL PRUEBA', 'V16', '0911 01-09'],
+    ['LUJO PRUEBA', 'V4', '0921 02-14 0922 15-28'],
+    ['LUJO PRUEBA', 'V5', '0921 02-14 0922 15-28'],
+  ]);
+  // La campaña es la del ENCABEZADO de la hoja (hoja = campaña), no la columna del renglón.
+  assert.ok(!r.campanas.some((c) => c.campana === 'TOTAL PRUEBA'));
+  assert.deepEqual(r.descartadas.map((d) => [d.hoja, d.fila, d.motivo]), [['SIN ENCABEZADO', 13, 'FIN antes de INICIO']]);
+  assert.deepEqual(r.hojas[1].deducidas.slice(0, 3), ['sitio', 'inicio', 'fin']);
+  assert.ok(r.hojas[1].deducidas.includes('version') && r.hojas[1].deducidas.includes('tipoVenta'));
+  assert.ok(r.avisos.some((a) => /deducidas por su contenido: SIN ENCABEZADO/.test(a)));
+  assert.deepEqual(r.campanas[7].sitios.map((s) => [s.tipo_venta, s.observaciones]), [['VENTA', null], ['BONUS', 'REUBICACIÓN']]);
+  // CATORCENAL (también «TESTIGS CATORCENALES») → una toma cada 14 días.
+  assert.deepEqual(r.planesSugeridos['LUJOPRUEBA|V4'].plan, { tipo: 'cada_n', cada_n: 14 });
+  assert.deepEqual(r.planesSugeridos['PLANTOTALPRUEBA|MARCAXV17'].plan, { tipo: 'cada_n', cada_n: 14 });
+});
+
+const ENC_EV = ['CLAVE', null, null, 'NEGOCIACIÓN', null, 'INICIO', 'FINAL', 'HORAS', 'C QTM', 'ESTATUS', 'VERSIÓN 1', 'VERSION 2'];
+/** Hoja de Ecovallas Digital: encabezado en A-G con las casillas de TESTIGOS y la tabla en la fila 7. */
+const hojaEV = (nombre, cab, filas, opts = {}) => ({
+  nombre,
+  oculta: opts.oculta,
+  filas: [
+    ['CAMPAÑA:', cab.campana, 'CATORCENA:', cab.cat ?? 21, 'TESTIGOS', false, 'TOMA CORTA, MEDIA Y LARGA'],
+    ['VENDEDOR:', 'Vendedor Ficticio', 'FECHA INICIO:', SER(2026, 10, 13), null, true, '1 TOMA CON LA MEJOR VISTA'],
+    ['ADMINISTRADOR:', null, 'FECHA FIN:', SER(2026, 10, 26), null, cab.video ?? false, 'VIDEO DE DÍA Y DE NOCHE'],
+    ['CLIENTE:', cab.cliente ?? 'BEBIDAS INVENTADAS SA DE CV', 'UBICACIÓN:', 'CDMX', null, false, '3 TOMAS DE MEJOR ÁNGULO'],
+    [],
+    [],
+    opts.encabezado ?? ENC_EV,
+    ...filas,
+  ],
+});
+const fEV = (clave, medio, neg, medida, ini, fin, v1, v2 = null, estatus = 'NEW PRINT') => [
+  clave, 'Av. Inventada 100, CDMX', medio, neg, medida, ini, fin, '24 HRS', 'C000111', estatus, v1, v2,
+];
+const CAT21 = { inicio: '2026-10-13', fin: '2026-10-26' };
+
+test('Ecovallas real: columnas sin nombre, VERSIÓN 1..N con la medida pegada, MEGAVALLA fuera, MX_EM_EV dentro y casillas de TESTIGOS', () => {
+  const h1 = hojaEV('REFRESCO PRUEBA', { campana: 'REFRESCO PRUEBA', video: true }, [
+    fEV('MX_CM_EV_MGP_01_9001', 'MEGAPANTALLA', 'VENTA', '1440.00 px x 405.00 px', SER(2026, 10, 13), SER(2026, 10, 26), 'REFRESCO_SABOR-1440x405', 'REFRESCO_LATA-1440X405PX_Sur'),
+    fEV('MX_CM_EV_MGP_07_9002', 'MEGAPANTALLA', 'VENTA ', '1152.00 px x 324.00 px', SER(2026, 10, 13), SER(2026, 10, 26), 'REFRESCO_SABOR-1152x324.jpg'),
+    fEV('MX_EM_EV_MGP_02_9003', 'MEGAPANTALLA', 'BONIFICACIÓN', '2880 px x 405 px', '10/20/2026', '10/26/2026', 'REFRESCO_SABOR-2880x405'),
+    fEV('MX_CM_EV_MGV_2-4_9004', 'MEGAVALLA', 'VENTA', 'NA', SER(2026, 10, 13), SER(2026, 10, 26), 'REFRESCO-MGV'),
+    fEV('MX_CM_EV_EVA_05_9005', 'VALLA SENCILLA', 'VENTA', 'NA', SER(2026, 10, 13), SER(2026, 10, 26), 'REFRESCO-EVA'),
+    fEV('PENDIENTE DE REUBICACIÓN', null, 'VENTA', null, SER(2026, 10, 13), SER(2026, 10, 16), null),
+  ]);
+  // La misma campaña en otra hoja (su bonus) con el cliente escrito más corto: se junta.
+  const h2 = hojaEV(' REFRESCO PRUEBA bonus ', { campana: 'REFRESCO PRUEBA ', cliente: 'BEBIDAS INVENTADAS' }, [
+    fEV('MX_CM_EV_MGP_03_9006', 'MEGAPANTALLA', 'BONUS', '1440 px x 405 px', SER(2026, 10, 15), SER(2026, 10, 26), 'REFRESCO_SABOR 1440x405.jpg'),
+  ]);
+  const aux = [
+    { nombre: 'LISTADO DE PANTALLAS', oculta: true, filas: [['MX_CM_EV_MGP_01_9001', 'Dirección', '1440 px x 405 px', 'MEGAPANTALLA']] },
+    { nombre: 'LISTA ', filas: [['CAMPAÑAS ', 'CONTRATO'], ['REFRESCO PRUEBA', '000111']] },
+    { nombre: 'EXCLUSIVAS GLOBALES', filas: [[null, 'EXCLUSIVAS ', 'CAMPAÑA ', 'SITIOS ', 'UBICACIÓN ', 'CAT 4']] },
+    hojaEV('VIEJA PRUEBA', { campana: 'VIEJA PRUEBA', cat: 9 }, [fEV('MX_CM_EV_MGP_01_9001', 'MEGAPANTALLA', 'VENTA', null, SER(2026, 5, 1), SER(2026, 5, 14), 'VIEJA')], { oculta: true }),
+  ];
+  const r = B.leerBitacora({ hojas: [aux[0], aux[1], h1, aux[2], h2, aux[3]] }, {
+    unidad: 'Ecovallas', medio: 'Pantalla', periodo: CAT21, catorcena: 21,
+    inventario: ['MX_CM_EV_MGP_01_9001', 'MX_CM_EV_MGP_07_9002', 'MX_EM_EV_MGP_02_9003', { clave: 'MX_CM_EV_MGP_03_9006', tipo_medio: 'Digital' }],
+  });
+  cumpleContrato(r.campanas);
+  assert.deepEqual(r.campanas.map((c) => [c.campana, c.version, c.sitios.map((s) => s.sitio_clave.slice(-4))]), [
+    ['REFRESCO PRUEBA', 'REFRESCO_SABOR', ['9001', '9002', '9003', '9006']],
+    ['REFRESCO PRUEBA', 'REFRESCO_LATA_Sur', ['9001']],
+  ]);
+  const [sabor] = r.campanas;
+  // Casillas marcadas → especificación; quantum de la columna C QTM; NEW PRINT → arte NUEVO.
+  assert.equal(sabor.especificacion, 'TESTIGOS: 1 TOMA CON LA MEJOR VISTA / VIDEO DE DÍA Y DE NOCHE');
+  assert.deepEqual([sabor.quantum, sabor.arte, sabor.cliente], ['C000111', 'NUEVO', 'BEBIDAS INVENTADAS SA DE CV']);
+  const em = sabor.sitios[2];
+  assert.deepEqual([em.inicio, em.fin, em.tipo_venta, em.horario_lv], ['2026-10-20', '2026-10-26', 'BONUS', '24 HRS'], 'EDO MEX de Ecovallas entra; fecha mes/día');
+  assert.deepEqual(r.descartadas.map((d) => [d.fila, d.motivo]), [
+    [11, 'impreso (MEGAVALLA)'],
+    [12, 'impreso (VALLA SENCILLA)'],
+    [13, 'no es una clave de inventario'],
+  ]);
+  assert.deepEqual(r.hojas.map((h) => [h.nombre, h.estado]), [
+    ['LISTADO DE PANTALLAS', 'oculta'], ['LISTA ', 'sin_tabla'], ['REFRESCO PRUEBA', 'leida'],
+    ['EXCLUSIVAS GLOBALES', 'sin_tabla'], [' REFRESCO PRUEBA bonus ', 'leida'], ['VIEJA PRUEBA', 'oculta'],
+  ]);
+  assert.deepEqual(r.hojas[2].testigos, ['1 TOMA CON LA MEJOR VISTA', 'VIDEO DE DÍA Y DE NOCHE']);
+  assert.deepEqual([r.hojas[2].catorcena, r.hojas[2].deducidas], [21, ['medio']]);
+  assert.deepEqual(r.sinInventario, []);
+  assert.deepEqual(Object.keys(r.planesSugeridos), [], 'Ecovallas no trae COMPROBACIÓN: sin plan sugerido');
+  assert.ok(r.avisos.some((a) => /MEGAVALLA son impresos/.test(a)));
+  assert.ok(r.avisos.some((a) => /mes primero.*REFRESCO PRUEBA/.test(a)));
+  assert.ok(r.avisos.some((a) => /no son campaña.*LISTA , EXCLUSIVAS GLOBALES/.test(a)));
+  assert.ok(r.avisos.some((a) => /OCULTAS con tabla.*VIEJA PRUEBA/.test(a)));
+  assert.ok(r.avisos.some((a) => /más de una hoja/.test(a)));
+  assert.ok(!r.avisos.some((a) => /se carga aparte/.test(a)), 'el cliente corto es el mismo');
+});
+
+test('Ecovallas real: el inventario manda sobre la columna MEDIO (Impreso fuera, aunque diga MEGAPANTALLA)', () => {
+  const h = hojaEV('BOTANA PRUEBA', { campana: 'BOTANA PRUEBA' }, [
+    fEV('MX_CM_EV_EVA_09_9101', 'MEGAPANTALLA', 'VENTA', '1440 px x 405 px', SER(2026, 10, 13), SER(2026, 10, 26), 'BOTANA_TERROR'),
+    fEV('MX_CM_EV_LUM_10_9102', 'LUMINA', 'VENTA', 'NA', SER(2026, 10, 13), SER(2026, 10, 26), 'BOTANA_TERROR-LUM'),
+    fEV('MX_CM_EV_MGP_11_9103', 'MEGAPANTALLA', 'VENTA', '1440 px x 405 px', SER(2026, 10, 13), SER(2026, 10, 26), 'BOTANA_TERROR'),
+  ]);
+  const inventario = [
+    { clave: 'MX_CM_EV_EVA_09_9101', tipo_medio: 'Impreso' },
+    { clave: 'MX_CM_EV_LUM_10_9102', tipo_medio: 'Impreso' },
+    { clave: 'MX_CM_EV_MGP_11_9103', tipo_medio: 'Digital' },
+  ];
+  const r = B.leerBitacora({ hojas: [h] }, { unidad: 'Ecovallas', medio: 'Pantalla', periodo: CAT21, inventario });
+  assert.deepEqual(r.campanas.map((c) => [c.version, c.sitios.map((s) => s.sitio_clave)]), [['BOTANA_TERROR', ['MX_CM_EV_MGP_11_9103']]]);
+  assert.deepEqual(r.descartadas.map((d) => d.motivo), ['impreso según inventario (Impreso)', 'impreso según inventario (Impreso)']);
+  assert.ok(!r.avisos.some((a) => /sin sitios válidos/.test(a)), 'la versión que solo traía impresos ya se avisó como impresa');
+  // Sin inventario, MEGAPANTALLA con clave EVA se queda (manda la columna MEDIO).
+  const sin = B.leerBitacora({ hojas: [h] }, { unidad: 'Ecovallas', medio: 'Pantalla', periodo: CAT21 });
+  assert.deepEqual(sin.campanas[0].sitios.map((s) => s.sitio_clave.slice(-4)), ['9101', '9103']);
+});
+
+test('Biobox: la «M» perdida de la clave se repone y el inventario Impreso solo se avisa', () => {
+  const hoja = hojaBB('MAQUINA PRUEBA', { campana: 'MAQUINA PRUEBA', ini: SER(2026, 10, 1), fin: SER(2026, 10, 31) }, [
+    fBB(1, 'X_CM_BB_MED_0931', 'VENTA', 'V1', SER(2026, 10, 13), SER(2026, 10, 31)),
+    fBB(2, 'MX_CM_BB_MEC_0932', 'VENTA', 'V1', SER(2026, 10, 13), SER(2026, 10, 31)),
+  ]);
+  const r = B.leerBitacora({ hojas: [hoja] }, {
+    unidad: 'Biobox', medio: 'Máquina', periodo: OCT_MES,
+    inventario: [{ clave: 'MX_CM_BB_MED_0931', tipo_medio: 'Digital' }, { clave: 'MX_CM_BB_MEC_0932', tipo_medio: 'Impreso' }],
+  });
+  assert.deepEqual(r.campanas[0].sitios.map((s) => s.sitio_clave), ['MX_CM_BB_MED_0931', 'MX_CM_BB_MEC_0932']);
+  assert.deepEqual(r.clavesCorregidas.map((c) => [c.original, c.cambios]), [['X_CM_BB_MED_0931', ['prefijo']]]);
+  assert.ok(r.avisos.some((a) => /1 máquina\(s\) son Impreso en el inventario/.test(a)));
+});
+
+test('partirVersiones y planDeComprobacion', () => {
+  assert.deepEqual(B.partirVersiones('V5, V6, V7'), ['V5', 'V6', 'V7']);
+  assert.deepEqual(B.partirVersiones('V1 Y V2'), ['V1', 'V2']);
+  assert.deepEqual(B.partirVersiones('MARCA X V11, 12 Y 13'), ['MARCA X V11', 'MARCA X V12', 'MARCA X V13']);
+  assert.deepEqual(B.partirVersiones('MARCA Z - V4'), ['MARCA Z - V4']);
+  assert.deepEqual(B.partirVersiones('Artista Uno, Dos y Tres-Gira'), ['Artista Uno, Dos y Tres-Gira']);
+  assert.deepEqual(B.partirVersiones('REFRESCO_V2'), ['REFRESCO_V2']);
+  const p = (t) => B.planDeComprobacion(t)?.plan ?? null;
+  assert.deepEqual(p('MENSUAL '), { tipo: 'inicio' });
+  assert.deepEqual(p('MENSUALES'), { tipo: 'inicio' });
+  assert.deepEqual(p('CATORCENAL'), { tipo: 'cada_n', cada_n: 14 });
+  assert.deepEqual(p('TESTIGS CATORCENALES'), { tipo: 'cada_n', cada_n: 14 });
+  assert.deepEqual(p('QUINCENAL'), { tipo: 'cada_n', cada_n: 15 });
+  assert.equal(p('A VECES'), null);
+  assert.equal(p(null), null);
+});
+
+test('contratoComp: un solo lugar para los tipos y la llave del contrato', async () => {
+  const { outputFiles: o } = await build({
+    entryPoints: [fileURLToPath(new URL('../src/lib/contratoComp.ts', import.meta.url))],
+    bundle: true, write: false, format: 'esm', platform: 'neutral',
+  });
+  const C = await import('data:text/javascript;base64,' + Buffer.from(o[0].text).toString('base64'));
+  assert.equal(C.llaveContrato({ campana: 'Café  Prueba', version: 'v 1' }), 'CAFEPRUEBA|V1');
+  assert.equal(B.llaveContrato({ campana: 'Café  Prueba', version: '' }), 'CAFEPRUEBA|', 'bitacoraComp lo vuelve a exportar');
+});
+
+// ------------------------------------------------------------
+// Revisión de la bitácora real (23-oct-2026): forma real, nombres inventados
+// ------------------------------------------------------------
+
+const { outputFiles: oNucleo } = await build({
+  entryPoints: [fileURLToPath(new URL('../src/lib/comprobaciones.ts', import.meta.url))],
+  bundle: true, write: false, format: 'esm', platform: 'neutral',
+});
+const N = await import('data:text/javascript;base64,' + Buffer.from(oNucleo[0].text).toString('base64'));
+const CTX_BB = { unidad: 'Biobox', medio: 'Máquina', archivo: 'BITACORA PRUEBA.xlsx', periodo: OCT_MES };
+/** Lo que hace comp_cargar_campanas con los renglones del mismo sitio: tramos = sus vigencias distintas. */
+const comoLaBase = (c, clave) => {
+  const rs = c.sitios.filter((s) => s.sitio_clave === clave);
+  const tramos = [...new Map(rs.map((s) => [`${s.inicio}|${s.fin}`, { inicio: s.inicio, fin: s.fin }])).values()];
+  return { inicio: rs[0].inicio, fin: rs.at(-1).fin, tramos: tramos.length > 1 ? tramos : null };
+};
+
+test('tramos: el mismo sitio con vigencias separadas va en un renglón por tramo y el plan no cae en el hueco', () => {
+  const h = hojaBB('SOPA PRUEBA', { campana: 'SOPA PRUEBA', ini: SER(2026, 9, 23), fin: SER(2026, 10, 31), comprobacion: 'CATORCENAL' }, [
+    fBB(1, 'MX_CM_BB_OXD_0941', 'VENTA', 'V3', SER(2026, 9, 29), SER(2026, 10, 4)),
+    fBB(2, 'MX_CM_BB_OXD_0941', 'VENTA', 'V3', SER(2026, 10, 21), SER(2026, 10, 31)),
+    // La misma vigencia (VENTA y BONUS el mismo día) sí se junta, sin repetir observaciones.
+    fBB(3, 'MX_CM_BB_OXD_0942', 'INTERCAMBIO', 'V3', SER(2026, 10, 9), SER(2026, 10, 12), { obs: 'MONITOREO EXTERNO' }),
+    fBB(4, 'MX_CM_BB_OXD_0942', 'INTERCAMBIO', 'V3', SER(2026, 10, 9), SER(2026, 10, 12), { obs: 'MONITOREO EXTERNO' }),
+    // Tramos que se tocan: el REU se queda en SU tramo; los iguales que se tocan se compactan.
+    fBB(5, 'MX_CM_BB_OXD_0943', 'VENTA', 'V3', SER(2026, 10, 2), SER(2026, 10, 14)),
+    fBB('REU', 'MX_CM_BB_OXD_0943', 'VENTA', 'V3', SER(2026, 10, 15), SER(2026, 10, 28)),
+    fBB(6, 'MX_CM_BB_OXD_0944', 'VENTA', 'V3', SER(2026, 10, 1), SER(2026, 10, 10)),
+    fBB(7, 'MX_CM_BB_OXD_0944', 'VENTA', 'V3', SER(2026, 10, 11), SER(2026, 10, 20)),
+  ]);
+  const r = B.leerBitacora({ hojas: [h] }, CTX_BB);
+  cumpleContrato(r.campanas);
+  const c = r.campanas[0];
+  assert.deepEqual(c.sitios.map((s) => [s.sitio_clave.slice(-4), s.inicio.slice(5), s.fin.slice(5), s.observaciones]), [
+    ['0941', '10-01', '10-04', null],
+    ['0941', '10-21', '10-31', null],
+    ['0942', '10-09', '10-12', 'INTERCAMBIO · MONITOREO EXTERNO'],
+    ['0943', '10-02', '10-14', null],
+    ['0943', '10-15', '10-28', 'REUBICACIÓN'],
+    ['0944', '10-01', '10-20', null],
+  ]);
+  // El plan sugerido (CATORCENAL) con los tramos, como la base: nunca en el hueco del 5 al 20.
+  const plan = r.planesSugeridos['SOPAPRUEBA|V3'].plan;
+  const fechas = N.ventanasToma(comoLaBase(c, 'MX_CM_BB_OXD_0941'), c, OCT_MES).flatMap((v) => N.generarFechasPlan(plan, v.inicio, v.fin));
+  assert.deepEqual(fechas, ['2026-10-01', '2026-10-21']);
+  assert.ok(r.avisos.some((a) => /1 sitio\(s\) corren en tramos separados \(MX_CM_BB_OXD_0941 SIN AIRE DEL 05\/10 AL 20\/10\)/.test(a)), r.avisos.join(' | '));
+  assert.ok(!r.avisos.some((a) => /datos distintos/.test(a)));
+});
+
+test('tramos con otro horario: la base guarda uno por sitio y se avisa', () => {
+  const h = hojaBB('PROGRAMATICO PRUEBA', { campana: 'PROGRAMATICO PRUEBA', ini: SER(2026, 10, 1), fin: SER(2026, 10, 31) }, [
+    fBB(1, 'MX_CM_BB_MED_0951', 'VENTA', 'V1', SER(2026, 10, 1), SER(2026, 10, 1), { horario: '(8:00 AM A 09:59 AM), (3:00 PM A 7:59 PM)' }),
+    fBB(2, 'MX_CM_BB_MED_0951', 'VENTA', 'V1', SER(2026, 10, 2), SER(2026, 10, 2), { horario: '12:00 PM A 3:59 PM' }),
+  ]);
+  const r = B.leerBitacora({ hojas: [h] }, CTX_BB);
+  assert.equal(r.campanas[0].sitios.length, 2);
+  assert.ok(r.avisos.some((a) => /horario L-V distinto por tramo.*la base guarda «\(8:00 AM/.test(a)), r.avisos.join(' | '));
+  assert.ok(r.avisos.some((a) => /1 campaña\(s\) traen horario por franjas.*PROGRAMATICO PRUEBA/.test(a)));
+});
+
+test('dos hojas con la misma CAMPAÑA: otro contrato va aparte; el mismo contrato (bonus) se junta', () => {
+  const a = hojaBB('PARQUE PRUEBA', { campana: 'PARQUE PRUEBA', ini: SER(2026, 8, 1), fin: SER(2026, 12, 31), quantum: 'C100001 - C100001-R1 -- C100001' }, [
+    fBB(1, 'MX_CM_BB_MED_0961', 'VENTA', 'V2', SER(2026, 8, 1), SER(2026, 12, 31), { campana: 'PARQUE PRUEBA' }),
+  ]);
+  const b = hojaBB('PARQUE PRUEBA TORRE', { campana: 'PARQUE PRUEBA', ini: SER(2026, 9, 20), fin: SER(2026, 10, 20), quantum: 'C200002 --- C200002-R1' }, [
+    fBB(1, 'MX_CM_BB_MED_0962', 'VENTA', 'V2, V3', SER(2026, 9, 20), SER(2026, 10, 14), { campana: 'PARQUE PRUEBA TORRE' }),
+  ]);
+  const bonus = hojaBB('PARQUE PRUEBA BONUS', { campana: 'PARQUE PRUEBA', ini: SER(2026, 10, 1), fin: SER(2026, 10, 31), quantum: 'C100001-R3' }, [
+    fBB(1, 'MX_CM_BB_MED_0963', 'BONUS', 'V2', SER(2026, 10, 1), SER(2026, 10, 31), { campana: 'PARQUE PRUEBA BONUS' }),
+  ]);
+  const r = B.leerBitacora({ hojas: [a, b, bonus] }, CTX_BB);
+  cumpleContrato(r.campanas);
+  assert.deepEqual(r.campanas.map((c) => [c.campana, c.version, c.quantum, c.sitios.map((s) => s.sitio_clave.slice(-4)).join(',')]), [
+    ['PARQUE PRUEBA', 'V2', 'C100001 - C100001-R1 -- C100001', '0961,0963'],
+    ['PARQUE PRUEBA TORRE', 'V2', 'C200002 --- C200002-R1', '0962'],
+    ['PARQUE PRUEBA TORRE', 'V3', 'C200002 --- C200002-R1', '0962'],
+  ]);
+  assert.ok(
+    r.avisos.some((x) => /viene también en la hoja «PARQUE PRUEBA TORRE» con otro contrato \(C200002; en «PARQUE PRUEBA»: C100001\).*«PARQUE PRUEBA TORRE»/.test(x)),
+    r.avisos.join(' | '),
+  );
+  assert.ok(r.avisos.some((x) => /«PARQUE PRUEBA \/ V2» viene en más de una hoja/.test(x)), 'el bonus del mismo contrato se junta con aviso');
+  // Una hoja vieja (todo fuera del periodo) no le quita el nombre a la que sí entra.
+  const vieja = hojaBB('PARQUE VIEJO', { campana: 'PARQUE PRUEBA', ini: SER(2026, 3, 1), fin: SER(2026, 4, 30), quantum: 'C300003' }, [
+    fBB(1, 'MX_CM_BB_MED_0964', 'VENTA', 'V2', SER(2026, 3, 1), SER(2026, 4, 30)),
+  ]);
+  const r2 = B.leerBitacora({ hojas: [vieja, a] }, CTX_BB);
+  assert.deepEqual(r2.campanas.map((c) => c.campana), ['PARQUE PRUEBA']);
+});
+
+test('NEGOCIACIÓN con puntuación o EXCLUSIVA: «VENTA.» y «VENTA - EXCLUISVA» son VENTA', () => {
+  for (const t of ['VENTA.', 'VENTA - EXCLUISVA', 'VENTA EXCLUSIVA', 'Venta,']) assert.equal(B.leerTipoVenta(t), 'VENTA', t);
+  assert.equal(B.leerTipoVenta('BONIFICACIÓN.'), 'BONUS');
+  assert.equal(B.leerTipoVenta('VENTANA'), null);
+  assert.equal(B.leerTipoVenta('INTERCAMBIO'), null);
+  const h = hojaBB('GALLETA PRUEBA', { campana: 'GALLETA PRUEBA', ini: SER(2026, 10, 1), fin: SER(2026, 10, 31) }, [
+    fBB(1, 'MX_CM_BB_MED_0971', 'VENTA - EXCLUISVA', 'V1', SER(2026, 10, 1), SER(2026, 10, 31)),
+    fBB(2, 'MX_CM_BB_MED_0972', 'VENTA.', 'V1', SER(2026, 10, 1), SER(2026, 10, 31)),
+  ]);
+  const s = B.leerBitacora({ hojas: [h] }, CTX_BB).campanas[0].sitios;
+  assert.deepEqual(s.map((x) => [x.tipo_venta, x.observaciones]), [['VENTA', 'EXCLUSIVA'], ['VENTA', null]]);
+});
+
+test('partirVersiones: separadores repetidos o al final (Biobox real «V33,, V34»)', () => {
+  assert.deepEqual(B.partirVersiones('V33,, V34'), ['V33', 'V34']);
+  assert.deepEqual(B.partirVersiones('V5, V6,'), ['V5', 'V6']);
+  assert.deepEqual(B.partirVersiones('V1 ; ; V2'), ['V1', 'V2']);
+});
+
+test('fechas: encabezado «11 SEP» con el año del periodo, hoja con el mes primero y sin vigencia legible', () => {
+  // Encabezado y renglón en texto: septiembre NO entra a octubre (antes entraba con vigencia null = todo el mes).
+  const sep = hojaBB('SEPTIEMBRE PRUEBA', { campana: 'SEPTIEMBRE PRUEBA', ini: '11 SEP', fin: '30 SEP' }, [
+    fBB(1, 'MX_CM_BB_MED_0981', 'VENTA', 'V1', '11 SEP', '30 SEP'),
+  ]);
+  const r1 = B.leerBitacora({ hojas: [sep] }, CTX_BB);
+  assert.equal(r1.campanas.length, 0);
+  assert.deepEqual(r1.descartadas.map((d) => [d.motivo, d.valor]), [['fuera del periodo', '2026-09-11 → 2026-09-30']]);
+  // Sin periodo, el año sale del nombre del archivo.
+  assert.equal(B.fechaDeArchivo('BITACORA BIOBOX OCTUBRE 2026.xlsx'), '2026-10-01');
+  assert.equal(B.fechaDeArchivo('bitacora 2027.xlsx'), '2027-07-01');
+  assert.equal(B.fechaDeArchivo('bitacora.xlsx'), null);
+  const r2 = B.leerBitacora({ hojas: [sep] }, { unidad: 'Biobox', medio: 'Máquina', archivo: 'BITACORA SEPTIEMBRE 2026.xlsx' });
+  assert.deepEqual([r2.campanas[0].sitios[0].inicio, r2.campanas[0].sitios[0].fin], ['2026-09-11', '2026-09-30']);
+  // Sin año en ningún lado: el renglón no entra (con null la base le daría todo el periodo).
+  const r3 = B.leerBitacora({ hojas: [sep] }, { unidad: 'Biobox', medio: 'Máquina' });
+  assert.equal(r3.campanas.length, 0);
+  assert.equal(r3.descartadas[0].motivo, 'sin vigencia legible (ni el renglón ni la campaña)');
+  assert.ok(r3.avisos.some((a) => /Hoja «SEPTIEMBRE PRUEBA» fila 11: sin vigencia legible/.test(a)), r3.avisos.join(' | '));
+  // Hoja que escribe el mes primero: «11/12/2026» después de «10/13/2026» es 12 de noviembre.
+  const mp = hojaBB('MES PRIMERO', { campana: 'MES PRIMERO', ini: SER(2026, 10, 1), fin: SER(2026, 12, 31) }, [
+    fBB(1, 'MX_CM_BB_MED_0982', 'VENTA', 'V1', '10/13/2026', '11/12/2026'),
+  ]);
+  const r4 = B.leerBitacora({ hojas: [mp] }, { ...CTX_BB, periodo: { inicio: '2026-11-01', fin: '2026-11-30' } });
+  assert.equal(r4.campanas[0].sitios[0].fin, '2026-11-12');
+});
+
+test('FIN antes de INICIO y «-» se avisan por hoja; la versión «» de un renglón sin clave no es una campaña perdida', () => {
+  const h = hojaBB('AVISOS PRUEBA', { campana: 'AVISOS PRUEBA', ini: SER(2026, 10, 1), fin: SER(2026, 10, 31) }, [
+    fBB(1, 'MX_CM_BB_MED_0991', 'VENTA', 'V1', SER(2026, 10, 15), SER(2026, 10, 1)),
+    fBB(2, 'MX_CM_BB_MED_0992', 'VENTA', 'V1', '-', '-'),
+    fBB(3, 'MX_CM_BB_MED_0993', 'VENTA', 'V1', SER(2026, 10, 2), SER(2026, 10, 31)),
+    fBB(4, 'PENDIENTE DE REUBICACIÓN', 'VENTA', null, SER(2026, 10, 2), SER(2026, 10, 5)),
+  ]);
+  const r = B.leerBitacora({ hojas: [h] }, CTX_BB);
+  assert.ok(r.avisos.includes('Hoja «AVISOS PRUEBA» fila 11: FIN antes de INICIO; no se cargan.'), r.avisos.join(' | '));
+  assert.ok(r.avisos.includes('Hoja «AVISOS PRUEBA» fila 12: sin vigencia (INICIO y FIN «-»); no se cargan.'));
+  assert.ok(!r.avisos.some((a) => /sin sitios válidos/.test(a)), r.avisos.join(' | '));
+});
+
+test('Ecovallas: SAME PRNT es REPITE, «,png» no cambia la versión y las ocultas viejas no se avisan', () => {
+  const h = hojaEV('PAN PRUEBA', { campana: 'PAN PRUEBA' }, [
+    fEV('MX_CM_EV_MGP_01_9201', 'MEGAPANTALLA', 'VENTA', '1440 px x 405 px', SER(2026, 10, 13), SER(2026, 10, 26), 'PAN-PRUEBA-C,png', null, 'SAME PRNT'),
+    fEV('MX_CM_EV_MGP_02_9202', 'MEGAPANTALLA', 'VENTA', '1440 px x 405 px', SER(2026, 10, 13), SER(2026, 10, 26), 'PAN-PRUEBA-C.png', null, 'SAME PRINT'),
+  ]);
+  const vieja = hojaEV('OCULTA VIEJA', { campana: 'OCULTA VIEJA', cat: 9 }, [], { oculta: true });
+  vieja.filas[1][3] = SER(2026, 4, 20);
+  vieja.filas[2][3] = SER(2026, 5, 3);
+  const actual = hojaEV('OCULTA ACTUAL', { campana: 'OCULTA ACTUAL' }, [], { oculta: true });
+  const r = B.leerBitacora({ hojas: [h, vieja, actual] }, { unidad: 'Ecovallas', medio: 'Pantalla', periodo: CAT21, catorcena: 21 });
+  assert.deepEqual(r.campanas.map((c) => [c.version, c.arte, c.sitios.length]), [['PAN-PRUEBA-C', 'REPITE', 2]]);
+  const aviso = r.avisos.find((a) => /OCULTAS/.test(a)) ?? '';
+  assert.ok(/OCULTA ACTUAL/.test(aviso) && !/OCULTA VIEJA/.test(aviso), aviso);
 });

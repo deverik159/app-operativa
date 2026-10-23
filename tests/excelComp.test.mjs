@@ -396,7 +396,9 @@ test('armarFormatoGeneral Ecovallas Digital: encabezado y renglones como la hoja
     'TEATRO DE PRUEBA',
     'OBRA UNO',
     'VIDEO',
-    '7:00 - 9:59',
+    // Ecovallas Digital es todo 24 horas (Erik, 23-oct-2026): aunque la toma
+    // traiga una franja, el HORARIO sale «24 HORAS».
+    '24 HORAS',
     null,
     null,
     'Aline Ejemplo',
@@ -867,4 +869,382 @@ test('11,300 renglones (el GENERAL de Vía Verde de hoy) se arman sin congelar',
   assert.equal(libros.reduce((s, l) => s + l.hojas[0].filas.length - 4, 0), n);
   // Holgado a propósito (en la PC de Erik tarda ~0.2 s): solo atrapa una regresión grande.
   assert.ok(ms < 4000, `tardó ${ms} ms`);
+});
+
+// ------------------------------------------------------------
+// De las vistas de la base al Excel (revisión de la SQL, 23-oct-2026)
+// ------------------------------------------------------------
+
+const { campanasExcelDeVista, tomasExcelDeVista } = E;
+
+// Filas con la FORMA de vw_comp_campanas / vw_comp_tomas; nombres inventados.
+const VISTA_CAMPANAS = [
+  {
+    id: '11',
+    campana: 'REFRESCO PRUEBA',
+    version: 'V1',
+    vendedor: 'Vendedora Uno',
+    administrador: 'Admin Dos',
+    arte: 'NUEVO',
+    analista_email: 'Luisa.Ejemplo@empresa.test',
+    meta: '20',
+    comprobados: 5,
+    estatus: 'abierta',
+    especificacion: 'DEL 01 AL 31 DE AGOSTO. TOMAS MEDIAS',
+    retirada: false,
+    // Columnas de la vista que el Excel no usa.
+    sitios_activos: 22,
+    meta_fuente: 'app',
+  },
+  {
+    id: 12,
+    campana: 'BANCO PRUEBA',
+    version: '',
+    administrador: null,
+    analista_email: null,
+    meta: 8,
+    comprobados: 8,
+    estatus: 'cerrada',
+    cerrada_en: '2026-08-20T19:30:00-06:00',
+  },
+  { id: 13, campana: 'VIEJA PRUEBA', version: 'V2', meta: 3, comprobados: 3, estatus: 'abierta', retirada: true },
+];
+
+test('campanasExcelDeVista: venta ← meta, ejecutivo ← administrador; las retiradas también, con RETIRADA', () => {
+  const nombres = new Map([['luisa.ejemplo@empresa.test', 'Luisa Ejemplo']]);
+  const cs = campanasExcelDeVista(VISTA_CAMPANAS, { nombres });
+  assert.deepEqual(
+    cs.map((c) => c.id),
+    ['11', 12, 13]
+  );
+  assert.deepEqual(cs[0], {
+    id: '11',
+    campana: 'REFRESCO PRUEBA',
+    version: 'V1',
+    vendedor: 'Vendedora Uno',
+    ejecutivo: 'Admin Dos',
+    arte: 'NUEVO',
+    analista: 'Luisa Ejemplo',
+    analista_email: 'luisa.ejemplo@empresa.test',
+    venta: '20',
+    comprobados: 5,
+    estatus: 'abierta',
+    cerrada_en: null,
+    especificacion: 'DEL 01 AL 31 DE AGOSTO. TOMAS MEDIAS',
+    retirada: false,
+  });
+  assert.equal(cs[1].analista, null);
+  assert.deepEqual(cs.map((c) => c.retirada), [false, false, true]);
+  // Sin nombres, DISEÑADOR sale del correo; con objeto en vez de Map también.
+  assert.equal(campanasExcelDeVista(VISTA_CAMPANAS)[0].analista, 'Luisa.Ejemplo@empresa.test');
+  assert.equal(
+    campanasExcelDeVista(VISTA_CAMPANAS, { nombres: { 'luisa.ejemplo@empresa.test': 'Luisa E' } })[0].analista,
+    'Luisa E'
+  );
+  // Y arma la Asignación: VENTA = meta (20), EJECUTIVO = administrador, DISEÑADOR = LUISA.
+  const h = armarAsignacion({ medio: 'Máquina', periodo: AGOSTO, campanas: cs }).hojas[0];
+  assert.deepEqual(h.filas[5].slice(0, 7), ['Vendedora Uno', 'Admin Dos', 'NUEVO', 'LUISA', 'REFRESCO PRUEBA / V1', 20, 20]);
+  assert.deepEqual(h.filas[6].slice(4, 6), ['BANCO PRUEBA', 8]);
+  assert.equal(h.filas[6][12], 'CERRADA');
+  assert.deepEqual(h.filas[6][13], fecha('2026-08-20'));
+  // La retirada va con ESTATUS RETIRADA, no COMPLETA (3 de 3), y sin fecha de cierre.
+  assert.deepEqual(h.filas[7].slice(4, 6), ['VIEJA PRUEBA / V2', 3]);
+  assert.equal(h.filas[7][12], 'RETIRADA');
+  assert.equal(h.filas[7][13], null);
+});
+
+const VISTA_TOMAS = [
+  {
+    id: 900,
+    medio: 'Columna',
+    campana: 'REFRESCO PRUEBA',
+    version: 'V1',
+    especificacion: 'TOMAS DE DÍA',
+    campana_estatus: 'abierta',
+    sitio_clave: 'MX_CM_VV_COL_448',
+    sitio_estado: 'pendiente',
+    fecha: '2026-08-01',
+    horario_texto: '06:00 - 09:59',
+    observaciones: 'LADO NORTE',
+    comprobacion: 'FOTO',
+    turno: 'matutino',
+    ruta_numero: 4,
+    monitorista_email: 'Saul.Prueba@empresa.test',
+    estado: 'pendiente',
+    // Columnas de la vista que el Excel no usa.
+    sitio_fuera_de_carga: false,
+    baja_auto: false,
+  },
+  {
+    id: 901,
+    medio: 'Columna',
+    campana: 'REFRESCO PRUEBA',
+    version: 'V1',
+    sitio_clave: 'MX_CM_VV_COL_491',
+    fecha: '2026-08-02',
+    horario_texto: null,
+    estado: 'cancelada',
+    baja_auto: true,
+  },
+  {
+    id: 902,
+    medio: 'Columna',
+    campana: 'REFRESCO PRUEBA',
+    version: 'V1',
+    sitio_clave: 'MX_CM_VV_COL_606',
+    fecha: '2026-08-02T00:00:00',
+    horario_texto: '18:00 - 21:59',
+    estado: 'comprobada',
+    ruta_numero: null,
+    monitorista_email: null,
+  },
+];
+
+test('tomasExcelDeVista: solo estado <> cancelada; ruta ← ruta_numero, horario ← horario_texto', () => {
+  const ts = tomasExcelDeVista(VISTA_TOMAS, { nombres: { 'saul.prueba@empresa.test': 'Saúl Prueba' } });
+  assert.deepEqual(
+    ts.map((t) => t.id),
+    [900, 902]
+  );
+  assert.deepEqual(ts[0], {
+    id: 900,
+    fecha: '2026-08-01',
+    sitio: 'MX_CM_VV_COL_448',
+    ruta: 4,
+    campana: 'REFRESCO PRUEBA',
+    version: 'V1',
+    comprobacion: 'FOTO',
+    horario: '06:00 - 09:59',
+    especificacion: 'TOMAS DE DÍA',
+    observaciones: 'LADO NORTE',
+    monitorista: 'Saúl Prueba',
+    monitorista_email: 'saul.prueba@empresa.test',
+    turno: 'matutino',
+    estado: 'pendiente',
+    campana_estatus: 'abierta',
+    sitio_estado: 'pendiente',
+    sitio_comprobado_dia: null,
+  });
+  assert.equal(ts[1].fecha, '2026-08-02');
+  assert.equal(ts[1].monitorista, null);
+  // El formato general de Vía Verde lleva la franja del día y el ESTATUS.
+  const h = armarFormatoGeneral({ medio: 'Columna', periodo: AGOSTO, tomas: ts }).hojas[0];
+  assert.equal(h.filas[3][2], 'RUTA'); // alguna trae ruta
+  assert.deepEqual(h.filas[4].slice(1, 8), [
+    'MX_CM_VV_COL_448',
+    4,
+    'REFRESCO PRUEBA',
+    'V1',
+    'FOTO',
+    '06:00 - 09:59',
+    'TOMAS DE DÍA · LADO NORTE',
+  ]);
+  assert.equal(h.filas[4][9], 'Saúl Prueba (MATUTINO)');
+  assert.equal(h.filas[5][10], 'COMPROBADA');
+  assert.equal(h.filas.length, 6);
+});
+
+test('Ecovallas Digital y Biobox: HORARIO «24 HORAS» en todos los Excel, sin franjas ni sábado y domingo', () => {
+  const vista = [
+    // Lo que deja la base con la bitácora: «24 HRS» entre semana y nada el domingo.
+    {
+      id: 1,
+      medio: 'Máquina',
+      campana: 'C',
+      sitio_clave: 'MX_CM_BB_MED_0002',
+      fecha: '2026-08-03',
+      horario_texto: '24 HRS',
+      estado: 'pendiente',
+      ruta_numero: 2,
+      monitorista_email: 'a@empresa.test',
+    },
+    {
+      id: 2,
+      medio: 'Máquina',
+      campana: 'C',
+      sitio_clave: 'MX_CM_BB_MED_0002',
+      fecha: '2026-08-02',
+      horario_texto: null,
+      estado: 'pendiente',
+      ruta_numero: 2,
+      monitorista_email: 'a@empresa.test',
+    },
+  ];
+  const ts = tomasExcelDeVista(vista);
+  assert.deepEqual(
+    ts.map((t) => t.horario),
+    ['24 HORAS', '24 HORAS']
+  );
+  // Aunque la pantalla pase el horario crudo, el Excel de la unidad lo fija.
+  const crudas = vista.map((t) => ({
+    id: t.id,
+    fecha: t.fecha,
+    sitio: t.sitio_clave,
+    campana: t.campana,
+    horario: t.horario_texto,
+    ruta: 2,
+    monitorista_email: t.monitorista_email,
+  }));
+  const columnaHorario = (h) => {
+    const i = h.filas[3].indexOf('HORARIO');
+    return h.filas.slice(4).map((f) => f[i]);
+  };
+  for (const medio of ['Máquina', 'Pantalla']) {
+    assert.equal(configMedio(medio).horario24h, true, medio);
+    const g = armarFormatoGeneral({ medio, periodo: AGOSTO, tomas: crudas }).hojas[0];
+    assert.deepEqual(columnaHorario(g), ['24 HORAS', '24 HORAS'], medio);
+    for (const libro of armarArchivosMonitoristas({ medio, periodo: AGOSTO, tomas: crudas })) {
+      const h = libro.hojas[0];
+      assert.deepEqual(columnaHorario(h), ['24 HORAS', '24 HORAS'], medio);
+      // Una sola columna HORARIO: nada de LUNES A VIERNES / SÁBADO Y DOMINGO.
+      assert.equal(h.filas[3].filter((e) => typeof e === 'string' && /HORARIO/.test(e)).length, 1);
+    }
+  }
+  // Vía Verde conserva el del día (y vacío si no hay). Orden: el 2 de agosto primero.
+  assert.equal(configMedio('Columna').horario24h, false);
+  assert.equal(configMedio('Pórtico').horario24h, false);
+  const vv = armarFormatoGeneral({ medio: 'Columna', periodo: AGOSTO, tomas: crudas }).hojas[0];
+  assert.deepEqual(columnaHorario(vv), [null, '24 HRS']);
+});
+
+// ------------------------------------------------------------
+// Revisión 3 (23-oct-2026): sitio ya comprobado, retiradas y fechas Date
+// ------------------------------------------------------------
+
+const { tomaCubiertaPorSitio, ESTATUS_SITIO_COMPROBADO, diaDeVista } = E;
+
+test('tomaCubiertaPorSitio: la toma por hacer de un sitio comprobado, hasta el día en que se comprobó', () => {
+  const base = { estado: 'pendiente', sitio_estado: 'comprobado', sitio_comprobado_dia: '2026-08-10' };
+  assert.equal(tomaCubiertaPorSitio({ ...base, fecha: '2026-08-03' }), true);
+  assert.equal(tomaCubiertaPorSitio({ ...base, fecha: '2026-08-10' }), true);
+  // Después del día: la pidió incluir_comprobados, sigue yendo a campo.
+  assert.equal(tomaCubiertaPorSitio({ ...base, fecha: '2026-08-11' }), false);
+  // Regresada cuenta como por hacer; por revisar o comprobada ya no.
+  assert.equal(tomaCubiertaPorSitio({ ...base, estado: 'regresada', fecha: '2026-08-03' }), true);
+  assert.equal(tomaCubiertaPorSitio({ ...base, estado: 'por_revisar', fecha: '2026-08-03' }), false);
+  assert.equal(tomaCubiertaPorSitio({ ...base, estado: 'comprobada', fecha: '2026-08-03' }), false);
+  // Sin el día (la vista aún no lo trae) o sin fecha: cubierta.
+  assert.equal(tomaCubiertaPorSitio({ estado: 'pendiente', sitio_estado: 'comprobado', fecha: '2026-08-30' }), true);
+  assert.equal(tomaCubiertaPorSitio({ ...base, fecha: null }), true);
+  // Sitio pendiente o sin estado: no aplica.
+  assert.equal(tomaCubiertaPorSitio({ ...base, sitio_estado: 'pendiente', fecha: '2026-08-03' }), false);
+  assert.equal(tomaCubiertaPorSitio({ ...base, sitio_estado: null, fecha: '2026-08-03' }), false);
+});
+
+test('estatusToma y tomaParaCampo: SITIO COMPROBADO, fuera del archivo del monitorista', () => {
+  // El caso de la revisión: toma pendiente de un sitio que ya quedó comprobado.
+  const t = { estado: 'pendiente', sitio_estado: 'comprobado' };
+  assert.equal(ESTATUS_SITIO_COMPROBADO, 'SITIO COMPROBADO');
+  assert.equal(estatusToma(t), 'SITIO COMPROBADO');
+  assert.equal(tomaParaCampo(t), false);
+  // Las de después del día de la marca siguen en campo y sin ESTATUS.
+  const despues = { ...t, sitio_comprobado_dia: '2026-08-05', fecha: '2026-08-12' };
+  assert.equal(estatusToma(despues), null);
+  assert.equal(tomaParaCampo(despues), true);
+  // QUITADA, COMPROBADA, CERRADA y el texto libre siguen ganando.
+  assert.equal(estatusToma({ ...t, estado: 'cancelada' }), 'QUITADA');
+  assert.equal(estatusToma({ ...t, estado: 'comprobada' }), 'COMPROBADA');
+  assert.equal(estatusToma({ ...t, campana_estatus: 'cerrada' }), 'CERRADA');
+  assert.equal(estatusToma({ ...t, estatus: 'NOTA A MANO' }), 'NOTA A MANO');
+
+  const tomas = [
+    T({ id: 1, fecha: '2026-08-03', sitio: 'MX_CM_BB_MED_0001', monitorista: 'Saúl Prueba', sitio_estado: 'comprobado', sitio_comprobado_dia: '2026-08-04' }),
+    T({ id: 2, fecha: '2026-08-06', sitio: 'MX_CM_BB_MED_0001', monitorista: 'Saúl Prueba', sitio_estado: 'comprobado', sitio_comprobado_dia: '2026-08-04' }),
+    T({ id: 3, fecha: '2026-08-03', sitio: 'MX_CM_BB_MED_0002', monitorista: 'Saúl Prueba', sitio_estado: 'pendiente' }),
+    T({ id: 4, fecha: '2026-08-03', sitio: 'MX_CM_BB_MED_0003', monitorista: 'Saúl Prueba', sitio_estado: 'comprobado' }),
+  ];
+  // Formato general: todas, con su ESTATUS.
+  const g = armarFormatoGeneral({ medio: 'Máquina', periodo: AGOSTO, tomas }).hojas[0];
+  const ce = g.filas[3].indexOf('ESTATUS');
+  const porLlave = new Map(g.filas.slice(4).map((f) => [String(f.at(-1)), f[ce]]));
+  assert.equal(porLlave.size, 4);
+  assert.equal(porLlave.get('1'), 'SITIO COMPROBADO');
+  assert.equal(porLlave.get('2'), null);
+  assert.equal(porLlave.get('3'), null);
+  assert.equal(porLlave.get('4'), 'SITIO COMPROBADO');
+  // Archivo del monitorista: solo las que de veras hay que ir a tomar.
+  const libros = armarArchivosMonitoristas({ medio: 'Máquina', periodo: AGOSTO, tomas });
+  assert.equal(libros.length, 1);
+  assert.deepEqual(llaves(libros[0].hojas[0]).map(String).sort(), ['2', '3']);
+  // incluirTodas sigue metiendo todo.
+  const todas = armarArchivosMonitoristas({ medio: 'Máquina', periodo: AGOSTO, tomas, incluirTodas: true });
+  assert.equal(llaves(todas[0].hojas[0]).length, 4);
+});
+
+test('tomasExcelDeVista: fechas Date (PGlite) y el día en que se comprobó el sitio', () => {
+  assert.equal(diaDeVista(new Date('2026-10-05T00:00:00Z')), '2026-10-05');
+  assert.equal(diaDeVista('2026-10-05'), '2026-10-05');
+  assert.equal(diaDeVista('2026-10-05T00:00:00'), '2026-10-05');
+  assert.equal(diaDeVista(new Date('no')), null);
+  assert.equal(diaDeVista('2026-02-30'), null);
+  assert.equal(diaDeVista(null), null);
+  const ts = tomasExcelDeVista([
+    {
+      id: 1,
+      medio: 'Máquina',
+      campana: 'C',
+      sitio_clave: 'MX_CM_BB_MED_0002',
+      fecha: new Date('2026-10-05T00:00:00Z'),
+      sitio_estado: 'comprobado',
+      sitio_comprobado_dia: new Date('2026-10-04T00:00:00Z'),
+      estado: 'pendiente',
+    },
+    { id: 2, medio: 'Máquina', campana: 'C', sitio_clave: 'MX_CM_BB_MED_0003', fecha: '2026-10-03', estado: 'pendiente' },
+  ]);
+  assert.deepEqual(
+    ts.map((t) => [t.fecha, t.sitio_comprobado_dia]),
+    [
+      ['2026-10-05', '2026-10-04'],
+      ['2026-10-03', null],
+    ]
+  );
+  // El 5 es después del día de la marca: sigue yendo a campo.
+  assert.equal(tomaParaCampo(ts[0]), true);
+});
+
+test('Asignación con una campaña retirada que tiene marcas: la COMPROBACIÓN DIARIA no pierde el crédito', () => {
+  // REV-5: Biobox, un sitio comprobado en la retirada; la vista dice meta 1, comprobados 1, retirada.
+  const vista = [
+    { id: 21, campana: 'ACTIVA PRUEBA', version: 'V1', analista_email: 'luisa.ejemplo@empresa.test', meta: 4, comprobados: 1, estatus: 'abierta', retirada: false },
+    { id: 22, campana: 'RETIRADA PRUEBA', version: 'V1', analista_email: 'luisa.ejemplo@empresa.test', meta: 1, comprobados: 1, estatus: 'abierta', retirada: true },
+  ];
+  const marcas = [
+    { campana_id: 21, comprobado_por: 'luisa.ejemplo@empresa.test', dia: '2026-08-04', sitios: 1 },
+    { campana_id: 22, comprobado_por: 'luisa.ejemplo@empresa.test', dia: '2026-08-04', sitios: 1 },
+  ];
+  const cs = campanasExcelDeVista(vista, { nombres: { 'luisa.ejemplo@empresa.test': 'Luisa Ejemplo' } });
+  const totalDiaria = (h) => {
+    const fila = h.filas.find((f) => f[4] === 'TOTAL');
+    return fila[h.filas[3].indexOf('TOTAL')];
+  };
+  for (const omitirRetiradas of [false, true]) {
+    const [asig, diaria, esp] = armarAsignacion({ medio: 'Máquina', periodo: AGOSTO, campanas: cs, marcas, omitirRetiradas }).hojas;
+    // La diaria SIEMPRE lleva la retirada: TOTAL 2, igual que vw_comp_diaria.
+    assert.equal(totalDiaria(diaria), 2, `diaria, omitir=${omitirRetiradas}`);
+    assert.ok(diaria.filas.some((f) => f[4] === 'RETIRADA PRUEBA / V1'));
+    const filasAsig = asig.filas.slice(5).filter((f) => typeof f[4] === 'string' && f[4].includes('PRUEBA'));
+    const totalAsig = asig.filas.find((f) => f[4] === 'TOTAL');
+    const pie = asig.filas[asig.filas.findIndex((f) => f[0] === 'DISEÑADORES') + 1];
+    if (omitirRetiradas) {
+      assert.deepEqual(filasAsig.map((f) => f[4]), ['ACTIVA PRUEBA / V1']);
+      assert.deepEqual([totalAsig[5], totalAsig[8]], [4, 1]);
+      assert.deepEqual(pie.slice(0, 2), ['LUISA', 4]);
+      assert.equal(esp.filas.length, 3);
+    } else {
+      assert.deepEqual(
+        filasAsig.map((f) => [f[4], f[12]]),
+        [
+          ['ACTIVA PRUEBA / V1', null],
+          ['RETIRADA PRUEBA / V1', 'RETIRADA'],
+        ]
+      );
+      assert.deepEqual([totalAsig[5], totalAsig[8]], [5, 2]);
+      assert.deepEqual(pie.slice(0, 2), ['LUISA', 5]);
+      assert.equal(esp.filas.length, 4);
+    }
+  }
+  // estatusExcel: CERRADA gana; RETIRADA antes que COMPLETA.
+  assert.equal(E.estatusExcel({ estatus: 'cerrada', retirada: true, venta: 1, comprobados: 1 }), 'CERRADA');
+  assert.equal(E.estatusExcel({ estatus: 'abierta', retirada: true, venta: 1, comprobados: 1 }), 'RETIRADA');
+  assert.equal(E.estatusExcel({ estatus: 'abierta', retirada: false, venta: 1, comprobados: 1 }), 'COMPLETA');
 });
