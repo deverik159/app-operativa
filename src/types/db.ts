@@ -25,7 +25,11 @@ export type AppRole =
   | 'monitorista'
   | 'comercial'
   | 'pautas'
-  | 'analista';
+  | 'analista'
+  // Encargado de los analistas en Comprobaciones (Erik, 22-oct-2026): arma
+  // el periodo, reparte campañas, ve el avance y cierra. Va en su propia
+  // migración (20261023192154_rol_supervisor.sql).
+  | 'supervisor';
 
 /** ENUM estatus_incidencia. */
 export type EstatusInc =

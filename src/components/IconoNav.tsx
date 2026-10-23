@@ -12,6 +12,7 @@ import {
   ClipboardCheck,
   Compass,
   Cpu,
+  FolderCheck,
   Inbox,
   List,
   Map,
@@ -34,6 +35,9 @@ const ICONOS: Record<string, LucideIcon> = {
   fijacion_externa: Paperclip,
   rutas: Map,
   pauta: ClipboardCheck,
+  // Comprobaciones (fase 2, 23-oct-2026): carpeta con palomita, distinta del
+  // portapapeles de Pauta.
+  comprobaciones: FolderCheck,
   mis_rutas: Compass,
   biobox: Package,
   equipos: Cpu,
@@ -81,6 +85,7 @@ const CORTOS: Record<string, string> = {
   dashboard: 'Indicadores',
   rutas: 'Rutas',
   pauta: 'Pauta',
+  comprobaciones: 'Comprobar', // «Comprobaciones» no cabe en la barra (23-oct-2026)
   mis_rutas: 'Mis rutas',
   bitacora_vv: 'Pauta VV', // «Disponibilidad y Pauta VV» (19-oct-2026)
   fijacion_externa: 'Fijación',

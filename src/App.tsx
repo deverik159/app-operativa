@@ -32,6 +32,7 @@ import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES, URL_BIOGUARD } from './lib/constants';
 import {
+  abreComprobaciones,
   abreModuloEcovallasImpreso,
   departamentosDelUsuario,
   initials,
@@ -83,6 +84,12 @@ const FijacionExternaView = lazyConReintento(
 );
 const RutasView = lazyConReintento(() => import('./modules/rutas/RutasView'), 'RutasView');
 const PautaView = lazyConReintento(() => import('./modules/pauta/PautaView'), 'PautaView');
+// Comprobaciones, fase 2 (23-oct-2026): el Supervisor arma el periodo y
+// reparte campañas; el analista marca lo comprobado de las suyas.
+const ComprobacionesView = lazyConReintento(
+  () => import('./modules/comprobaciones/ComprobacionesView'),
+  'ComprobacionesView'
+);
 const BioboxView = lazyConReintento(() => import('./modules/biobox/BioboxView'), 'BioboxView');
 const DisponibilidadView = lazyConReintento(
   () => import('./modules/inventario/DisponibilidadView'),
@@ -121,6 +128,7 @@ const DIFERIDO_DE_TAB: Record<string, ComponentType<any>> = {
   fijacion_externa: FijacionExternaView,
   rutas: RutasView,
   pauta: PautaView,
+  comprobaciones: ComprobacionesView,
   biobox: BioboxView,
   usuarios: UsuariosView,
   mis_rutas: MisRutasView,
@@ -199,6 +207,7 @@ const RUTA_DE_TAB: Record<string, string> = {
   fijacion_externa: '/fijacion-externa',
   rutas: '/rutas',
   pauta: '/pauta',
+  comprobaciones: '/comprobaciones',
   biobox: '/biobox',
   usuarios: '/usuarios',
   mis_rutas: '/mis-rutas',
@@ -983,6 +992,31 @@ function Main({
     if (vista) setVistaPauta((p) => ({ vista, n: (p?.n ?? 0) + 1 }));
   };
 
+  /**
+   * Comprobaciones (integración fase 2, 23-oct-2026): «Se te asignaron N
+   * campañas» (comp_asignada, de comp_asignar_analista) lleva a Comprobaciones
+   * en «Mis campañas» y en la unidad del aviso. Sin la pestaña en el menú,
+   * el efecto de clavesConRuta la regresa a la de siempre.
+   */
+  const esEventoComp = (e?: string | null) => e === 'comp_asignada';
+  const [vistaComp, setVistaComp] = useState<{ vista: 'mis'; n: number; unidad?: string | null } | null>(null);
+  const irAComprobaciones = useCallback((evento?: string | null, unidad?: string | null) => {
+    setTab('comprobaciones');
+    if (evento === 'comp_asignada') setVistaComp((p) => ({ vista: 'mis', n: (p?.n ?? 0) + 1, unidad: unidad ?? null }));
+    setRecargarSignal((n) => n + 1);
+    notifs.recargar();
+  }, [notifs.recargar]);
+
+  // Cada aviso se atiende UNA vez (revisión de pantallas, 23-oct-2026): los
+  // módulos se desmontan al cambiar de pestaña y, al volver por el menú, su
+  // efecto de vistaPedida corría otra vez con el aviso viejo. En
+  // Comprobaciones eso cambiaba la unidad (y la guardaba) y forzaba «Mis
+  // campañas» en cada regreso. Al salir de la pestaña, el aviso se suelta.
+  useEffect(() => {
+    if (tab !== 'comprobaciones') setVistaComp(null);
+    if (tab !== 'pauta') setVistaPauta(null);
+  }, [tab]);
+
   /** Eventos cuyo destino es la Bitácora VV (versión por programar / programada). */
   const esEventoBitacora = (e?: string | null) =>
     e === 'vv_version' || e === 'vv_programada';
@@ -1053,11 +1087,14 @@ function Main({
       if (e.data.record_id) enfocarDesdePush(e.data.record_id);
       else if (esEventoPauta(e.data.evento)) irAPauta(e.data.evento);
       else if (esEventoBitacora(e.data.evento)) irABitacora();
+      // La unidad viaja en el aviso cuando sw.js la mande (pendiente de la
+      // integración, 23-oct-2026); sin ella se queda la última unidad usada.
+      else if (esEventoComp(e.data.evento)) irAComprobaciones(e.data.evento, e.data.unidad ?? null);
       else notifs.recargar();
     };
     navigator.serviceWorker.addEventListener('message', onMsg);
     return () => navigator.serviceWorker.removeEventListener('message', onMsg);
-  }, [enfocarDesdePush, irAPauta, irABitacora, notifs.recargar]);
+  }, [enfocarDesdePush, irAPauta, irABitacora, irAComprobaciones, notifs.recargar]);
 
   /**
    * Tocar una notificación push con la app CERRADA: el SW abre la app con
@@ -1077,7 +1114,7 @@ function Main({
     window.history.replaceState(null, '', window.location.pathname);
     // El destino del aviso manda sobre la ruta con que se abrió la app
     // (también sobre la que quedó pendiente de los roles de la red).
-    if (record || ir === 'pauta' || ir === 'bitacora') {
+    if (record || ir === 'pauta' || ir === 'bitacora' || ir === 'comprobaciones') {
       setRutaPedida(null);
       rutaPendiente.current = null;
     }
@@ -1089,6 +1126,9 @@ function Main({
     else if (ir === 'pauta') irAPauta(params.get('evento'));
     // `?ir=bitacora`: push de la Bitácora VV con la app cerrada.
     else if (ir === 'bitacora') irABitacora();
+    // `?ir=comprobaciones&evento=comp_asignada&unidad=…`: listo para cuando
+    // sw.js lo mande (hoy el clic del push de Comprobaciones abre la portada).
+    else if (ir === 'comprobaciones') irAComprobaciones(params.get('evento'), params.get('unidad'));
     // Solo al montar: el parámetro llega únicamente en el arranque.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1305,9 +1345,14 @@ function Main({
     misRoles.length > 0 &&
     misRoles.every((r) => r === 'comercial' || r === 'pautas');
 
-  /** Lo mismo para el analista (20-oct-2026): su app empieza en Pauta. */
-  const esAnalistaPuro =
-    misRoles.length > 0 && misRoles.every((r) => r === 'analista');
+  /**
+   * Lo mismo para el equipo de Comprobaciones: analista y/o supervisor y
+   * nada más (antes solo analista, 20-oct-2026). Con el rol supervisor
+   * (23-oct-2026) Victor dejaba de ser «analista puro» y habría visto
+   * Indicadores, que mide reparación: por eso cuentan los dos.
+   */
+  const esEquipoCompPuro =
+    misRoles.length > 0 && misRoles.every((r) => r === 'analista' || r === 'supervisor');
 
   /**
    * Fijación Externa y Pauta y Monitoreo son operación de Ecovallas
@@ -1318,6 +1363,13 @@ function Main({
    */
   const veFijacionExterna = abreModuloEcovallasImpreso(rolesDetalle, ROLES_FIJACION_EXTERNA);
   const vePauta = abreModuloEcovallasImpreso(rolesDetalle, ROLES_PAUTA);
+  /**
+   * Comprobaciones (23-oct-2026): supervisor, analista o coordinador con
+   * una fila de Ecovallas (Digital), Biobox o Vía Verde; el manager, todo.
+   * Rol y unidad de la MISMA fila (unidadesComprobaciones, espejo de
+   * comp_mis_unidades en la base).
+   */
+  const veComprobaciones = abreComprobaciones(rolesDetalle);
 
   /**
    * Su pestaña de inicio es la suya, no un dashboard que no ve. También es
@@ -1338,9 +1390,17 @@ function Main({
       : 'mis_rutas'
     : esBitacoraPuro
       ? 'bitacora_vv'
-      : esAnalistaPuro && vePauta
-        ? 'pauta'
-        : 'dashboard';
+      : // Supervisor de Comprobaciones (Victor, 23-oct-2026) abre en
+        // Comprobaciones aunque conserve su fila de analista de Pauta; el
+        // analista puro sigue en Pauta (lo de hoy) y, si no tiene Pauta
+        // (Biobox o Vía Verde), en Comprobaciones en vez de Indicadores.
+        esEquipoCompPuro && misRoles.includes('supervisor') && veComprobaciones
+        ? 'comprobaciones'
+        : esEquipoCompPuro && vePauta
+          ? 'pauta'
+          : esEquipoCompPuro && veComprobaciones
+            ? 'comprobaciones'
+            : 'dashboard';
   const nombre =
     (session.user.user_metadata?.name as string) || email.split('@')[0];
 
@@ -1361,10 +1421,14 @@ function Main({
    * Unidades del usuario, para acotar módulos y filtros. Una fila sin
    * unidad (= todas), el manager o el viewer abren la lista completa.
    */
+  // La fila de supervisor sin unidad (Victor, «todas») solo abre
+  // Comprobaciones: no cuenta para la copia del inventario ni para Biobox
+  // (revisión de pantallas, 23-oct-2026); si no, su iPhone bajaba el
+  // inventario de todas las unidades para módulos que no usa.
   const tieneTodasLasUnidades =
     misRoles.includes('manager') ||
     misRoles.includes('viewer') ||
-    (roles || []).some((r) => !r.unidad_negocio);
+    (roles || []).some((r) => !r.unidad_negocio && r.rol !== 'supervisor');
   // Misma llave que misRoles (ver firmaRoles): la lista filtrada era nueva
   // en cada render.
   const misUnidades = useMemo(
@@ -1421,7 +1485,9 @@ function Main({
   const enBiobox =
     misRoles.includes('manager') ||
     (roles || []).some(
-      (r) => !r.unidad_negocio || /^biobox/i.test(r.unidad_negocio.trim())
+      (r) =>
+        (!r.unidad_negocio && r.rol !== 'supervisor') ||
+        /^biobox/i.test((r.unidad_negocio || '').trim())
     );
 
   /**
@@ -1580,7 +1646,7 @@ function Main({
     // mide reparación y carga de áreas, trabajo que no es el suyo.
     !esMonitoristaPuro &&
       !esBitacoraPuro &&
-      !esAnalistaPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores', grupo: 'indicadores' },
+      !esEquipoCompPuro && { k: 'dashboard', ic: '📊', t: 'Indicadores', grupo: 'indicadores' },
     // Disponibilidad (desde el 19-oct-2026 se llama «Inventario») nació para comercial cuando aún no tenía rol propio;
     // desde el 22-sep-2026 el rol `comercial` existe (Bitácora VV) y entra
     // por derecho propio. Viewer sigue: es el rol de quien solo consulta.
@@ -1628,6 +1694,14 @@ function Main({
       k: 'pauta',
       ic: '📋',
       t: 'Pauta y Monitoreo',
+      grupo: 'campo',
+    },
+    // Comprobaciones (fase 2, 23-oct-2026): Supervisor, analistas y
+    // coordinadores (solo lectura) de Ecovallas Digital, Biobox y Vía Verde.
+    veComprobaciones && {
+      k: 'comprobaciones',
+      ic: '📑',
+      t: 'Comprobaciones',
       grupo: 'campo',
     },
     // Mis rutas (rutas, 5-oct-2026): las rutas asignadas al monitorista que
@@ -1944,6 +2018,9 @@ function Main({
                 // también recargada.
                 setTab('bitacora_vv');
                 setRecargarSignal((x) => x + 1);
+              } else if (esEventoComp(n.evento)) {
+                // Campañas asignadas: a «Mis campañas» de su unidad.
+                irAComprobaciones(n.evento, n.unidad_negocio);
               }
             }}
           />
@@ -2150,6 +2227,14 @@ function Main({
                   recargarSignal={recargarSignal}
                   revisaAnalista={has('analista')}
                   vistaPedida={vistaPauta}
+                />
+              )}
+              {tab === 'comprobaciones' && (
+                <ComprobacionesView
+                  email={email}
+                  roles={rolesDetalle}
+                  recargarSignal={recargarSignal}
+                  vistaPedida={vistaComp}
                 />
               )}
               {tab === 'biobox' && (

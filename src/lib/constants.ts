@@ -59,6 +59,10 @@ export const ROLE_LABEL: Record<string, string> = {
   // Revisa las fotos comprobadas que le manda el coordinador desde Pauta y
   // sube las editadas (Erik, 20-oct-2026).
   analista: 'Analista',
+  // Encargado de los analistas en Comprobaciones: arma el periodo, reparte
+  // campañas, ve el avance del equipo y cierra (Erik, 22-oct-2026). Con su
+  // unidad en «(todas)» ve Ecovallas Digital, Biobox y Vía Verde.
+  supervisor: 'Supervisor',
   manager: 'Admin',
   viewer: 'Viewer',
 };
@@ -72,6 +76,8 @@ export const ROLE_ICON: Record<string, string> = {
   comercial: '💼',
   pautas: '📆',
   analista: '🖼️',
+  // Emoji sin ZWJ (22-oct-2026): 🗂️ ya es Incidencias y 🧭 el coordinador.
+  supervisor: '👔',
   manager: '🛡️',
   viewer: '👁️',
 };
@@ -81,6 +87,9 @@ export const ROLE_PRIORITY = [
   'coordinador',
   'comercial',
   'pautas',
+  // Supervisor antes que analista (23-oct-2026): Victor tiene los dos y en
+  // el topbar sale como Supervisor.
+  'supervisor',
   'analista',
   'validador',
   'reparacion',
