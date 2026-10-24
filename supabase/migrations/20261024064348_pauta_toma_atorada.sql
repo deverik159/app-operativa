@@ -27,7 +27,7 @@
 -- analista ya tiene ese mismo aviso sin leer, no se repite. El aviso lleva
 -- la catorcena como «Cat-N de AAAA», a propósito distinto del «Cat-N · AAAA»
 -- de registrar_toma, para que el agrupamiento por hora de ese aviso no lo
--- pise (20261024000920). Al tocarlo, la app abre Comprobaciones › Tomas de
+-- pise (20261024064415). Al tocarlo, la app abre Comprobaciones › Tomas de
 -- Pauta, como cualquier pauta_revision; el push lo manda trg_notificar_push.
 --
 -- PERMISOS. La función del trigger es security definer: el DELETE lo hace
