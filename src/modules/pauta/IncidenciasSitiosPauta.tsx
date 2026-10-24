@@ -115,13 +115,14 @@ export default function IncidenciasSitiosPauta({ sitios, anio, numero }: Props) 
 
   return (
     <section className="card" style={{ marginTop: 14 }}>
-      <b style={{ fontSize: 15 }}>Incidencias de los sitios</b>
+      {/* h3 con el mismo look del <b> de antes (revisión de accesibilidad, 24-oct-2026). */}
+      <h3 style={{ font: 'inherit', fontWeight: 700, fontSize: 15, margin: 0 }}>Incidencias de los sitios</h3>
       <p className="phint" style={{ margin: '4px 0 10px' }}>
         Las abiertas y las que se resolvieron en esta catorcena, en los sitios de la pauta. Se atienden en
         Incidencias.
       </p>
       {err && (
-        <div className="err">
+        <div className="err" role="alert">
           {err}{' '}
           <button type="button" className="btn sm ghost" onClick={() => setIntento((n) => n + 1)}>
             Reintentar
@@ -129,14 +130,18 @@ export default function IncidenciasSitiosPauta({ sitios, anio, numero }: Props) 
         </div>
       )}
       {!err && filas == null && (
-        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }} role="status">
           <span className="spinner" />
           Buscando incidencias…
         </div>
       )}
       {filas && (
         <>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div
+            style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}
+            role="group"
+            aria-label="Filtrar incidencias"
+          >
             {GRUPOS.map((g) => (
               <button
                 key={g.k}

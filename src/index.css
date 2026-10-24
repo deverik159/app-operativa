@@ -321,7 +321,11 @@
      barra de estado es translúcida (igual que en .topbar) y sin el inset el
      título del modal quedaba DEBAJO del reloj y la Dynamic Island. En
      navegador normal el inset es 0 y no cambia nada. */
-  .overlay{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;padding-top:calc(24px + env(safe-area-inset-top,0px));overflow:auto;z-index:960}
+  /* --teclado (lo mide armazon.ts): con el teclado abierto, lo de abajo de
+     la ventana quedaba detrás de él y el overlay no se desplazaba para
+     alcanzarlo (Erik, 24-oct-2026: no podía quitar una foto después de
+     escribir la referencia). Mismo relleno que .main. */
+  .overlay{position:fixed;inset:0;background:var(--overlay);display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;padding-top:calc(24px + env(safe-area-inset-top,0px));padding-bottom:calc(24px + var(--teclado,0px));overflow:auto;z-index:960}
 
   /* Paneles flotantes de la barra superior (campana y menú de usuario).
      En escritorio cuelgan del botón; en celular se vuelven una hoja de
@@ -479,7 +483,7 @@
        inicio del iPhone, que se traga los toques de los últimos ~20px. */
     .overlay{padding:14px 8px 24px;
       padding-top:calc(14px + env(safe-area-inset-top,0px));
-      padding-bottom:max(24px, calc(10px + env(safe-area-inset-bottom,0px)))}
+      padding-bottom:calc(max(24px, calc(10px + env(safe-area-inset-bottom,0px))) + var(--teclado,0px))}
     .modal{padding:16px 14px;max-width:none;max-height:none}
     /* El chat SÍ lleva tope: sin él, `max-height:none` de arriba le ganaba
        a .modal-chat por orden, la caja de mensajes crecía con el hilo y

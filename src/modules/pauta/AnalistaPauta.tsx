@@ -18,7 +18,7 @@
 // Las fotos de una carpeta se leen al abrirla; cada carpeta se baja en ZIP.
 // ============================================================
 import { Check, ChevronDown, ChevronRight, Download, FolderOpen, Undo2, Upload, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { PautaRuta } from '../../types/db';
 import { sb } from '../../lib/supabase';
 import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from '../../lib/storage';
@@ -58,6 +58,8 @@ type Props = {
 };
 
 const CARPETA_EDITADAS = 'pauta-analista';
+/** Liga pública de un archivo del bucket de evidencias, con el proyecto en el que corre la app. */
+const urlPublica = (path: string) => sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path).data.publicUrl;
 const TXT_BANDEJA: Record<Bandeja, string> = {
   por_revisar: 'Por revisar',
   comprobadas: 'Comprobadas',
@@ -124,14 +126,16 @@ export default function AnalistaPauta({ filas, anio, numero, etiquetaCat, onCamb
           <section key={g.campana} className="card" style={{ marginBottom: 10 }}>
             {/* 13 px como los títulos de las listas (.rt-fila-tit): a tamaño
                 de cuerpo se veía grande junto al resto (Erik, 23-oct-2026). */}
-            <b style={{ display: 'block', marginBottom: 6, overflowWrap: 'anywhere', fontSize: 13 }}>
+            {/* h3 (bajo el h2 de Comprobaciones) con el mismo look del <b> de
+                antes (revisión de accesibilidad, 24-oct-2026). */}
+            <h3 style={{ font: 'inherit', fontWeight: 700, fontSize: 13, margin: '0 0 6px', overflowWrap: 'anywhere' }}>
               <Ic i={FolderOpen} />
               {g.campana}
               <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
                 {' '}
                 · {g.total} {g.total === 1 ? 'cara' : 'caras'}
               </span>
-            </b>
+            </h3>
             {g.versiones.map((v) => {
               const clave = `${g.campana}\u0000${v.version}`;
               const abiertaEsta = abierta === clave;
@@ -248,11 +252,11 @@ function Carpeta({
       }
       evid.push(...((data as typeof evid) || []));
     }
-    const rev = new Map<number, { estado: FotoRevision['estado']; editada_url: string | null }>();
+    const rev = new Map<number, { estado: FotoRevision['estado']; editada_url: string | null; editada_path: string | null }>();
     for (let i = 0; i < evid.length; i += 150) {
       const { data, error } = await sb
         .from('pauta_revision_fotos')
-        .select('evidencia_id,estado,editada_url')
+        .select('evidencia_id,estado,editada_url,editada_path')
         .in(
           'evidencia_id',
           evid.slice(i, i + 150).map((e) => e.id)
@@ -261,9 +265,16 @@ function Carpeta({
         if (vivo.current) setErr('No se pudieron leer las revisiones: ' + error.message);
         return;
       }
-      for (const r of (data as { evidencia_id: number; estado: string; editada_url: string | null }[]) || [])
+      for (const r of (data as { evidencia_id: number; estado: string; editada_url: string | null; editada_path: string | null }[]) ||
+        [])
         if (r.estado === 'correcta' || r.estado === 'editada')
-          rev.set(r.evidencia_id, { estado: r.estado, editada_url: r.editada_url });
+          // La liga se arma desde la ruta con el proyecto en el que corre la
+          // app (24-oct-2026); las filas viejas traen editada_url de respaldo.
+          rev.set(r.evidencia_id, {
+            estado: r.estado,
+            editada_path: r.editada_path,
+            editada_url: r.editada_path ? urlPublica(r.editada_path) : r.editada_url,
+          });
     }
     const lista = numerar(
       evid.map((e) => ({
@@ -274,6 +285,7 @@ function Carpeta({
         creado_en: e.creado_en,
         estado: rev.get(e.id)?.estado ?? ('pendiente' as const),
         editada_url: rev.get(e.id)?.editada_url ?? null,
+        editada_path: rev.get(e.id)?.editada_path ?? null,
       }))
     );
     if (vivo.current) {
@@ -315,15 +327,28 @@ function Carpeta({
       p_path: path ?? null,
     });
     if (error) throw new Error('No se guardó: ' + error.message);
-    const res = data as { comprobada: boolean; url: string | null } | null;
+    // Desde el 24-oct-2026 la RPC devuelve la ruta (path) y url va en null;
+    // una base vieja todavía manda url.
+    const res = data as { comprobada: boolean; url: string | null; path?: string | null } | null;
+    const nuevaRuta = estado === 'editada' ? res?.path ?? path ?? null : null;
+    const nuevaUrl = nuevaRuta ? urlPublica(nuevaRuta) : estado === 'editada' ? res?.url ?? null : null;
     if (vivo.current)
       setFotos((prev) =>
         prev.map((x) =>
-          x.evidencia_id === f.evidencia_id
-            ? { ...x, estado, editada_url: estado === 'editada' ? res?.url ?? null : null }
-            : x
+          x.evidencia_id === f.evidencia_id ? { ...x, estado, editada_url: nuevaUrl, editada_path: nuevaRuta } : x
         )
       );
+    // Editadas huérfanas (pendiente técnico, 24-oct-2026): al reemplazar una
+    // editada por otra, o al regresarla a «correcta», el archivo anterior se
+    // borra de Storage. Solo puede quien lo subió o el manager (ev_obj_del);
+    // si no se puede, se queda y no se interrumpe la revisión.
+    if (f.editada_path && f.editada_path !== nuevaRuta) {
+      try {
+        await sb.storage.from(BUCKET_EVIDENCIAS).remove([f.editada_path]);
+      } catch {
+        /* se queda el archivo */
+      }
+    }
     return !!res?.comprobada;
   };
 
@@ -439,7 +464,11 @@ function Carpeta({
           </button>
         </div>
       )}
-      {err && <div className="err">{err}</div>}
+      {err && (
+        <div className="err" role="alert">
+          {err}
+        </div>
+      )}
       {aviso && (
         <div role="status" className="phint">
           {trabajando && <span className="spinner" />}
@@ -447,7 +476,9 @@ function Carpeta({
         </div>
       )}
       {cargando ? (
-        <div className="loading">Leyendo las fotos…</div>
+        <div className="loading" role="status">
+          Leyendo las fotos…
+        </div>
       ) : (
         caras.map((c) => (
           <BloqueCara
@@ -513,6 +544,8 @@ function BloqueCara({
   /** Qué motivo se está escribiendo: rechazar las elegidas o regresar toda la toma. */
   const [pidiendo, setPidiendo] = useState<'fotos' | 'toma' | null>(null);
   const [motivo, setMotivo] = useState('');
+  // Hay un campo de motivo por cara: id único para ligarlo a su etiqueta.
+  const idMotivo = useId();
   const r = resumenFotos(fotos);
   const puedeActuar = bandeja !== 'regresadas';
   const enCurso = trabajando === 'c' + cara.vendor_face_id;
@@ -547,7 +580,9 @@ function BloqueCara({
         </span>
       </div>
       {cara.rechazo_motivo && !cara.fecha_toma && (
-        <div style={{ fontSize: 12, color: colorTono('rojo'), marginTop: 4 }}>⛔ Regresada: “{cara.rechazo_motivo}”</div>
+        <div style={{ fontSize: 12, color: colorTono('rojo'), marginTop: 4 }}>
+          <span aria-hidden="true">⛔</span> Regresada: “{cara.rechazo_motivo}”
+        </div>
       )}
 
       {puedeActuar && (
@@ -581,7 +616,7 @@ function BloqueCara({
           )}
 
           {!soloVer && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }} aria-busy={enCurso}>
             {enCurso && <span className="spinner" />}
             {r.pendientes > 0 && (
               <button type="button" className="btn ghost sm" disabled={ocupado} onClick={onTodasCorrectas}>
@@ -610,13 +645,17 @@ function BloqueCara({
 
           {pidiendo && !soloVer && (
             <div className="field" style={{ marginTop: 8 }}>
-              <label>
+              <label htmlFor={idMotivo}>
                 {pidiendo === 'fotos'
                   ? `Motivo del rechazo de ${sel.size} ${sel.size === 1 ? 'foto' : 'fotos'}`
                   : 'Motivo para regresar toda la toma'}
               </label>
               <textarea
+                id={idMotivo}
                 rows={2}
+                // El campo aparece al tocar «Rechazar» o «Regresar»: el foco
+                // se va con él (revisión de accesibilidad, 24-oct-2026).
+                autoFocus
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
                 placeholder="Ej. la foto salió movida; falta la toma larga…"
@@ -677,7 +716,13 @@ function TarjetaFoto({
         background: 'var(--panel2)',
       }}
     >
-      <a href={url} target="_blank" rel="noreferrer" style={{ display: 'block', background: 'var(--panel)' }}>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`${nombreFoto(f)} (abre en otra pestaña)`}
+        style={{ display: 'block', background: 'var(--panel)' }}
+      >
         <img src={url} alt={nombreFoto(f)} loading="lazy" style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
       </a>
       <div style={{ padding: '7px 8px', display: 'grid', gap: 6 }}>
@@ -699,18 +744,31 @@ function TarjetaFoto({
                 flexShrink: 0,
               }}
             >
-              <input type="checkbox" checked={elegida} onChange={onElegir} disabled={ocupado} />
+              <input
+                type="checkbox"
+                checked={elegida}
+                onChange={onElegir}
+                disabled={ocupado}
+                aria-label={`Rechazar ${nombreFoto(f)}`}
+              />
               Rechazar
             </label>
           )}
         </div>
         {f.estado === 'editada' && (
-          <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 11 }}>
+          <a href={f.url} target="_blank" rel="noreferrer" aria-label="Ver original (abre en otra pestaña)" style={{ fontSize: 11 }}>
             Ver original
           </a>
         )}
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-          <button type="button" className="btn ghost sm" disabled={ocupado} onClick={onBajar} title="Descargar con su nombre">
+          <button
+            type="button"
+            className="btn ghost sm"
+            disabled={ocupado}
+            onClick={onBajar}
+            aria-label={`Descargar ${nombreFoto(f)}`}
+            title="Descargar con su nombre"
+          >
             {trabajando === 'd' + f.evidencia_id && <span className="spinner" />}
             <Ic i={Download} />
           </button>

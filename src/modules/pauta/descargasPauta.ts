@@ -96,17 +96,25 @@ export async function evidenciasDe(
   return m;
 }
 
-/** Liga de la versión editada por el analista, por id de evidencia. */
+/**
+ * Liga de la versión editada por el analista, por id de evidencia. Desde el
+ * 24-oct-2026 la base guarda solo la ruta (editada_path) y la liga se arma
+ * aquí con el proyecto en el que corre la app; las filas viejas traen
+ * editada_url y se usa de respaldo.
+ */
 async function editadasDe(idsEvidencia: number[]): Promise<Map<number, string>> {
   const m = new Map<number, string>();
   for (let i = 0; i < idsEvidencia.length; i += 150) {
     const { data, error } = await sb
       .from('pauta_revision_fotos')
-      .select('evidencia_id,editada_url')
+      .select('evidencia_id,editada_url,editada_path')
       .eq('estado', 'editada')
       .in('evidencia_id', idsEvidencia.slice(i, i + 150));
     if (error) throw new Error('No se pudieron leer las fotos editadas: ' + error.message);
-    for (const r of (data as { evidencia_id: number; editada_url: string }[]) || []) m.set(r.evidencia_id, r.editada_url);
+    for (const r of (data as { evidencia_id: number; editada_url: string | null; editada_path: string | null }[]) || []) {
+      const url = r.editada_path ? sb.storage.from('evidencias').getPublicUrl(r.editada_path).data.publicUrl : r.editada_url;
+      if (url) m.set(r.evidencia_id, url);
+    }
   }
   return m;
 }

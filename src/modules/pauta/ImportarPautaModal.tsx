@@ -36,6 +36,7 @@ import {
   type SitioCorregido,
 } from '../../lib/sitioDesdeInventario';
 import CerrarModal from '../../components/CerrarModal';
+import { useFocoModal } from '../../lib/useFocoModal';
 import Ic from '../../components/Ic';
 
 /** Fila ya normalizada, lista para la RPC. */
@@ -141,6 +142,15 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
   const [resultado, setResultado] = useState<Resultado | null>(null);
   /** Claves de sitio corregidas con el inventario en la última importación. */
   const [ajuste, setAjuste] = useState<AjusteSitios | null>(null);
+  // Foco, Tab y Escape de la ventana: ver useFocoModal (revisión de
+  // accesibilidad, 24-oct-2026). Un solo `cerrar` para el ✕, Cancelar, el
+  // overlay y Escape: con la RPC corriendo ninguno cierra.
+  const titRef = useRef<HTMLHeadingElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const cerrar = () => {
+    if (!importando) onClose();
+  };
+  useFocoModal(modalRef, titRef, cerrar);
 
   useEffect(() => {
     let vivo = true;
@@ -401,29 +411,35 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
         // Con la RPC corriendo NO se cierra: un roce en la franja lateral
         // del overlay dejaba la importación a ciegas — la catorcena SÍ se
         // reemplazaba en el servidor pero el usuario nunca veía el resultado.
-        if ((e.target as HTMLElement).className === 'overlay' && !importando)
-          onClose();
+        if ((e.target as HTMLElement).className === 'overlay') cerrar();
       }}
     >
-      <div className="modal">
-        <CerrarModal onClick={onClose} disabled={importando} />
-        <h2 style={{ margin: '0 0 3px' }}>Importar pauta</h2>
+      <div ref={modalRef} className="modal" role="dialog" aria-modal="true" aria-label="Importar pauta">
+        <CerrarModal onClick={cerrar} disabled={importando} />
+        <h2 ref={titRef} tabIndex={-1} style={{ margin: '0 0 3px', outline: 'none' }}>
+          Importar pauta
+        </h2>
         <p className="phint">
           Carga la catorcena desde el Excel. Reemplaza la pauta de ese periodo.
         </p>
 
-        {err && <div className="err">{err}</div>}
+        {err && (
+          <div className="err" role="alert">
+            {err}
+          </div>
+        )}
 
         <div className="field">
-          <label>Archivo de pauta (.xlsx)</label>
+          <label htmlFor="imp-archivo">Archivo de pauta (.xlsx)</label>
           <input
+            id="imp-archivo"
             type="file"
             accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             onChange={abrirArchivo}
             disabled={leyendo || importando}
           />
           {leyendo && (
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }} role="status">
               Leyendo…
             </div>
           )}
@@ -431,8 +447,10 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
 
         {libro && hojas.length > 0 && (
           <div className="field">
-            <label>Hoja de la catorcena</label>
+            <label htmlFor="imp-hoja">Hoja de la catorcena</label>
             <select
+              id="imp-hoja"
+              aria-describedby="imp-hoja-ayuda"
               value={hojaSel}
               onChange={(e) => {
                 setHojaSel(e.target.value);
@@ -446,7 +464,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
                 </option>
               ))}
             </select>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+            <div id="imp-hoja-ayuda" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
               El nombre cambia cada periodo; verifica que sea la correcta.
             </div>
           </div>
@@ -455,7 +473,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
         {analisis && (
           <>
             {analisis.faltantes.length > 0 && (
-              <div className="err">
+              <div className="err" role="alert">
                 A esta hoja le faltan columnas obligatorias:{' '}
                 <b>{analisis.faltantes.join(', ')}</b>. ¿Es la hoja correcta?
               </div>
@@ -463,22 +481,26 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
 
             <div className="row2">
               <div className="field">
-                <label>Catorcena</label>
+                <label htmlFor="imp-catorcena">Catorcena</label>
                 <input
+                  id="imp-catorcena"
+                  aria-describedby="imp-catorcena-ayuda"
                   type="number"
                   value={catorcena}
                   onChange={(e) => setCatorcena(e.target.value)}
                   disabled={importando}
                 />
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                <div id="imp-catorcena-ayuda" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                   {analisis.catorcena != null
                     ? `Detectada del archivo. Corrígela si no es la correcta.`
                     : 'No se pudo detectar: escríbela a mano.'}
                 </div>
               </div>
               <div className="field">
-                <label>Año</label>
+                <label htmlFor="imp-anio">Año</label>
                 <select
+                  id="imp-anio"
+                  aria-describedby="imp-anio-ayuda"
                   value={anio}
                   onChange={(e) => setAnio(e.target.value)}
                   disabled={importando || aniosDeCat.length === 0}
@@ -490,14 +512,16 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
                     </option>
                   ))}
                 </select>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                {/* El aviso de fechas cambia mientras se teclea la catorcena:
+                    no lleva role="alert"; el select lo describe. */}
+                <div id="imp-anio-ayuda" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
                   {calendario == null ? (
                     'Leyendo el calendario…'
                   ) : aniosDeCat.length === 0 ? (
                     'Esa catorcena no está en el calendario.'
                   ) : fueraDeFechas ? (
                     <span style={{ color: 'var(--warn)' }}>
-                      ⚠ Las fechas del archivo no corresponden a esta catorcena (empieza el {fueraDeFechas}).
+                      <span aria-hidden="true">⚠</span> Las fechas del archivo no corresponden a esta catorcena (empieza el {fueraDeFechas}).
                     </span>
                   ) : (
                     'El archivo no trae el año: se propone el más cercano a sus fechas.'
@@ -517,9 +541,10 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
                 lineHeight: 1.7,
               }}
             >
-              <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>
+              {/* h3 con el mismo look del div de antes (revisión de accesibilidad, 24-oct-2026). */}
+              <h3 style={{ font: 'inherit', fontWeight: 700, fontSize: 12, margin: '0 0 6px' }}>
                 <Ic i={Search} />Lo que se detectó
-              </div>
+              </h3>
               <div style={{ color: 'var(--muted)' }}>
                 <b style={{ color: 'var(--txt)' }}>{analisis.filas.length}</b>{' '}
                 filas · <b style={{ color: 'var(--txt)' }}>{analisis.sitios}</b>{' '}
@@ -529,7 +554,11 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
                 <br />
                 Campaña actual:{' '}
                 <b style={{ color: 'var(--txt)' }}>
-                  {analisis.colCampana || '⚠ no detectada'}
+                  {analisis.colCampana || (
+                    <>
+                      <span aria-hidden="true">⚠</span> no detectada
+                    </>
+                  )}
                 </b>
                 <br />
                 Campaña anterior:{' '}
@@ -553,7 +582,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
         )}
 
         {resultado && (
-          <div className="ok-msg" style={{ lineHeight: 1.7 }}>
+          <div className="ok-msg" style={{ lineHeight: 1.7 }} role="status">
             <b>
               Importación completa
               {resultado.anio ? ` · ${etiquetaCatorcena(catorcena, resultado.anio)}` : ''}.
@@ -576,7 +605,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
               <>
                 <br />
                 <span style={{ color: 'var(--warn)' }}>
-                  ⚠ {resultado.sin_coordenadas} caras sin coordenadas en
+                  <span aria-hidden="true">⚠</span> {resultado.sin_coordenadas} caras sin coordenadas en
                   inventario: no se podrá navegar hacia ellas.
                 </span>
               </>
@@ -585,7 +614,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
               <>
                 <br />
                 <span style={{ color: 'var(--warn)' }}>
-                  ⚠ {ajuste.corregidas.length}{' '}
+                  <span aria-hidden="true">⚠</span> {ajuste.corregidas.length}{' '}
                   {ajuste.corregidas.length === 1 ? 'cara traía' : 'caras traían'} otra
                   clave de sitio en el archivo; se usó la del inventario (QTM):
                 </span>
@@ -614,7 +643,7 @@ function ImportarPautaModal({ onClose, onImportado }: Props) {
         )}
 
         <div className="modal-actions pie-fijo">
-          <button className="btn ghost" onClick={onClose} disabled={importando}>
+          <button className="btn ghost" onClick={cerrar} disabled={importando}>
             {resultado ? 'Cerrar' : 'Cancelar'}
           </button>
           {!resultado && (

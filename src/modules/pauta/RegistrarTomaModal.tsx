@@ -33,6 +33,7 @@ import SubirArchivos, { VisorFile } from '../../components/SubirArchivos';
 import type { PautaRuta } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
 import CerrarModal from '../../components/CerrarModal';
+import { useFocoModal } from '../../lib/useFocoModal';
 import Ic from '../../components/Ic';
 import {
   archivoLocal,
@@ -84,6 +85,12 @@ type Props = {
   onClose: () => void;
   /** Avisa al padre que la toma quedó registrada (o pedida), para refrescar la lista. */
   onRegistrada: (vendorFaceId: string, info: InfoRegistro) => void;
+  /**
+   * Analista solo de revisión (Erik, 24-oct-2026): ve la evidencia que ya
+   * existe, sin agregar, quitar ni registrar. Se trata igual que una toma
+   * comprobada.
+   */
+  soloLectura?: boolean;
 };
 
 function plural(n: number, uno: string, varios: string): string {
@@ -118,13 +125,15 @@ function Marca({ l }: { l: Local }) {
   };
   if (l.estado === 'perdido')
     return (
-      <span style={{ ...base, color: '#ffb4b4' }} title="No estaba en el teléfono" aria-label="No estaba en el teléfono">
+      // role="img": sin rol, muchos lectores ignoran el aria-label de un span
+      // (revisión de accesibilidad, 24-oct-2026).
+      <span role="img" style={{ ...base, color: '#ffb4b4' }} title="No estaba en el teléfono" aria-label="No estaba en el teléfono">
         <Ic i={TriangleAlert} />
       </span>
     );
   if (l.enviando)
     return (
-      <span style={base} title="Subiendo" aria-label="Subiendo">
+      <span role="img" style={base} title="Subiendo" aria-label="Subiendo">
         <span className="spinner" style={{ margin: 0, width: 12, height: 12 }} />
       </span>
     );
@@ -132,6 +141,7 @@ function Marca({ l }: { l: Local }) {
   if (l.estado === 'fallido')
     return (
       <span
+        role="img"
         style={{ ...base, color: '#ffb4b4' }}
         title="No se pudo subir; sigue en el teléfono y se reintenta"
         aria-label="No se pudo subir; se reintenta"
@@ -144,13 +154,13 @@ function Marca({ l }: { l: Local }) {
       ? 'Ya subió; falta que entre a la toma'
       : 'Guardada en el teléfono; falta subir';
   return (
-    <span style={base} title={texto} aria-label={texto}>
+    <span role="img" style={base} title={texto} aria-label={texto}>
       <Ic i={CloudOff} />
     </span>
   );
 }
 
-function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
+function RegistrarTomaModal({ fila, email, onClose, onRegistrada, soloLectura }: Props) {
   vigilarRender('RegistrarTomaModal');
   const [evidencias, setEvidencias] = useState<EvidenciaPauta[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -194,6 +204,10 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
   /** Foto local abierta en grande. */
   const [ver, setVer] = useState<File | null>(null);
   const enLinea = useEnLinea();
+  // Foco, Tab y Escape de la ventana: ver useFocoModal (revisión de
+  // accesibilidad, 24-oct-2026). Se liga más abajo, con intentarCerrar.
+  const titRef = useRef<HTMLHeadingElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   /** Fotos de la cámara de la app tomadas en ESTA ventana, ya renombradas (para Fotos). */
   const [deCamara, setDeCamara] = useState<{ path: string; file: File }[]>([]);
@@ -242,8 +256,8 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
   const tonoRegla = pintar(regla.color);
 
   const yaRegistrada = !!fila.fecha_toma || registradaAqui;
-  /** Comprobada: ya no se agregan ni se quitan fotos (la base lo impide). */
-  const cerrada = !!fila.fecha_comprobacion;
+  /** Comprobada (la base lo impide) o solo lectura: ya no se agregan ni se quitan fotos. */
+  const cerrada = !!fila.fecha_comprobacion || !!soloLectura;
 
   const ctx: ContextoToma = {
     anio: fila.anio,
@@ -636,6 +650,8 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
     }
     onClose();
   };
+  // Escape hace lo mismo que el ✕ y que Cerrar (con sus preguntas).
+  useFocoModal(modalRef, titRef, intentarCerrar);
 
   // La cola registró (o ya está pedido) con la pregunta abierta: «¿La
   // registras?» ya no aplica. Solo sigue la de "no cupieron" mientras haya
@@ -696,9 +712,10 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
         if ((e.target as HTMLElement).className === 'overlay') intentarCerrar();
       }}
     >
-      <div className="modal">
+      {/* El título cambia (Evidencia / Registrar): la ventana se nombra con él. */}
+      <div ref={modalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="toma-titulo">
         <CerrarModal onClick={intentarCerrar} disabled={guardando || registrando} />
-        <h2 style={{ margin: '0 0 3px' }}>
+        <h2 id="toma-titulo" ref={titRef} tabIndex={-1} style={{ margin: '0 0 3px', outline: 'none' }}>
           {yaRegistrada ? 'Evidencia de la toma' : 'Registrar toma'}
         </h2>
         <p className="phint">
@@ -706,8 +723,16 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
           {fila.campana || '(sin campaña)'}
         </p>
 
-        {err && <div className="err">{err}</div>}
-        {errorCola && !err && <div className="err">{errorCola}</div>}
+        {err && (
+          <div className="err" role="alert">
+            {err}
+          </div>
+        )}
+        {errorCola && !err && (
+          <div className="err" role="alert">
+            {errorCola}
+          </div>
+        )}
         {aviso && (
           <div className="banner" style={{ marginBottom: 12 }} role="status">
             {aviso}
@@ -724,9 +749,10 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
             marginBottom: 14,
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>
+          {/* h3 con el mismo look del div de antes (revisión de accesibilidad, 24-oct-2026). */}
+          <h3 style={{ font: 'inherit', fontWeight: 700, fontSize: 12, margin: '0 0 6px' }}>
             <Ic i={ClipboardList} />Qué se está monitoreando
-          </div>
+          </h3>
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
             {fila.direccion || '(sin dirección)'}
             <br />
@@ -791,7 +817,7 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
             </div>
           ) : (
             <div className="banner" style={{ marginBottom: 14 }} role="status">
-              ✓ La toma quedó registrada. Puedes agregar más evidencia.
+              <span aria-hidden="true">✓</span> La toma quedó registrada. Puedes agregar más evidencia.
             </div>
           ))}
 
@@ -803,10 +829,11 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
 
         {/* Toma de reposición: el monitorista ve POR QUÉ se la regresaron
             antes de volver a disparar la cámara. Desde el 22-oct-2026 la
-            regresa el analista (antes, el coordinador). */}
+            regresa el analista (antes, el coordinador). Ya está al abrir
+            la ventana (no aparece por una acción): sin role="alert". */}
         {!yaRegistrada && !registroPedido && fila.rechazo_motivo && (
           <div className="err">
-            ⛔ El analista regresó la toma: “{fila.rechazo_motivo}”. Sube las fotos que faltan.
+            <span aria-hidden="true">⛔</span> El analista regresó la toma: “{fila.rechazo_motivo}”. Sube las fotos que faltan.
           </div>
         )}
 
@@ -819,24 +846,35 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
         )}
 
         <div className="field">
-          <label>Referencia / ubicación (opcional)</label>
+          <label htmlFor="toma-referencia">Referencia / ubicación (opcional)</label>
+          {/* enterKeyHint «Listo» y Enter cierran el teclado: en el teléfono
+              tapaba las fotos y sus botones de quitar (Erik, 24-oct-2026).
+              El overlay además se desplaza con --teclado (index.css). */}
           <input
+            id="toma-referencia"
             value={ref}
             onChange={(e) => setRef(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+            }}
+            enterKeyHint="done"
             placeholder="Ej. toma larga, cara norte, con obstrucción"
             disabled={guardando}
+            aria-describedby="toma-referencia-ayuda"
           />
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+          <div id="toma-referencia-ayuda" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
             Se etiqueta con este texto lo que subas a continuación.
           </div>
         </div>
 
         <div className="field">
-          <label>
+          {/* Es el título del grupo de fotos, no la etiqueta de un control:
+              .etiqueta se ve igual que label (revisión de accesibilidad, 24-oct-2026). */}
+          <div className="etiqueta">
             Fotos de la cara —{' '}
             {faltanFotos === 0 ? (
               <span style={{ color: fotosCola ? 'var(--muted)' : 'var(--ok)' }}>
-                ✓ {total}/{regla.fotos}
+                <span aria-hidden="true">✓</span> {total}/{regla.fotos}
                 {fotosCola > 0 && ` (${fotosCola} por subir)`}
               </span>
             ) : (
@@ -847,7 +885,7 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
                 {fotosCola > 0 && ` (${fotosCola} por subir)`}
               </span>
             )}
-          </label>
+          </div>
 
           {/* La cámara no espera a la lectura del servidor: con una barra
               tardaba decenas de segundos (el conteo solo hace falta para
@@ -883,6 +921,7 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
                         target="_blank"
                         rel="noreferrer"
                         className="tag"
+                        aria-label="Ver video de la toma (abre en otra pestaña)"
                         style={{
                           display: 'flex',
                           height: 84,
@@ -891,26 +930,38 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
                           fontSize: 22,
                         }}
                       >
-                        🎥
+                        <span aria-hidden="true">🎥</span>
                       </a>
                     ) : local ? (
-                      <img
-                        src={src}
-                        alt={ev.referencia || 'Evidencia de la toma'}
+                      // Botón de verdad (teclado y foco de regreso al cerrar
+                      // el visor), sin borde ni fondo: se ve como la foto sola
+                      // (revisión de accesibilidad, 24-oct-2026).
+                      <button
+                        type="button"
                         onClick={() => setVer(local)}
-                        role="button"
-                        style={{
-                          width: '100%',
-                          height: 84,
-                          objectFit: 'cover',
-                          borderRadius: 9,
-                          border: '1px solid var(--line)',
-                          display: 'block',
-                          cursor: 'pointer',
-                        }}
-                      />
+                        aria-label="Ver foto en grande"
+                        style={{ border: 'none', background: 'none', padding: 0, width: '100%', display: 'block', cursor: 'pointer' }}
+                      >
+                        <img
+                          src={src}
+                          alt={ev.referencia || 'Evidencia de la toma'}
+                          style={{
+                            width: '100%',
+                            height: 84,
+                            objectFit: 'cover',
+                            borderRadius: 9,
+                            border: '1px solid var(--line)',
+                            display: 'block',
+                          }}
+                        />
+                      </button>
                     ) : (
-                      <a href={ev.url} target="_blank" rel="noreferrer">
+                      <a
+                        href={ev.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={`${ev.referencia || 'Evidencia de la toma'} (abre en otra pestaña)`}
+                      >
                         <img
                           src={ev.url}
                           alt={ev.referencia || 'Evidencia de la toma'}
@@ -967,12 +1018,28 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
 
               {locales.map((l) => {
                 const f = sesionPorPath.current.get(l.path) ?? leidosPorPath.current.get(l.path);
+                const miniatura = l.url ? (
+                  <img
+                    src={l.url}
+                    alt={l.referencia || `Foto ${l.n} en el teléfono`}
+                    style={{
+                      width: '100%',
+                      height: 84,
+                      objectFit: 'cover',
+                      borderRadius: 9,
+                      border: '1px solid var(--line)',
+                      display: 'block',
+                    }}
+                  />
+                ) : null;
                 return (
                   <div key={`c-${l.trabajo}-${l.fid}`}>
                     <div style={{ position: 'relative' }}>
                       {l.tipo === 'video' || !l.url ? (
+                        // Decorativo: el estado lo dice Marca y el texto de abajo.
                         <div
                           className="tag"
+                          aria-hidden="true"
                           style={{
                             display: 'flex',
                             height: 84,
@@ -983,22 +1050,20 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
                         >
                           {l.tipo === 'video' ? '🎥' : '🖼️'}
                         </div>
+                      ) : f ? (
+                        // Botón de verdad (teclado y foco de regreso al cerrar
+                        // el visor), sin borde ni fondo (revisión de
+                        // accesibilidad, 24-oct-2026).
+                        <button
+                          type="button"
+                          onClick={() => setVer(f)}
+                          aria-label="Ver foto en grande"
+                          style={{ border: 'none', background: 'none', padding: 0, width: '100%', display: 'block', cursor: 'pointer' }}
+                        >
+                          {miniatura}
+                        </button>
                       ) : (
-                        <img
-                          src={l.url}
-                          alt={l.referencia || `Foto ${l.n} en el teléfono`}
-                          onClick={f ? () => setVer(f) : undefined}
-                          role={f ? 'button' : undefined}
-                          style={{
-                            width: '100%',
-                            height: 84,
-                            objectFit: 'cover',
-                            borderRadius: 9,
-                            border: '1px solid var(--line)',
-                            display: 'block',
-                            cursor: f ? 'pointer' : undefined,
-                          }}
-                        />
+                        miniatura
                       )}
                       <Marca l={l} />
                     </div>
@@ -1062,13 +1127,13 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
                 </>
               )}
               {videosGrandes > 0 && (
-                <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }} role="status">
                   {videosGrandes === 1 ? 'Un video pesa' : `${videosGrandes} videos pesan`} demasiado para
                   Compartir en este teléfono: espera a que suba.
                 </div>
               )}
               {(enRiesgo > 0 || (!enLinea && camaraSinSubir)) && (
-                <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }} role="status">
                   {enRiesgo > 0
                     ? `${plural(enRiesgo, 'foto no cupo', 'fotos no cupieron')} en el teléfono: si cierras la app antes de que suban, se pierden.` +
                       (paraFotos.length > 0 ? ' Guárdalas en Fotos.' : ' No cierres la app.')
@@ -1095,14 +1160,23 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
                   opacity: 0.6,
                 }}
               >
-                {regresadas.map((ev) => (
-                  <a key={ev.id} href={ev.url} target="_blank" rel="noreferrer" className="tag" style={{ display: 'block', padding: 0 }}>
+                {regresadas.map((ev, i) => (
+                  <a
+                    key={ev.id}
+                    href={ev.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="tag"
+                    // Numeradas: todas decían lo mismo (revisión de accesibilidad, 24-oct-2026).
+                    aria-label={`${ev.tipo === 'video' ? 'Video' : 'Foto'} ${i + 1} de la toma regresada (abre en otra pestaña)`}
+                    style={{ display: 'block', padding: 0 }}
+                  >
                     {ev.tipo === 'video' ? (
-                      <span style={{ display: 'flex', height: 64, alignItems: 'center', justifyContent: 'center' }}>🎥</span>
+                      <span aria-hidden="true" style={{ display: 'flex', height: 64, alignItems: 'center', justifyContent: 'center' }}>🎥</span>
                     ) : (
                       <img
                         src={ev.url}
-                        alt="Evidencia de la toma regresada"
+                        alt={`Evidencia ${i + 1} de la toma regresada`}
                         style={{ width: '100%', height: 64, objectFit: 'cover', borderRadius: 8, display: 'block' }}
                       />
                     )}
@@ -1114,7 +1188,9 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada }: Props) {
 
           {cerrada ? (
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Toma comprobada: ya no se agregan ni se quitan fotos.
+              {fila.fecha_comprobacion
+                ? 'Toma comprobada: ya no se agregan ni se quitan fotos.'
+                : 'Solo revisión: las fotos las sube el monitorista.'}
             </div>
           ) : (
             <SubirArchivos

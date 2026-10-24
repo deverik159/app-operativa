@@ -17,6 +17,7 @@
 import { Camera } from 'lucide-react';
 import { useRef, useState, useEffect } from 'react';
 import { prepararArchivos } from '../lib/comprimirImagen';
+import { useFocoModal } from '../lib/useFocoModal';
 import Ic from './Ic';
 
 type Props = {
@@ -160,9 +161,21 @@ export function VisorFile({ file, onClose }: { file: File; onClose: () => void }
     setUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [file]);
+  const esVideo = file.type.startsWith('video');
+  // Es una ventana encima de otra: tiene su propio foco, Tab y Escape (ver
+  // useFocoModal). No hay título, así que al abrir se enfoca el botón
+  // Cerrar y al cerrar el foco vuelve a la miniatura que lo abrió
+  // (revisión de accesibilidad, 24-oct-2026).
+  const raizRef = useRef<HTMLDivElement>(null);
+  const cerrarRef = useRef<HTMLButtonElement>(null);
+  useFocoModal(raizRef, cerrarRef, onClose);
 
   return (
     <div
+      ref={raizRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={esVideo ? 'Video' : 'Foto'}
       onClick={onClose}
       style={{
         position: 'fixed',
@@ -179,7 +192,7 @@ export function VisorFile({ file, onClose }: { file: File; onClose: () => void }
       }}
     >
       {url &&
-        (file.type.startsWith('video') ? (
+        (esVideo ? (
           <video
             src={url}
             controls
@@ -202,6 +215,7 @@ export function VisorFile({ file, onClose }: { file: File; onClose: () => void }
           />
         ))}
       <button
+        ref={cerrarRef}
         type="button"
         onClick={onClose}
         aria-label="Cerrar"

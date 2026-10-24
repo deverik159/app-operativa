@@ -49,6 +49,7 @@ import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib
 import IndicadoresPauta from './IndicadoresPauta';
 import AnalistaPauta from './AnalistaPauta';
 import CerrarModal from '../../components/CerrarModal';
+import { useFocoModal } from '../../lib/useFocoModal';
 import Ic from '../../components/Ic';
 
 /**
@@ -123,6 +124,12 @@ type Props = {
   /** Solo ver las tomas, sin revisar (Supervisor sin fila de analista). */
   soloVer?: boolean;
   /**
+   * Analista sin otro rol de Pauta (Erik, 24-oct-2026: «es solo de
+   * revisión»): no registra ni termina tomas ni sube fotos; solo ve la
+   * evidencia que ya existe. La base lo exige igual (registrar_toma).
+   */
+  soloRevisa?: boolean;
+  /**
    * Quien ve «Tomas de Pauta» en Comprobaciones: en modo 'completo' se le
    * dice dónde quedó la revisión y este botón lo lleva ahí (revisión 3,
    * 23-oct-2026: el aviso «Toma por revisar» todavía dice «pestaña
@@ -142,6 +149,7 @@ function PautaView({
   vistaPedida,
   modo = 'completo',
   soloVer,
+  soloRevisa,
   onIrATomas,
 }: Props) {
   vigilarRender('PautaView');
@@ -603,8 +611,34 @@ function PautaView({
       catsEnCurso.current = false;
     }
   }, []);
-  /** El cuerpo de cargarCatorcenas: solo usa setState (estables). */
+  /**
+   * El cuerpo de cargarCatorcenas: solo usa setState (estables).
+   *
+   * Un solo viaje con pauta_catorcenas_con_pauta() (24-oct-2026): distinct
+   * (anio, catorcena) sobre el índice, security invoker. Si la base todavía
+   * no tiene la función (la app se publica antes que la migración) se cae
+   * al bucle de antes, una consulta por catorcena.
+   */
   async function leerCatorcenasPauta() {
+    const { data, error } = await sb.rpc('pauta_catorcenas_con_pauta');
+    if (!error) {
+      const cats = ((data as { anio: number; catorcena: number }[] | null) ?? []).map((r) => ({
+        anio: Number(r.anio),
+        numero: Number(r.catorcena),
+      }));
+      aplicarCatorcenas(cats);
+      return;
+    }
+    await leerCatorcenasUnaPorUna();
+  }
+  function aplicarCatorcenas(cats: { anio: number; numero: number }[]) {
+    setCatorcenas(cats);
+    const primera = cats[0] ? claveCatorcena(cats[0].anio, cats[0].numero) : null;
+    setCatSel((prev) => prev ?? primera);
+    if (cats.length === 0) setLoading(false);
+  }
+  /** Respaldo: una consulta por catorcena (14-oct-2026), hasta 120. */
+  async function leerCatorcenasUnaPorUna() {
     const cats: { anio: number; numero: number }[] = [];
     for (let i = 0; i < 120; i++) {
       const ult = cats[cats.length - 1];
@@ -631,10 +665,7 @@ function PautaView({
       if (!r) break;
       cats.push({ anio: Number(r.anio), numero: Number(r.catorcena) });
     }
-    setCatorcenas(cats);
-    const primera = cats[0] ? claveCatorcena(cats[0].anio, cats[0].numero) : null;
-    setCatSel((prev) => prev ?? primera);
-    if (cats.length === 0) setLoading(false);
+    aplicarCatorcenas(cats);
   }
 
   /** Número de carga: la respuesta de una carga superada se descarta. */
@@ -1010,12 +1041,17 @@ function PautaView({
   };
 
   // --- Render ---
-  if (loading && !yaCargo) return <div className="loading">Cargando pauta…</div>;
+  if (loading && !yaCargo)
+    return (
+      <div className="loading" role="status">
+        Cargando pauta…
+      </div>
+    );
 
   if (catorcenas.length === 0 && modo === 'analista')
     return err ? (
       // Falló la lectura (sin señal): no es que no haya catorcenas.
-      <div className="err">
+      <div className="err" role="alert">
         No se pudo leer la Pauta ({err}).{' '}
         <button type="button" className="btn ghost sm" onClick={reintentarCatorcenas}>
           Reintentar
@@ -1029,7 +1065,11 @@ function PautaView({
       <>
         <h2 className="page">Pauta y monitoreo</h2>
         <p className="phint">Campañas por ruta y avance de campo.</p>
-        {err && <div className="err">{err}</div>}
+        {err && (
+          <div className="err" role="alert">
+            {err}
+          </div>
+        )}
         <div className="empty">
           Todavía no hay ninguna catorcena cargada.
           {puedeImportar ? (
@@ -1123,7 +1163,11 @@ function PautaView({
         </h2>
         {pestanas}
         {avisoTomas}
-        {err && <div className="err">{err}</div>}
+        {err && (
+          <div className="err" role="alert">
+            {err}
+          </div>
+        )}
         <div className="toolbar filtros-pildora">{selectorCatorcena}</div>
         {catSelLeida && (
           <div className={recargando ? 'recargando' : undefined}>
@@ -1153,7 +1197,11 @@ function PautaView({
             ? 'Tomas que registran los monitoristas. Solo ves: revisar, rechazar y comprobar lo hace el analista.'
             : 'Tomas que registran los monitoristas: revisa cada foto y la toma queda comprobada.'}
         </p>
-        {err && <div className="err">{err}</div>}
+        {err && (
+          <div className="err" role="alert">
+            {err}
+          </div>
+        )}
         <div className="toolbar filtros-pildora">{selectorCatorcena}</div>
         {catSelLeida && (
           <AnalistaPauta
@@ -1187,13 +1235,21 @@ function PautaView({
       </p>
       {pestanas}
       {avisoTomas}
-      {err && <div className="err">{err}</div>}
+      {err && (
+        <div className="err" role="alert">
+          {err}
+        </div>
+      )}
       {/* Monitorista: solo sus rutas asignadas (Erik, 19-oct-2026). */}
       {!veTodo &&
         (estadoAsig === 'cargando' ? (
-          <div className="phint">Leyendo tus rutas…</div>
+          <div className="phint" role="status">
+            Leyendo tus rutas…
+          </div>
         ) : estadoAsig !== 'listas' ? (
-          <div className="err">No se pudieron leer tus rutas asignadas: {estadoAsig}</div>
+          <div className="err" role="alert">
+            No se pudieron leer tus rutas asignadas: {estadoAsig}
+          </div>
         ) : filasMias.length === 0 ? (
           <div className="empty">
             No tienes rutas asignadas en esta catorcena. Pide al coordinador que te asigne una.
@@ -1234,6 +1290,7 @@ function PautaView({
             abajo, que ahora se tocan para filtrar. */}
         <input
           className="search"
+          aria-label="Buscar sitio, cara o campaña"
           placeholder="Buscar sitio, cara, campaña…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -1248,6 +1305,7 @@ function PautaView({
             className="btn ghost sm"
             onClick={sincronizarRutas}
             disabled={sincronizando || catSel == null}
+            aria-busy={sincronizando}
             title="Crea/actualiza las rutas de monitoreo con los sitios y secuencias de esta catorcena"
           >
             {sincronizando && <span className="spinner" />}
@@ -1259,11 +1317,12 @@ function PautaView({
       {/* Campañas de la ruta: el filtro principal del monitorista. */}
       {campanasRuta.length > 0 && (
         <div className={recargando ? 'recargando' : undefined} style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+          <div id="pauta-campanas-tit" style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
             Campañas en {fRuta === 'Todas' ? 'la catorcena' : `la ruta ${fRuta}`}{' '}
             ({campanasRuta.length}) — toca para filtrar
           </div>
-          <div className="chips">
+          {/* El texto de arriba titula el grupo de chips (revisión de accesibilidad, 24-oct-2026). */}
+          <div className="chips" role="group" aria-labelledby="pauta-campanas-tit">
             {/* "Toca para filtrar" es LA interacción de esta vista: son
                 botones con altura táctil real, no pills de 24px que en un
                 teléfono se fallaban con el dedo. */}
@@ -1275,6 +1334,7 @@ function PautaView({
                   key={c}
                   onClick={() => subirYRegresar(() => toggleCampana(c))}
                   className="pill"
+                  aria-pressed={on}
                   style={{
                     cursor: 'pointer',
                     border: 'none',
@@ -1307,6 +1367,7 @@ function PautaView({
                 type="button"
                 onClick={() => subirYRegresar(() => setFCampanas([]))}
                 className="pill"
+                aria-label="Limpiar filtro de campañas"
                 style={{
                   cursor: 'pointer',
                   font: 'inherit',
@@ -1403,7 +1464,9 @@ function PautaView({
               if ((t.l === 'Sitios' || t.l === 'Caras') && fAvance === 'Todos' && !fConInc) return;
               subirYRegresar(t.click);
             }}
-            aria-pressed={t.activa}
+            // Sitios y Caras limpian el filtro, no se prenden ni apagan: sin
+            // aria-pressed (revisión de accesibilidad, 24-oct-2026).
+            aria-pressed={t.l === 'Sitios' || t.l === 'Caras' ? undefined : t.activa}
             style={{
               cursor: 'pointer',
               textAlign: 'left',
@@ -1421,7 +1484,7 @@ function PautaView({
             </div>
             <div className="l">
               {t.l}
-              {t.activa ? ' ✕' : ''}
+              {t.activa ? <span aria-hidden="true">{' ✕'}</span> : ''}
             </div>
           </button>
         ))}
@@ -1450,9 +1513,10 @@ function PautaView({
                 marginBottom: 14,
               }}
             >
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+              {/* h3 con el mismo look del div de antes (revisión de accesibilidad, 24-oct-2026). */}
+              <h3 style={{ font: 'inherit', fontSize: 12, fontWeight: 700, margin: '0 0 8px' }}>
                 <Ic i={User} />{/^\d+$/.test(fRuta) ? `Ruta ${fRuta}` : fRuta} asignada a
-              </div>
+              </h3>
               <div
                 style={{
                   display: 'flex',
@@ -1494,6 +1558,8 @@ function PautaView({
                 ))}
                 <select
                   value=""
+                  aria-label={`Asignar la ruta ${fRuta} a`}
+                  aria-busy={asignando}
                   disabled={asignando}
                   onChange={(e) => asignarRuta(rutaId, e.target.value)}
                   style={{ width: 'auto', minWidth: 170 }}
@@ -1505,7 +1571,12 @@ function PautaView({
                     </option>
                   ))}
                 </select>
-                {asignando && <span className="spinner" />}
+                {asignando && (
+                  <span role="status">
+                    <span className="spinner" />
+                    <span style={SOLO_LECTOR}>Asignando…</span>
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
                 Al asignar, le llega la notificación y su ruta se le abre sola
@@ -1528,7 +1599,7 @@ function PautaView({
             onClick={toggleGuias}
             aria-expanded={verGuias}
           >
-            {verGuias ? '▾' : '▸'} <Ic i={MapIcon} />Guías de ruta (Google Maps)
+            <span aria-hidden="true">{verGuias ? '▾' : '▸'}</span> <Ic i={MapIcon} />Guías de ruta (Google Maps)
           </button>
           {verGuias && (
             <div
@@ -1566,7 +1637,7 @@ function PautaView({
                   style={{ background: fondoTono('ambar'), color: colorTono('ambar') }}
                   title="Sin coordenadas en inventario: no se puede navegar"
                 >
-                  ⚠ {stats.sinCoord} sin ubicación
+                  <span aria-hidden="true">⚠</span> {stats.sinCoord} sin ubicación
                 </span>
               )}
             </div>
@@ -1590,7 +1661,9 @@ function PautaView({
                       : 'Sin ruta'}
                     {s.secuencia != null ? ` · secuencia ${s.secuencia}` : ''}
                   </div>
-                  <div className="titulo">{s.site_id}</div>
+                  {/* h3 (el único nivel bajo el h2 de la página); .titulo le
+                      da el mismo look de antes (revisión de accesibilidad, 24-oct-2026). */}
+                  <h3 className="titulo">{s.site_id}</h3>
                   <div className="meta">{s.direccion || '(sin dirección)'}</div>
                   {/* Incidencias abiertas del sitio: aquí NO se reparan —
                       es para que el monitorista sepa si lo que va a
@@ -1608,6 +1681,7 @@ function PautaView({
                           type="button"
                           onClick={() => abrirIncidenciasDe(s.site_id)}
                           className="tag"
+                          aria-haspopup="dialog"
                           style={{
                             cursor: 'pointer',
                             font: 'inherit',
@@ -1620,9 +1694,9 @@ function PautaView({
                             fontWeight: alarma ? 700 : 400,
                           }}
                         >
-                          {alarma ? '🔴' : '⚠'} {e.abiertas} incidencia
+                          <span aria-hidden="true">{alarma ? '🔴' : '⚠'}</span> {e.abiertas} incidencia
                           {e.abiertas === 1 ? '' : 's'} abierta
-                          {e.abiertas === 1 ? '' : 's'} ›
+                          {e.abiertas === 1 ? '' : 's'} <span aria-hidden="true">›</span>
                         </button>
                       </div>
                     );
@@ -1641,7 +1715,7 @@ function PautaView({
                     marginTop: 6,
                   }}
                 >
-                  ⚠ Sin coordenadas en inventario — guíate por la dirección.
+                  <span aria-hidden="true">⚠</span> Sin coordenadas en inventario — guíate por la dirección.
                 </div>
               )}
 
@@ -1754,19 +1828,35 @@ function PautaView({
                           Comprobar ya no vive aquí ni en el modal: desde el
                           22-oct-2026 lo hace el analista al revisar las
                           fotos (Comprobaciones › Tomas de Pauta). */}
-                      <button
-                        className={f.fecha_toma || colaDe(f) || registradaEnSesion(f) ? 'btn ghost sm' : 'btn sm'}
-                        onClick={() => setTomaDe(f)}
-                      >
-                        <Ic i={Camera} />
-                        {colaDe(f)
-                          ? `Ver toma (${fotosConCola(f)})`
-                          : f.fecha_toma || registradaEnSesion(f)
-                            ? `Evidencia${f.fotos ? ` (${f.fotos})` : ''}`
-                            : f.fotos > 0
-                              ? `Terminar toma (${f.fotos})`
-                              : 'Registrar toma'}
-                      </button>
+                      {/* El analista es solo de revisión (Erik, 24-oct-2026):
+                          no registra ni termina tomas; la evidencia la ve
+                          en «Tomas de Pauta». Solo se le deja ver la que ya
+                          existe. */}
+                      {(!soloRevisa || f.fecha_toma || colaDe(f) || registradaEnSesion(f)) &&
+                        (() => {
+                          const texto = colaDe(f)
+                            ? `Ver toma (${fotosConCola(f)})`
+                            : f.fecha_toma || registradaEnSesion(f)
+                              ? `Evidencia${f.fotos ? ` (${f.fotos})` : ''}`
+                              : f.fotos > 0
+                                ? `Terminar toma (${f.fotos})`
+                                : 'Registrar toma';
+                          return (
+                            <button
+                              type="button"
+                              className={f.fecha_toma || colaDe(f) || registradaEnSesion(f) ? 'btn ghost sm' : 'btn sm'}
+                              onClick={() => setTomaDe(f)}
+                              // El mismo texto se repite en cada cara: el nombre
+                              // lleva el sitio y la cara (revisión de
+                              // accesibilidad, 24-oct-2026).
+                              aria-label={`${texto} · ${s.site_id} cara ${f.cara || '—'}`}
+                              aria-haspopup="dialog"
+                            >
+                              <Ic i={Camera} />
+                              {texto}
+                            </button>
+                          );
+                        })()}
                       {f.fecha_comprobacion && f.comprobacion_por && (
                         <span
                           style={{ fontSize: 11, color: 'var(--muted)' }}
@@ -1809,7 +1899,7 @@ function PautaView({
                             flexBasis: '100%',
                           }}
                         >
-                          ⛔ Regresada: “{f.rechazo_motivo}”
+                          <span aria-hidden="true">⛔</span> Regresada: “{f.rechazo_motivo}”
                         </span>
                       )}
                     </div>
@@ -1829,7 +1919,7 @@ function PautaView({
           >
             Ver {Math.min(SITIOS_POR_PAGINA, sitios.length - limiteSitios)} sitios más
           </button>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }} role="status">
             Mostrando {limiteSitios} de {sitios.length} sitios
           </div>
         </div>
@@ -1839,6 +1929,7 @@ function PautaView({
         <RegistrarTomaModal
           fila={tomaDe}
           email={email}
+          soloLectura={soloRevisa}
           onClose={() => setTomaDe(null)}
           onRegistrada={tomaRegistrada}
         />
@@ -1849,127 +1940,22 @@ function PautaView({
           iba a reportar ya existe. Sin folios ni botones de trabajo: eso
           es del módulo de Incidencias. */}
       {verIncDe && (
-        <div
-          className="overlay"
-          onClick={(e) => {
-            if ((e.target as HTMLElement).className === 'overlay')
-              setVerIncDe(null);
-          }}
-        >
-          <div className="modal" style={{ maxWidth: 400, margin: 'auto 0' }}>
-            <CerrarModal onClick={() => setVerIncDe(null)} />
-            <h2 style={{ margin: '0 0 3px', fontSize: 17 }}>
-              Incidencias abiertas
-            </h2>
-            <p className="phint" style={{ marginBottom: 12 }}>
-              {verIncDe} — si lo que viste ya está aquí, no lo reportes de
-              nuevo.
-            </p>
-            {incsDelSitio === null ? (
-              <div className="loading" style={{ padding: 20 }}>
-                Cargando…
-              </div>
-            ) : incsDelSitio.length === 0 ? (
-              <div className="empty" style={{ padding: 20 }}>
-                Nada abierto en este sitio.
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {incsDelSitio.map((i) => (
-                  <div
-                    key={i.record_id}
-                    style={{
-                      background: 'var(--panel2)',
-                      border: '1px solid var(--line)',
-                      borderRadius: 10,
-                      padding: '10px 12px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 10,
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 13 }}>
-                        {i.nombre_incidencia || '(sin nombre)'}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: 'var(--muted)',
-                          marginTop: 2,
-                        }}
-                      >
-                        {i.area || 'Sin área'}
-                      </div>
-                    </div>
-                    <span
-                      className="pill"
-                      style={{
-                        background: fondoTono(EST_TONO[i.estatus] ?? 'gris'),
-                        color: colorTono(EST_TONO[i.estatus] ?? 'gris'),
-                      }}
-                    >
-                      {EST_LABEL[i.estatus] || i.estatus}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="modal-actions" style={{ marginTop: 14 }}>
-              <button
-                className="btn ghost"
-                onClick={() => setVerIncDe(null)}
-                style={{ width: '100%' }}
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModalIncidenciasSitio sitio={verIncDe} incidencias={incsDelSitio} onCerrar={() => setVerIncDe(null)} />
       )}
 
       {/* La pregunta sutil tras registrar la toma: un diálogo chico y
           centrado, no un confirm() del navegador. "No" no castiga: un tap
           en el fondo también lo cierra. */}
       {ofrecerIncEn && !nuevaEn && (
-        <div
-          className="overlay"
-          onClick={(e) => {
-            if ((e.target as HTMLElement).className === 'overlay')
-              setOfrecerIncEn(null);
+        <ModalOfrecerIncidencia
+          sitio={ofrecerIncEn}
+          enCola={ofrecerEnCola}
+          onCerrar={() => setOfrecerIncEn(null)}
+          onLevantar={() => {
+            setNuevaEn(ofrecerIncEn);
+            setOfrecerIncEn(null);
           }}
-        >
-          <div className="modal" style={{ maxWidth: 360, margin: 'auto 0' }}>
-            <CerrarModal onClick={() => setOfrecerIncEn(null)} />
-            <h2 style={{ margin: '0 0 3px', fontSize: 17 }}>
-              {ofrecerEnCola ? 'Toma guardada en el teléfono' : '✓ Toma registrada'}
-            </h2>
-            <p className="phint" style={{ marginBottom: 14 }}>
-              {ofrecerEnCola && <>Se registra sola en cuanto suban las fotos (con la app abierta). </>}
-              ¿Viste algo mal en <b>{ofrecerIncEn}</b>? Puedes levantar la
-              incidencia ahora mismo, con el sitio ya cargado.
-            </p>
-            <div className="modal-actions">
-              <button
-                className="btn ghost"
-                onClick={() => setOfrecerIncEn(null)}
-              >
-                No, todo bien
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  setNuevaEn(ofrecerIncEn);
-                  setOfrecerIncEn(null);
-                }}
-              >
-                <Ic i={Plus} />Levantar incidencia
-              </button>
-            </div>
-          </div>
-        </div>
+        />
       )}
 
       {/* NuevaInc con el sitio ligado: EL MISMO modal de Incidencias
@@ -1995,6 +1981,190 @@ function PautaView({
         />
       )}
     </>
+  );
+}
+
+/**
+ * Texto solo para el lector de pantalla (no hay clase en el CSS para esto):
+ * se queda en el flujo pero sin verse (revisión de accesibilidad, 24-oct-2026).
+ */
+const SOLO_LECTOR: React.CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+};
+
+/**
+ * Detalle mínimo de las incidencias abiertas del sitio. Vivía como JSX
+ * dentro de PautaView; es componente para poder darle foco, Tab y Escape
+ * con useFocoModal (revisión de accesibilidad, 24-oct-2026).
+ */
+function ModalIncidenciasSitio({
+  sitio,
+  incidencias,
+  onCerrar,
+}: {
+  sitio: string;
+  /** null = todavía cargando. */
+  incidencias: IncidenciaAbierta[] | null;
+  onCerrar: () => void;
+}) {
+  const titRef = useRef<HTMLHeadingElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocoModal(modalRef, titRef, onCerrar);
+  return (
+    <div
+      className="overlay"
+      onClick={(e) => {
+        if ((e.target as HTMLElement).className === 'overlay') onCerrar();
+      }}
+    >
+      <div
+        ref={modalRef}
+        className="modal"
+        style={{ maxWidth: 400, margin: 'auto 0' }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Incidencias abiertas"
+      >
+        <CerrarModal onClick={onCerrar} />
+        <h2 ref={titRef} tabIndex={-1} style={{ margin: '0 0 3px', fontSize: 17, outline: 'none' }}>
+          Incidencias abiertas
+        </h2>
+        <p className="phint" style={{ marginBottom: 12 }}>
+          {sitio} — si lo que viste ya está aquí, no lo reportes de
+          nuevo.
+        </p>
+        {incidencias === null ? (
+          <div className="loading" style={{ padding: 20 }} role="status">
+            Cargando…
+          </div>
+        ) : incidencias.length === 0 ? (
+          <div className="empty" style={{ padding: 20 }}>
+            Nada abierto en este sitio.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 8 }}>
+            {incidencias.map((i) => (
+              <div
+                key={i.record_id}
+                style={{
+                  background: 'var(--panel2)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>
+                    {i.nombre_incidencia || '(sin nombre)'}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--muted)',
+                      marginTop: 2,
+                    }}
+                  >
+                    {i.area || 'Sin área'}
+                  </div>
+                </div>
+                <span
+                  className="pill"
+                  style={{
+                    background: fondoTono(EST_TONO[i.estatus] ?? 'gris'),
+                    color: colorTono(EST_TONO[i.estatus] ?? 'gris'),
+                  }}
+                >
+                  {EST_LABEL[i.estatus] || i.estatus}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="modal-actions" style={{ marginTop: 14 }}>
+          <button className="btn ghost" onClick={onCerrar} style={{ width: '100%' }}>
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * «¿Viste algo mal?» tras registrar la toma. Componente por lo mismo que
+ * ModalIncidenciasSitio (revisión de accesibilidad, 24-oct-2026).
+ */
+function ModalOfrecerIncidencia({
+  sitio,
+  enCola,
+  onCerrar,
+  onLevantar,
+}: {
+  sitio: string;
+  /** La toma quedó en la cola del teléfono, no registrada todavía. */
+  enCola: boolean;
+  onCerrar: () => void;
+  onLevantar: () => void;
+}) {
+  const titRef = useRef<HTMLHeadingElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocoModal(modalRef, titRef, onCerrar);
+  return (
+    <div
+      className="overlay"
+      onClick={(e) => {
+        if ((e.target as HTMLElement).className === 'overlay') onCerrar();
+      }}
+    >
+      {/* El título cambia según el caso: la ventana se nombra con él. */}
+      <div
+        ref={modalRef}
+        className="modal"
+        style={{ maxWidth: 360, margin: 'auto 0' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pauta-ofrecer-inc-titulo"
+      >
+        <CerrarModal onClick={onCerrar} />
+        <h2
+          id="pauta-ofrecer-inc-titulo"
+          ref={titRef}
+          tabIndex={-1}
+          style={{ margin: '0 0 3px', fontSize: 17, outline: 'none' }}
+        >
+          {enCola ? (
+            'Toma guardada en el teléfono'
+          ) : (
+            <>
+              <span aria-hidden="true">✓</span> Toma registrada
+            </>
+          )}
+        </h2>
+        <p className="phint" style={{ marginBottom: 14 }}>
+          {enCola && <>Se registra sola en cuanto suban las fotos (con la app abierta). </>}
+          ¿Viste algo mal en <b>{sitio}</b>? Puedes levantar la
+          incidencia ahora mismo, con el sitio ya cargado.
+        </p>
+        <div className="modal-actions">
+          <button className="btn ghost" onClick={onCerrar}>
+            No, todo bien
+          </button>
+          <button className="btn" onClick={onLevantar}>
+            <Ic i={Plus} />Levantar incidencia
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -124,9 +124,18 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
       bajarArchivo(blob, `${nombreArchivo}.xlsx`);
     });
 
-  if (soloMisRutas && asignaciones === 'cargando') return <div className="loading">Leyendo tus rutas…</div>;
+  if (soloMisRutas && asignaciones === 'cargando')
+    return (
+      <div className="loading" role="status">
+        Leyendo tus rutas…
+      </div>
+    );
   if (soloMisRutas && asignaciones !== 'listas' && asignaciones !== 'cargando')
-    return <div className="err">No se pudieron leer tus rutas asignadas: {asignaciones}</div>;
+    return (
+      <div className="err" role="alert">
+        No se pudieron leer tus rutas asignadas: {asignaciones}
+      </div>
+    );
   if (soloMisRutas && filas.length === 0)
     return (
       <div className="empty">
@@ -137,12 +146,17 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
   const t = avance.total;
   const ocupado = !!tarea;
 
-  /** Botón Excel de un grupo. */
-  const botones = (clave: string, titulo: string, archivo: string, fs: PautaRuta[]) => (
+  /**
+   * Botón Excel de un grupo. `nombre` es el nombre accesible: los botones
+   * dicen «Excel» todos igual y el lector no sabría de cuál campaña o día
+   * es (revisión de accesibilidad, 24-oct-2026).
+   */
+  const botones = (clave: string, titulo: string, archivo: string, fs: PautaRuta[], nombre?: string) => (
     <button
       type="button"
       className="btn ghost sm"
       disabled={ocupado}
+      aria-label={nombre ?? `Excel de ${titulo}`}
       onClick={(e) => {
         e.stopPropagation();
         bajarComprobacion(clave, titulo, archivo, fs);
@@ -163,7 +177,11 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
           Ves solo tus rutas asignadas.
         </p>
       )}
-      {err && <div className="err">{err}</div>}
+      {err && (
+        <div className="err" role="alert">
+          {err}
+        </div>
+      )}
       {tarea && (
         <div role="status" className="phint" style={{ marginTop: 0 }}>
           <span className="spinner" />
@@ -174,7 +192,10 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
       {/* 1. Avance de la catorcena */}
       <section className="card" style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-          <b style={{ flex: '1 1 auto', fontSize: 15 }}>Avance de la {etiquetaCat}</b>
+          {/* h3 con el mismo look del <b> de antes (revisión de accesibilidad, 24-oct-2026). */}
+          <h3 style={{ flex: '1 1 auto', font: 'inherit', fontWeight: 700, fontSize: 15, margin: 0 }}>
+            Avance de la {etiquetaCat}
+          </h3>
           <button type="button" className="btn ghost sm" onClick={bajarAvance} disabled={ocupado}>
             {tarea?.clave === 'avance' && <span className="spinner" />}
             <Ic i={Download} />
@@ -207,7 +228,7 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }} role="group" aria-label="Detalle">
           {(['campana', 'monitorista'] as const).map((k) => (
             <button
               key={k}
@@ -247,7 +268,7 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
 
       {/* 2. Comprobaciones agrupadas */}
       <section className="card">
-        <b style={{ fontSize: 15 }}>Comprobaciones</b>
+        <h3 style={{ font: 'inherit', fontWeight: 700, fontSize: 15, margin: 0 }}>Comprobaciones</h3>
         <p className="phint" style={{ margin: '4px 0 10px' }}>
           Por campaña y por día en que se tomó. Solo lo que el analista ya comprobó al revisar las fotos.
           Descarga en Excel con una liga a cada foto (la editada, si el analista la cambió).
@@ -261,27 +282,41 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
           const evidencias = todas.reduce((n, f) => n + (f.fotos || 0), 0);
           return (
             <div key={g.campana} style={{ border: '1px solid var(--line)', borderRadius: 10, marginBottom: 8 }}>
-              <div
-                role="button"
-                tabIndex={0}
-                aria-expanded={abiertaEsta}
-                onClick={() => setAbierta(abiertaEsta ? null : g.campana)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setAbierta(abiertaEsta ? null : g.campana);
-                  }
-                }}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', cursor: 'pointer', flexWrap: 'wrap' }}
-              >
-                <Ic i={abiertaEsta ? ChevronDown : ChevronRight} />
-                <span style={{ flex: '1 1 160px', minWidth: 0 }}>
-                  <b>{g.campana}</b>
-                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>
-                    {' '}
-                    · {g.total} {g.total === 1 ? 'cara' : 'caras'} · {g.dias.length} {g.dias.length === 1 ? 'día' : 'días'} · {evidencias} {evidencias === 1 ? 'evidencia' : 'evidencias'}
+              {/* La cabecera es un botón de verdad (como en AnalistaPauta) y el
+                  Excel queda FUERA de él, como hermano: antes era un div
+                  role="button" que contenía al Excel y su onKeyDown se comía
+                  Enter y Espacio del Excel interior, así que con teclado el
+                  Excel abría o cerraba la carpeta en vez de descargar
+                  (revisión de accesibilidad, 24-oct-2026). */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 12, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  aria-expanded={abiertaEsta}
+                  onClick={() => setAbierta(abiertaEsta ? null : g.campana)}
+                  style={{
+                    flex: '1 1 160px',
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '10px 12px',
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--txt)',
+                    font: 'inherit',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Ic i={abiertaEsta ? ChevronDown : ChevronRight} />
+                  <span style={{ flex: '1 1 auto', minWidth: 0 }}>
+                    <b>{g.campana}</b>
+                    <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                      {' '}
+                      · {g.total} {g.total === 1 ? 'cara' : 'caras'} · {g.dias.length} {g.dias.length === 1 ? 'día' : 'días'} · {evidencias} {evidencias === 1 ? 'evidencia' : 'evidencias'}
+                    </span>
                   </span>
-                </span>
+                </button>
                 {botones('c|' + g.campana, g.campana, `Comprobacion_${paraArchivo(g.campana)}_${sufijo}`, todas)}
               </div>
               {abiertaEsta &&
@@ -302,7 +337,8 @@ export default function IndicadoresPauta({ filas, asignaciones, anio, numero, et
                       `d|${g.campana}|${d.dia}`,
                       g.campana,
                       `Comprobacion_${paraArchivo(g.campana)}_${d.dia || 'sin-fecha'}_${sufijo}`,
-                      d.filas
+                      d.filas,
+                      `Excel de ${g.campana}, ${etiquetaDia(d.dia)}`
                     )}
                   </div>
                 ))}

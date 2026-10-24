@@ -39,7 +39,10 @@ export type FotoRevision = {
   /** Número dentro de su cara (orden en que se subió): el archivo es <vfid>_<n>. */
   n: number;
   estado: 'pendiente' | 'correcta' | 'editada';
+  /** Liga pública de la editada, armada por la app desde editada_path (24-oct-2026). */
   editada_url: string | null;
+  /** Ruta en Storage de la editada: con ella se borra la anterior al reemplazarla. */
+  editada_path: string | null;
 };
 
 export type Bandeja = 'por_revisar' | 'comprobadas' | 'regresadas';

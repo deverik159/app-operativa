@@ -1499,6 +1499,13 @@ function Main({
   // manager es comodín: puede lo que puede cualquier otro rol.
   const has = (r: string) => misRoles.includes(r) || misRoles.includes('manager');
   /**
+   * Analista sin otro rol de Pauta (Erik, 24-oct-2026: el analista «es solo
+   * de revisión»): en Pauta y Monitoreo no registra tomas ni sube fotos.
+   */
+  const soloRevisaPauta =
+    misRoles.includes('analista') &&
+    !misRoles.some((r) => r === 'manager' || r === 'coordinador' || r === 'monitorista' || r === 'fijador');
+  /**
    * Equipos (15-oct-2026): historial de equipos de Digital. Lo ven los
    * técnicos de Digital, coordinador, manager y consulta (Erik).
    */
@@ -2354,6 +2361,7 @@ function Main({
                   puedeImportar={has('manager') || has('coordinador')}
                   recargarSignal={recargarSignal}
                   revisaAnalista={has('analista')}
+                  soloRevisa={soloRevisaPauta}
                   vistaPedida={vistaPauta}
                   onIrATomas={
                     veTomasPauta(rolesDetalle) && clavesConRuta.split('|').includes('comprobaciones')

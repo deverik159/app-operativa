@@ -287,7 +287,7 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
    padding de abajo y el pie se encarga del hueco del gesto de inicio.
    El overlay NO lleva clase extra: varias ventanas cierran comparando
    className === 'overlay'; por eso aquí va con :has(). */
-.overlay:has(.pie-fijo){padding-bottom:0}
+.overlay:has(.pie-fijo){padding-bottom:var(--teclado,0px)}
 .modal .modal-actions.pie-fijo{position:sticky;bottom:0;z-index:2;margin:16px -22px -22px;padding:12px 22px 14px;
   background:var(--panel);border-top:1px solid var(--line);border-radius:0 0 16px 16px}
 @media(max-width:780px){
