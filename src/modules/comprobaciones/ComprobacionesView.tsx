@@ -707,7 +707,7 @@ export default function ComprobacionesView({ email, roles, misDep, recargarSigna
       {!enPauta && selectorPeriodo}
       {!enPauta &&
         errores.map((e) => (
-          <div key={e} className="err">
+          <div key={e} className="err" role="alert">
             {e}
           </div>
         ))}

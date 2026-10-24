@@ -261,7 +261,7 @@
   .login-legal{margin:16px 0 0;max-width:400px;text-align:center;color:var(--muted);font-size:11px}
   .logo{width:52px;height:52px;border-radius:13px;background:linear-gradient(135deg,var(--accent),#ffb03c);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:26px;color:#101;margin-bottom:16px}
   .login h1{margin:0 0 4px;font-size:22px}.login .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
-  .field{margin-bottom:13px}.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}
+  .field{margin-bottom:13px}.field label,.field .etiqueta{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:600}
   .err{background:var(--err-fondo);border:1px solid var(--err-borde);color:var(--err-txt);font-size:13px;padding:10px 12px;border-radius:10px;margin-bottom:14px}
   .ok-msg{background:var(--ok-fondo);border:1px solid var(--ok-borde);color:var(--ok-txt);font-size:13px;padding:10px 12px;border-radius:10px;margin-bottom:14px}
   /* padding-top con safe-area: en la PWA instalada en iPhone la barra de

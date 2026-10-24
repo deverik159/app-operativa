@@ -27,6 +27,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useFocoModal } from '../../lib/useFocoModal';
 import { Check, CirclePlus, Pencil, RotateCcw, Search, Undo2, X } from 'lucide-react';
 import Ic from '../../components/Ic';
 import {
@@ -122,11 +123,10 @@ export default function DetalleCampana(props: Props) {
   const { periodo, onCerrar, email, permisos, nombreDe, correr, ocupado, recargar, telefono } = props;
 
   // Al abrir, el foco va al título: VoiceOver y el teclado empiezan dentro
-  // de la ventana y no detrás (revisión de pantallas, 23-oct-2026).
+  // de la ventana y no detrás (revisión de pantallas, 23-oct-2026). Tab se
+  // queda adentro, Escape cierra y al cerrar el foco regresa: useFocoModal.
   const titRef = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    titRef.current?.focus();
-  }, []);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   // ---- Campaña y sitios (se releen después de cada escritura) -----------
   const [camp, setCamp] = useState<VwCampana>(props.campana);
@@ -575,12 +575,9 @@ export default function DetalleCampana(props: Props) {
     if (ocupadoAqui) return;
     onCerrar();
   };
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !panel) cerrar();
-    };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
+  // Con un panel abierto (cancelar, datos, sitios), Escape no cierra la ventana.
+  useFocoModal(modalRef, titRef, () => {
+    if (!panel) cerrar();
   });
 
   // ---- Render ----------------------------------------------------------------
@@ -718,7 +715,7 @@ export default function DetalleCampana(props: Props) {
         if (e.target === e.currentTarget) cerrar();
       }}
     >
-      <div className="modal rt-armado" role="dialog" aria-modal="true" aria-label={titulo} onClick={(e) => e.stopPropagation()}>
+      <div ref={modalRef} className="modal rt-armado" role="dialog" aria-modal="true" aria-label={titulo} onClick={(e) => e.stopPropagation()}>
         <div className="rt-armado-cab" style={{ alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
@@ -783,7 +780,7 @@ export default function DetalleCampana(props: Props) {
           </div>
         )}
         {errLeer && (
-          <div className="err">
+          <div className="err" role="alert">
             {errLeer}{' '}
             <button type="button" className="btn ghost sm" onClick={() => releer(true)}>
               <Ic i={RotateCcw} />
@@ -1053,7 +1050,7 @@ export default function DetalleCampana(props: Props) {
         {puedeEscribir && (
           <div className="rt-pie" style={{ justifyContent: 'flex-start' }}>
             {err && (
-              <div className="err" style={{ flex: '1 1 100%', margin: 0 }}>
+              <div className="err" role="alert" style={{ flex: '1 1 100%', margin: 0 }}>
                 {err}
               </div>
             )}

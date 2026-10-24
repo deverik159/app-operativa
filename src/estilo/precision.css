@@ -107,7 +107,8 @@ select,input,textarea{border-radius:10px;transition:border-color .15s,box-shadow
 select:focus,input:focus,textarea:focus{outline:none;border-color:var(--line2);
   box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
 input[type="checkbox"]:focus,input[type="radio"]:focus{box-shadow:none}
-.field label{font-size:12.5px}
+input[type="checkbox"]:focus-visible,input[type="radio"]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.field label,.field .etiqueta{font-size:12.5px}
 
 /* Etiquetas y pastillas */
 .tag{border-radius:6px;font-weight:500;font-size:11.5px}

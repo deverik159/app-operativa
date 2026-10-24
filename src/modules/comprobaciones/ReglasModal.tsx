@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Plus, Trash } from 'lucide-react';
 import CerrarModal from '../../components/CerrarModal';
+import { useFocoModal } from '../../lib/useFocoModal';
 import Ic from '../../components/Ic';
 import { ETIQUETA_UNIDAD_COMP } from '../../lib/comprobaciones';
 import {
@@ -227,6 +228,9 @@ export default function ReglasModal(props: Props) {
   const [edit, setEdit] = useState<Borrador | null>(null);
   const [porBorrar, setPorBorrar] = useState<number | null>(null);
   const pide = useRef(0);
+  // Foco, Tab y Escape de la ventana: ver useFocoModal.
+  const titRef = useRef<HTMLHeadingElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   const leer = async () => {
     const n = ++pide.current;
@@ -253,13 +257,7 @@ export default function ReglasModal(props: Props) {
     onCerrar();
   };
 
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') cerrar();
-    };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  });
+  useFocoModal(modalRef, titRef, cerrar);
 
   const porTipo = useMemo(() => {
     const m = new Map<TipoRegla, ReglaComp[]>();
@@ -336,11 +334,17 @@ export default function ReglasModal(props: Props) {
     tipoInput: 'num' | 'texto' | 'area' = 'texto'
   ) => (
     <div className="field" style={{ marginBottom: 8, minWidth: 0 }}>
-      <label>{etiqueta}</label>
+      <label htmlFor={'comp-regla-' + k}>{etiqueta}</label>
       {tipoInput === 'area' ? (
-        <textarea rows={2} value={edit?.[k] ?? ''} onChange={(e) => setEdit((b) => (b ? { ...b, [k]: e.target.value } : b))} />
+        <textarea
+          id={'comp-regla-' + k}
+          rows={2}
+          value={edit?.[k] ?? ''}
+          onChange={(e) => setEdit((b) => (b ? { ...b, [k]: e.target.value } : b))}
+        />
       ) : (
         <input
+          id={'comp-regla-' + k}
           inputMode={tipoInput === 'num' ? 'decimal' : undefined}
           value={edit?.[k] ?? ''}
           onChange={(e) => setEdit((b) => (b ? { ...b, [k]: e.target.value } : b))}
@@ -409,23 +413,25 @@ export default function ReglasModal(props: Props) {
         if (e.target === e.currentTarget) cerrar();
       }}
     >
-      <div className="modal" style={{ maxWidth: 720, position: 'relative' }} role="dialog" aria-modal="true" aria-label="Reglas">
+      <div ref={modalRef} className="modal" style={{ maxWidth: 720, position: 'relative' }} role="dialog" aria-modal="true" aria-label="Reglas">
         <CerrarModal onClick={cerrar} disabled={guardando} />
-        <h2 style={{ margin: '0 0 4px', fontSize: 18 }}>Reglas de {ETIQUETA_UNIDAD_COMP[unidad]}</h2>
+        <h2 ref={titRef} tabIndex={-1} style={{ margin: '0 0 4px', fontSize: 18, outline: 'none' }}>
+          Reglas de {ETIQUETA_UNIDAD_COMP[unidad]}
+        </h2>
         <div className="banner">
           Están <b>sin confirmar</b> con el Supervisor: se guardan como datos y la app no las aplica sola. La única que ya se usa
           es «Fecha límite según sitios», para proponer la fecha límite de las campañas que no tienen una puesta a mano.
           {sinConfirmar ? ` Faltan ${sinConfirmar} por confirmar.` : ''}
         </div>
         {errLeer && (
-          <div className="err">
+          <div className="err" role="alert">
             {errLeer}{' '}
             <button type="button" className="btn ghost sm" onClick={leer}>
               Reintentar
             </button>
           </div>
         )}
-        {err && <div className="err">{err}</div>}
+        {err && <div className="err" role="alert">{err}</div>}
         {!leido && !errLeer && (
           <div className="phint">
             <span className="spinner" />

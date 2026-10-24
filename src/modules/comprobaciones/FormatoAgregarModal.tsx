@@ -11,8 +11,9 @@
 // Siempre se enseñan los conteos que devuelve la base.
 // ============================================================
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import CerrarModal from '../../components/CerrarModal';
+import { useFocoModal } from '../../lib/useFocoModal';
 import { compararNatural, diasEntre, llaveComp } from '../../lib/comprobaciones';
 import {
   agregarTomas,
@@ -206,6 +207,11 @@ export default function FormatoAgregarModal({
     }
   };
 
+  // Foco, Tab y Escape de la ventana: ver useFocoModal.
+  const titRef = useRef<HTMLHeadingElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocoModal(modalRef, titRef, cerrar);
+
   return (
     <div
       className="overlay"
@@ -213,9 +219,18 @@ export default function FormatoAgregarModal({
         if ((e.target as HTMLElement).className === 'overlay') cerrar();
       }}
     >
-      <div className="modal" style={{ maxWidth: 640, margin: 'auto 0' }} role="dialog" aria-modal="true" aria-label="Agregar tomas">
+      <div
+        ref={modalRef}
+        className="modal"
+        style={{ maxWidth: 640, margin: 'auto 0' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="comp-agregar-tit"
+      >
         <CerrarModal onClick={cerrar} disabled={guardando} />
-        <h2 style={{ margin: '0 0 3px', fontSize: 17 }}>Agregar tomas</h2>
+        <h2 id="comp-agregar-tit" ref={titRef} tabIndex={-1} style={{ margin: '0 0 3px', fontSize: 17, outline: 'none' }}>
+          Agregar tomas
+        </h2>
         <p className="phint" style={{ marginBottom: 12 }}>
           Un renglón por sitio y día, con el horario del día y el monitorista de la ruta del sitio. El plan de la campaña ya no
           los toca.
@@ -245,10 +260,10 @@ export default function FormatoAgregarModal({
 
         {campanaId != null && (
           <div className="field">
-            <label>
+            <div className="etiqueta">
               Sitios {sitios ? `(${sel.size ? `${elegidos.length} de ` : ''}${sitios.length})` : ''}
-            </label>
-            {errSitios && <div className="err">{errSitios}</div>}
+            </div>
+            {errSitios && <div className="err" role="alert">{errSitios}</div>}
             {sitios === null ? (
               <div className="phint">
                 <span className="spinner" />
@@ -323,7 +338,7 @@ export default function FormatoAgregarModal({
 
         {campanaId != null && (
           <div className="field">
-            <label>Días {listaFechas.length ? `(${listaFechas.length})` : ''}</label>
+            <div className="etiqueta">Días {listaFechas.length ? `(${listaFechas.length})` : ''}</div>
             <div className="rt-chips" role="group" aria-label="Días">
               {dias.map((d) => {
                 const on = fechas.has(d);
@@ -385,7 +400,7 @@ export default function FormatoAgregarModal({
           </div>
         )}
 
-        {err && <div className="err">{err}</div>}
+        {err && <div className="err" role="alert">{err}</div>}
         {!pendienteVig && (
           <div className="modal-actions">
             <button type="button" className="btn ghost" onClick={cerrar} disabled={guardando}>

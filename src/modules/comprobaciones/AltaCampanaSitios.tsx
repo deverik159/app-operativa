@@ -192,7 +192,7 @@ export default function AltaCampanaSitios({
           ))}
         </div>
       </div>
-      {inventario.error && <div className="err">{inventario.error}</div>}
+      {inventario.error && <div className="err" role="alert">{inventario.error}</div>}
       {modo !== 'lista' && (
         <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
           <input type="checkbox" checked={conFuera} onChange={(e) => setConFuera(e.target.checked)} />
@@ -214,7 +214,7 @@ export default function AltaCampanaSitios({
         ))}
       {modo === 'ruta' &&
         (errRutas ? (
-          <div className="err">{errRutas}</div>
+          <div className="err" role="alert">{errRutas}</div>
         ) : rutas == null || inventario.caras == null ? (
           <div className="phint">
             <span className="spinner" />

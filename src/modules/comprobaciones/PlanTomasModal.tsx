@@ -25,6 +25,7 @@
 // ============================================================
 import { useEffect, useMemo, useRef, useState } from 'react';
 import CerrarModal from '../../components/CerrarModal';
+import { useFocoModal } from '../../lib/useFocoModal';
 import {
   ETIQUETA_PLAN,
   MAX_CADA_N,
@@ -318,6 +319,10 @@ export default function PlanTomasModal(props: Props) {
   const cerrar = () => {
     if (!trabajando) onCerrar();
   };
+  // Foco, Tab y Escape de la ventana: ver useFocoModal.
+  const titRef = useRef<HTMLHeadingElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocoModal(modalRef, titRef, cerrar);
 
   const toggleFecha = (d: string) =>
     setFechas((s) => {
@@ -333,6 +338,7 @@ export default function PlanTomasModal(props: Props) {
   return (
     <div className="overlay rt-overlay-full" onClick={cerrar}>
       <div
+        ref={modalRef}
         className="modal rt-armado"
         role="dialog"
         aria-modal="true"
@@ -341,7 +347,7 @@ export default function PlanTomasModal(props: Props) {
         style={{ position: 'relative', maxWidth: 760 }}
       >
         <CerrarModal onClick={cerrar} disabled={trabajando} />
-        <h2 id="comp-plan-tit" style={{ marginTop: 0 }}>
+        <h2 id="comp-plan-tit" ref={titRef} tabIndex={-1} style={{ marginTop: 0, outline: 'none' }}>
           Plan de tomas · {fmtN(elegidas.length)} campaña{elegidas.length === 1 ? '' : 's'}
         </h2>
         <p className="phint">
@@ -378,7 +384,7 @@ export default function PlanTomasModal(props: Props) {
                 {res.sin_tomas.length > 12 ? ` y ${fmtN(res.sin_tomas.length - 12)} más` : ''}.
               </div>
             )}
-            {err && <div className="err">{err}</div>}
+            {err && <div className="err" role="alert">{err}</div>}
             <div className="modal-actions pie-fijo">
               <button type="button" className={faltan.length ? 'btn ghost' : 'btn'} onClick={cerrar} disabled={trabajando}>
                 {faltan.length ? 'Cerrar' : 'Listo'}
@@ -419,7 +425,7 @@ export default function PlanTomasModal(props: Props) {
             {modo === 'nuevo' && (
               <div style={{ marginTop: 12 }}>
                 <div className="field">
-                  <label>Cuándo se toma</label>
+                  <div className="etiqueta">Cuándo se toma</div>
                   <div className="rt-chips rt-segmento" role="group" aria-label="Tipo de plan">
                     {TIPOS_PLAN.map((t) => (
                       <button
@@ -457,9 +463,9 @@ export default function PlanTomasModal(props: Props) {
                 )}
                 {tipo === 'fechas' && (
                   <div className="field">
-                    <label>
+                    <div className="etiqueta">
                       Días del periodo ({fmtN(fechas.size)} elegido{fechas.size === 1 ? '' : 's'})
-                    </label>
+                    </div>
                     <div className="rt-chips" role="group" aria-label="Días del plan">
                       {diasPeriodo.map((d) => {
                         const on = fechas.has(d);
@@ -509,7 +515,7 @@ export default function PlanTomasModal(props: Props) {
               <div className="rt-seccion-tit">Vista previa</div>
               {errSitios ? (
                 <>
-                  <div className="err">{errSitios}</div>
+                  <div className="err" role="alert">{errSitios}</div>
                   <button type="button" className="btn ghost sm" onClick={() => setIntento((n) => n + 1)}>
                     Volver a leer
                   </button>
@@ -520,7 +526,7 @@ export default function PlanTomasModal(props: Props) {
                   Leyendo los sitios…
                 </div>
               ) : previa.error ? (
-                <div className="err">{previa.error}</div>
+                <div className="err" role="alert">{previa.error}</div>
               ) : (
                 <div style={{ fontSize: 13, lineHeight: 1.6 }}>
                   <div>

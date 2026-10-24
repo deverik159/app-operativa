@@ -30,6 +30,7 @@
 // esqueleto (correr) y se cuenta con lo que DEVUELVE la base: la RLS niega
 // en silencio. Después se relee en silencio (recargar) sin desmontar.
 // ============================================================
+import { X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   cargaPorAnalista,
@@ -686,8 +687,11 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
       </div>
 
       {err && (
-        <div className="err" role="alert" onClick={() => setErr('')}>
-          {err}
+        <div className="err" role="alert" style={{ display: 'flex', gap: 8 }}>
+          <span style={{ flex: 1 }}>{err}</span>
+          <button type="button" className="btn-icono" aria-label="Cerrar aviso" onClick={() => setErr('')}>
+            <X size={17} aria-hidden="true" />
+          </button>
         </div>
       )}
 

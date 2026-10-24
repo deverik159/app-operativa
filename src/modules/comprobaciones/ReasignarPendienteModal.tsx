@@ -12,6 +12,7 @@
 // ============================================================
 import { useEffect, useMemo, useRef, useState } from 'react';
 import CerrarModal from '../../components/CerrarModal';
+import { useFocoModal } from '../../lib/useFocoModal';
 import {
   pasarPendiente,
   textoFallaComp,
@@ -143,15 +144,22 @@ export default function ReasignarPendienteModal(props: Props) {
   const cerrar = () => {
     if (!trabajando) onCerrar();
   };
-  // Al abrir, el foco va al título (23-oct-2026).
+  // Foco, Tab y Escape de la ventana: ver useFocoModal.
   const titRef = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    titRef.current?.focus();
-  }, []);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocoModal(modalRef, titRef, cerrar);
 
   return (
     <div className="overlay" onClick={cerrar}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="comp-pasar-tit" onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
+      <div
+        ref={modalRef}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="comp-pasar-tit"
+        onClick={(e) => e.stopPropagation()}
+        style={{ position: 'relative' }}
+      >
         <CerrarModal onClick={cerrar} disabled={trabajando} />
         <h2 id="comp-pasar-tit" ref={titRef} tabIndex={-1} style={{ marginTop: 0, outline: 'none' }}>
           Pasar lo pendiente
@@ -182,7 +190,7 @@ export default function ReasignarPendienteModal(props: Props) {
         </div>
 
         <div className="field">
-          <label>Qué campañas</label>
+          <div className="etiqueta">Qué campañas</div>
           <div className="rt-chips rt-segmento" role="group" aria-label="Qué campañas">
             {(
               [
@@ -205,7 +213,7 @@ export default function ReasignarPendienteModal(props: Props) {
           </div>
         </div>
         <div className="field">
-          <label>De qué periodo</label>
+          <div className="etiqueta">De qué periodo</div>
           <div className="rt-chips rt-segmento" role="group" aria-label="De qué periodo">
             {(
               [
@@ -250,7 +258,7 @@ export default function ReasignarPendienteModal(props: Props) {
             ) : null}
           </div>
         )}
-        {errPrevia && <div className="err">{errPrevia}</div>}
+        {errPrevia && <div className="err" role="alert">{errPrevia}</div>}
 
         {locales.length > 0 && (
           <details open={locales.length <= 12} style={{ marginBottom: 12 }}>

@@ -14,8 +14,9 @@
 // cambio, si ocupó el lugar de una quitada).
 // ============================================================
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import CerrarModal from '../../components/CerrarModal';
+import { useFocoModal } from '../../lib/useFocoModal';
 import { esMedio24h, diasEntre, HORARIO_24H, ETIQUETA_UNIDAD_COMP, type UnidadComp } from '../../lib/comprobaciones';
 import {
   editarTomas,
@@ -174,6 +175,10 @@ export default function FormatoEditarModal({
   const cerrar = () => {
     if (!guardando) onCerrar();
   };
+  // Foco, Tab y Escape de la ventana: ver useFocoModal.
+  const titRef = useRef<HTMLHeadingElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocoModal(modalRef, titRef, cerrar);
 
   return (
     <div
@@ -182,9 +187,18 @@ export default function FormatoEditarModal({
         if ((e.target as HTMLElement).className === 'overlay') cerrar();
       }}
     >
-      <div className="modal" style={{ maxWidth: 520, margin: 'auto 0' }} role="dialog" aria-modal="true" aria-label="Editar toma">
+      <div
+        ref={modalRef}
+        className="modal"
+        style={{ maxWidth: 520, margin: 'auto 0' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="comp-editar-tit"
+      >
         <CerrarModal onClick={cerrar} disabled={guardando} />
-        <h2 style={{ margin: '0 0 3px', fontSize: 17 }}>{una ? 'Editar toma' : `Editar ${nTomas(tomas.length)}`}</h2>
+        <h2 id="comp-editar-tit" ref={titRef} tabIndex={-1} style={{ margin: '0 0 3px', fontSize: 17, outline: 'none' }}>
+          {una ? 'Editar toma' : `Editar ${nTomas(tomas.length)}`}
+        </h2>
         {una ? (
           <p className="phint" style={{ marginBottom: 12, overflowWrap: 'anywhere' }}>
             <b>{una.sitio_clave}</b> · {nombreCampana(una)} · {fechaCorta(una.fecha)}
@@ -314,7 +328,7 @@ export default function FormatoEditarModal({
           />
         </div>
 
-        {err && <div className="err">{err}</div>}
+        {err && <div className="err" role="alert">{err}</div>}
         <div className="modal-actions">
           <button type="button" className="btn ghost" onClick={cerrar} disabled={guardando}>
             Cancelar

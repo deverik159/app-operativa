@@ -140,7 +140,7 @@ export default function AltaCampanaManual({ ctx, inventario }: { ctx: PropsArmar
         versiones se da de alta una vez por versión.
       </p>
       {errores.length > 0 && (
-        <div className="err">
+        <div className="err" role="alert">
           {errores.map((e, i) => (
             <div key={i}>{e}</div>
           ))}
@@ -148,7 +148,7 @@ export default function AltaCampanaManual({ ctx, inventario }: { ctx: PropsArmar
       )}
       {medios.length > 1 && (
         <div className="field">
-          <label>Medio</label>
+          <div className="etiqueta">Medio</div>
           <div className="rt-chips rt-segmento" role="group" aria-label="Medio">
             {medios.map((m) => (
               <button
@@ -221,7 +221,7 @@ export default function AltaCampanaManual({ ctx, inventario }: { ctx: PropsArmar
       </div>
       {es24 ? (
         <div className="field">
-          <label>Horario</label>
+          <div className="etiqueta">Horario</div>
           <div style={{ fontSize: 13 }}>
             <b>{HORARIO_24H}</b> <span style={{ color: 'var(--muted)' }}>(corre todo el día, sin franjas)</span>
           </div>

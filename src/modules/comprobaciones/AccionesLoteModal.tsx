@@ -15,8 +15,9 @@
 //   · Retirar BORRA las campañas que nadie trabajó (comp_retirar): se dice
 //     con todas sus letras antes de confirmar.
 // ============================================================
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import CerrarModal from '../../components/CerrarModal';
+import { useFocoModal } from '../../lib/useFocoModal';
 import {
   asignarAnalista,
   cerrarCampanas,
@@ -88,11 +89,9 @@ export default function AccionesLoteModal(props: Props) {
   const [arte, setArte] = useState<'NUEVO' | 'REPITE' | 'carga'>('NUEVO');
   const [err, setErr] = useState('');
   const trabajando = !!ocupado;
-  // Al abrir, el foco va al título (VoiceOver y teclado empiezan aquí).
+  // Foco, Tab y Escape de la ventana: ver useFocoModal.
   const titRef = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    titRef.current?.focus();
-  }, []);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   // Lo que hay en pantalla, para decir antes qué se va a tocar.
   const cuenta = useMemo(() => {
@@ -268,10 +267,19 @@ export default function AccionesLoteModal(props: Props) {
   const cerrar = () => {
     if (!trabajando) onCerrar();
   };
+  useFocoModal(modalRef, titRef, cerrar);
 
   return (
     <div className="overlay" onClick={cerrar}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="comp-acc-tit" onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
+      <div
+        ref={modalRef}
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="comp-acc-tit"
+        onClick={(e) => e.stopPropagation()}
+        style={{ position: 'relative' }}
+      >
         <CerrarModal onClick={cerrar} disabled={trabajando} />
         <h2 id="comp-acc-tit" ref={titRef} tabIndex={-1} style={{ marginTop: 0, outline: 'none' }}>
           {fmtN(elegidas.length)} campaña{elegidas.length === 1 ? '' : 's'} elegida{elegidas.length === 1 ? '' : 's'}
