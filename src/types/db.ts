@@ -841,6 +841,15 @@ export interface PautaRuta {
   /** Ya calculado por la vista: si es false, no hay a dónde navegar. */
   navegable: boolean;
 
+  /**
+   * Rastro de la ÚLTIMA reapertura de una toma comprobada (reabrir_toma,
+   * 25-oct-2026): no se limpia al volver a comprobar. Vienen al final de la
+   * vista; una base sin la migración no los trae (undefined).
+   */
+  reabierta_motivo?: string | null;
+  reabierta_por?: string | null;
+  reabierta_en?: string | null;
+
   ruta_monitoreo_id: number | null;
 
   /**

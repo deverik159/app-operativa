@@ -17,7 +17,7 @@
 // rechazar después) y Regresadas (esperan al monitorista, con su motivo).
 // Las fotos de una carpeta se leen al abrirla; cada carpeta se baja en ZIP.
 // ============================================================
-import { Check, ChevronDown, ChevronRight, Download, FolderOpen, Undo2, Upload, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Download, FolderOpen, RotateCcw, Undo2, Upload, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { PautaRuta } from '../../types/db';
 import { sb } from '../../lib/supabase';
@@ -421,6 +421,23 @@ function Carpeta({
       tras(true, cara);
     });
 
+  /**
+   * Deshacer una comprobación sin regresar la toma (Erik, 25-oct-2026): las
+   * fotos y sus revisiones se quedan y la toma vuelve a «Por revisar».
+   */
+  const reabrirToma = (cara: string, motivo: string) =>
+    correr('c' + cara, async () => {
+      const { error } = await sb.rpc('reabrir_toma', {
+        p_catorcena: numero,
+        p_vendor_face_id: cara,
+        p_motivo: motivo,
+        p_anio: anio,
+      });
+      if (error) throw new Error('No se reabrió: ' + error.message);
+      if (vivo.current) setAviso(`${cara}: la toma se reabrió y está en Por revisar.`);
+      onCambio();
+    });
+
   const bajarUna = (f: FotoRevision) =>
     correr('d' + f.evidencia_id, async () => {
       const resp = await fetch(urlVigente(f));
@@ -497,6 +514,7 @@ function Carpeta({
             onRechazar={(idsFotos, motivo) => rechazar(c.vendor_face_id, idsFotos, motivo)}
             onRegresar={(motivo) => regresarToma(c.vendor_face_id, motivo)}
             onComprobar={() => comprobarToma(c.vendor_face_id)}
+            onReabrir={(motivo) => reabrirToma(c.vendor_face_id, motivo)}
           />
         ))
       )}
@@ -523,6 +541,7 @@ function BloqueCara({
   onRechazar,
   onRegresar,
   onComprobar,
+  onReabrir,
 }: {
   cara: PautaRuta;
   fotos: FotoRevision[];
@@ -538,11 +557,12 @@ function BloqueCara({
   onRechazar: (ids: number[], motivo: string) => void;
   onRegresar: (motivo: string) => void;
   onComprobar: () => void;
+  onReabrir: (motivo: string) => void;
 }) {
   /** Fotos marcadas para rechazar. */
   const [sel, setSel] = useState<Set<number>>(new Set());
-  /** Qué motivo se está escribiendo: rechazar las elegidas o regresar toda la toma. */
-  const [pidiendo, setPidiendo] = useState<'fotos' | 'toma' | null>(null);
+  /** Qué motivo se está escribiendo: rechazar las elegidas, regresar toda la toma o reabrirla. */
+  const [pidiendo, setPidiendo] = useState<'fotos' | 'toma' | 'reabrir' | null>(null);
   const [motivo, setMotivo] = useState('');
   // Hay un campo de motivo por cara: id único para ligarlo a su etiqueta.
   const idMotivo = useId();
@@ -562,6 +582,7 @@ function BloqueCara({
     const m = motivo.trim();
     if (!m) return;
     if (pidiendo === 'fotos') onRechazar([...sel], m);
+    else if (pidiendo === 'reabrir') onReabrir(m);
     else onRegresar(m);
     setPidiendo(null);
     setMotivo('');
@@ -582,6 +603,14 @@ function BloqueCara({
       {cara.rechazo_motivo && !cara.fecha_toma && (
         <div style={{ fontSize: 12, color: colorTono('rojo'), marginTop: 4 }}>
           <span aria-hidden="true">⛔</span> Regresada: “{cara.rechazo_motivo}”
+        </div>
+      )}
+      {/* Rastro de la reapertura mientras la toma siga sin volver a
+          comprobarse (25-oct-2026). */}
+      {cara.reabierta_motivo && cara.fecha_toma && !cara.fecha_comprobacion && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+          <span aria-hidden="true">↺</span> Reabierta por {nombreDe(nombres, cara.reabierta_por || '')}
+          {cara.reabierta_en && ` ${fechaHoraCdmx(cara.reabierta_en)}`}: “{cara.reabierta_motivo}”
         </div>
       )}
 
@@ -636,6 +665,14 @@ function BloqueCara({
                 Rechazar {sel.size} {sel.size === 1 ? 'foto' : 'fotos'}
               </button>
             )}
+            {bandeja === 'comprobadas' && (
+              // Deshacer la comprobación sin tirar las fotos (Erik,
+              // 25-oct-2026): la toma vuelve a Por revisar.
+              <button type="button" className="btn ghost sm" disabled={ocupado} onClick={() => setPidiendo('reabrir')}>
+                <Ic i={RotateCcw} />
+                Reabrir
+              </button>
+            )}
             <button type="button" className="btn ghost sm" disabled={ocupado} onClick={() => setPidiendo('toma')}>
               <Ic i={Undo2} />
               Regresar toda la toma
@@ -648,7 +685,9 @@ function BloqueCara({
               <label htmlFor={idMotivo}>
                 {pidiendo === 'fotos'
                   ? `Motivo del rechazo de ${sel.size} ${sel.size === 1 ? 'foto' : 'fotos'}`
-                  : 'Motivo para regresar toda la toma'}
+                  : pidiendo === 'reabrir'
+                    ? 'Motivo para reabrir la toma (las fotos y sus revisiones se quedan; al marcar o editar cualquier foto se vuelve a comprobar, y puedes seguir editando después)'
+                    : 'Motivo para regresar toda la toma'}
               </label>
               <textarea
                 id={idMotivo}
@@ -658,7 +697,11 @@ function BloqueCara({
                 autoFocus
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
-                placeholder="Ej. la foto salió movida; falta la toma larga…"
+                placeholder={
+                  pidiendo === 'reabrir'
+                    ? 'Ej. se comprobó por error; el cliente pide otra toma…'
+                    : 'Ej. la foto salió movida; falta la toma larga…'
+                }
               />
               <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
                 <button
@@ -671,8 +714,17 @@ function BloqueCara({
                 >
                   Cancelar
                 </button>
-                <button type="button" className="btn hi sm" disabled={ocupado || !motivo.trim()} onClick={confirmar}>
-                  {pidiendo === 'fotos' ? 'Rechazar y avisar al monitorista' : 'Regresar y avisar al monitorista'}
+                <button
+                  type="button"
+                  className={pidiendo === 'reabrir' ? 'btn sm' : 'btn hi sm'}
+                  disabled={ocupado || !motivo.trim()}
+                  onClick={confirmar}
+                >
+                  {pidiendo === 'fotos'
+                    ? 'Rechazar y avisar al monitorista'
+                    : pidiendo === 'reabrir'
+                      ? 'Reabrir (vuelve a Por revisar)'
+                      : 'Regresar y avisar al monitorista'}
                 </button>
               </div>
             </div>

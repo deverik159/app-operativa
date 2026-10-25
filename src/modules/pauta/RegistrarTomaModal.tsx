@@ -66,6 +66,8 @@ type EvidenciaPauta = {
   subido_por: string | null;
   /** De una toma que se regresó: ya no cuenta (14-oct-2026). */
   regresada_en?: string | null;
+  /** Cuándo subió: con la toma reabierta, las anteriores a la reapertura no se quitan (25-oct-2026). */
+  creado_en?: string | null;
 };
 
 /** Un archivo que sigue en la cola del teléfono (aún no entra a la toma). */
@@ -258,6 +260,13 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada, soloLectura }:
   const yaRegistrada = !!fila.fecha_toma || registradaAqui;
   /** Comprobada (la base lo impide) o solo lectura: ya no se agregan ni se quitan fotos. */
   const cerrada = !!fila.fecha_comprobacion || !!soloLectura;
+  /**
+   * Toma reabierta por el analista (25-oct-2026): las fotos que ya había al
+   * reabrir se dieron por buenas y no se quitan (la base lo impide, pev_del);
+   * solo el analista las puede rechazar. Las que se suban después, sí.
+   */
+  const fijaPorReapertura = (creadoEn: string | null | undefined) =>
+    !!fila.reabierta_en && !fila.fecha_comprobacion && !!creadoEn && creadoEn < fila.reabierta_en;
 
   const ctx: ContextoToma = {
     anio: fila.anio,
@@ -1000,7 +1009,7 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada, soloLectura }:
                       >
                         {ev.referencia || ''}
                       </span>
-                      {!cerrada && (
+                      {!cerrada && !fijaPorReapertura(ev.creado_en) && (
                         <button
                           type="button"
                           className="btn-icono"
