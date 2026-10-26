@@ -10,16 +10,28 @@
 // de texto vacío no cambia nada.
 //
 // Solo se manda lo que cambió. La toma editada queda con origen 'app' y el
-// plan ya no la pisa. Se enseña lo que devuelve la base (cambiadas, sin
-// cambio, si ocupó el lugar de una quitada).
+// plan ya no la pisa, SALVO si solo cambió el monitorista (y notas): con la
+// fase 3 (sql-6, 26-oct-2026) sigue siendo del plan y monitorista_manual
+// protege al monitorista puesto a mano. Se enseña lo que devuelve la base
+// (cambiadas, sin cambio, si ocupó el lugar de una quitada).
+//
+// MONITORISTA (fase 3, 26-oct-2026; M3): vacío = «el de la ruta». La toma
+// sigue al monitorista que el coordinador asigna en Rutas y se recalcula
+// sola. Si Victor elige a alguien, la base lo marca como puesto a mano
+// (comp_tomas.monitorista_manual) y el cambio de ruta ya no lo mueve; volver
+// a «el de la ruta» lo suelta. Para saber cuál es cuál se lee
+// monitorista_manual al abrir; sin la migración de la fase 3 esa columna no
+// existe y el campo se porta como antes («Sin monitorista»).
 // ============================================================
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import CerrarModal from '../../components/CerrarModal';
 import { useFocoModal } from '../../lib/useFocoModal';
 import { esMedio24h, diasEntre, HORARIO_24H, ETIQUETA_UNIDAD_COMP, type UnidadComp } from '../../lib/comprobaciones';
 import {
   editarTomas,
+  leerMonitoristaManual,
+  refrescarMonitoristas,
   textoFallaEscrituraComp,
   type CambiosToma,
   type MonitoristaComp,
@@ -78,6 +90,29 @@ export default function FormatoEditarModal({
   const [comprobacion, setComprobacion] = useState(una?.comprobacion ?? '');
   const [mon, setMon] = useState<string>(una ? una.monitorista_email ?? '' : IGUAL);
   const [turno, setTurno] = useState<string>(una ? una.turno ?? '' : IGUAL);
+
+  // ¿Monitorista puesto a mano? (fase 3). null = aún no se sabe o la base no
+  // tiene la columna: entonces '' es «Sin monitorista», como en la fase 2.
+  const [manual, setManual] = useState<Map<number, boolean> | null>(null);
+  const tocoMon = useRef(false);
+  useEffect(() => {
+    let vivo = true;
+    leerMonitoristaManual(tomas.map((t) => t.id)).then((r) => {
+      if (!vivo || !r.ok) return;
+      setManual(r.data);
+      // Una toma que sigue a su ruta abre en «el de la ruta» (si no la tocaron ya).
+      if (una && r.data.get(una.id) === false && !tocoMon.current) setMon('');
+    });
+    return () => {
+      vivo = false;
+    };
+    // Una vez al abrir: las tomas de la ventana no cambian mientras está abierta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const conRuta = manual !== null;
+  const manualUna = una && manual ? manual.get(una.id) : undefined;
+  /** Lo que el select enseña al abrir: con eso se compara para saber si cambió. */
+  const monInicial = una ? (conRuta && manualUna === false ? '' : una.monitorista_email ?? '') : IGUAL;
   const [fueraOk, setFueraOk] = useState(false);
   const [pideConfirmar, setPideConfirmar] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -121,7 +156,9 @@ export default function FormatoEditarModal({
       if (limpio(obs) !== (una.observaciones ?? null)) c.observaciones = limpio(obs);
       if (limpio(notas) !== (una.notas ?? null)) c.notas = limpio(notas);
       if (comprobacion.trim() && comprobacion.trim() !== una.comprobacion) c.comprobacion = comprobacion.trim();
-      if ((mon || null) !== (una.monitorista_email || null)) c.monitorista_email = mon || null;
+      // Elegir a alguien lo fija (aunque sea el mismo de la ruta); vacío lo
+      // devuelve a la ruta. Sin la columna (conRuta false), como antes.
+      if (mon !== monInicial) c.monitorista_email = mon || null;
       if (conTurno && (turno || null) !== (una.turno || null)) c.turno = (turno || null) as TurnoToma | null;
     } else {
       if (!es24 && horario.trim()) c.horario_texto = horario.trim();
@@ -132,7 +169,7 @@ export default function FormatoEditarModal({
       if (conTurno && turno !== IGUAL) c.turno = (turno || null) as TurnoToma | null;
     }
     return c;
-  }, [una, fecha, fechaCambia, horario, obs, notas, comprobacion, mon, turno, es24, conTurno]);
+  }, [una, fecha, fechaCambia, horario, obs, notas, comprobacion, mon, monInicial, turno, es24, conTurno]);
 
   const hayCambios = Object.keys(cambios).length > 0;
   const puedeGuardar = hayCambios && !guardando && (!debeConfirmar || fueraOk);
@@ -142,12 +179,18 @@ export default function FormatoEditarModal({
     setErr('');
     setGuardando(true);
     const envio: CambiosToma = { ...cambios, ...(cambios.fecha && debeConfirmar && fueraOk ? { fuera_de_vigencia: true } : {}) };
-    const r = await correr(una ? 'Guardando la toma…' : `Editando ${nTomas(tomas.length)}…`, () =>
-      editarTomas(
+    const r = await correr(una ? 'Guardando la toma…' : `Editando ${nTomas(tomas.length)}…`, async () => {
+      const e = await editarTomas(
         tomas.map((t) => t.id),
         envio
-      )
-    );
+      );
+      // Devuelta a «el de la ruta»: se toma de Rutas ya, sin esperar a que
+      // alguien abra Formato o la lista del monitorista. Si falla, se hará
+      // en el próximo refresco: lo guardado ya está.
+      if (e.ok && e.data.cambiadas > 0 && conRuta && 'monitorista_email' in envio && envio.monitorista_email === null)
+        await refrescarMonitoristas(periodo.id);
+      return e;
+    });
     setGuardando(false);
     if (r === undefined) {
       setErr('Hay otra acción guardando. Espera a que termine y vuelve a intentar.');
@@ -162,12 +205,23 @@ export default function FormatoEditarModal({
       return;
     }
     const d = r.data;
+    // V6 (comp_f3_modelo, 26-oct-2026): de una toma devuelta solo se cambia
+    // el monitorista (y las notas); con otro cambio la base la salta y la cuenta.
+    const omitidas = Number(d.regresadas_omitidas) || 0;
+    const textoOmitidas = `${omitidas === 1 ? '1 devuelta se omitió' : `${omitidas} devueltas se omitieron`} (de una devuelta solo se cambia el monitorista)`;
     if (d.cambiadas === 0) {
-      setErr('No se cambió nada: solo se editan tomas pendientes de campañas abiertas. Recarga para ver cómo están.');
+      setErr(
+        omitidas > 0
+          ? `No se cambió nada: ${textoOmitidas}.`
+          : 'No se cambió nada: solo se editan tomas pendientes de campañas abiertas. Recarga para ver cómo están.'
+      );
       return;
     }
     const partes = [una ? '✓ Toma guardada' : `✓ ${nTomas(d.cambiadas)} editadas`];
-    if (d.sin_cambio > 0) partes.push(`${d.sin_cambio} sin cambio (ya no estaban pendientes)`);
+    if (omitidas > 0) partes.push(textoOmitidas);
+    // sin_cambio de la base ya incluye las devueltas omitidas: no se cuentan dos veces.
+    const sinCambio = Math.max(0, d.sin_cambio - omitidas);
+    if (sinCambio > 0) partes.push(`${sinCambio} sin cambio (ya no estaban pendientes)`);
     if (d.quitada_reemplazada) partes.push('ocupó el lugar de una toma quitada ese día');
     onListo(partes.join(' · '));
   };
@@ -260,15 +314,36 @@ export default function FormatoEditarModal({
         <div className="row2">
           <div className="field">
             <label htmlFor="ft-mon">Monitorista</label>
-            <select id="ft-mon" value={mon} onChange={(e) => setMon(e.target.value)}>
+            <select
+              id="ft-mon"
+              value={mon}
+              aria-describedby={conRuta ? 'ft-mon-ayuda' : undefined}
+              onChange={(e) => {
+                tocoMon.current = true;
+                setMon(e.target.value);
+              }}
+            >
               {!una && <option value={IGUAL}>No cambiar</option>}
-              <option value="">Sin monitorista</option>
+              <option value="">
+                {!conRuta
+                  ? 'Sin monitorista'
+                  : una && manualUna === false
+                    ? `El de la ruta${una.monitorista_email ? ` (hoy: ${nombreDe(una.monitorista_email)})` : ' (la ruta no tiene)'}`
+                    : 'El de la ruta (automático)'}
+              </option>
               {opcionesMon.map((m) => (
                 <option key={m.email} value={m.email}>
                   {m.nombre}
                 </option>
               ))}
             </select>
+            {conRuta && (
+              <div id="ft-mon-ayuda" className="phint" style={{ margin: '4px 0 0' }}>
+                Vacío = el de la ruta: sigue a quien el coordinador asigna en Rutas. Si eliges a alguien, queda fijo y el
+                cambio de ruta ya no lo mueve.
+                {una && manualUna === true ? ' Hoy está puesto a mano.' : ''}
+              </div>
+            )}
           </div>
           {conTurno ? (
             <div className="field">

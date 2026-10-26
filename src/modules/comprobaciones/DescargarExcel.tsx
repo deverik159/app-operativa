@@ -46,7 +46,9 @@ import {
   leerTomas,
   mediosDe,
   nombresPorCorreo,
+  refrescarMonitoristas,
   textoFallaComp,
+  textoFallaF3,
   type VwCampana,
 } from '../../lib/comprobacionesApi';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
@@ -156,6 +158,41 @@ export default function DescargarExcel(props: PropsPestanaComp) {
     setAviso('');
   }, [periodo.id, unidad]);
 
+  // Fase 3 (26-oct-2026; A4): al abrir Excel, ruta y monitorista al día en
+  // silencio (comp_refrescar_monitoristas; nunca espera un candado). Los
+  // archivos se arman leyendo la base en cada descarga, así que no hay nada
+  // que releer aquí. Sin la migración de la fase 3 no pasa nada.
+  // Revisión del 26-oct-2026 (regresiones-4): cada descarga ESPERA este
+  // refresco antes de leer (si no, un «Armar» en el primer segundo salía con
+  // el monitorista viejo) y, si cambió algo y ya había archivos armados, se
+  // tiran y se avisa. fase3Ref dice si la base tiene la fase 3 (null = aún
+  // no se sabe): el botón «Actualizar ruta y monitorista» arma su pregunta
+  // con eso.
+  const gestiona = props.permisos.gestiona;
+  const refrescoRef = useRef<Promise<unknown> | null>(null);
+  const fase3Ref = useRef<boolean | null>(null);
+  const archivosMonRef = useRef<ArchivosMon | null>(null);
+  archivosMonRef.current = archivosMon;
+  useEffect(() => {
+    if (!gestiona) return;
+    let vivo = true;
+    const p = refrescarMonitoristas(periodo.id).then((r) => {
+      if (r.ok) fase3Ref.current = true;
+      else if (r.codigo === 'falta_migracion') fase3Ref.current = false;
+      if (!vivo) return;
+      if (r.ok && r.data.actualizadas > 0 && archivosMonRef.current) {
+        setArchivosMon(null);
+        setFaltaRepartir(null);
+        setAviso('La ruta o el monitorista de algunas tomas cambió: vuelve a armar los archivos.');
+      } else if (!r.ok && r.codigo !== 'falta_migracion' && r.codigo !== 'sin_red')
+        console.warn('[Excel] no se pudo actualizar ruta y monitorista:', r.codigo);
+    });
+    refrescoRef.current = p;
+    return () => {
+      vivo = false;
+    };
+  }, [periodo.id, gestiona]);
+
   // La lista del esqueleto se releyó (↻, un aviso o una escritura): lo
   // armado puede estar viejo y «Descargar» lo bajaría tal cual (revisión 2,
   // uso-7). Se pide volver a armar.
@@ -211,6 +248,9 @@ export default function DescargarExcel(props: PropsPestanaComp) {
 
   /** vw_comp_tomas del medio (sin quitadas) → TomaExcel, con nombres. */
   const tomasDelMedio = async (medio: MedioComp): Promise<{ tomas: TomaExcel[] } | { error: string }> => {
+    // Primero que termine el refresco de ruta y monitorista de la apertura
+    // (nunca espera candados: tarda lo que tarde en recalcular).
+    if (refrescoRef.current) await refrescoRef.current.catch(() => undefined);
     const [r, nm] = await Promise.all([leerTomas({ periodoId: periodo.id, unidad, medio }), leerNombresMon()]);
     if (!r.ok) return { error: 'No se pudieron leer los renglones: ' + textoFallaComp(r) };
     if (nm.aviso) setAviso(nm.aviso);
@@ -305,23 +345,34 @@ export default function DescargarExcel(props: PropsPestanaComp) {
     });
 
   /**
-   * Vuelve a aplicar el plan que YA tiene cada campaña abierta del medio:
-   * comp_aplicar_planes copia la ruta y el monitorista de Rutas en cada toma
-   * del plan al generarla, y nada los recalcula si después se asignan en
-   * Rutas (revisión 2, punta-a-punta-3). Las tomas editadas a mano en
-   * Formato son de origen 'app' y no se tocan.
+   * «Actualizar ruta y monitorista». Fase 3 (26-oct-2026; A4): primero
+   * comp_refrescar_monitoristas, que vuelve a tomar de Rutas la ruta y el
+   * monitorista de TODAS las tomas pendientes del periodo sin monitorista
+   * puesto a mano ni fotos; después, si hay campañas del medio con plan,
+   * se vuelve a aplicar su plan como antes (revisión 2, punta-a-punta-3:
+   * comp_aplicar_planes copia la ruta al generar). Las tomas con monitorista
+   * puesto a mano en Formato no se tocan. Sin la migración de la fase 3 solo
+   * se aplica el plan, como en la fase 2.
    */
   const actualizarRutas = (medio: MedioComp) => {
     const ids = campanas
       .filter((c) => c.medio === medio && c.estatus === 'abierta' && !c.retirada && !!c.plan_tomas)
       .map((c) => c.id);
-    if (!ids.length) {
+    // Sin la fase 3 en la base (lo dijo el refresco de la apertura) es el
+    // botón de la fase 2: sin plan no hay nada que hacer y se dice sin
+    // preguntar; con plan, la pregunta de antes (revisión del 26-oct-2026).
+    const sinFase3 = fase3Ref.current === false;
+    if (sinFase3 && !ids.length) {
       setErr('No hay campañas abiertas con plan de tomas en ' + ETIQUETA_MEDIO[medio] + '.');
       return;
     }
     if (
       !window.confirm(
-        `Se vuelve a aplicar el plan que ya tiene cada una de las ${ids.length} campañas abiertas de ${ETIQUETA_MEDIO[medio]}: sus tomas toman la ruta y el monitorista que hoy dice Rutas. Las tomas que editaste a mano en Formato no se tocan. ¿Seguir?`
+        sinFase3
+          ? `Se vuelve a aplicar el plan que ya tiene cada una de las ${ids.length} campañas abiertas de ${ETIQUETA_MEDIO[medio]}: sus tomas toman la ruta y el monitorista que hoy dice Rutas. Las tomas que editaste a mano en Formato no se tocan. ¿Seguir?`
+          : `Las tomas pendientes de ${periodo.etiqueta} toman la ruta y el monitorista que hoy dice Rutas` +
+              (ids.length ? ` y se vuelve a aplicar el plan de las ${ids.length} campañas abiertas de ${ETIQUETA_MEDIO[medio]}` : '') +
+              '. Las tomas con monitorista puesto a mano en Formato no se tocan. ¿Seguir?'
       )
     )
       return;
@@ -329,6 +380,16 @@ export default function DescargarExcel(props: PropsPestanaComp) {
       let actualizadas = 0;
       let nuevas = 0;
       let borradas = 0;
+      const ref = await refrescarMonitoristas(periodo.id);
+      if (ref.ok) fase3Ref.current = true;
+      else if (ref.codigo === 'falta_migracion') fase3Ref.current = false;
+      if (ref.ok) actualizadas += ref.data.actualizadas;
+      else if (ref.codigo !== 'falta_migracion') {
+        props.recargar();
+        return textoFallaF3(ref, true);
+      } else if (!ids.length) {
+        return 'No hay campañas abiertas con plan de tomas en ' + ETIQUETA_MEDIO[medio] + '.';
+      }
       for (let i = 0; i < ids.length; i += TANDA_PLAN) {
         const r = await generarTomas(ids.slice(i, i + TANDA_PLAN), null);
         if (!r.ok) {
@@ -343,6 +404,11 @@ export default function DescargarExcel(props: PropsPestanaComp) {
         borradas += Number(r.data.tomas_borradas) || 0;
       }
       props.recargar();
+      // Sin ningún cambio, lo armado sigue sirviendo (revisión del 26-oct-2026).
+      if (!actualizadas && !nuevas && !borradas) {
+        avisar('✓ Ruta y monitorista ya estaban al día: no cambió ninguna toma.');
+        return null;
+      }
       setFaltaRepartir(null);
       setArchivosMon(null);
       avisar(

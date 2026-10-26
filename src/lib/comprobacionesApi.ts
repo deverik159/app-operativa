@@ -25,7 +25,6 @@
 
 import { sb } from './supabase';
 import { tope } from './envios';
-import { pareceSinRed } from './enLinea';
 import { etiquetaCatorcena } from './catorcena';
 import { hoyCdmx, MEDIOS_DE_UNIDAD, type MedioComp, type UnidadComp } from './comprobaciones';
 import type {
@@ -39,13 +38,32 @@ import type {
   VVOcupacionFila,
   VVPautaFila,
 } from './bitacoraComp';
+import { leerPlantilla, type PlantillaToma } from './plantillasComp';
+// La clasificación de fallas vive en fallasComp.ts (revisión del 26-oct-2026,
+// regresiones-1); aquí se vuelve a exportar para las pantallas.
+import {
+  clasificarErrorComp,
+  codigoFallaComp,
+  textoFallaF3,
+  type CodigoFallaComp,
+  type ErrorPg,
+  type ResultadoComp,
+} from './fallasComp';
+export {
+  clasificarErrorComp,
+  codigoFallaComp,
+  esRespuestaDeBase,
+  textoErrorComp,
+  textoFallaComp,
+  textoFallaEscrituraComp,
+  textoFallaF3,
+  type CodigoFallaComp,
+  type ResultadoComp,
+} from './fallasComp';
 
 // ------------------------------------------------------------
 // Resultado común
 // ------------------------------------------------------------
-
-/** Lo que regresa toda función de aquí: nunca lanza. */
-export type ResultadoComp<T> = { ok: true; data: T } | { ok: false; error: string; sinRed: boolean };
 
 /** Tope por página de una lectura: una red lenta corta y avisa. */
 export const TOPE_LECTURA_COMP_MS = 20000;
@@ -60,88 +78,22 @@ const PAGINA = 1000;
 /** Ids por `.in()`: más largo arma URLs que algunos proxys rechazan. */
 const IDS_POR_TROZO = 200;
 
-type ErrorPg = { message?: string; code?: string; details?: string | null; hint?: string | null } | null;
-
-/**
- * Error de la base en palabras de campo. Los raise exception de las RPC
- * comp_ ya están en español y se dejan tal cual; solo se traducen los de
- * Postgres y PostgREST que la pantalla no debe enseñar en inglés.
- */
-export function textoErrorComp(error: ErrorPg | unknown): string {
-  const e = (error && typeof error === 'object' ? error : {}) as { message?: unknown; code?: unknown };
-  const msg = typeof e.message === 'string' ? e.message : typeof error === 'string' ? error : '';
-  const code = typeof e.code === 'string' ? e.code : '';
-  // Candado: otra carga o lote tiene tomadas las filas (lock_timeout 3 s).
-  if (code === '55P03' || /lock timeout/i.test(msg))
-    return 'Otra persona está guardando en estas campañas. Espera unos segundos y vuelve a intentar.';
-  if (code === '57014' || /statement timeout|canceling statement/i.test(msg))
-    return 'La base tardó demasiado. Intenta con menos campañas a la vez.';
-  // La migración comp_base no está aplicada en esta base (o cambió una firma).
-  if (code === 'PGRST202' || /could not find the function/i.test(msg))
-    return 'La base todavía no tiene Comprobaciones (falta aplicar su migración). Avisa a Erik.';
-  if (code === '42P01' || code === 'PGRST205' || /relation .* does not exist|could not find the table/i.test(msg))
-    return 'La base todavía no tiene las tablas de Comprobaciones. Avisa a Erik.';
-  if (code === '42501' || /permission denied/i.test(msg))
-    return 'No tienes permiso para esto en Comprobaciones.';
-  if (/JWT expired|invalid jwt/i.test(msg)) return 'Tu sesión venció: vuelve a entrar.';
-  // Número fuera de rango, texto que no es número o fecha inválida.
-  if (code === '22003' || code === '22P02' || code === '22008' || code === '22007')
-    return 'Hay un número o una fecha fuera de rango o que no se entiende. Revisa lo que escribiste.';
-  return msg || 'Algo falló en la base.';
-}
-
-/** Texto para el usuario de un resultado fallido (lectura). */
-export function textoFallaComp(r: { error: string; sinRed: boolean }): string {
-  return r.sinRed ? 'Sin señal o la red tardó demasiado. Vuelve a intentarlo cuando tengas señal.' : r.error;
-}
-
-/**
- * Texto de una ESCRITURA fallida. Sin respuesta no se sabe si la base la
- * aplicó (pudo llegar y perderse la contestación): se pide recargar antes
- * de repetir. Las RPC comp_ son idempotentes (marcar dos veces no duplica),
- * pero el conteo que se enseñe después debe salir de la base.
- */
-export function textoFallaEscrituraComp(r: { error: string; sinRed: boolean }): string {
-  return r.sinRed
-    ? 'Sin señal o la red tardó: no se sabe si se guardó. Recarga para ver cómo quedó antes de repetir.'
-    : r.error;
-}
-
 type RespPg = { data: unknown; error: ErrorPg; status: number };
 
-/** Status HTTP que no son contestación de la base (los mismos de enLinea). */
-const STATUS_SIN_RESPUESTA = new Set([0, 408, 502, 503, 504, 520, 521, 522, 523, 524]);
-
-/**
- * ¿El error trae un código que solo pone la base o PostgREST? Un SQLSTATE
- * (5 caracteres: «55P03», «57014», «P0001»…) o un «PGRSTxxx» quiere decir
- * que la base CONTESTÓ: no es falta de señal aunque el texto diga «timeout»
- * («canceling statement due to lock timeout»). Revisión 2, contrato-1.
- */
-export function esRespuestaDeBase(error: unknown): boolean {
-  const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined;
-  return typeof code === 'string' && (/^[0-9A-Z]{5}$/.test(code) || /^PGRST/.test(code));
-}
-
-/**
- * Clasifica un error en «sin señal» o «la base contestó». Sin respuesta
- * (status 0 o de gateway) siempre es sin señal; con código de la base nunca
- * lo es; lo demás lo decide pareceSinRed por el texto.
- */
-export function clasificarErrorComp(error: unknown, status?: number | null): { error: string; sinRed: boolean } {
-  const sinRespuesta = typeof status === 'number' && STATUS_SIN_RESPUESTA.has(status);
-  const sinRed = sinRespuesta || (!esRespuestaDeBase(error) && pareceSinRed(error, status));
-  return { error: sinRed ? 'Sin señal' : textoErrorComp(error), sinRed };
+/** Clasifica un error con su código (para deRespuesta y deExcepcion). */
+function falla(error: unknown, status?: number | null): { ok: false; error: string; sinRed: boolean; codigo: CodigoFallaComp } {
+  const c = clasificarErrorComp(error, status);
+  return { ok: false, ...c, codigo: codigoFallaComp(error, status, c.sinRed) };
 }
 
 /** Clasifica una respuesta de postgrest-js. */
 function deRespuesta<T>(r: RespPg): ResultadoComp<T> {
-  if (r.error || r.status === 0) return { ok: false, ...clasificarErrorComp(r.error, r.status) };
+  if (r.error || r.status === 0) return falla(r.error, r.status);
   return { ok: true, data: r.data as T };
 }
 
 function deExcepcion<T>(e: unknown): ResultadoComp<T> {
-  return { ok: false, ...clasificarErrorComp(e) };
+  return falla(e);
 }
 
 /** Llama una RPC con tope. Nunca lanza. */
@@ -779,29 +731,31 @@ export function leerInventarioComp(
   });
 }
 
-/** Ruta activa (Digital o Combinada) de la unidad con sus site_id, para escoger sitios «por ruta». */
+/**
+ * Ruta activa de la unidad con sus site_id, para escoger sitios «por ruta».
+ * Ecovallas: Digital o Combinada; Biobox y Vía Verde: cualquier medio (V1).
+ */
 export type RutaComp = { id: number; numero: number; nombre: string | null; tipo_medio: string; sitios: string[] };
 
 /**
  * Rutas de la unidad con sus paradas (rutas_monitoreo + ruta_ubicaciones;
  * las dos se leen con cualquier sesión, SELECT del 23-oct-2026). Mismas
- * reglas que comp_ruta_sitio: activas, de la unidad, Digital o Combinada.
+ * reglas que comp_ruta_sitio: activas, de la unidad y, solo en Ecovallas,
+ * Digital o Combinada (su Impreso es Pauta). Revisión del 26-oct-2026
+ * (regresiones-3): con V1 la base ya usa las rutas Impreso de Biobox y Vía
+ * Verde, y Armar › «Por ruta» no las ofrecía.
  * OJO: en Ecovallas Digital ruta_ubicaciones.site_id guarda casi siempre la
  * forma vendor_face_id; la pantalla debe cruzar por los dos.
  */
 export async function leerRutasComp(unidad: UnidadComp): Promise<ResultadoComp<RutaComp[]>> {
-  const rutas = await traerTodo<{ id: number; numero: number; nombre: string | null; tipo_medio: string }>((d, h, s) =>
-    sb
-      .from('rutas_monitoreo')
-      .select('id,numero,nombre,tipo_medio')
-      .eq('unidad_negocio', unidad)
-      .eq('activa', true)
-      .in('tipo_medio', ['Digital', 'Combinada'])
+  const rutas = await traerTodo<{ id: number; numero: number; nombre: string | null; tipo_medio: string }>((d, h, s) => {
+    const q = sb.from('rutas_monitoreo').select('id,numero,nombre,tipo_medio').eq('unidad_negocio', unidad).eq('activa', true);
+    return (unidad === 'Ecovallas' ? q.in('tipo_medio', ['Digital', 'Combinada']) : q)
       .order('numero')
       .order('id')
       .range(d, h)
-      .abortSignal(s)
-  );
+      .abortSignal(s);
+  });
   if (!rutas.ok) return rutas;
   const ubic = await porTrozos<{ ruta_id: number; site_id: string; secuencia: number | null }>(
     rutas.data.map((r) => r.id),
@@ -824,6 +778,19 @@ export async function leerRutasComp(unidad: UnidadComp): Promise<ResultadoComp<R
     porRuta.set(u.ruta_id, l);
   }
   return { ok: true, data: rutas.data.map((r) => ({ ...r, sitios: porRuta.get(r.id) ?? [] })) };
+}
+
+/**
+ * tipo_medio de unas rutas (rutas_monitoreo; cualquier sesión la lee).
+ * Revisión del 26-oct-2026 (sql-2): en Biobox los números de ruta se repiten
+ * entre Digital e Impreso y Formato rotula «Ruta 3 · Impreso» cuando pasa.
+ */
+export async function leerMediosRutas(ids: number[]): Promise<ResultadoComp<Map<number, string>>> {
+  const r = await porTrozos<{ id: number; tipo_medio: string }>(ids, (t, d, h, s) =>
+    sb.from('rutas_monitoreo').select('id,tipo_medio').in('id', t).order('id').range(d, h).abortSignal(s)
+  );
+  if (!r.ok) return r;
+  return { ok: true, data: new Map(r.data.map((x) => [Number(x.id), String(x.tipo_medio)] as [number, string])) };
 }
 
 /**
@@ -1151,7 +1118,17 @@ export type CambiosToma = {
   fuera_de_vigencia?: boolean;
 };
 
-export type ResEditarTomas = { cambiadas: number; sin_cambio: number; quitada_reemplazada: boolean };
+export type ResEditarTomas = {
+  cambiadas: number;
+  sin_cambio: number;
+  quitada_reemplazada: boolean;
+  /**
+   * Fase 3 (comp_f3_modelo, V6; 26-oct-2026): tomas devueltas que se saltaron
+   * porque el cambio traía algo más que monitorista y notas (de una devuelta
+   * solo se reasigna el monitorista). Antes de la migración no viene.
+   */
+  regresadas_omitidas?: number;
+};
 
 export function editarTomas(tomaIds: number[], cambios: CambiosToma): Promise<ResultadoComp<ResEditarTomas>> {
   return escribir<ResEditarTomas>('comp_editar_tomas', { p_toma_ids: tomaIds, p_cambios: cambios });
@@ -1319,3 +1296,124 @@ export function guardarRegla(r: ReglaEnvio): Promise<ResultadoComp<number>> {
 export function borrarRegla(id: number): Promise<ResultadoComp<boolean>> {
   return escribir<boolean>('comp_borrar_regla', { p_id: id });
 }
+
+// ============================================================
+// Fase 3 · incremento 1 (26-oct-2026): plantillas, refresco de ruta y
+// monitorista, y la lista del monitorista. Firmas de la migración
+// comp_f3_modelo (§4.1 1i de la especificación).
+//
+// Las RPC nuevas contestan los errores ESPERADOS dentro del resultado
+// ({ok:false, codigo:'ocupada'|'sin_permiso'|…}); aquí se vuelven una falla
+// con su código, igual que un error de Postgres. Nada decide por el texto.
+// ============================================================
+
+/** Código del resultado de una RPC f3 ({ok:false, codigo}) → código de falla. */
+function codigoDeResultado(c: unknown): CodigoFallaComp {
+  if (c === 'ocupada') return 'ocupada';
+  if (c === 'sin_permiso') return 'sin_permiso';
+  return 'otro';
+}
+
+/**
+ * Llama una RPC de la fase 3: además de los errores de Postgres, un
+ * resultado {ok:false, codigo} es una falla (con su código; sin red = no).
+ */
+async function rpcF3<T>(nombre: string, args: Record<string, unknown>, topeMs: number): Promise<ResultadoComp<T>> {
+  const r = await rpc<unknown>(nombre, args, topeMs);
+  if (!r.ok) return r;
+  const d = r.data as { ok?: unknown; codigo?: unknown } | null;
+  if (d && typeof d === 'object' && !Array.isArray(d) && d.ok === false) {
+    const codigo = codigoDeResultado(d.codigo);
+    const crudo = { error: typeof d.codigo === 'string' ? d.codigo : 'error', sinRed: false, codigo };
+    return { ok: false, ...crudo, error: textoFallaF3(crudo) };
+  }
+  return { ok: true, data: r.data as T };
+}
+
+// ---- Plantillas ------------------------------------------------
+
+/** Catálogo (comp_plantillas_toma: todos lo leen), en su orden. */
+export async function leerCatalogoPlantillas(): Promise<ResultadoComp<PlantillaToma[]>> {
+  const r = await traerTodo<unknown>((d, h, s) =>
+    sb.from('comp_plantillas_toma').select('*').order('orden').order('codigo').range(d, h).abortSignal(s)
+  );
+  if (!r.ok) return r;
+  return { ok: true, data: r.data.map(leerPlantilla).filter((x): x is PlantillaToma => !!x) };
+}
+
+/**
+ * plantilla_codigo de unas campañas (comp_campanas; la vista no se tocó,
+ * M9). null = la de omisión ('unica'). Las que la RLS no deja ver no salen.
+ */
+export async function leerPlantillasCampanas(campanaIds: number[]): Promise<ResultadoComp<Map<number, string | null>>> {
+  const r = await porTrozos<{ id: number; plantilla_codigo: string | null }>(campanaIds, (t, d, h, s) =>
+    sb.from('comp_campanas').select('id,plantilla_codigo').in('id', t).order('id').range(d, h).abortSignal(s)
+  );
+  if (!r.ok) return r;
+  return { ok: true, data: new Map(r.data.map((c) => [Number(c.id), c.plantilla_codigo ?? null] as [number, string | null])) };
+}
+
+export type ResPonerPlantilla = {
+  cambiadas: number;
+  cerradas_omitidas: number;
+  /** Tomas ya enviadas (por revisar o comprobadas) que conservan la plantilla anterior (A2). */
+  enviadas_conservan: number;
+};
+
+/**
+ * comp_poner_plantilla: plantilla de testigo en lote (Supervisor o
+ * manager). `codigo` null = la de omisión. Un código de mueble o que no
+ * existe lo rechaza la base (CP002 → codigo 'datos').
+ */
+export async function ponerPlantilla(campanaIds: number[], codigo: string | null): Promise<ResultadoComp<ResPonerPlantilla>> {
+  const r = await rpcF3<Partial<ResPonerPlantilla> | null>(
+    'comp_poner_plantilla',
+    { p_campana_ids: campanaIds, p_codigo: codigo },
+    TOPE_ESCRITURA_COMP_MS
+  );
+  if (!r.ok) return r;
+  const d = r.data || {};
+  return {
+    ok: true,
+    data: {
+      cambiadas: Number(d.cambiadas) || 0,
+      cerradas_omitidas: Number(d.cerradas_omitidas) || 0,
+      enviadas_conservan: Number(d.enviadas_conservan) || 0,
+    },
+  };
+}
+
+// ---- Ruta y monitorista ------------------------------------------
+
+/**
+ * comp_refrescar_monitoristas: vuelve a tomar la ruta y el monitorista de
+ * Rutas en las tomas pendientes del periodo que no tienen monitorista
+ * puesto a mano ni fotos (A4, M2, M3). Nunca espera un candado: una toma
+ * que otro está guardando se salta y se corrige la siguiente vez.
+ */
+export async function refrescarMonitoristas(periodoId: number): Promise<ResultadoComp<{ actualizadas: number }>> {
+  const r = await rpcF3<{ actualizadas?: unknown } | null>(
+    'comp_refrescar_monitoristas',
+    { p_periodo_id: periodoId },
+    TOPE_ESCRITURA_COMP_MS
+  );
+  if (!r.ok) return r;
+  return { ok: true, data: { actualizadas: Number(r.data?.actualizadas) || 0 } };
+}
+
+/**
+ * comp_tomas.monitorista_manual de unas tomas (M3): true = Victor puso al
+ * monitorista a mano y el cambio de ruta ya no lo mueve; false = es el de
+ * la ruta. Antes de la migración la columna no existe: codigo
+ * 'falta_migracion' y el modal se porta como en la fase 2.
+ */
+export async function leerMonitoristaManual(tomaIds: number[]): Promise<ResultadoComp<Map<number, boolean>>> {
+  const r = await porTrozos<{ id: number; monitorista_manual: boolean | null }>(tomaIds, (t, d, h, s) =>
+    sb.from('comp_tomas').select('id,monitorista_manual').in('id', t).order('id').range(d, h).abortSignal(s)
+  );
+  if (!r.ok) return r;
+  return { ok: true, data: new Map(r.data.map((x) => [Number(x.id), x.monitorista_manual === true] as [number, boolean])) };
+}
+
+// La lista del monitorista (comp_mis_tomas) se lee en misTomasApi.ts
+// (revisión del 26-oct-2026, regresiones-1): así Mis rutas no baja este API.

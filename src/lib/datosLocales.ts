@@ -196,6 +196,21 @@ export type MisRutasLocal = {
   visitas: VisitaMiaLocal[];
 };
 
+/**
+ * Copia por usuario de Mis rutas › Comprobaciones (fase 3, 26-oct-2026):
+ * la respuesta de comp_mis_tomas de hoy −3 a hoy +3, para abrir la lista sin
+ * señal. `respuesta` se guarda tal cual llegó y se valida al leerla
+ * (misTomasComp.leerMisTomas): una copia de otra versión de la app no debe
+ * tumbar la pantalla.
+ */
+export type CompHoyLocal = {
+  guardado: string;
+  /** Rango que se pidió (AAAA-MM-DD). */
+  desde: string;
+  hasta: string;
+  respuesta: unknown;
+};
+
 export type TablaLocal = keyof Filas;
 
 /** Registro del almacén `meta` (uno por tabla). */
@@ -486,6 +501,8 @@ const generacion = new Map<TablaLocal, number>();
 const memListas = new Map<string, ListaLocal>();
 /** Copias de Mis rutas por llave 'misrutas|<correo>' (rutas, 5-oct-2026). */
 const memMisRutas = new Map<string, MisRutasLocal>();
+/** Copias de Mis rutas › Comprobaciones por llave 'comp-hoy|<correo>' (fase 3, 26-oct-2026). */
+const memCompHoy = new Map<string, CompHoyLocal>();
 
 function subirGeneracion(t: TablaLocal): void {
   generacion.set(t, (generacion.get(t) || 0) + 1);
@@ -504,17 +521,18 @@ try {
   if (typeof BroadcastChannel !== 'undefined') {
     canal = new BroadcastChannel('gpo-datos');
     canal.onmessage = (ev: MessageEvent) => {
-      const m = ev.data as { tabla?: TablaLocal; lista?: string; misRutas?: string } | null;
+      const m = ev.data as { tabla?: TablaLocal; lista?: string; misRutas?: string; compHoy?: string } | null;
       if (m?.tabla && m.tabla in COLUMNAS) olvidarTabla(m.tabla);
       if (typeof m?.lista === 'string') memListas.delete(m.lista);
       if (typeof m?.misRutas === 'string') memMisRutas.delete(m.misRutas);
+      if (typeof m?.compHoy === 'string') memCompHoy.delete(m.compHoy);
     };
   }
 } catch {
   canal = null;
 }
 
-function avisarPestanas(m: { tabla?: TablaLocal; lista?: string; misRutas?: string }): void {
+function avisarPestanas(m: { tabla?: TablaLocal; lista?: string; misRutas?: string; compHoy?: string }): void {
   try {
     canal?.postMessage(m);
   } catch {
@@ -1219,6 +1237,8 @@ export async function borrarListaLocal(email: string): Promise<void> {
   // Mis rutas también es de la persona: Salir en un teléfono compartido la
   // borra con su lista (rutas, 5-oct-2026).
   await borrarMisRutasLocal(email);
+  // Y su lista de Comprobaciones (fase 3, 26-oct-2026).
+  await borrarCompHoyLocal(email);
 }
 
 // ------------------------------------------------------------
@@ -1329,6 +1349,82 @@ export async function borrarMisRutasLocal(email: string): Promise<void> {
   try {
     await datosDelete('listas', k);
     avisarPestanas({ misRutas: k });
+  } catch {
+    /* sin base: no había nada */
+  }
+}
+
+// ------------------------------------------------------------
+// Mis rutas › Comprobaciones (fase 3, 26-oct-2026)
+//
+// Mismo almacén `listas` con la llave 'comp-hoy|<correo>' (ningún correo
+// empieza así). Las mismas reglas que Mis rutas: solo se guarda lo que llegó
+// completo, con red y con sesión REAL de ese correo antes y después.
+// ------------------------------------------------------------
+
+function llaveCompHoy(email: string): string {
+  const k = llaveEmail(email);
+  return k ? 'comp-hoy|' + k : '';
+}
+
+/** Guarda la lista de Comprobaciones tal como se acaba de ver. No lanza. */
+export async function guardarCompHoyLocal(
+  email: string,
+  datos: Omit<CompHoyLocal, 'guardado'> & { guardado?: string }
+): Promise<void> {
+  const k = llaveCompHoy(email);
+  if (!k || !datos || !datos.respuesta || typeof datos.respuesta !== 'object') return;
+  const valor: CompHoyLocal = {
+    guardado: datos.guardado || new Date().toISOString(),
+    desde: datos.desde,
+    hasta: datos.hasta,
+    respuesta: datos.respuesta,
+  };
+  memCompHoy.set(k, valor);
+  const n = Array.isArray((datos.respuesta as { tomas?: unknown }).tomas)
+    ? ((datos.respuesta as { tomas: unknown[] }).tomas.length as number)
+    : 0;
+  try {
+    await datosPut('listas', { email: k, ...valor }, topeEscritura(n));
+    avisarPestanas({ compHoy: k });
+  } catch (e) {
+    if (!(e instanceof ErrorDatos && e.motivo === 'no-disponible'))
+      reportarUnaVez('comphoy:guardar', e, { tomas: n, motivo: e instanceof ErrorDatos ? e.motivo : 'otro' });
+  }
+}
+
+/** La última copia de Comprobaciones de ese correo, o null. No lanza; cede el turno. */
+export async function leerCompHoyLocal(email: string): Promise<CompHoyLocal | null> {
+  try {
+    const k = llaveCompHoy(email);
+    if (!k) return null;
+    const m = memCompHoy.get(k);
+    if (m) return m;
+    const r = await datosGet<CompHoyLocal & { email?: string }>('listas', k);
+    if (!r || !r.respuesta || typeof r.respuesta !== 'object') return null;
+    const copia: CompHoyLocal = {
+      guardado: typeof r.guardado === 'string' ? r.guardado : '',
+      desde: typeof r.desde === 'string' ? r.desde : '',
+      hasta: typeof r.hasta === 'string' ? r.hasta : '',
+      respuesta: r.respuesta,
+    };
+    if (!memCompHoy.has(k)) memCompHoy.set(k, copia);
+    return memCompHoy.get(k) || copia;
+  } catch {
+    return null;
+  } finally {
+    await cederTurno();
+  }
+}
+
+/** Borra la copia de Comprobaciones de ese correo. No lanza. */
+export async function borrarCompHoyLocal(email: string): Promise<void> {
+  const k = llaveCompHoy(email);
+  if (!k) return;
+  memCompHoy.delete(k);
+  try {
+    await datosDelete('listas', k);
+    avisarPestanas({ compHoy: k });
   } catch {
     /* sin base: no había nada */
   }

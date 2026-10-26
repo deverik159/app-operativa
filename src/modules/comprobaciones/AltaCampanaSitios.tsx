@@ -5,7 +5,9 @@
 // POR QUÉ. Erik: en Biobox sobre todo, Victor arma campañas que no vienen
 // en la bitácora y hoy teclea las claves una por una. Aquí las escoge:
 //   · por MODELO (inventario.tipo_mueble: M4, M4-R2, M5 OXXO…),
-//   · por RUTA de monitoreo (rutas activas Digital o Combinada; la parada
+//   · por RUTA de monitoreo (rutas activas; en Ecovallas solo Digital o
+//     Combinada, en Biobox y Vía Verde también Impreso desde el 26-oct-2026,
+//     como comp_ruta_sitio; la parada
 //     guarda a veces el site_id y a veces el vendor_face_id: se cruza por
 //     los dos, ver leerRutasComp),
 //   · o pegando una LISTA (una o varias claves por renglón; «856, 857» y

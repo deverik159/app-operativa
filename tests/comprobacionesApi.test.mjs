@@ -64,6 +64,24 @@ const { outputFiles } = await build({
 });
 const A = await import('data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64'));
 
+// La lista del monitorista vive en misTomasApi.ts desde la revisión del
+// 26-oct-2026 (regresiones-1: Mis rutas ya no baja comprobacionesApi).
+const MT = await import(
+  'data:text/javascript;base64,' +
+    Buffer.from(
+      (
+        await build({
+          entryPoints: [fileURLToPath(new URL('../src/lib/misTomasApi.ts', import.meta.url))],
+          bundle: true,
+          write: false,
+          format: 'esm',
+          platform: 'neutral',
+          plugins: [stubs],
+        })
+      ).outputFiles[0].text
+    ).toString('base64')
+);
+
 test('clasificarErrorComp: lo que contestó la base no es «sin señal» aunque diga timeout', () => {
   const candado = A.clasificarErrorComp({ code: '55P03', message: 'canceling statement due to lock timeout' }, 500);
   assert.equal(candado.sinRed, false);
@@ -152,4 +170,145 @@ test('leerTomas: si no se pueden leer los sitios, falla todo (no un Excel a medi
   assert.equal(r.ok, false);
   assert.equal(r.sinRed, false);
   globalThis.__compFalso.errorDe = {};
+});
+
+// ---- Fase 3, incremento 1 (26-oct-2026) --------------------------------
+// Las funciones nuevas deciden por el CÓDIGO (Postgres, PostgREST o el
+// {ok:false, codigo} de la RPC), nunca por el texto del error.
+
+test('fase 3: codigoFallaComp solo mira el código y el status', () => {
+  assert.equal(A.codigoFallaComp({ code: 'PGRST202', message: 'cualquier cosa' }, 404), 'falta_migracion');
+  assert.equal(A.codigoFallaComp({ code: '42703', message: '' }, 400), 'falta_migracion');
+  assert.equal(A.codigoFallaComp({ code: 'CP001', message: '' }, 400), 'sin_sesion');
+  assert.equal(A.codigoFallaComp({ code: 'CP002', message: '' }, 400), 'datos');
+  assert.equal(A.codigoFallaComp({ code: '55P03', message: 'sin señal' }, 500), 'ocupada');
+  assert.equal(A.codigoFallaComp({ code: '40P01' }, 500), 'ocupada');
+  assert.equal(A.codigoFallaComp({ code: '42501' }, 403), 'sin_permiso');
+  // El texto «lock timeout» sin código NO es «ocupada».
+  assert.equal(A.codigoFallaComp({ message: 'canceling statement due to lock timeout' }, 500), 'otro');
+  assert.equal(A.codigoFallaComp({ code: '55P03' }, 0, true), 'sin_red');
+});
+
+test('fase 3: un {ok:false, codigo:"ocupada"} de la RPC es una falla con su código', async () => {
+  globalThis.__compFalso.rpc = () => ({ data: { ok: false, codigo: 'ocupada' }, error: null, status: 200 });
+  const r = await A.ponerPlantilla([1, 2], 'cml');
+  assert.equal(r.ok, false);
+  assert.equal(r.codigo, 'ocupada');
+  assert.equal(r.sinRed, false);
+  assert.match(A.textoFallaF3(r, true), /Otra persona está guardando/);
+});
+
+test('fase 3: ponerPlantilla manda p_campana_ids y p_codigo y devuelve números', async () => {
+  let pedido = null;
+  globalThis.__compFalso.rpc = (n, a) => {
+    pedido = { n, a };
+    return { data: { cambiadas: 3, cerradas_omitidas: 1, enviadas_conservan: '2' }, error: null, status: 200 };
+  };
+  const r = await A.ponerPlantilla([5, 6, 7, 8], null);
+  assert.deepEqual(pedido, { n: 'comp_poner_plantilla', a: { p_campana_ids: [5, 6, 7, 8], p_codigo: null } });
+  assert.deepEqual(r, { ok: true, data: { cambiadas: 3, cerradas_omitidas: 1, enviadas_conservan: 2 } });
+});
+
+test('fase 3: sin la migración, refrescarMonitoristas dice falta_migracion (y la pantalla calla)', async () => {
+  globalThis.__compFalso.rpc = () => ({
+    data: null,
+    error: { code: 'PGRST202', message: 'Could not find the function public.comp_refrescar_monitoristas' },
+    status: 404,
+  });
+  const r = await A.refrescarMonitoristas(7);
+  assert.equal(r.ok, false);
+  assert.equal(r.codigo, 'falta_migracion');
+  assert.equal(r.sinRed, false);
+  globalThis.__compFalso.rpc = (n, a) => ({ data: { actualizadas: 4 }, error: null, status: 200, n, a });
+  assert.deepEqual(await A.refrescarMonitoristas(7), { ok: true, data: { actualizadas: 4 } });
+});
+
+test('fase 3: leerMisTomasComp valida la respuesta; una que no se entiende es falla, no lista vacía', async () => {
+  let pedido = null;
+  globalThis.__compFalso.rpc = (n, a) => {
+    pedido = { n, a };
+    return {
+      data: {
+        hoy: '2026-10-29',
+        captura: false,
+        unidades: ['Vía Verde'],
+        tomas: [
+          { id: 1, estado: 'pendiente', fecha: '2026-10-29', campana_id: 2, sitio_id: 3, sitio_clave: 'COL_1', plantilla: [], tiene: [] },
+          { id: 2, estado: 'comprobada', fecha: '2026-10-29', campana_id: 2, sitio_id: 3, sitio_clave: 'COL_1' },
+        ],
+      },
+      error: null,
+      status: 200,
+    };
+  };
+  const r = await MT.leerMisTomasComp('2026-10-26', '2026-11-01');
+  assert.deepEqual(pedido, { n: 'comp_mis_tomas', a: { p_desde: '2026-10-26', p_hasta: '2026-11-01' } });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.data.tomas.map((t) => t.id), [1]);
+  globalThis.__compFalso.rpc = () => ({ data: [1, 2], error: null, status: 200 });
+  const mal = await MT.leerMisTomasComp('2026-10-26', '2026-11-01');
+  assert.equal(mal.ok, false);
+  assert.equal(mal.codigo, 'otro');
+  // Rango de más de 45 días: CP002 = datos.
+  globalThis.__compFalso.rpc = () => ({ data: null, error: { code: 'CP002', message: 'Rango de 46 días.' }, status: 400 });
+  const lejos = await MT.leerMisTomasComp('2026-09-01', '2026-10-17');
+  assert.equal(lejos.codigo, 'datos');
+});
+
+test('fase 3: leerPlantillasCampanas y leerMonitoristaManual leen comp_campanas y comp_tomas', async () => {
+  globalThis.__compFalso.errorDe = {};
+  globalThis.__compFalso.tablas = {
+    comp_campanas: [
+      { id: 1, plantilla_codigo: 'cml' },
+      { id: 2, plantilla_codigo: null },
+    ],
+    comp_tomas: [
+      { id: 10, monitorista_manual: true },
+      { id: 11, monitorista_manual: false },
+    ],
+  };
+  const p = await A.leerPlantillasCampanas([1, 2, 3]);
+  assert.equal(p.ok, true);
+  assert.equal(p.data.get(1), 'cml');
+  assert.equal(p.data.get(2), null);
+  assert.equal(p.data.has(3), false);
+  const m = await A.leerMonitoristaManual([10, 11]);
+  assert.equal(m.data.get(10), true);
+  assert.equal(m.data.get(11), false);
+  // Antes de la migración la columna no existe: 42703.
+  globalThis.__compFalso.errorDe = { comp_tomas: { code: '42703', message: 'column comp_tomas.monitorista_manual does not exist' } };
+  const sin = await A.leerMonitoristaManual([10]);
+  assert.equal(sin.ok, false);
+  assert.equal(sin.codigo, 'falta_migracion');
+  globalThis.__compFalso.errorDe = {};
+});
+
+// ---- Revisión adversarial del 26-oct-2026 ------------------------------
+
+test('revisión: un 401 de comp_mis_tomas (token renovándose) es sin_sesion, no un error de datos', async () => {
+  globalThis.__compFalso.rpc = () => ({ data: null, error: { code: '42501', message: 'permission denied' }, status: 401 });
+  const r = await MT.leerMisTomasComp('2026-10-26', '2026-11-01');
+  assert.equal(r.ok, false);
+  assert.equal(r.codigo, 'sin_sesion');
+  assert.equal(r.sinRed, false);
+  globalThis.__compFalso.rpc = () => ({ data: null, error: { code: '40P01', message: 'deadlock detected' }, status: 500 });
+  assert.equal((await MT.leerMisTomasComp('2026-10-26', '2026-11-01')).codigo, 'ocupada');
+});
+
+test('revisión: leerRutasComp sigue la regla V1 (Impreso solo fuera de Ecovallas) y leerMediosRutas lee el medio', async () => {
+  globalThis.__compFalso.errorDe = {};
+  globalThis.__compFalso.tablas = {
+    rutas_monitoreo: [
+      { id: 10, numero: 3, nombre: 'a', tipo_medio: 'Digital', unidad_negocio: 'Biobox', activa: true },
+      { id: 20, numero: 3, nombre: 'b', tipo_medio: 'Impreso', unidad_negocio: 'Biobox', activa: true },
+      { id: 30, numero: 1, nombre: 'c', tipo_medio: 'Digital', unidad_negocio: 'Ecovallas', activa: true },
+      { id: 31, numero: 2, nombre: 'd', tipo_medio: 'Impreso', unidad_negocio: 'Ecovallas', activa: true },
+    ],
+    ruta_ubicaciones: [],
+  };
+  assert.deepEqual((await A.leerRutasComp('Biobox')).data.map((r) => r.id).sort(), [10, 20]);
+  assert.deepEqual((await A.leerRutasComp('Ecovallas')).data.map((r) => r.id), [30]);
+  const m = await A.leerMediosRutas([10, 20]);
+  assert.equal(m.ok, true);
+  assert.deepEqual([m.data.get(10), m.data.get(20)], ['Digital', 'Impreso']);
 });

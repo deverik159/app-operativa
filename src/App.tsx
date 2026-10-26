@@ -38,6 +38,7 @@ import {
   initials,
   ROLES_FIJACION_EXTERNA,
   ROLES_PAUTA,
+  unidadesComprobaciones,
   veTomasPauta,
 } from './lib/helpers';
 import { useNotificaciones } from './lib/useNotificaciones';
@@ -1001,6 +1002,16 @@ function Main({
     if (e === 'pauta_analista_revisado' || e === 'pauta_campana_cerrada')
       setVistaPauta((p) => ({ vista: 'indicadores', n: (p?.n ?? 0) + 1 }));
   };
+  /**
+   * Mis rutas tiene dos vistas (Rutas · Comprobaciones, fase 3) y recuerda la
+   * última. Un aviso que lleva a Mis rutas habla de una RUTA: abre Rutas
+   * aunque la última vez se eligiera Comprobaciones (revisión del
+   * 26-oct-2026, monitorista-3). El aviso comp_toma del incremento 2 pedirá
+   * 'comp' por aquí mismo.
+   */
+  const [vistaMisRutas, setVistaMisRutas] = useState<{ vista: 'rutas' | 'comp'; n: number } | null>(null);
+  const pedirVistaMisRutas = (vista: 'rutas' | 'comp') =>
+    setVistaMisRutas((p) => ({ vista, n: (p?.n ?? 0) + 1 }));
 
   /**
    * Comprobaciones (integración fase 2, 23-oct-2026): «Se te asignaron N
@@ -1104,6 +1115,7 @@ function Main({
     const destino = destinoAvisoPauta(evento);
     if (destino) setTab(destino);
     if (destino === 'pauta') pedirVistaPauta(evento);
+    if (destino === 'mis_rutas') pedirVistaMisRutas('rutas');
     setRecargarSignal((n) => n + 1);
     notifs.recargar();
     return destino;
@@ -1464,6 +1476,16 @@ function Main({
    * comp_mis_unidades en la base).
    */
   const veComprobaciones = abreComprobaciones(rolesDetalle);
+  /**
+   * Mis rutas › Comprobaciones (fase 3, 26-oct-2026): monitorista con una
+   * fila de Ecovallas (Digital), Biobox o Vía Verde, o el manager. La misma
+   * regla que comp_mis_unidades(array['monitorista']), con la que
+   * comp_mis_tomas decide a quién contestar.
+   */
+  const veCompMonitorista = useMemo(
+    () => unidadesComprobaciones(rolesDetalle, ['monitorista']).size > 0,
+    [rolesDetalle]
+  );
 
   /**
    * Su pestaña de inicio es la suya, no un dashboard que no ve. También es
@@ -2147,6 +2169,7 @@ function Main({
                 const destino = destinoAvisoPauta(n.evento, n.mensaje);
                 if (destino) setTab(destino);
                 if (destino === 'pauta') pedirVistaPauta(n.evento);
+                if (destino === 'mis_rutas') pedirVistaMisRutas('rutas');
                 setRecargarSignal((x) => x + 1);
               } else if (esEventoBitacora(n.evento)) {
                 // Versión por programar / programada: a la Bitácora VV,
@@ -2388,7 +2411,13 @@ function Main({
               )}
               {tab === 'usuarios' && <UsuariosView email={email} />}
               {tab === 'mis_rutas' && (
-                <MisRutasView email={email} misDep={misDep} recargarSignal={recargarSignal} />
+                <MisRutasView
+                  email={email}
+                  misDep={misDep}
+                  recargarSignal={recargarSignal}
+                  veComprobaciones={veCompMonitorista}
+                  vistaPedida={vistaMisRutas}
+                />
               )}
             </Suspense>
           </ErrorBoundary>

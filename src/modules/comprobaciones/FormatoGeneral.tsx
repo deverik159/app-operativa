@@ -23,6 +23,11 @@
 // ESCRITURAS solo por las RPC (comp_editar_tomas, comp_agregar_tomas,
 // comp_quitar_tomas), una a la vez (ctx.correr), enseñando los conteos que
 // devuelven. Después se relee en silencio: la lista no se desmonta.
+//
+// FASE 3 (26-oct-2026): al abrir se refresca en silencio la ruta y el
+// monitorista (comp_refrescar_monitoristas), y en el modal el monitorista
+// vacío es «el de la ruta» (lo que asigna Marco en Rutas); si Victor elige a
+// alguien, queda fijo (monitorista_manual) y el cambio de ruta ya no lo mueve.
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -41,9 +46,11 @@ import {
   type UnidadComp,
 } from '../../lib/comprobaciones';
 import {
+  leerMediosRutas,
   leerMonitoristas,
   leerTomas,
   quitarTomas,
+  refrescarMonitoristas,
   textoFallaComp,
   textoFallaEscrituraComp,
   type MonitoristaComp,
@@ -77,7 +84,7 @@ type Modal =
   | { tipo: 'agregar'; campanaId: number | null; sitioIds: number[]; dias: string[] }
   | null;
 
-type GrupoSitio = { clave: string; sitio: string; ruta: number | null; tomas: VwToma[] };
+type GrupoSitio = { clave: string; sitio: string; ruta: number | null; rutaId: number | null; tomas: VwToma[] };
 type GrupoDia = { dia: string; sitios: GrupoSitio[]; n: number; totalSitios: number };
 
 /** Lo que se le pide a la base (cambia = se vuelve a leer). */
@@ -97,7 +104,9 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
   const [campanaSel, setCampanaSel] = useState<string>(TODAS);
   const [diaSel, setDiaSel] = useState<string>(diaOmision);
   const [monSel, setMonSel] = useState(''); // '' = todos · SIN · correo
-  const [rutaSel, setRutaSel] = useState(''); // '' = todas · SIN · número
+  // '' = todas · SIN · ruta_id (revisión del 26-oct-2026: antes el número, y
+  // en Biobox «Ruta 3» juntaba la Digital 3 y la Impreso 3).
+  const [rutaSel, setRutaSel] = useState('');
   const [verEstado, setVerEstado] = useState<VerEstado>('activas');
   const [buscar, setBuscar] = useState('');
   const [limite, setLimite] = useState(PASO);
@@ -187,6 +196,29 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
     setLimite(PASO);
   }, [claveAlcance, cargar]);
 
+  // Ruta y monitorista al día (fase 3, 26-oct-2026; A4): al abrir Formato
+  // (o cambiar de periodo) la base vuelve a tomar de Rutas la ruta y el
+  // monitorista de las tomas pendientes que no tienen uno puesto a mano ni
+  // fotos (comp_refrescar_monitoristas). En silencio y sin el candado del
+  // módulo: nunca espera un candado en la base (skip locked). Si cambió
+  // algo, los renglones se releen sin desmontar. Sin la migración de la fase
+  // 3 la función no existe y no pasa nada.
+  useEffect(() => {
+    if (!puede) return;
+    let vivo = true;
+    refrescarMonitoristas(periodo.id).then((r) => {
+      if (!vivo) return;
+      if (r.ok) {
+        if (r.data.actualizadas > 0) cargar(true);
+      } else if (r.codigo !== 'falta_migracion' && r.codigo !== 'sin_red') {
+        console.warn('[Formato] no se pudo actualizar ruta y monitorista:', r.codigo);
+      }
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [periodo.id, puede, cargar]);
+
   // Cuando el esqueleto termina de releer las campañas (↻, un aviso o
   // después de una escritura con recargar()), se releen los renglones en
   // silencio, sin desmontar la lista ni los modales.
@@ -234,7 +266,7 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
       if (diaEf !== TODOS && t.fecha.slice(0, 10) !== diaEf) return false;
       const m = (t.monitorista_email || '').toLowerCase();
       if (monSel === SIN ? !!m : monSel && m !== monSel) return false;
-      if (rutaSel === SIN ? t.ruta_numero != null : rutaSel && String(t.ruta_numero) !== rutaSel) return false;
+      if (rutaSel === SIN ? t.ruta_numero != null : rutaSel && String(t.ruta_id) !== rutaSel) return false;
       if (
         llaveBuscar &&
         !llaveComp(t.sitio_clave).includes(llaveBuscar) &&
@@ -262,9 +294,13 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
       let m = porDia.get(d);
       if (!m) porDia.set(d, (m = new Map()));
       let g = m.get(t.sitio_clave);
-      if (!g) m.set(t.sitio_clave, (g = { clave: `${d}|${t.sitio_clave}`, sitio: t.sitio_clave, ruta: null, tomas: [] }));
+      if (!g)
+        m.set(t.sitio_clave, (g = { clave: `${d}|${t.sitio_clave}`, sitio: t.sitio_clave, ruta: null, rutaId: null, tomas: [] }));
       g.tomas.push(t);
-      if (g.ruta == null && t.ruta_numero != null) g.ruta = t.ruta_numero;
+      if (g.ruta == null && t.ruta_numero != null) {
+        g.ruta = t.ruta_numero;
+        g.rutaId = t.ruta_id;
+      }
     }
     return [...porDia.entries()]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -274,6 +310,7 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
           (a, b) =>
             (a.ruta == null ? 1 : 0) - (b.ruta == null ? 1 : 0) ||
             (a.ruta ?? 0) - (b.ruta ?? 0) ||
+            (a.rutaId ?? 0) - (b.rutaId ?? 0) ||
             compararNatural(a.sitio, b.sitio)
         );
         for (const s of sitios)
@@ -297,15 +334,41 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
   }, [grupos, limite]);
 
   // Opciones de los filtros: las rutas y las personas que hay en lo leído.
+  // Por ruta_id (revisión del 26-oct-2026, sql-2): con el número repetido en
+  // la unidad (Biobox Digital 3 e Impreso 3) el rótulo lleva el medio.
   const rutas = useMemo(() => {
-    const s = new Set<number>();
+    const porId = new Map<number, number>();
     let sinRuta = false;
     for (const t of tomas) {
       if (t.ruta_numero == null) sinRuta = true;
-      else s.add(t.ruta_numero);
+      else if (t.ruta_id != null) porId.set(t.ruta_id, t.ruta_numero);
     }
-    return { lista: [...s].sort((a, b) => a - b), sinRuta };
+    const veces = new Map<number, number>();
+    for (const n of porId.values()) veces.set(n, (veces.get(n) ?? 0) + 1);
+    const lista = [...porId.entries()]
+      .map(([id, numero]) => ({ id, numero, repetida: (veces.get(numero) ?? 0) > 1 }))
+      .sort((a, b) => a.numero - b.numero || a.id - b.id);
+    return { lista, sinRuta, repetidas: lista.filter((r) => r.repetida).map((r) => r.id) };
   }, [tomas]);
+  const firmaRepetidas = rutas.repetidas.join(',');
+  const [mediosRuta, setMediosRuta] = useState<Map<number, string>>(() => new Map());
+  useEffect(() => {
+    if (!firmaRepetidas) return;
+    let vivo = true;
+    void leerMediosRutas(firmaRepetidas.split(',').map(Number)).then((r) => {
+      if (vivo && r.ok) setMediosRuta(r.data);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [firmaRepetidas]);
+  const repetidaSet = useMemo(() => new Set(rutas.repetidas), [rutas.repetidas]);
+  /** «Ruta 3», o «Ruta 3 · Impreso» si el número se repite en lo leído. */
+  const textoRutaF = (numero: number, id: number | null) => {
+    if (id == null || !repetidaSet.has(id)) return `Ruta ${numero}`;
+    const medio = mediosRuta.get(id);
+    return medio ? `Ruta ${numero} · ${medio}` : `Ruta ${numero} (#${id})`;
+  };
   const opcionesMon = useMemo(() => {
     const m = new Map<string, string>(monitoristas.map((x) => [x.email.trim().toLowerCase(), x.nombre]));
     for (const t of tomas) {
@@ -497,9 +560,9 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
           }}
         >
           <option value="">Todas las rutas</option>
-          {rutas.lista.map((n) => (
-            <option key={n} value={String(n)}>
-              Ruta {n}
+          {rutas.lista.map((r) => (
+            <option key={r.id} value={String(r.id)}>
+              {textoRutaF(r.numero, r.id)}
             </option>
           ))}
           {(rutas.sinRuta || rutaSel === SIN) && <option value={SIN}>Sin ruta</option>}
@@ -654,7 +717,7 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
                       {gs.sitio}
                     </div>
                     <div className="meta">
-                      {gs.ruta != null ? `Ruta ${gs.ruta}` : 'Sin ruta'} · {nTomas(gs.tomas.length)}
+                      {gs.ruta != null ? textoRutaF(gs.ruta, gs.rutaId) : 'Sin ruta'} · {nTomas(gs.tomas.length)}
                     </div>
                   </div>
                   <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>

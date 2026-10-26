@@ -21,9 +21,16 @@
 // Reglas anti-ciclo (app pasmada, 24-sep-2026): ningún efecto depende de un
 // objeto o arreglo de estado; dependen de textos (firmas). Todo setState que
 // sigue a una lectura (copia, red, cola) se compara antes con un ref.
+//
+// COMPROBACIONES (fase 3, 26-oct-2026): arriba, un selector «Rutas ·
+// Comprobaciones» para el monitorista de Ecovallas Digital, Biobox o Vía
+// Verde (App decide con unidadesComprobaciones; Erik, 23-oct: el módulo
+// Comprobaciones es solo del Supervisor y el manager, así que la lista del
+// monitorista vive aquí). La lista está en ComprobacionesHoy. Lo elegido se
+// recuerda en el teléfono.
 // ============================================================
 import { Camera, Hourglass, Map as MapIcon, Plus, WifiOff } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import { sb } from '../../lib/supabase';
 import { vigilarRender } from '../../lib/vigia';
@@ -56,7 +63,15 @@ import IrAqui from '../../components/IrAqui';
 import NuevaInc from '../incidencias/NuevaInc';
 import type { GrupoReporte, PresetNueva } from '../incidencias/NuevaInc';
 import MarcarVisitaModal, { type ParadaVisita } from './MarcarVisitaModal';
+import { lazyConReintento } from '../../lib/cargaDiferida';
 import Ic from '../../components/Ic';
+
+/**
+ * La lista de Comprobaciones se baja solo al elegirla (revisión del
+ * 26-oct-2026, regresiones-1): importada directo, todo el que abría Mis
+ * rutas bajaba también su código aunque nunca la viera.
+ */
+const ComprobacionesHoy = lazyConReintento(() => import('./ComprobacionesHoy'), 'ComprobacionesHoy');
 
 // ------------------------------------------------------------
 // Datos
@@ -391,19 +406,76 @@ type Estado =
 
 /** ¿Ver las guías de Google Maps? Se recuerda en el teléfono. */
 const LLAVE_GUIAS = 'misrutas_ver_guias';
+/**
+ * Rutas o Comprobaciones (fase 3, 26-oct-2026). Se recuerda en el teléfono,
+ * POR CORREO (revisión del 26-oct-2026, monitorista-3): en un teléfono
+ * compartido la siguiente cuenta no hereda la vista de la anterior.
+ */
+const llaveVista = (email: string) => `misrutas_vista|${(email || '').trim().toLowerCase()}`;
+
+export type VistaMisRutas = 'rutas' | 'comp';
+
+/** El último pedido de vista ya aplicado (sobrevive a desmontar la pestaña). */
+let nVistaAplicada = 0;
 
 function MisRutasView({
   email,
   misDep,
   recargarSignal,
+  veComprobaciones = false,
+  vistaPedida = null,
 }: {
   email: string;
   misDep: string[];
   /** ↻ de la barra o envíos que salieron: se vuelve a leer. */
   recargarSignal: number;
+  /**
+   * ¿Es monitorista de Ecovallas Digital, Biobox o Vía Verde (o manager)?
+   * Enseña el selector «Rutas · Comprobaciones» (fase 3, 26-oct-2026).
+   */
+  veComprobaciones?: boolean;
+  /**
+   * Vista que pide un aviso (App, al navegar desde una notificación): el de
+   * ruta asignada abre Rutas aunque la última vez se eligiera Comprobaciones.
+   * `n` cambia en cada aviso para que el mismo pedido se repita.
+   */
+  vistaPedida?: { vista: VistaMisRutas; n: number } | null;
 }) {
   // Dentro del ErrorBoundary de App (ver lib/vigia.ts).
   vigilarRender('MisRutasView');
+
+  const [vistaElegida, setVistaElegida] = useState<VistaMisRutas>(() => {
+    if (vistaPedida && vistaPedida.n > nVistaAplicada) {
+      nVistaAplicada = vistaPedida.n;
+      return vistaPedida.vista;
+    }
+    try {
+      return localStorage.getItem(llaveVista(email)) === 'comp' ? 'comp' : 'rutas';
+    } catch {
+      return 'rutas';
+    }
+  });
+  const vista: VistaMisRutas = veComprobaciones ? vistaElegida : 'rutas';
+  const cambiarVista = (v: VistaMisRutas) => {
+    setVistaElegida(v);
+    try {
+      localStorage.setItem(llaveVista(email), v);
+    } catch {
+      /* sin almacenamiento: solo esta vez */
+    }
+  };
+  // Un aviso pidió una vista (depende del número, no del objeto: reglas anti-ciclo).
+  const nVistaPedida = vistaPedida?.n ?? 0;
+  const vistaPedidaRef = useRef(vistaPedida);
+  vistaPedidaRef.current = vistaPedida;
+  useEffect(() => {
+    const p = vistaPedidaRef.current;
+    // Cada pedido se aplica UNA vez: al volver a Mis rutas por el menú manda
+    // lo que la persona eligió, no un aviso viejo.
+    if (!p || p.n <= nVistaAplicada) return;
+    nVistaAplicada = p.n;
+    setVistaElegida((v) => (v === p.vista ? v : p.vista));
+  }, [nVistaPedida]);
 
   const [datos, setDatos] = useState<Datos | null>(null);
   const datosRef = useRef<Datos | null>(null);
@@ -732,7 +804,9 @@ function MisRutasView({
     ajustar();
     const t = window.setTimeout(ajustar, 250);
     return () => window.clearTimeout(t);
-  }, [firmaMapa, hayMapa]);
+    // vista (fase 3, 26-oct-2026): al volver de Comprobaciones el div del
+    // mapa es otro aunque la firma no cambie; sin esto el mapa quedaba en blanco.
+  }, [firmaMapa, hayMapa, vista]);
 
   // El mapa se libera al salir del módulo.
   useEffect(
@@ -776,11 +850,54 @@ function MisRutasView({
   };
 
   // ---- Render ----
-  if (cargando && !datos) return <div className="loading">Cargando tus rutas…</div>;
+  // Selector Rutas · Comprobaciones (fase 3): chips con aria-pressed y 44 px.
+  const selector = veComprobaciones ? (
+    <div className="rt-chips rt-segmento" role="group" aria-label="Qué ver" style={{ marginBottom: 12 }}>
+      {(
+        [
+          ['rutas', 'Rutas'],
+          ['comp', 'Comprobaciones'],
+        ] as const
+      ).map(([v, t]) => (
+        <button
+          key={v}
+          type="button"
+          className={'rt-chip' + (vista === v ? ' on' : '')}
+          aria-pressed={vista === v}
+          onClick={() => cambiarVista(v)}
+          style={{ minHeight: 44, flex: '1 1 0' }}
+        >
+          {vista === v ? '✓ ' : ''}
+          {t}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  if (vista === 'comp') {
+    return (
+      <>
+        <h2 className="page">Mis rutas</h2>
+        {selector}
+        <Suspense fallback={<div className="loading">Cargando tus comprobaciones…</div>}>
+          <ComprobacionesHoy email={email} recargarSignal={recargarSignal} />
+        </Suspense>
+      </>
+    );
+  }
+
+  if (cargando && !datos)
+    return (
+      <>
+        {selector}
+        <div className="loading">Cargando tus rutas…</div>
+      </>
+    );
 
   const encabezado = (
     <>
       <h2 className="page">Mis rutas</h2>
+      {selector}
       <p className="phint">
         Tus rutas asignadas, en orden. Marca cada visita con su foto; sin señal se guarda en el
         teléfono y se envía sola. Las rutas de Ecovallas Impreso están en Pauta y Monitoreo.

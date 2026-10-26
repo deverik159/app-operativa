@@ -26,6 +26,11 @@
 //     (integración, 23-oct-2026).
 //   · El modo de solo lectura (permisos.soloLectura) era del coordinador;
 //     desde el 23-oct-2026 el coordinador ya no entra y nadie llega así.
+//   · Plantilla (fase 3, 26-oct-2026): columna con qué fotos pide cada toma
+//     («Una toma» en gris = la de omisión) y acción en lote «Plantilla» en
+//     Acciones. plantilla_codigo se lee de comp_campanas aparte: la vista
+//     vw_comp_campanas no se tocó (M9). Sin la migración de la fase 3 la
+//     columna y la acción no salen.
 // Toda escritura va por las RPC (comprobacionesApi) con el candado del
 // esqueleto (correr) y se cuenta con lo que DEVUELVE la base: la RLS niega
 // en silencio. Después se relee en silencio (recargar) sin desmontar.
@@ -44,7 +49,17 @@ import {
 } from '../../lib/comprobaciones';
 import { armazonActivo } from '../../lib/armazon';
 import { subirYRegresar } from '../../lib/subirAntes';
-import { asignarAnalista, leerDiaria, textoFallaComp, textoFallaEscrituraComp, type VwCampana } from '../../lib/comprobacionesApi';
+import {
+  asignarAnalista,
+  leerCatalogoPlantillas,
+  leerDiaria,
+  leerPlantillasCampanas,
+  textoFallaComp,
+  textoFallaEscrituraComp,
+  textoFallaF3,
+  type VwCampana,
+} from '../../lib/comprobacionesApi';
+import { nombrePlantilla, type PlantillaToma } from '../../lib/plantillasComp';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import type { PropsPestanaComp } from './tiposComp';
 import AccionesLoteModal, { type AccionLote } from './AccionesLoteModal';
@@ -77,7 +92,20 @@ const SIN = '__sin__';
 const TANDA_TEL = 100;
 const TANDA_PC = 300;
 
-type ColK = 'campana' | 'version' | 'arte' | 'vendedor' | 'analista' | 'meta' | 'comprobados' | 'pct' | 'limite' | 'plan' | 'estatus' | 'cierre';
+type ColK =
+  | 'campana'
+  | 'version'
+  | 'arte'
+  | 'vendedor'
+  | 'analista'
+  | 'meta'
+  | 'comprobados'
+  | 'pct'
+  | 'limite'
+  | 'plan'
+  | 'plantilla'
+  | 'estatus'
+  | 'cierre';
 
 const abierta = (c: VwCampana) => c.estatus === 'abierta';
 const viva = (c: VwCampana) => !c.retirada;
@@ -183,6 +211,56 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
     // render: con 0 como llave no se repite la lectura por eso.
   }, [periodo.id, unidad, listaCampanas]);
 
+  // ---- Plantillas (fase 3, 26-oct-2026) ----------------------------------
+  // null = todavía no se sabe; sinFase3 = la base no tiene la migración (ni
+  // columna ni acción). Un error de red se dice y la columna queda en «—».
+  const [catalogo, setCatalogo] = useState<PlantillaToma[] | null>(null);
+  const [plantillaDe, setPlantillaDe] = useState<Map<number, string | null> | null>(null);
+  const [sinFase3, setSinFase3] = useState(false);
+  const [errPlant, setErrPlant] = useState('');
+  useEffect(() => {
+    let vivo = true;
+    leerCatalogoPlantillas().then((r) => {
+      if (!vivo) return;
+      if (r.ok) setCatalogo(r.data);
+      else if (r.codigo === 'falta_migracion') setSinFase3(true);
+      else setErrPlant('No se pudo leer el catálogo de plantillas: ' + textoFallaF3(r));
+    });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  useEffect(() => {
+    let vivo = true;
+    const ids = Array.isArray(listaCampanas) ? listaCampanas.map((c) => c.id) : [];
+    // Sin la migración ya se sabe que la columna no existe: no se repite la
+    // lectura fallida con cada lista (revisión del 26-oct-2026, regresiones-5).
+    if (!ids.length || sinFase3) return;
+    leerPlantillasCampanas(ids).then((r) => {
+      if (!vivo) return;
+      if (r.ok) {
+        setPlantillaDe(r.data);
+        setErrPlant((e) => (e.startsWith('No se pudo leer la plantilla') ? '' : e));
+      } else if (r.codigo === 'falta_migracion') setSinFase3(true);
+      else setErrPlant('No se pudo leer la plantilla de cada campaña: ' + textoFallaF3(r));
+    });
+    return () => {
+      vivo = false;
+    };
+    // Con cada lista nueva (después de un lote) se relee; ver listaCampanas arriba.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodo.id, unidad, listaCampanas, sinFase3]);
+  // La columna y la línea «Fotos» salen cuando el catálogo ya llegó (revisión
+  // del 26-oct-2026, regresiones-5): antes salían de entrada con «—» y, sin la
+  // migración, se quitaban al llegar falta_migracion (la tabla brincaba).
+  const conPlantilla = !sinFase3 && !!catalogo;
+  /** Nombre de la plantilla de una campaña; null = aún no se sabe. */
+  const plantillaTexto = (c: VwCampana): { nombre: string; omision: boolean } | null => {
+    if (!plantillaDe || !plantillaDe.has(c.id)) return null;
+    const cod = plantillaDe.get(c.id) ?? null;
+    return { nombre: nombrePlantilla(catalogo ?? [], cod), omision: cod === null };
+  };
+
   const hoy = hoyCdmx();
   const carga = useMemo(() => cargaPorAnalista(campanas as CampanaFila[], creditos, hoy), [campanas, creditos, hoy]);
 
@@ -243,6 +321,8 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
           return c.fecha_limite_efectiva;
         case 'plan':
           return c.plan_tomas ? describirPlan(c.plan_tomas) : null;
+        case 'plantilla':
+          return plantillaTexto(c)?.nombre ?? null;
         case 'estatus':
           return c.retirada ? 3 : c.estatus === 'cerrada' ? 2 : c.completa ? 1 : 0;
         case 'cierre':
@@ -261,7 +341,9 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
       return (orden.asc ? r : -r) || a.id - b.id;
     };
     return l.sort(cmp);
-  }, [base, fTarjeta, orden, nombreDe]);
+    // plantillaDe y catalogo: el orden por «Plantilla» usa sus nombres.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [base, fTarjeta, orden, nombreDe, plantillaDe, catalogo]);
 
   const visibles = filtradas.slice(0, limite);
   const elegidas = useMemo(() => campanas.filter((c) => sel.has(c.id)), [campanas, sel]);
@@ -507,9 +589,22 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
     { k: 'pct', t: '%' },
     { k: 'limite', t: 'Fecha límite' },
     { k: 'plan', t: 'Plan de tomas' },
+    ...(conPlantilla ? [{ k: 'plantilla' as const, t: 'Plantilla' }] : []),
     { k: 'estatus', t: 'Estatus' },
     { k: 'cierre', t: 'Cierre' },
   ];
+  /** Celda o línea de la plantilla: «Una toma» en gris = la de omisión. */
+  const textoPlantilla = (c: VwCampana) => {
+    const p = plantillaTexto(c);
+    if (!p) return <span style={{ color: 'var(--muted)' }}>—</span>;
+    return p.omision ? (
+      <span style={{ color: 'var(--muted)' }} title="Por omisión: una foto por versión">
+        {p.nombre}
+      </span>
+    ) : (
+      <span>{p.nombre}</span>
+    );
+  };
   const clickOrden = (k: ColK) =>
     setOrden((o) => (o?.k === k ? (o.asc ? { k, asc: false } : null) : { k, asc: k !== 'meta' && k !== 'comprobados' && k !== 'pct' ? true : false }));
 
@@ -637,6 +732,7 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
         </div>
       )}
       {errCred && <div className="err">{errCred}</div>}
+      {errPlant && <div className="err">{errPlant}</div>}
 
       {/* Filtros y botones de la unidad. */}
       {/* El buscador en su propia fila (como Pauta): dentro de la tira de
@@ -751,6 +847,7 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
                       Plan: {c.plan_tomas ? describirPlan(c.plan_tomas) : 'sin plan'}
                       {c.tomas_total ? ` · ${fmtN(c.tomas_total)} tomas` : ''}
                     </div>
+                    {conPlantilla && <div className="meta">Fotos: {textoPlantilla(c)}</div>}
                     {textoCierre(c) && (
                       <div className="meta">
                         {c.estatus === 'cerrada' ? 'Cerrada ' : ''}
@@ -889,6 +986,7 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
                       {c.plan_tomas ? describirPlan(c.plan_tomas) : <span style={{ color: 'var(--muted)' }}>Sin plan</span>}
                       {c.tomas_total > 0 && <div style={{ color: 'var(--muted)' }}>{fmtN(c.tomas_total)} tomas</div>}
                     </td>
+                    {conPlantilla && <td style={{ ...celda, ...textoLegible, minWidth: 120 }}>{textoPlantilla(c)}</td>}
                     <td style={celda}>
                       <PillEstatus c={c} />
                     </td>
@@ -961,6 +1059,8 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
           elegidas={elegidas}
           ocultas={elegidasOcultas}
           inicial={modal.inicial}
+          plantillas={catalogo}
+          plantillaDe={plantillaDe}
           onCerrar={() => setModal(null)}
           onHecho={hecho}
         />

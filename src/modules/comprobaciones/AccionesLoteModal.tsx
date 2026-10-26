@@ -14,6 +14,10 @@
 //     cerradas_omitidas); se avisa antes y después.
 //   · Retirar BORRA las campañas que nadie trabajó (comp_retirar): se dice
 //     con todas sus letras antes de confirmar.
+//   · Plantilla (fase 3, 26-oct-2026): qué fotos pide cada toma de la
+//     campaña (comp_poner_plantilla). Solo cambia las tomas por tomar o
+//     devueltas; las ya enviadas conservan la que tenían (A2) y la base dice
+//     cuántas. Sale solo si el catálogo se pudo leer.
 // ============================================================
 import { useMemo, useRef, useState } from 'react';
 import CerrarModal from '../../components/CerrarModal';
@@ -22,12 +26,21 @@ import {
   asignarAnalista,
   cerrarCampanas,
   editarCampanas,
+  ponerPlantilla,
   retirarCampanas,
   textoFallaEscrituraComp,
+  textoFallaF3,
   type CambiosCampana,
   type ResultadoComp,
   type VwCampana,
 } from '../../lib/comprobacionesApi';
+import {
+  nombrePlantilla,
+  PLANTILLA_POR_OMISION,
+  plantillasElegibles,
+  resumenPosiciones,
+  type PlantillaToma,
+} from '../../lib/plantillasComp';
 import type { ContextoComp } from './tiposComp';
 import { fmtDia, fmtN, opcionesAnalista, textoTomas, tituloCampana, cajaLista } from './CampanasPiezas';
 
@@ -41,7 +54,8 @@ export type AccionLote =
   | 'retirar'
   | 'regresar'
   | 'full'
-  | 'arte';
+  | 'arte'
+  | 'plantilla';
 
 const ETIQUETA_ACCION: Record<AccionLote, string> = {
   asignar: 'Asignar a',
@@ -57,12 +71,20 @@ const ETIQUETA_ACCION: Record<AccionLote, string> = {
   // Revisión 2 (punta-a-punta-4): la bitácora de Biobox y el plano de Vía
   // Verde no traen ARTES; antes solo se capturaba en el alta manual.
   arte: 'Arte',
+  plantilla: 'Plantilla',
 };
 
 type Props = ContextoComp & {
   elegidas: VwCampana[];
   /** Cuántas de las elegidas no se ven con el filtro de ahora (se avisa). */
   ocultas?: number;
+  /**
+   * Catálogo de plantillas (comp_plantillas_toma). Sin él (la migración de
+   * la fase 3 no está o no se pudo leer) no se ofrece «Plantilla».
+   */
+  plantillas?: PlantillaToma[] | null;
+  /** plantilla_codigo de cada campaña (null = la de omisión). */
+  plantillaDe?: Map<number, string | null> | null;
   /** Acción con la que abre (la barra o un atajo). */
   inicial?: AccionLote;
   onCerrar: () => void;
@@ -73,12 +95,14 @@ type Props = ContextoComp & {
 export default function AccionesLoteModal(props: Props) {
   const { elegidas, equipo, nombreDe, unidad, correr, ocupado, onCerrar, onHecho } = props;
   const esVV = unidad === 'Vía Verde';
+  const elegibles = useMemo(() => (props.plantillas ? plantillasElegibles(props.plantillas) : []), [props.plantillas]);
+  const hayPlantillas = elegibles.length > 0;
   const acciones = useMemo<AccionLote[]>(
     () =>
-      (['asignar', 'quitar', 'cerrar', 'reabrir', 'limite', 'meta', 'arte', 'retirar', 'regresar', 'full'] as AccionLote[]).filter(
-        (a) => a !== 'full' || esVV
-      ),
-    [esVV]
+      (
+        ['asignar', 'quitar', 'cerrar', 'reabrir', 'limite', 'meta', 'arte', 'plantilla', 'retirar', 'regresar', 'full'] as AccionLote[]
+      ).filter((a) => (a !== 'full' || esVV) && (a !== 'plantilla' || hayPlantillas)),
+    [esVV, hayPlantillas]
   );
   const [accion, setAccion] = useState<AccionLote>(props.inicial && acciones.includes(props.inicial) ? props.inicial : 'asignar');
   const [analista, setAnalista] = useState('');
@@ -87,6 +111,7 @@ export default function AccionesLoteModal(props: Props) {
   const [meta, setMeta] = useState('');
   const [full, setFull] = useState<'si' | 'no' | 'carga'>('si');
   const [arte, setArte] = useState<'NUEVO' | 'REPITE' | 'carga'>('NUEVO');
+  const [plantilla, setPlantilla] = useState('');
   const [err, setErr] = useState('');
   const trabajando = !!ocupado;
   // Foco, Tab y Escape de la ventana: ver useFocoModal.
@@ -112,8 +137,11 @@ export default function AccionesLoteModal(props: Props) {
 
   const opciones = useMemo(() => opcionesAnalista(equipo, null, nombreDe), [equipo, nombreDe]);
 
-  /** Corre la RPC con el candado y traduce el resultado. */
-  async function lanzar<T>(etiqueta: string, fn: () => Promise<ResultadoComp<T>>, exito: (d: T) => string | null) {
+  /**
+   * Corre la RPC con el candado y traduce el resultado. `f3`: el texto sale
+   * del código de la falla (RPC de la fase 3), no del mensaje.
+   */
+  async function lanzar<T>(etiqueta: string, fn: () => Promise<ResultadoComp<T>>, exito: (d: T) => string | null, f3 = false) {
     setErr('');
     const r = await correr(etiqueta, fn);
     if (!r) {
@@ -121,7 +149,7 @@ export default function AccionesLoteModal(props: Props) {
       return;
     }
     if (!r.ok) {
-      setErr(textoFallaEscrituraComp(r));
+      setErr(f3 ? textoFallaF3(r, true) : textoFallaEscrituraComp(r));
       // Sin respuesta no se sabe si se guardó: se relee igual (el padre).
       if (r.sinRed) props.recargar();
       return;
@@ -229,6 +257,37 @@ export default function AccionesLoteModal(props: Props) {
         const tom = textoTomas(d);
         return `✓ ${fmtN(d.cambiadas)} cambiada${d.cambiadas === 1 ? '' : 's'}${omitCerr(d.cerradas_omitidas)}${tom ? ' · ' + tom : ''}`;
       });
+  } else if (accion === 'plantilla') {
+    const elegida = elegibles.find((x) => x.codigo === plantilla);
+    // Cuántas abiertas ya la tienen (lo de la pantalla; la base cuenta al guardar).
+    const actual = (c: VwCampana) => props.plantillaDe?.get(c.id) || PLANTILLA_POR_OMISION;
+    const yaLaTienen = elegida ? elegidas.filter((c) => c.estatus === 'abierta' && actual(c) === elegida.codigo).length : 0;
+    resumen = elegida
+      ? `«${elegida.nombre}» en ${fmtN(cuenta.abiertas)} abierta${cuenta.abiertas === 1 ? '' : 's'}` +
+        (yaLaTienen ? ` (${fmtN(yaLaTienen)} ya la ${yaLaTienen === 1 ? 'tiene' : 'tienen'})` : '') +
+        `. Pide: ${resumenPosiciones(elegida.posiciones)}. Las tomas que ya se enviaron conservan la que tenían.`
+      : 'Elige qué fotos pide cada toma de estas campañas.';
+    if (elegida && !elegida.confirmada)
+      aviso = `«${elegida.nombre}» todavía no está confirmada por el Supervisor: revisa que sea lo que pide la campaña.`;
+    if (cuenta.cerradas)
+      aviso = (aviso ? aviso + ' ' : '') + `${fmtN(cuenta.cerradas)} cerrada${cuenta.cerradas === 1 ? '' : 's'} no se toca${cuenta.cerradas === 1 ? '' : 'n'}.`;
+    puede = cuenta.abiertas > 0 && !!elegida;
+    boton = `Guardar en ${fmtN(cuenta.abiertas)}`;
+    ejecutar = () =>
+      elegida &&
+      lanzar(
+        'Cambiando la plantilla…',
+        // 'unica' se manda como null: la campaña queda «por omisión».
+        () => ponerPlantilla(ids, elegida.codigo === PLANTILLA_POR_OMISION ? null : elegida.codigo),
+        (d) => {
+          const conservan = d.enviadas_conservan
+            ? ` · ${fmtN(d.enviadas_conservan)} toma${d.enviadas_conservan === 1 ? '' : 's'} ya enviada${d.enviadas_conservan === 1 ? '' : 's'} conserva${d.enviadas_conservan === 1 ? '' : 'n'} la anterior`
+            : '';
+          if (!d.cambiadas) return `Sin cambios${omitCerr(d.cerradas_omitidas)}${conservan}.`;
+          return `✓ «${nombrePlantilla(elegibles, elegida.codigo)}» en ${fmtN(d.cambiadas)} campaña${d.cambiadas === 1 ? '' : 's'}${omitCerr(d.cerradas_omitidas)}${conservan}`;
+        },
+        true
+      );
   } else if (accion === 'retirar') {
     const n = cuenta.vivas.length;
     resumen = `Se retiran ${fmtN(n)} campaña${n === 1 ? '' : 's'}: dejan de contar en la meta y sus tomas pendientes salen del plan. Úsalo para la versión repetida o la campaña que ya no va.`;
@@ -418,6 +477,29 @@ export default function AccionesLoteModal(props: Props) {
                   {t}
                 </button>
               ))}
+            </div>
+          )}
+          {accion === 'plantilla' && (
+            <div className="field">
+              <label htmlFor="comp-acc-plantilla">Qué fotos pide cada toma</label>
+              <select
+                id="comp-acc-plantilla"
+                value={plantilla}
+                disabled={trabajando}
+                onChange={(e) => setPlantilla(e.target.value)}
+              >
+                <option value="">Elige la plantilla…</option>
+                {elegibles.map((x) => (
+                  <option key={x.codigo} value={x.codigo}>
+                    {x.nombre}
+                    {x.codigo === PLANTILLA_POR_OMISION ? ' (por omisión)' : ''}
+                    {x.confirmada ? '' : ' · sin confirmar'}
+                  </option>
+                ))}
+              </select>
+              <div className="phint" style={{ marginTop: 6 }}>
+                Las fotos del mueble (copetes y laterales de Biobox) se suman solas según la máquina.
+              </div>
             </div>
           )}
           {accion === 'full' && (
