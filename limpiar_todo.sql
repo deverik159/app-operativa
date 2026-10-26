@@ -16,7 +16,9 @@
 --   · visitas a rutas (Mis rutas) con sus fotos
 --   · errores de la app registrados en pruebas
 --   · Comprobaciones: periodos, campañas, sitios, tomas y bitácora de lotes
---     (Erik, 26-oct-2026; comp_reglas se queda)
+--     (Erik, 26-oct-2026; comp_reglas se queda); desde la fase 3 también las
+--     fotos de las tomas, sus ligas y su revisión (comp_evidencias,
+--     comp_evidencia_tomas, comp_revision_fotos; 26-oct-2026)
 --   · los folios vuelven a empezar en 00001 (folio_counters)
 --   · los archivos de todo lo anterior en Storage
 --
@@ -25,7 +27,8 @@
 -- y sus ubicaciones, checklists y sus causas, catorcenas,
 -- nombres_pantallas, PAUTA IMPORTADA (pautas, qtm_pautas), vv_espacios,
 -- push_suscripciones, avisos_destinatarios (lista fija de avisos), el
--- inventario de Biobox Perú, comp_reglas, las tablas heredadas sin uso, la
+-- inventario de Biobox Perú, comp_reglas, comp_plantillas_toma (catálogo de
+-- fotos), comp_piloto, las tablas heredadas sin uso, la
 -- base de Mario (externo.*) ni sus fotos en Storage (carpeta
 -- fijacion-externa/).
 --
@@ -95,7 +98,10 @@ se_borra(orden, tabla) as (values
   -- Comprobaciones (Erik, 26-oct-2026): periodos, campañas, sitios, tomas y
   -- bitácora de lotes se vacían; comp_reglas se queda.
   (26, 'comp_periodos'), (27, 'comp_campanas'), (28, 'comp_sitios'), (29, 'comp_tomas'),
-  (30, 'comp_movimientos')
+  (30, 'comp_movimientos'),
+  -- Fase 3 (26-oct-2026): apuntan a comp_tomas, así que sin ellas el TRUNCATE
+  -- se niega (lo vio revisor-rls en PGlite).
+  (31, 'comp_evidencias'), (32, 'comp_evidencia_tomas'), (33, 'comp_revision_fotos')
 ),
 se_queda(orden, tabla) as (values
   (1, 'inventario'), (2, 'inventario_estatus_historial'), (3, 'catalogo_incidencias'),
@@ -105,7 +111,7 @@ se_queda(orden, tabla) as (values
   (14, 'nombres_pantallas'), (15, 'pautas'), (16, 'qtm_pautas'), (17, 'vv_espacios'),
   (18, 'sla_areas'), (19, 'sla_validacion'), (20, 'push_suscripciones'),
   (21, 'avisos_destinatarios'), (22, 'biobox_peru_maquinas'), (23, 'biobox_peru_maquinas_historial'),
-  (24, 'comp_reglas')
+  (24, 'comp_reglas'), (25, 'comp_plantillas_toma'), (26, 'comp_piloto')
 ),
 rel_borra as (
   select to_regclass('public.' || tabla) as rel from se_borra
@@ -246,7 +252,8 @@ begin
     'vv_campanas', 'vv_pautas', 'vv_artes', 'vv_pauta_historial', 'vv_ocupacion',
     'ruta_asignaciones', 'ruta_asignaciones_historial', 'ruta_visitas',
     'errores_cliente',
-    'comp_periodos', 'comp_campanas', 'comp_sitios', 'comp_tomas', 'comp_movimientos'
+    'comp_periodos', 'comp_campanas', 'comp_sitios', 'comp_tomas', 'comp_movimientos',
+    'comp_evidencias', 'comp_evidencia_tomas', 'comp_revision_fotos'
   ]) as t
   where to_regclass('public.' || t) is not null;
 
@@ -306,7 +313,8 @@ select que, cuantas, debe from (
     'vv_campanas', 'vv_pautas', 'vv_artes', 'vv_pauta_historial', 'vv_ocupacion',
     'ruta_asignaciones', 'ruta_asignaciones_historial', 'ruta_visitas',
     'errores_cliente',
-    'comp_periodos', 'comp_campanas', 'comp_sitios', 'comp_tomas', 'comp_movimientos'
+    'comp_periodos', 'comp_campanas', 'comp_sitios', 'comp_tomas', 'comp_movimientos',
+    'comp_evidencias', 'comp_evidencia_tomas', 'comp_revision_fotos'
   ]) as t
   union all
   select 2, 'folios que no están en 1',
