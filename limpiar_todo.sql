@@ -8,11 +8,15 @@
 --   · incidencias con evidencias, reasignaciones y notificaciones
 --   · chat: mensajes, adjuntos y lecturas (el "visto")
 --   · revisiones de Biobox con respuestas y evidencias
---   · avance de pauta: tomas/comprobaciones y sus fotos
---   · bitácora VV: campañas, versiones de pauta, artes e historial
+--   · avance de pauta: tomas/comprobaciones y sus fotos, envíos y revisión
+--     del analista, campañas cerradas (26-oct-2026)
+--   · bitácora VV: campañas, versiones de pauta, artes, historial y
+--     ocupación de slots (vv_ocupacion, 26-oct-2026)
 --   · asignaciones de rutas a monitoristas y su historial de retiradas
 --   · visitas a rutas (Mis rutas) con sus fotos
 --   · errores de la app registrados en pruebas
+--   · Comprobaciones: periodos, campañas, sitios, tomas y bitácora de lotes
+--     (Erik, 26-oct-2026; comp_reglas se queda)
 --   · los folios vuelven a empezar en 00001 (folio_counters)
 --   · los archivos de todo lo anterior en Storage
 --
@@ -20,8 +24,10 @@
 -- arbol_digital, usuarios, usuario_roles, tecnicos, sla_*, rutas_monitoreo
 -- y sus ubicaciones, checklists y sus causas, catorcenas,
 -- nombres_pantallas, PAUTA IMPORTADA (pautas, qtm_pautas), vv_espacios,
--- push_suscripciones, las tablas heredadas sin uso, la base de Mario
--- (externo.*) ni sus fotos en Storage (carpeta fijacion-externa/).
+-- push_suscripciones, avisos_destinatarios (lista fija de avisos), el
+-- inventario de Biobox Perú, comp_reglas, las tablas heredadas sin uso, la
+-- base de Mario (externo.*) ni sus fotos en Storage (carpeta
+-- fijacion-externa/).
 --
 -- POR QUÉ TRUNCATE Y NO DELETE (cambio contra la versión del 31-ago):
 --   · no dispara triggers por fila: borrar ruta_asignaciones con DELETE
@@ -81,7 +87,15 @@ se_borra(orden, tabla) as (values
   (11, 'pauta_monitoreo'), (12, 'pauta_evidencias'),
   (13, 'vv_campanas'), (14, 'vv_pautas'), (15, 'vv_artes'), (16, 'vv_pauta_historial'),
   (17, 'ruta_asignaciones'), (18, 'ruta_asignaciones_historial'), (19, 'ruta_visitas'),
-  (20, 'errores_cliente')
+  (20, 'errores_cliente'),
+  -- Tablas del 20 al 23-oct-2026 (26-oct-2026): apuntan a pauta_evidencias o
+  -- a vv_campanas, así que sin ellas el TRUNCATE se niega.
+  (21, 'pauta_envios_analista'), (22, 'pauta_envio_fotos'), (23, 'pauta_revision_fotos'),
+  (24, 'pauta_campanas_cerradas'), (25, 'vv_ocupacion'),
+  -- Comprobaciones (Erik, 26-oct-2026): periodos, campañas, sitios, tomas y
+  -- bitácora de lotes se vacían; comp_reglas se queda.
+  (26, 'comp_periodos'), (27, 'comp_campanas'), (28, 'comp_sitios'), (29, 'comp_tomas'),
+  (30, 'comp_movimientos')
 ),
 se_queda(orden, tabla) as (values
   (1, 'inventario'), (2, 'inventario_estatus_historial'), (3, 'catalogo_incidencias'),
@@ -89,7 +103,9 @@ se_queda(orden, tabla) as (values
   (8, 'rutas_monitoreo'), (9, 'ruta_ubicaciones'), (10, 'checklist_plantillas'),
   (11, 'checklist_puntos'), (12, 'checklist_causas'), (13, 'catorcenas'),
   (14, 'nombres_pantallas'), (15, 'pautas'), (16, 'qtm_pautas'), (17, 'vv_espacios'),
-  (18, 'sla_areas'), (19, 'sla_validacion'), (20, 'push_suscripciones')
+  (18, 'sla_areas'), (19, 'sla_validacion'), (20, 'push_suscripciones'),
+  (21, 'avisos_destinatarios'), (22, 'biobox_peru_maquinas'), (23, 'biobox_peru_maquinas_historial'),
+  (24, 'comp_reglas')
 ),
 rel_borra as (
   select to_regclass('public.' || tabla) as rel from se_borra
@@ -226,9 +242,11 @@ begin
     'mensajes', 'chat_adjuntos', 'chat_lecturas',
     'revisiones', 'revision_respuestas', 'revision_evidencias',
     'pauta_monitoreo', 'pauta_evidencias',
-    'vv_campanas', 'vv_pautas', 'vv_artes', 'vv_pauta_historial',
+    'pauta_envios_analista', 'pauta_envio_fotos', 'pauta_revision_fotos', 'pauta_campanas_cerradas',
+    'vv_campanas', 'vv_pautas', 'vv_artes', 'vv_pauta_historial', 'vv_ocupacion',
     'ruta_asignaciones', 'ruta_asignaciones_historial', 'ruta_visitas',
-    'errores_cliente'
+    'errores_cliente',
+    'comp_periodos', 'comp_campanas', 'comp_sitios', 'comp_tomas', 'comp_movimientos'
   ]) as t
   where to_regclass('public.' || t) is not null;
 
@@ -284,9 +302,11 @@ select que, cuantas, debe from (
     'mensajes', 'chat_adjuntos', 'chat_lecturas',
     'revisiones', 'revision_respuestas', 'revision_evidencias',
     'pauta_monitoreo', 'pauta_evidencias',
-    'vv_campanas', 'vv_pautas', 'vv_artes', 'vv_pauta_historial',
+    'pauta_envios_analista', 'pauta_envio_fotos', 'pauta_revision_fotos', 'pauta_campanas_cerradas',
+    'vv_campanas', 'vv_pautas', 'vv_artes', 'vv_pauta_historial', 'vv_ocupacion',
     'ruta_asignaciones', 'ruta_asignaciones_historial', 'ruta_visitas',
-    'errores_cliente'
+    'errores_cliente',
+    'comp_periodos', 'comp_campanas', 'comp_sitios', 'comp_tomas', 'comp_movimientos'
   ]) as t
   union all
   select 2, 'folios que no están en 1',
