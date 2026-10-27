@@ -128,8 +128,11 @@ export function leerFechaCelda(v: unknown): string | null {
   return /^\d{4}-\d{2}-\d{2}/.test(s) ? aFecha(s) : null;
 }
 
-/** Forma de una clave de inventario: MX_CM_EV_MGP_16_3606, MX_CM_BB_MED_0114, MX_EM_VV_COL_A04. */
-const FORMA_CLAVE = /^MX_[A-Z]{2}_[A-Z]{2}_[A-Z]{3}(?:_\d{2})?_[0-9A-Z]+$/;
+/**
+ * Forma de una clave de inventario: MX_CM_EV_MGP_16_3606, MX_CM_BB_MED_0114, MX_EM_VV_COL_A04.
+ * La usa también la búsqueda del alta manual (buscarSitiosComp.ts) para no ofrecer una calle como clave.
+ */
+export const FORMA_CLAVE = /^MX_[A-Z]{2}_[A-Z]{2}_[A-Z]{3}(?:_\d{2})?_[0-9A-Z]+$/;
 const FORMA_PORTICO = /^(?:MX_CM_VV_)?POR_?\d+$/;
 const esForma = (s: string) => FORMA_CLAVE.test(s) || FORMA_PORTICO.test(s);
 

@@ -247,7 +247,13 @@ export default function AltaCampanaManual({ ctx, inventario }: { ctx: PropsArmar
       {f.medio === 'Columna' && (
         <div className="row2">
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, marginBottom: 13 }}>
-            <input type="checkbox" checked={f.esFull} onChange={(e) => pon('esFull', e.target.checked)} disabled={ocupado} />
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={f.esFull}
+              onChange={(e) => pon('esFull', e.target.checked)}
+              disabled={ocupado}
+            />
             Es FULL (todas las columnas)
           </label>
           {f.esFull && (
