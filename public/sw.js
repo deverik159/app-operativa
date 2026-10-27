@@ -421,8 +421,11 @@ self.addEventListener('notificationclick', (event) => {
     evento === 'pauta_tomas_comprobadas';
   // Y estos en la Bitácora VV (versión por programar / programada).
   const esBitacora = evento === 'vv_version' || evento === 'vv_programada';
-  // Y este en Comprobaciones → «Mis campañas» de la unidad (23-oct-2026).
-  const esComp = evento === 'comp_asignada';
+  // Y estos en Comprobaciones: «Mis campañas» de la unidad (23-oct-2026) y,
+  // desde la fase 3 (26-oct-2026), «Tomas por revisar» y «Tomas sin
+  // analista», que traen el PERIODO en record_id: van antes que `record=`
+  // (que enfocaría una incidencia que no existe).
+  const esComp = evento === 'comp_asignada' || evento === 'comp_revision' || evento === 'comp_sin_analista';
   const unidad = datos.unidad || null;
   // La URL se usa tanto al abrir una ventana nueva como al navegar una ya
   // abierta. De esta manera la app arranca desde el bundle actual y lee el
@@ -430,16 +433,17 @@ self.addEventListener('notificationclick', (event) => {
   // aterriza en Pauta), en vez de entregar el clic a JavaScript viejo que
   // pudo quedarse abierto durante días.
   const sep = destino.includes('?') ? '&' : '?';
-  const url = recordId
-    ? destino + sep + 'record=' + encodeURIComponent(recordId)
-    : esPauta
-      ? // Con el evento, la app elige el destino: Indicadores de Pauta o, para el analista, Comprobaciones › Tomas de Pauta (23-oct-2026).
-        destino + sep + 'ir=pauta&evento=' + encodeURIComponent(evento)
-      : esBitacora
-        ? destino + sep + 'ir=bitacora'
-        : esComp
-          ? destino + sep + 'ir=comprobaciones&evento=' + encodeURIComponent(evento) +
-            (unidad ? '&unidad=' + encodeURIComponent(unidad) : '')
+  const url = esComp
+    ? destino + sep + 'ir=comprobaciones&evento=' + encodeURIComponent(evento) +
+      (unidad ? '&unidad=' + encodeURIComponent(unidad) : '') +
+      (recordId && evento !== 'comp_asignada' ? '&periodo=' + encodeURIComponent(recordId) : '')
+    : recordId
+      ? destino + sep + 'record=' + encodeURIComponent(recordId)
+      : esPauta
+        ? // Con el evento, la app elige el destino: Indicadores de Pauta o, para el analista, Comprobaciones › Tomas de Pauta (23-oct-2026).
+          destino + sep + 'ir=pauta&evento=' + encodeURIComponent(evento)
+        : esBitacora
+          ? destino + sep + 'ir=bitacora'
           : destino;
 
   event.waitUntil(

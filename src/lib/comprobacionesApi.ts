@@ -1417,3 +1417,50 @@ export async function leerMonitoristaManual(tomaIds: number[]): Promise<Resultad
 
 // La lista del monitorista (comp_mis_tomas) se lee en misTomasApi.ts
 // (revisión del 26-oct-2026, regresiones-1): así Mis rutas no baja este API.
+
+// ---- Revisión (fase 3, incremento 2) ------------------------------
+
+/** Una campaña con tomas en revisión (comp_resumen_revision, §4.5). */
+export type ResumenRevision = {
+  campana_id: number;
+  por_revisar: number;
+  regresadas: number;
+  comprobadas: number;
+  /** ISO de la última toma enviada (en cualquiera de los 3 estados), o null. */
+  ultima_enviada: string | null;
+};
+
+/** Filas de comp_resumen_revision; lo que no se entiende se descarta. */
+export function leerFilasResumenRevision(x: unknown): ResumenRevision[] {
+  if (!Array.isArray(x)) return [];
+  const out: ResumenRevision[] = [];
+  for (const it of x) {
+    if (!it || typeof it !== 'object') continue;
+    const o = it as Record<string, unknown>;
+    const id = Number(o.campana_id);
+    if (!Number.isFinite(id)) continue;
+    const n = (v: unknown) => Math.max(0, Math.trunc(Number(v) || 0));
+    out.push({
+      campana_id: id,
+      por_revisar: n(o.por_revisar),
+      regresadas: n(o.regresadas),
+      comprobadas: n(o.comprobadas),
+      ultima_enviada: typeof o.ultima_enviada === 'string' ? o.ultima_enviada : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * comp_resumen_revision(p_periodo_id) · POR QUÉ (26-oct-2026): el chip «Por
+ * revisar (N)» de «Mis campañas» sale ya en el incremento 2, de solo
+ * lectura (la revisión llega en el 3). La función es security invoker:
+ * cuenta con la RLS de quien pregunta (la analista sus campañas, el
+ * Supervisor su unidad, el manager todo). Antes de la migración 2 no existe:
+ * codigo 'falta_migracion' y la pantalla no pinta el chip.
+ */
+export async function leerResumenRevision(periodoId: number): Promise<ResultadoComp<Map<number, ResumenRevision>>> {
+  const r = await leerRpc<unknown>('comp_resumen_revision', { p_periodo_id: periodoId });
+  if (!r.ok) return r;
+  return { ok: true, data: new Map(leerFilasResumenRevision(r.data).map((x) => [x.campana_id, x] as [number, ResumenRevision])) };
+}

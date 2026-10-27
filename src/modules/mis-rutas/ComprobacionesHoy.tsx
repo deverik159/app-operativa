@@ -1,8 +1,8 @@
 // ============================================================
 // src/modules/mis-rutas/ComprobacionesHoy.tsx
 // Mis rutas › Comprobaciones: la lista del monitorista, fase 3,
-// incremento 1 (26-oct-2026; especificación §6.1). SOLO LECTURA: la
-// cámara, la cola y el registro llegan en el incremento 2.
+// incremento 1 (26-oct-2026; especificación §6.1), con la captura del
+// incremento 2 (26-oct-2026).
 //
 // Qué enseña: SUS tomas (comp_mis_tomas: las de su ruta, las que Victor le
 // puso a mano en Formato y las devueltas que él tomó) del día elegido, una
@@ -20,6 +20,15 @@
 // reemplaza con una respuesta que llegó completa, con red y con sesión REAL
 // antes y después (al volver la señal hay ~60 s en que todo sale como
 // anónimo). Se pide hoy −3 a hoy +3: con la copia se puede mover el día.
+//
+// CAPTURA (incremento 2): solo HOY, solo si la base dice `captura` (el
+// correo está en comp_piloto) y solo en tarjetas con unidad. Lo futuro solo
+// se ve; un día pasado también (sus pendientes salen en Hoy como vencidas).
+// La lista escucha la cola (suscribirTomasComp) para pintar en cada tarjeta
+// lo que sigue en el teléfono y lo que ya ligó, y la píldora «⬆ N». Después
+// de cada lectura buena pone al día las visitas que siguen en la cola
+// (actualizarVisita: `tiene` y `regreso_n` nuevos) y anota qué ligas ya
+// venían contadas en `tiene` (`incluidas`, ver lib/capturaComp.ts).
 //
 // Reglas anti-ciclo (app pasmada, 24-sep-2026): los efectos dependen de
 // textos o números, y todo setState que sigue a una lectura se compara antes
@@ -49,10 +58,19 @@ import {
   type FiltroMisTomas,
   type MotivoCopia,
   type RespMisTomas,
+  type TarjetaSitio,
 } from '../../lib/misTomasComp';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import Ic from '../../components/Ic';
-import TarjetaSitioComp from './TarjetaSitioComp';
+import TarjetaSitioComp, { type CapturaTarjeta } from './TarjetaSitioComp';
+import {
+  actualizarVisita,
+  claveDeVisita,
+  estadoVisitas,
+  suscribirTomasComp,
+  type EstadoVisita,
+} from '../../lib/colaFotos/adaptadorComp';
+import { idsEnCola, ligasDe, plural, porSubirTotal, visitaDeTarjeta } from '../../lib/capturaComp';
 
 type Datos = {
   resp: RespMisTomas;
@@ -74,6 +92,13 @@ const TANDA = 40;
 
 /** Hoy en CDMX (no la zona del teléfono): el mismo día que usa la base. */
 const hoyAhora = () => diaCdmx(new Date());
+
+/**
+ * Las ligas que ya venían contadas en `tiene` de la última lectura buena,
+ * por correo (lib/capturaComp.ts). Fuera del componente: cambiar de vista
+ * desmonta la lista y la cola sigue.
+ */
+const incluidasPorCorreo = new Map<string, Set<string>>();
 
 /**
  * La lista de la red. 'red' = sin señal, sin sesión real o algo no contestó:
@@ -138,6 +163,16 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
   const [limite, setLimite] = useState(TANDA);
   const [minuto, setMinuto] = useState<number | null>(() => minutosCdmx());
 
+  // ---- La cola de fotos (incremento 2) ----
+  const [estados, setEstados] = useState<Map<string, EstadoVisita>>(() => new Map());
+  const estadosRef = useRef<Map<string, EstadoVisita>>(new Map());
+  const firmasEstadoRef = useRef(new Map<string, string>());
+  const [incluidas, setIncluidas] = useState<Set<string>>(() => incluidasPorCorreo.get(email) ?? new Set());
+  const ponerIncluidas = (v: Set<string>) => {
+    incluidasPorCorreo.set(email, v);
+    setIncluidas(v);
+  };
+
   const seqRef = useRef(0);
   const montadoRef = useRef(true);
   useEffect(() => {
@@ -176,6 +211,32 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
     setMotivo(v);
   };
 
+  /**
+   * Tras una lectura buena: las visitas que siguen en la cola reciben las
+   * tomas como las ve ahora la lista (`tiene`, `regreso_n`; una «devuelta
+   * después» se vuelve a evaluar). `ligadasAntes`: lo que ya viene en `tiene`
+   * (la cola no lo vuelve a sumar).
+   */
+  const ponerAlDiaLaCola = (resp: RespMisTomas, ligadasAntes: ReadonlySet<string>) => {
+    const enCola = estadosRef.current;
+    if (!enCola.size) return;
+    const h = hoyAhora();
+    const porDia = new Map<string, ReturnType<typeof armarTarjetas>>();
+    for (const [clave, e] of enCola) {
+      const dia = clave.slice(clave.lastIndexOf('|') + 1);
+      let ts = porDia.get(dia);
+      if (!ts) {
+        ts = armarTarjetas(resp.tomas, dia, h, null);
+        porDia.set(dia, ts);
+      }
+      for (const t of ts) {
+        if (!t.unidad || claveDeVisita(email, { unidad: t.unidad, sitio_clave: t.sitio_clave, fecha: dia }) !== clave) continue;
+        const v = visitaDeTarjeta(t, idsEnCola(e));
+        if (v) void actualizarVisita(email, { ...v, incluidas: ligadasAntes }).catch(() => undefined);
+      }
+    }
+  };
+
   /** La copia del teléfono, validada; null si no hay o no se entiende. */
   const deCopia = async (): Promise<Datos | null> => {
     const c = await leerCompHoyLocal(email);
@@ -199,6 +260,14 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
         ponerCargando(false);
       }
     }
+    // Lo que la cola ya ligó ANTES de pedir: eso sí viene en `tiene`.
+    // POR QUÉ se lee la cola aquí (26-oct-2026): al volver a montar la lista
+    // (de «Rutas» a «Comprobaciones», o al abrir la app) estadosRef todavía
+    // está vacío; con él, `incluidas` quedaba vacía y la liga se sumaba encima
+    // del `tiene` que ya la trae («Lateral 1/2» salía 2/2 ✓).
+    const enCola = await estadoVisitas(email).catch(() => null);
+    if (!vigente()) return;
+    const ligadasAntes = ligasDe((enCola ?? estadosRef.current).values());
     ponerActualizando(true);
     const r = await traerDeRed(email).catch(
       (e: unknown): ResultadoRed => ({ tipo: 'error', mensaje: String((e as Error)?.message || e) })
@@ -207,9 +276,11 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
     ponerActualizando(false);
     if (r.tipo === 'ok') {
       ponerError('');
+      ponerIncluidas(ligadasAntes);
       ponerDatos(r.datos);
       ponerCargando(false);
       void guardarCompHoyLocal(email, { desde: r.datos.desde, hasta: r.datos.hasta, respuesta: r.datos.resp });
+      ponerAlDiaLaCola(r.datos.resp, ligadasAntes);
       return;
     }
     if (r.tipo === 'error') {
@@ -265,6 +336,51 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
     };
   }, [cargar]);
 
+  // La cola de fotos: cada cambio (de esta pestaña o de otra) relee el estado
+  // de las visitas de este correo, con un respiro (cada foto avisa). Solo se
+  // reemplaza lo que cambió: una tarjeta sin cambios no se vuelve a pintar.
+  useEffect(() => {
+    let vivo = true;
+    let t: number | undefined;
+    const leer = async () => {
+      const m = await estadoVisitas(email).catch(() => null);
+      if (!vivo || !m) return;
+      const antes = estadosRef.current;
+      const firmas = firmasEstadoRef.current;
+      const nuevo = new Map<string, EstadoVisita>();
+      let cambio = m.size !== antes.size;
+      m.forEach((e, k) => {
+        const f = JSON.stringify(e);
+        const previo = antes.get(k);
+        if (previo && firmas.get(k) === f) nuevo.set(k, previo);
+        else {
+          nuevo.set(k, e);
+          firmas.set(k, f);
+          cambio = true;
+        }
+      });
+      for (const k of [...firmas.keys()]) if (!m.has(k)) firmas.delete(k);
+      // La primera vez sin lectura buena (abrió con la copia): lo ya ligado
+      // se da por contado en la copia (casi siempre se guardó después).
+      if (!incluidasPorCorreo.has(email)) ponerIncluidas(ligasDe(nuevo.values()));
+      if (!cambio) return;
+      estadosRef.current = nuevo;
+      setEstados(nuevo);
+    };
+    const alCambiar = () => {
+      window.clearTimeout(t);
+      t = window.setTimeout(() => void leer(), 250);
+    };
+    const quitar = suscribirTomasComp(alCambiar);
+    void leer();
+    return () => {
+      vivo = false;
+      window.clearTimeout(t);
+      quitar();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
+
   // El reloj de la franja (cada 30 s) y el cambio de día a medianoche: si se
   // estaba viendo «Hoy», se pasa al nuevo hoy.
   const hoyRef = useRef(hoy);
@@ -291,7 +407,50 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
   const delDia = useMemo(() => (tomas ? tomasDelDia(tomas, dia, hoy) : []), [tomas, dia, hoy]);
   const cuenta = useMemo(() => contarEstados(delDia, hoy), [delDia, hoy]);
   const tarjetas = useMemo(() => (tomas ? armarTarjetas(tomas, dia, hoy, filtro) : []), [tomas, dia, hoy, filtro]);
-  const visibles = tarjetas.slice(0, limite);
+  // POR QUÉ sin filtro (26-oct-2026): el chip solo decide qué filas se
+  // pintan; la captura (visita, «¿Qué es?», «¿De cuál?», «Usar también
+  // para…») trabaja con TODAS las tomas del sitio. Con «Devueltas» o
+  // «Enviadas» la hoja no ofrecía las de hoy o decía «Nada por tomar».
+  const completas = useMemo(() => {
+    const m = new Map<string, TarjetaSitio>();
+    if (tomas && filtro) for (const t of armarTarjetas(tomas, dia, hoy, null)) m.set(t.clave, t);
+    return m;
+  }, [tomas, dia, hoy, filtro]);
+  const visibles = useMemo(() => tarjetas.slice(0, limite), [tarjetas, limite]);
+
+  // ---- Captura (incremento 2) ----
+  const capturaAbierta = !!datos?.resp.captura;
+  const porSubir = useMemo(() => porSubirTotal(estados.values()), [estados]);
+  const onListaCambio = useCallback(() => void cargar(), [cargar]);
+  /**
+   * Lo de cada tarjeta, el MISMO objeto mientras su visita no cambie
+   * (TarjetaSitioComp va con memo: una foto en un sitio no repinta los demás).
+   */
+  const capturasPrevias = useRef(new Map<string, CapturaTarjeta>());
+  const capturas = useMemo(() => {
+    const m = new Map<string, CapturaTarjeta>();
+    if (capturaAbierta && dia === hoy)
+      for (const t of visibles) {
+        if (!t.unidad) continue;
+        const k = claveDeVisita(email, { unidad: t.unidad, sitio_clave: t.sitio_clave, fecha: t.dia });
+        const estado = estados.get(k) ?? null;
+        const p = capturasPrevias.current.get(t.clave);
+        const completa = completas.get(t.clave) ?? null;
+        m.set(
+          t.clave,
+          p &&
+            p.estado === estado &&
+            p.incluidas === incluidas &&
+            p.onListaCambio === onListaCambio &&
+            p.email === email &&
+            p.completa === completa
+            ? p
+            : { email, estado, incluidas, onListaCambio, completa }
+        );
+      }
+    capturasPrevias.current = m;
+    return m;
+  }, [capturaAbierta, dia, hoy, visibles, completas, estados, email, incluidas, onListaCambio]);
 
   const minDia = sumarDias(hoy, -DIAS_ALREDEDOR);
   const maxDia = sumarDias(hoy, DIAS_ALREDEDOR);
@@ -301,8 +460,8 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
   // ---- Render ----
   const explicacion = (
     <p className="phint">
-      Las tomas de Comprobaciones que te tocan, por sitio y en el orden de tu ruta. Por ahora es solo para consultar:
-      qué sitio, a qué hora y qué fotos pide cada campaña. Las fotos todavía no se suben desde aquí.
+      Las tomas de Comprobaciones que te tocan, por sitio y en el orden de tu ruta: qué sitio, a qué hora y qué fotos
+      pide cada campaña. Toma las fotos en la tarjeta del sitio; se guardan en el teléfono y se suben solas.
     </p>
   );
 
@@ -387,6 +546,11 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
           {error}
         </div>
       )}
+      {!datos.resp.captura && !nada && (
+        <div className="phint" role="note" style={{ marginTop: 0 }}>
+          La captura todavía no está abierta para ti: por ahora la lista es solo para consultar.
+        </div>
+      )}
       {datos.resp.cortada && (
         <div className="banner" role="status">
           Tienes muchísimas tomas: la lista se cortó y salen primero las devueltas y las de hoy.
@@ -417,6 +581,17 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
           </b>
           {actualizando && <span style={{ fontSize: 12, color: 'var(--muted)' }}> · actualizando…</span>}
         </div>
+        {/* La píldora de la cola: fotos de Comprobaciones que siguen en el teléfono. */}
+        {porSubir > 0 && (
+          <span
+            className="pill"
+            role="status"
+            aria-label={`${plural(porSubir, 'foto', 'fotos')} de Comprobaciones en el teléfono por subir`}
+            style={{ background: fondoTono('azul'), color: colorTono('azul'), whiteSpace: 'nowrap' }}
+          >
+            ⬆ {porSubir}
+          </span>
+        )}
         <button
           type="button"
           className="btn ghost"
@@ -445,7 +620,7 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
       )}
       {dia < hoy && (
         <div className="phint" style={{ marginTop: 0 }}>
-          Día pasado: lo que quedó por tomar también sale en Hoy como vencido.
+          Día pasado: lo que quedó por tomar también sale en Hoy como vencido{capturaAbierta ? ' (las fotos se toman en Hoy)' : ''}.
         </div>
       )}
 
@@ -496,7 +671,7 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
           </div>
           <div className="inc-list agrupada">
             {visibles.map((t) => (
-              <TarjetaSitioComp key={t.clave} t={t} hoy={hoy} minuto={minuto} />
+              <TarjetaSitioComp key={t.clave} t={t} hoy={hoy} minuto={minuto} captura={capturas.get(t.clave) ?? null} />
             ))}
           </div>
           {tarjetas.length > visibles.length && (

@@ -1269,3 +1269,22 @@ export function resumenPlan(
 export function diasEntre(inicio: string | null | undefined, fin: string | null | undefined): string[] {
   return generarFechasPlan({ tipo: 'diario' }, inicio, fin);
 }
+
+// ------------------------------------------------------------
+// El periodo que pidió un aviso (fase 3, 26-oct-2026)
+// ------------------------------------------------------------
+
+/** El periodo (id de comp_periodos, el record_id del aviso) y la unidad DEL AVISO. */
+export type PeriodoPedido = { pid: number; unidad: string };
+
+/**
+ * ¿Ya se puede abrir el periodo que pidió el aviso? Solo cuando la unidad
+ * que se ve Y la de los periodos leídos son la del aviso. POR QUÉ: al tocar
+ * un aviso de Biobox con Comprobaciones abierta en Vía Verde, el efecto que
+ * aplica el periodo corre en el mismo commit que el cambio de unidad, todavía
+ * con Vía Verde en las dos; comparando contra la unidad que se veía, buscaba
+ * el periodo entre los de Vía Verde, borraba lo pedido y se abría el de hoy.
+ */
+export function periodoPedidoListo(p: PeriodoPedido | null, unidad: string | null, periodosDe: string | null): boolean {
+  return !!p && !!unidad && unidad === p.unidad && periodosDe === p.unidad;
+}

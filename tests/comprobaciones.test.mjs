@@ -944,3 +944,17 @@ test('generarRenglonesPlan: horarioMostrar «24 HORAS» en Biobox y Ecovallas; h
   const sin = generarRenglonesPlan({ tipo: 'diario' }, null, sitios, per);
   assert.deepEqual(sin.map((x) => x.horarioMostrar), sin.map((x) => x.horario));
 });
+
+test('aviso de otra unidad (26-oct-2026): el periodo pedido espera a la unidad DEL AVISO y a sus periodos', () => {
+  const p = { pid: 17, unidad: 'Biobox' };
+  // Mismo commit del aviso: todavía se ve Vía Verde con sus periodos. Antes
+  // se comparaba contra la unidad que se veía y se aplicaba (y se perdía).
+  assert.equal(C.periodoPedidoListo(p, 'Vía Verde', 'Vía Verde'), false);
+  // Ya cambió la unidad, pero los periodos siguen siendo los de Vía Verde.
+  assert.equal(C.periodoPedidoListo(p, 'Biobox', 'Vía Verde'), false);
+  // Llegaron los de Biobox: ahora sí.
+  assert.equal(C.periodoPedidoListo(p, 'Biobox', 'Biobox'), true);
+  // Aviso de la misma unidad con sus periodos ya leídos: se aplica de una vez.
+  assert.equal(C.periodoPedidoListo({ pid: 3, unidad: 'Ecovallas' }, 'Ecovallas', 'Ecovallas'), true);
+  assert.equal(C.periodoPedidoListo(null, 'Biobox', 'Biobox'), false);
+});

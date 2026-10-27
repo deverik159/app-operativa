@@ -57,6 +57,7 @@ import {
 } from './lib/envios';
 import { accionesPendientes } from './lib/acciones';
 import { hayTomasPendientes } from './lib/tomasPauta';
+import { hayTomasCompPendientes } from './lib/colaFotos/adaptadorComp';
 import { borrarListaLocal, iniciarSincronizacion } from './lib/datosLocales';
 import { borrarChatsLocal } from './lib/chatLocal';
 import { useEnLinea, enLineaAhora, pareceSinRed } from './lib/enLinea';
@@ -468,6 +469,16 @@ function mismosRoles(a: UsuarioRol[] | null, b: UsuarioRol[]): boolean {
       (r.departamento ?? null) === (b[i].departamento ?? null) &&
       (r.medio ?? null) === (b[i].medio ?? null)
   );
+}
+
+/**
+ * El periodo de un aviso de Comprobaciones (record_id = periodo_id en
+ * comp_revision y comp_sin_analista, fase 3, 26-oct-2026). null si no es un
+ * número entero positivo: entonces se abre el periodo de siempre.
+ */
+function periodoDeAviso(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 /**
@@ -1019,13 +1030,43 @@ function Main({
    * en «Mis campañas» y en la unidad del aviso. Sin la pestaña en el menú,
    * el efecto de clavesConRuta la regresa a la de siempre.
    */
-  const esEventoComp = (e?: string | null) => e === 'comp_asignada';
-  const [vistaComp, setVistaComp] = useState<{ vista: 'mis' | 'pauta'; n: number; unidad?: string | null } | null>(
-    null
-  );
-  const irAComprobaciones = useCallback((evento?: string | null, unidad?: string | null) => {
+  //
+  // Fase 3, incremento 2 (26-oct-2026; especificación §6.3): «Tomas por
+  // revisar» (comp_revision) lleva a «Mis campañas» con el chip «Con tomas
+  // por revisar» en la unidad y el periodo del aviso; «Tomas sin analista»
+  // (comp_sin_analista) a Campañas, donde se asigna la analista que falta
+  // (revisión del 26-oct-2026: «Mis campañas» nunca lista una campaña sin
+  // analista). OJO: los dos traen
+  // record_id = periodo_id, así que se reconocen ANTES que una incidencia
+  // (que también va por record_id).
+  const esEventoComp = (e?: string | null) => e === 'comp_asignada' || e === 'comp_revision' || e === 'comp_sin_analista';
+  const [vistaComp, setVistaComp] = useState<{
+    vista: 'mis' | 'pauta' | 'campanas';
+    n: number;
+    unidad?: string | null;
+    periodo?: number | null;
+    bandeja?: 'por_revisar' | null;
+    sinAnalista?: boolean;
+  } | null>(null);
+  const irAComprobaciones = useCallback((evento?: string | null, unidad?: string | null, periodo?: number | null) => {
     setTab('comprobaciones');
     if (evento === 'comp_asignada') setVistaComp((p) => ({ vista: 'mis', n: (p?.n ?? 0) + 1, unidad: unidad ?? null }));
+    else if (evento === 'comp_revision')
+      setVistaComp((p) => ({
+        vista: 'mis',
+        n: (p?.n ?? 0) + 1,
+        unidad: unidad ?? null,
+        periodo: periodo ?? null,
+        bandeja: 'por_revisar',
+      }));
+    else if (evento === 'comp_sin_analista')
+      setVistaComp((p) => ({
+        vista: 'campanas',
+        n: (p?.n ?? 0) + 1,
+        unidad: unidad ?? null,
+        periodo: periodo ?? null,
+        sinAnalista: true,
+      }));
     // La revisión de tomas de Pauta vive en Comprobaciones (Erik, 23-oct-2026).
     else if (esAvisoDelAnalista(evento)) setVistaComp((p) => ({ vista: 'pauta', n: (p?.n ?? 0) + 1 }));
     setRecargarSignal((n) => n + 1);
@@ -1043,6 +1084,8 @@ function Main({
   const avisoCompPendiente = useRef<{
     evento: string | null;
     unidad: string | null;
+    /** Periodo del aviso (comp_revision, comp_sin_analista: record_id). */
+    periodo: number | null;
     desde: string;
     hasta: number;
   } | null>(null);
@@ -1137,22 +1180,23 @@ function Main({
   const avisoAComprobaciones = (
     evento: string | null,
     unidad: string | null,
-    alterno: () => string | null
+    alterno: () => string | null,
+    periodo: number | null = null
   ) => {
     const hasta = Date.now() + RUTA_PENDIENTE_MS;
     if (!rolesRef.current?.length) {
-      irAComprobaciones(evento, unidad);
-      avisoCompPendiente.current = { evento, unidad, desde: 'comprobaciones', hasta };
+      irAComprobaciones(evento, unidad, periodo);
+      avisoCompPendiente.current = { evento, unidad, periodo, desde: 'comprobaciones', hasta };
       return;
     }
     if (menuConRutaRef.current.split('|').includes('comprobaciones')) {
       avisoCompPendiente.current = null;
-      irAComprobaciones(evento, unidad);
+      irAComprobaciones(evento, unidad, periodo);
       return;
     }
     const destino = alterno();
     avisoCompPendiente.current =
-      tokenRolesOk.current === null ? { evento, unidad, desde: destino ?? tabRef.current, hasta } : null;
+      tokenRolesOk.current === null ? { evento, unidad, periodo, desde: destino ?? tabRef.current, hasta } : null;
   };
 
   /** Abre Pauta RECARGADA: una lista ya abierta enseñaría la toma vieja. */
@@ -1187,12 +1231,14 @@ function Main({
     if (!('serviceWorker' in navigator)) return;
     const onMsg = (e: MessageEvent) => {
       if (e.data?.tipo !== 'notificacion-abierta') return;
-      if (e.data.record_id) enfocarDesdePush(e.data.record_id);
+      // Comprobaciones primero: comp_revision y comp_sin_analista traen
+      // record_id = periodo (26-oct-2026) y no son incidencias. La unidad
+      // viaja en el aviso (sw.js); sin ella se queda la última unidad usada.
+      if (esEventoComp(e.data.evento))
+        irAComprobaciones(e.data.evento, e.data.unidad ?? null, periodoDeAviso(e.data.record_id));
+      else if (e.data.record_id) enfocarDesdePush(e.data.record_id);
       else if (esEventoPauta(e.data.evento)) irAPauta(e.data.evento);
       else if (esEventoBitacora(e.data.evento)) irABitacora();
-      // La unidad viaja en el aviso cuando sw.js la mande (pendiente de la
-      // integración, 23-oct-2026); sin ella se queda la última unidad usada.
-      else if (esEventoComp(e.data.evento)) irAComprobaciones(e.data.evento, e.data.unidad ?? null);
       else notifs.recargar();
     };
     navigator.serviceWorker.addEventListener('message', onMsg);
@@ -1233,8 +1279,10 @@ function Main({
     // sw.js lo mande (hoy el clic del push de Comprobaciones abre la portada).
     // Sin la pestaña en el menú de la copia no se mueve: se guarda por si
     // los roles de la red la traen.
+    // `&periodo=` (26-oct-2026): «Tomas por revisar» y «Tomas sin analista»
+    // abren el periodo del aviso.
     else if (ir === 'comprobaciones')
-      avisoAComprobaciones(params.get('evento'), params.get('unidad'), () => null);
+      avisoAComprobaciones(params.get('evento'), params.get('unidad'), () => null, periodoDeAviso(params.get('periodo')));
     // Solo al montar: el parámetro llega únicamente en el arranque.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1641,13 +1689,15 @@ function Main({
     // Lo pendiente de ESTA cuenta, con tope: una IndexedDB colgada no debe
     // trabar el botón.
     const contar = async () => {
-      const [envios, acciones, tomas] = await Promise.all([
+      const [envios, acciones, tomas, tomasComp] = await Promise.all([
         listarPendientes(email).then((l) => l.length).catch(() => 0),
         accionesPendientes(email).then((l) => l.length).catch(() => 0),
         // Las fotos de las tomas de Pauta en cola (22-oct-2026).
         hayTomasPendientes(email).catch(() => 0),
+        // Y las de Comprobaciones (fase 3, incremento 2, 26-oct-2026).
+        hayTomasCompPendientes(email).catch(() => 0),
       ]);
-      return envios + acciones + tomas;
+      return envios + acciones + tomas + tomasComp;
     };
     const pendientes = await conTope(contar(), 2000, -1);
     const enRiesgo = (() => {
@@ -1979,7 +2029,7 @@ function Main({
     avisoCompPendiente.current = null;
     if (Date.now() > a.hasta || tab !== a.desde) return;
     if (clavesConRuta.split('|').includes('comprobaciones')) {
-      if (tab !== 'comprobaciones') irAComprobaciones(a.evento, a.unidad);
+      if (tab !== 'comprobaciones') irAComprobaciones(a.evento, a.unidad, a.periodo);
     } else if (tab === 'comprobaciones' && esAvisoDelAnalista(a.evento)) {
       irAPautaDirecto(a.evento);
     }
@@ -2149,7 +2199,12 @@ function Main({
             onMarcarTodas={notifs.marcarTodas}
             onIr={(n) => {
               notifs.marcarLeida(n.id);
-              if (n.record_id) {
+              if (esEventoComp(n.evento)) {
+                // Campañas asignadas, tomas por revisar o sin analista
+                // (26-oct-2026): a Comprobaciones en la unidad y el periodo
+                // del aviso. Antes que record_id: estos lo usan para el periodo.
+                irAComprobaciones(n.evento, n.unidad_negocio, periodoDeAviso(n.record_id));
+              } else if (n.record_id) {
                 // Se manda a la lista completa y se enfoca por record_id:
                 // el folio lo pone un trigger y la notificación no lo trae.
                 setTab('todas');
@@ -2176,9 +2231,6 @@ function Main({
                 // también recargada.
                 setTab('bitacora_vv');
                 setRecargarSignal((x) => x + 1);
-              } else if (esEventoComp(n.evento)) {
-                // Campañas asignadas: a «Mis campañas» de su unidad.
-                irAComprobaciones(n.evento, n.unidad_negocio);
               }
             }}
           />

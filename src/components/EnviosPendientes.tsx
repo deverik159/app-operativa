@@ -40,6 +40,15 @@
 // en el teléfono o un intento que ya falló). Pero TODO cuenta para los
 // reintentos (hayPendientesRef). Cuando una toma termina, el aviso breve
 // (components/AvisoBreve) lo dice unos segundos y se recargan las listas.
+//
+// TOMAS DE COMPROBACIONES (fase 3, incremento 2, 26-oct-2026; especificación
+// §6.3 y B9): una quinta cola, la de las fotos de Mis rutas › Comprobaciones
+// (lib/colaFotos/adaptadorComp), con el mismo patrón correr(...) de Pauta y
+// los mismos disparadores. Igual que en Pauta solo se pintan las visitas que
+// piden atención, pero todas cuentan para los reintentos. Sus avisos llegan
+// con TIPO (objetos, no textos): un 'regreso' recarga la lista sin buscar
+// nada en el texto. Su aviso breve («✓ COL_551 · 6 fotos arriba · 3 tomas
+// enviadas») es otra píldora con sus propias funciones (AvisoBreve por props).
 // ============================================================
 import { Camera, MapPin } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -79,7 +88,22 @@ import {
   tomarLogrosTomas,
   type ResumenTomaAviso,
 } from '../lib/tomasPauta';
-import type { Logro } from '../lib/tomasPautaLogica';
+import { textoLogro, type Logro } from '../lib/tomasPautaLogica';
+import { logrosPorMostrar as porMostrarPauta } from '../lib/tomasPauta';
+import {
+  descartarTomaComp,
+  listarTomasCompAviso,
+  logrosPorMostrarComp,
+  procesarTomasCompPendientes,
+  quitadasHastaAhora,
+  suscribirTomasComp,
+  textoLogroComp,
+  tomarAvisosTomasComp,
+  tomarLogrosTomasComp,
+  type AvisoCola,
+  type LogroComp,
+  type ResumenAvisoCola,
+} from '../lib/colaFotos/adaptadorComp';
 import AvisoBreve from './AvisoBreve';
 import LimiteSilencioso from './LimiteSilencioso';
 
@@ -99,6 +123,9 @@ function hora(iso: string): string {
 /** ¿El aviso de la cola de tomas dice que el analista regresó la toma? */
 const esRegreso = (m: string) => /regresó la toma/.test(m);
 
+/** Los avisos de Comprobaciones vienen con tipo: aquí solo hace falta su texto. */
+const textosComp = (l: AvisoCola[]) => l.map((a) => a.texto);
+
 function plural(n: number, uno: string, varios: string): string {
   return `${n} ${n === 1 ? uno : varios}`;
 }
@@ -117,6 +144,9 @@ function EnviosPendientes({
   const [tomas, setTomas] = useState<ResumenTomaAviso[]>([]);
   /** Tomas que terminaron y aún no se muestran en el aviso breve. */
   const [logros, setLogros] = useState<Logro[]>([]);
+  /** Visitas de Comprobaciones (5.ª cola; se pintan solo las que piden atención). */
+  const [tomasComp, setTomasComp] = useState<ResumenAvisoCola[]>([]);
+  const [logrosComp, setLogrosComp] = useState<LogroComp[]>([]);
   const [abierto, setAbierto] = useState(false);
   // Una bandera por cola (verificación de la revisión sin señal,
   // 24-sep-2026): con un video lento en la de acciones, la de reportes se
@@ -125,7 +155,8 @@ function EnviosPendientes({
   const [enviandoAcciones, setEnviandoAcciones] = useState(false);
   const [enviandoVisitas, setEnviandoVisitas] = useState(false);
   const [enviandoTomas, setEnviandoTomas] = useState(false);
-  const trabajando = enviandoReportes || enviandoAcciones || enviandoVisitas || enviandoTomas;
+  const [enviandoComp, setEnviandoComp] = useState(false);
+  const trabajando = enviandoReportes || enviandoAcciones || enviandoVisitas || enviandoTomas || enviandoComp;
   /** Avisos de la última vuelta (omitidos por duplicado, etc.): una vez. */
   const [mensajes, setMensajes] = useState<string[]>([]);
   // App pasa una flecha nueva en cada render: con ref no se re-suscribe todo.
@@ -145,6 +176,7 @@ function EnviosPendientes({
   const vueltaAccionesRef = useRef<Promise<void> | null>(null);
   const vueltaVisitasRef = useRef<Promise<void> | null>(null);
   const vueltaTomasRef = useRef<Promise<void> | null>(null);
+  const vueltaCompRef = useRef<Promise<void> | null>(null);
   /** Lo último que se pintó de las tres colas (ver refrescar). */
   const firmaListasRef = useRef('');
   /** Las dos colas que terminan casi juntas piden UNA recarga de listas, no dos. */
@@ -153,6 +185,8 @@ function EnviosPendientes({
   const recargaEnRef = useRef(0);
   /** Lo último visto de ligadasHastaAhora (ver refrescar). */
   const ligadasVistasRef = useRef(ligadasHastaAhora());
+  /** Lo último visto de quitadasHastaAhora (Comprobaciones; ver refrescar). */
+  const quitadasVistasRef = useRef(quitadasHastaAhora());
   useEffect(
     () => () => {
       window.clearTimeout(relojRecarga.current);
@@ -204,27 +238,30 @@ function EnviosPendientes({
 
   const refrescar = useCallback(async () => {
     try {
-      const [l, la, lv, lt] = await Promise.all([
+      const [l, la, lv, lt, lc] = await Promise.all([
         listarPendientes(email),
         listarAccionesAviso(email),
         // Una cola de visitas que no carga no debe esconder las otras dos.
         listarVisitasAviso(email).catch(() => [] as ResumenVisita[]),
         // Ni una de tomas (22-oct-2026).
         listarTomasAviso(email).catch(() => [] as ResumenTomaAviso[]),
+        // Ni la de Comprobaciones (26-oct-2026).
+        listarTomasCompAviso(email).catch(() => [] as ResumenAvisoCola[]),
       ]);
       // Las tomas cuentan TODAS para los reintentos (cada 2 min, sesión
       // renovada), aunque solo se pinten las que piden atención.
-      hayPendientesRef.current = l.length + la.length + lv.length + lt.length > 0;
+      hayPendientesRef.current = l.length + la.length + lv.length + lt.length + lc.length > 0;
       // (rutas, 5-oct-2026, revisión) Regla anti-congelamiento del 24-sep:
       // un setState tras una lectura local se compara con un ref. Si las
       // listas dicen lo mismo que la vez pasada, no se re-renderiza.
-      const firma = JSON.stringify([l, la, lv, lt]);
+      const firma = JSON.stringify([l, la, lv, lt, lc]);
       if (firma !== firmaListasRef.current) {
         firmaListasRef.current = firma;
         setLista(l);
         setAcciones(la);
         setVisitas(lv);
         setTomas(lt);
+        setTomasComp(lc);
       }
       // Avisos de acciones que se mandaron por su cuenta (p. ej. una previa
       // de la misma incidencia antes de la que se acaba de tocar). Solo los
@@ -242,11 +279,30 @@ function EnviosPendientes({
         setLogros((prev) => [...prev, ...nuevos]);
         pedirRecarga(!nuevos.some((l) => l.registrada));
       }
+      // Comprobaciones (26-oct-2026): avisos con tipo y logros por visita. Un
+      // regreso recarga ya; un logro con tomas enviadas también; si solo
+      // subieron fotos, diferido (el monitorista suele seguir tomando).
+      const deComp = tomarAvisosTomasComp(email);
+      sumarMensajes(textosComp(deComp));
+      if (deComp.some((a) => a.tipo === 'regreso')) pedirRecarga(false);
+      const nuevosComp = tomarLogrosTomasComp(email);
+      if (nuevosComp.length) {
+        setLogrosComp((prev) => [...prev, ...nuevosComp]);
+        pedirRecarga(!nuevosComp.some((x) => x.tomas > 0));
+      }
       // Entró una foto de una toma que sigue en cola (sin logro todavía): la
       // lista se recarga diferido para que su cuenta no se quede desfasada.
       const ligadas = ligadasHastaAhora();
       if (ligadas !== ligadasVistasRef.current) {
         ligadasVistasRef.current = ligadas;
+        pedirRecarga(true);
+      }
+      // Comprobaciones (26-oct-2026): una foto que la cola ya quitó del
+      // servidor (entera o de una toma) cambia lo que `tiene` cada toma; la
+      // tarjeta ya la descuenta y la lista se relee diferido.
+      const quitadas = quitadasHastaAhora();
+      if (quitadas !== quitadasVistasRef.current) {
+        quitadasVistasRef.current = quitadas;
         pedirRecarga(true);
       }
     } catch {
@@ -303,6 +359,12 @@ function EnviosPendientes({
         // recargan diferido por su logro (ver refrescar).
         return { mensajes: r.mensajes, recargar: r.registradas > 0 || r.mensajes.some(esRegreso) };
       }),
+      // La 5.ª cola (Comprobaciones, 26-oct-2026): el regreso se reconoce por
+      // su tipo; lo terminado recarga por su logro (ver refrescar).
+      correr(vueltaCompRef, setEnviandoComp, async () => {
+        const r = await procesarTomasCompPendientes(email);
+        return { mensajes: textosComp(r.mensajes), recargar: r.mensajes.some((a) => a.tipo === 'regreso') };
+      }),
     ]).then(() => undefined);
   }, [email, refrescar, pedirRecarga, sumarMensajes]);
 
@@ -318,12 +380,14 @@ function EnviosPendientes({
     const quitarAcciones = suscribirAcciones(alCambiar);
     const quitarVisitas = suscribirVisitas(alCambiar);
     const quitarTomas = suscribirTomas(alCambiar);
+    const quitarComp = suscribirTomasComp(alCambiar);
     refrescar();
     return () => {
       quitarEnvios();
       quitarAcciones();
       quitarVisitas();
       quitarTomas();
+      quitarComp();
       window.clearTimeout(t);
     };
   }, [refrescar]);
@@ -426,11 +490,39 @@ function EnviosPendientes({
     refrescar();
   };
 
+  /** Descartar una visita de Comprobaciones = lo que no subió se borra del teléfono (26-oct-2026). */
+  const descartarComp = async (p: ResumenAvisoCola) => {
+    const faltan = Math.max(0, p.archivos - p.ligados);
+    const texto =
+      `¿Descartar las fotos de ${p.resumen}?\n\n` +
+      (faltan > 0
+        ? `Se borran de este teléfono ${plural(faltan, 'foto o video que no se ha subido', 'fotos o videos que no se han subido')}. `
+        : '') +
+      (p.ligados > 0 ? 'Lo que ya subió se queda en sus tomas. ' : '') +
+      (p.registrarPedido ? 'Las tomas que faltaba enviar NO se envían: hazlo con «Listo con este sitio» en Mis rutas.' : '');
+    if (!confirm(texto)) return;
+    const r = await descartarTomaComp(p.id);
+    if (r === 'ocupado')
+      alert('Esas fotos se están enviando en este momento. Espera a que termine e intenta de nuevo.');
+    refrescar();
+  };
+
   const mostrados = useCallback((k: number) => setLogros((prev) => prev.slice(k)), []);
+  const mostradosComp = useCallback((k: number) => setLogrosComp((prev) => prev.slice(k)), []);
   const aviso = (
-    <LimiteSilencioso nombre="aviso-breve">
-      <AvisoBreve logros={logros} onMostrados={mostrados} />
-    </LimiteSilencioso>
+    <>
+      <LimiteSilencioso nombre="aviso-breve">
+        <AvisoBreve<Logro> logros={logros} onMostrados={mostrados} porMostrar={porMostrarPauta} texto={textoLogro} />
+      </LimiteSilencioso>
+      <LimiteSilencioso nombre="aviso-breve-comp">
+        <AvisoBreve<LogroComp>
+          logros={logrosComp}
+          onMostrados={mostradosComp}
+          porMostrar={logrosPorMostrarComp}
+          texto={textoLogroComp}
+        />
+      </LimiteSilencioso>
+    </>
   );
 
   const n = lista.length;
@@ -439,7 +531,10 @@ function EnviosPendientes({
   // De las tomas solo se pintan las que piden atención (ver cabecera).
   const tomasVisibles = tomas.filter((p) => p.atencion);
   const nt = tomasVisibles.length;
-  if (!n && !m && !nv && !nt && !mensajes.length) return aviso;
+  // Lo mismo con las visitas de Comprobaciones (26-oct-2026).
+  const compVisibles = tomasComp.filter((p) => p.atencion);
+  const nc = compVisibles.length;
+  if (!n && !m && !nv && !nt && !nc && !mensajes.length) return aviso;
 
   const soloFotos = n > 0 && lista.every((p) => p.filasCreadas);
   // "📤 1 reporte, 2 acciones y 3 visitas sin enviar" (rutas, 5-oct-2026):
@@ -449,18 +544,20 @@ function EnviosPendientes({
     ...(m ? [plural(m, 'acción', 'acciones')] : []),
     ...(nv ? [plural(nv, 'visita', 'visitas')] : []),
     ...(nt ? [plural(nt, 'toma', 'tomas')] : []),
+    ...(nc ? [plural(nc, 'sitio de Comprobaciones', 'sitios de Comprobaciones')] : []),
   ];
   const unidas =
     partes.length > 1 ? `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}` : partes[0];
   const titulo =
-    n && !m && !nv && !nt && soloFotos
+    n && !m && !nv && !nt && !nc && soloFotos
       ? `📤 Fotos de ${plural(n, 'reporte', 'reportes')} sin subir`
       : `📤 ${unidas} sin enviar`;
   const enRiesgo =
     lista.some((p) => p.soloMemoria || p.fueraDelTelefono > 0) ||
     acciones.some((p) => p.soloMemoria || p.fueraDelTelefono > 0) ||
     visitas.some((p) => p.soloMemoria || p.fueraDelTelefono > 0) ||
-    tomas.some((p) => p.soloMemoria || p.fueraDelTelefono > 0);
+    tomas.some((p) => p.soloMemoria || p.fueraDelTelefono > 0) ||
+    tomasComp.some((p) => p.soloMemoria || p.fueraDelTelefono > 0);
 
   const renglon = {
     // El borde de .banner, con su pareja del tema claro (tema claro/oscuro,
@@ -503,7 +600,7 @@ function EnviosPendientes({
         </div>
       ))}
 
-      {n + m + nv + nt > 0 && (
+      {n + m + nv + nt + nc > 0 && (
         <>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ flex: '1 1 220px', minWidth: 0 }}>
@@ -514,7 +611,8 @@ function EnviosPendientes({
                 ? 'enviando…'
                 : acciones.some((p) => p.conError) ||
                     visitas.some((p) => p.conError) ||
-                    tomasVisibles.some((p) => p.conError)
+                    tomasVisibles.some((p) => p.conError) ||
+                    compVisibles.some((p) => p.conError)
                   ? 'hay envíos que no salen solos: toca «Ver detalle»'
                   : 'se reintenta solo al volver la señal'}
             </span>
@@ -527,7 +625,8 @@ function EnviosPendientes({
                 (!n || enviandoReportes) &&
                 (!m || enviandoAcciones) &&
                 (!nv || enviandoVisitas) &&
-                (!nt || enviandoTomas)
+                (!nt || enviandoTomas) &&
+                (!nc || enviandoComp)
               }
               onClick={() => procesar()}
             >
@@ -714,6 +813,54 @@ function EnviosPendientes({
                     className="btn ghost sm"
                     disabled={p.enviando || enviandoTomas}
                     onClick={() => descartarTom(p)}
+                    style={{ flexShrink: 0 }}
+                  >
+                    Descartar
+                  </button>
+                </div>
+              ))}
+            </LimiteSilencioso>
+          )}
+
+          {abierto && (
+            <LimiteSilencioso nombre="aviso-tomas-comp">
+              {compVisibles.map((p) => (
+                <div key={p.id} style={renglon}>
+                  <div style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                    <div style={{ fontWeight: 700 }}>
+                      <Ic i={Camera} />Comprobaciones · {p.resumen}
+                    </div>
+                    <div>
+                      {hora(p.creado_en)}
+                      {p.archivos > 0 &&
+                        ` · ${plural(p.archivos, 'foto o video', 'fotos o videos')}` +
+                          (p.ligados > 0 ? ` (${p.ligados} ya subidos)` : '')}
+                      {p.registrarPedido && ' · se envía al subir'}
+                      {p.enviando && ' · enviando…'}
+                    </div>
+                    {p.soloMemoria && (
+                      <div style={{ color: 'var(--warn)' }}>
+                        No se pudo guardar en el teléfono: si cierras la app, se pierde.
+                      </div>
+                    )}
+                    {!p.soloMemoria && p.fueraDelTelefono > 0 && (
+                      <div style={{ color: 'var(--warn)' }}>
+                        {plural(p.fueraDelTelefono, 'foto no cupo', 'fotos no cupieron')} en el
+                        teléfono: si cierras la app, se pierden.
+                      </div>
+                    )}
+                    {p.ultimoError &&
+                      (p.conError ? (
+                        <div style={{ color: 'var(--warn)' }}>{p.ultimoError}</div>
+                      ) : (
+                        <div style={{ opacity: 0.75 }}>Último intento: {p.ultimoError}</div>
+                      ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    disabled={p.enviando || enviandoComp}
+                    onClick={() => descartarComp(p)}
                     style={{ flexShrink: 0 }}
                   >
                     Descartar

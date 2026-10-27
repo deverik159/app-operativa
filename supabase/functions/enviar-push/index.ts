@@ -59,6 +59,14 @@ const TITULOS: Record<string, string> = {
   vv_programada: 'Versión VV programada',
   // comp_asignar_analista (23-oct-2026): un aviso por unidad y periodo.
   comp_asignada: 'Campañas asignadas',
+  // Fase 3 de Comprobaciones (26-oct-2026): un aviso por destinatario, unidad
+  // y periodo (o toma), agrupado por hora. Los cuatro se despliegan juntos en
+  // el incremento 2; comp_toma y comp_toma_sin_monitorista los manda la
+  // revisión (incremento 3).
+  comp_revision: 'Tomas por revisar',
+  comp_sin_analista: 'Tomas sin analista',
+  comp_toma: 'Toma devuelta',
+  comp_toma_sin_monitorista: 'Toma devuelta sin monitorista',
 };
 
 type Cuerpo = {

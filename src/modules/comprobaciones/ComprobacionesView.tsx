@@ -28,7 +28,13 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { soloVeTomasPauta, unidadesComprobaciones, veTomasPauta } from '../../lib/helpers';
-import { ETIQUETA_UNIDAD_COMP, UNIDADES_COMP, type UnidadComp } from '../../lib/comprobaciones';
+import {
+  ETIQUETA_UNIDAD_COMP,
+  UNIDADES_COMP,
+  periodoPedidoListo,
+  type PeriodoPedido,
+  type UnidadComp,
+} from '../../lib/comprobaciones';
 import {
   leerCampanas,
   leerCatorcenas,
@@ -102,8 +108,18 @@ type Props = {
    * Pestaña (y unidad) que pide un aviso: comp_asignada → «Mis campañas» de
    * la unidad del aviso; «Toma por revisar» / «Campaña por revisar» →
    * «Tomas de Pauta» (App.tsx, 23-oct-2026). `n` cambia en cada aviso.
+   * Fase 3 (26-oct-2026): comp_revision → «Mis campañas» del periodo del
+   * aviso con «Con tomas por revisar» (`bandeja`); comp_sin_analista →
+   * Campañas, siempre (ahí se asigna la analista que falta).
    */
-  vistaPedida?: { vista: VistaComp; n: number; unidad?: string | null } | null;
+  vistaPedida?: {
+    vista: VistaComp;
+    n: number;
+    unidad?: string | null;
+    periodo?: number | null;
+    bandeja?: 'por_revisar' | null;
+    sinAnalista?: boolean;
+  } | null;
 };
 
 /** Cuánto se queda a la vista el aviso de «✓ hecho». */
@@ -319,21 +335,57 @@ export default function ComprobacionesView({ email, roles, misDep, recargarSigna
     [unidad, periodosDe, periodos, catorcenas, permisos.gestiona]
   );
   const [claveSel, setClaveSel] = useState<string | null>(null);
+  /**
+   * El periodo que pidió un aviso (fase 3, 26-oct-2026): se aplica en cuanto
+   * llegan los periodos de esa unidad (al cambiar de unidad se vuelven a leer).
+   * Lleva la unidad DEL AVISO: con Comprobaciones abierta en otra unidad, el
+   * efecto de abajo corre en el mismo commit que el cambio de unidad (todavía
+   * con la unidad y los periodos viejos) y, comparando contra la que se veía,
+   * borraba lo pedido y se abría el periodo de siempre.
+   */
+  const periodoPedido = useRef<PeriodoPedido | null>(null);
+  /**
+   * «Con tomas por revisar» que pidió el aviso, para «Mis campañas» (`n`
+   * cambia en cada aviso). Se consume una vez: MisCampanas avisa al
+   * aplicarlo y se borra (si no, volvía cada vez que se regresaba a la vista).
+   */
+  const [pedidoMis, setPedidoMis] = useState<{ n: number; bandeja: 'por_revisar' } | null>(null);
 
   useEffect(() => {
     if (!vistaPedida) return;
     // La unidad del aviso, si es de la persona; la vista se valida al pintar
     // (si no la tiene en esa unidad, cae en la de siempre).
     const u = vistaPedida.unidad as UnidadComp | null | undefined;
-    if (u && u !== unidad && unidades.includes(u) && !ocupadoRef.current) {
+    const cambia = !!u && u !== unidad && unidades.includes(u) && !ocupadoRef.current;
+    if (cambia && u) {
       guardarUnidad(u);
       setUnidadSel(u);
       setClaveSel(null);
     }
-    if (!ocupadoRef.current) setVistaSel(vistaPedida.vista);
+    if (ocupadoRef.current) return;
+    // POR QUÉ «Tomas sin analista» va siempre a Campañas (26-oct-2026): antes
+    // el manager sin Supervisor caía en «Mis campañas», que nunca lista una
+    // campaña sin analista: veía «No hay tomas por revisar» y el aviso le pide
+    // asignar una en Campañas, donde sí puede hacerlo.
+    const v = vistaPedida.vista;
+    setVistaSel(v);
+    const destino = cambia && u ? u : unidad;
+    periodoPedido.current = vistaPedida.periodo != null && destino ? { pid: vistaPedida.periodo, unidad: destino } : null;
+    if (vistaPedida.bandeja && v === 'mis') setPedidoMis((p) => ({ n: (p?.n ?? 0) + 1, bandeja: 'por_revisar' }));
     // Solo cuando llega un aviso nuevo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vistaPedida?.n]);
+
+  // El periodo del aviso, cuando ya están los periodos de su unidad. Si no
+  // está entre ellos (otra unidad, periodo borrado), se queda el de siempre.
+  useEffect(() => {
+    const p = periodoPedido.current;
+    if (!p || !periodoPedidoListo(p, unidad, periodosDe)) return;
+    periodoPedido.current = null;
+    const o = opciones.find((x) => x.id === p.pid);
+    if (o && o.clave !== claveSel) setClaveSel(o.clave);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opciones, unidad, periodosDe, vistaPedida?.n]);
 
   // Por omisión, un periodo YA armado (el que contiene hoy o el más
   // reciente); si no hay ninguno, el actual por armar.
@@ -348,8 +400,10 @@ export default function ComprobacionesView({ email, roles, misDep, recargarSigna
   // modales y la selección. La clave no lleva el id, así que el paso de
   // «por armar» a armado sigue funcionando.
   const clavePeriodo = periodo?.clave ?? null;
+  // Con función (26-oct-2026): si en el mismo commit el aviso ya fijó su
+  // periodo (los de su unidad acaban de llegar), ése gana.
   useEffect(() => {
-    if (claveSel == null && clavePeriodo != null) setClaveSel(clavePeriodo);
+    if (claveSel == null && clavePeriodo != null) setClaveSel((c) => c ?? clavePeriodo);
   }, [claveSel, clavePeriodo]);
 
   // ---- Campañas del periodo ---------------------------------------------
@@ -678,7 +732,7 @@ export default function ComprobacionesView({ email, roles, misDep, recargarSigna
       ) : vista === 'excel' ? (
         <DescargarExcel {...p} />
       ) : (
-        <MisCampanas {...p} />
+        <MisCampanas {...p} pedido={pedidoMis} onPedidoAplicado={() => setPedidoMis(null)} />
       );
   }
 

@@ -35,6 +35,10 @@ const EVENTOS_OPERACION = new Set([
   'vv_programada',
   // Comprobaciones (23-oct-2026): «Se te asignaron N campañas».
   'comp_asignada',
+  // Fase 3, incremento 2 (26-oct-2026): «N tomas por revisar» a la analista
+  // y «N tomas sin analista» al Supervisor (o a los managers).
+  'comp_revision',
+  'comp_sin_analista',
 ]);
 
 function CampanaNotifs({
