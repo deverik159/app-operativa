@@ -469,7 +469,7 @@ function IncCard({
               teléfono ensanchaba TODA la lista de tarjetas (los items del
               grid no encogen por debajo de su min-content). */}
           <span className="pill multilinea" style={chip('azul')}>
-            <Ic i={Zap} />Directa a Digital · prevalidación pendiente
+            <Ic i={Zap} />Directa a {i.area_responsable || 'tu área'} · prevalidación pendiente
           </span>
         </div>
       )}
