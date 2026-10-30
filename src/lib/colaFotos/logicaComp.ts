@@ -36,8 +36,17 @@ import { esFinal, limpiarNombre, type ArchivoCola, type TrabajoCola } from './lo
 // Tipos
 // ------------------------------------------------------------
 
-/** Qué contestó el servidor por cada toma al ligar una foto (comp_subir_foto, §4.2 2c). */
-export type ResolucionLiga = 'ligada' | 'cerrada' | 'futura' | 'ajena' | 'duplicada';
+/**
+ * Qué contestó el servidor por cada toma al ligar una foto (comp_subir_foto,
+ * §4.2 2c). 'por_camara' (comp_f3_revision, 29-oct-2026): la base la manda en
+ * `duplicadas`, pero la posición en esa toma la sube la analista desde
+ * cámaras (ver resolverLiga). No cuenta, no crea liga y no cierra la toma: la
+ * cola la sigue registrando con lo de campo.
+ */
+export type ResolucionLiga = 'ligada' | 'cerrada' | 'futura' | 'ajena' | 'duplicada' | 'por_camara';
+
+/** Por qué una foto no cuenta en una toma (lo que se le dice al monitorista). */
+export type RazonNoLigada = Exclude<ResolucionLiga, 'ligada'>;
 
 export type ArchivoComp = ArchivoCola & {
   /** UUID que genera el teléfono: llave idempotente de comp_evidencias. */
@@ -102,8 +111,20 @@ export type TomaEnVisita = {
   estado: EstadoTomaVisita;
   /** El que vio la pantalla: si el servidor trae otro, la devolvieron después. */
   regreso_n: number;
-  /** Lo que pide (la plantilla de comp_mis_tomas). */
+  /** Lo que pide (la plantilla de comp_mis_tomas: solo lo de campo). */
   plantilla: PosPlantilla[];
+  /**
+   * Posiciones que en esta toma sube la analista desde cámaras (por_camara de
+   * comp_mis_tomas, 29-oct-2026). Solo para el texto de una foto que la base
+   * contestó en `duplicadas` por eso. Un trabajo de antes no la trae.
+   */
+  por_camara?: string[];
+  /**
+   * Posiciones que la BASE dijo, en esta visita, que van por cámara (una
+   * foto suya salió 'por_camara'). Sobreviven a fundirTomas: la pantalla
+   * puede seguir mandando la lista vieja (ver pasarACamara).
+   */
+  camara_servidor?: string[];
   /** Lo que el servidor ya tenía cuando la pantalla la leyó. */
   tiene: TienePos[];
   /** cliente_id de las fotos de la visita que ya vienen contadas en `tiene` (no se suman otra vez). */
@@ -226,6 +247,7 @@ export function cuentaEnToma(a: Pick<ArchivoComp, 'resueltas'>, tomaId: number):
  * misma foto sí puede ir a otro día de la misma campaña con «Usar también
  * para…».
  */
+// 'por_camara' (29-oct-2026) tampoco ocupa: la base no creó la liga.
 export function ocupaCampana(a: Pick<ArchivoComp, 'resueltas'>, tomaId: number): boolean {
   const r = a.resueltas[String(tomaId)];
   return !r || r === 'ligada' || r === 'duplicada';
@@ -307,6 +329,35 @@ export function firmaToma(toma: Pick<TomaEnVisita, 'id' | 'tiene' | 'incluidas'>
   return `${tiene}#${ligadas.join(',')}${quitadas.length ? `#-${quitadas.join(',')}` : ''}`;
 }
 
+/**
+ * La base dijo que esa posición, en esa toma, va por cámara ('por_camara'):
+ * la cola deja de pedirla para decidir el registro, la anota en `por_camara`
+ * (para el texto) y en `camara_servidor` (para no olvidarla). POR QUÉ
+ * (29-oct-2026): con la lista vieja del teléfono (el Supervisor pasó la
+ * campaña a mixto después de leerla) la plantilla de la visita todavía pide
+ * la Corta; como nunca cuenta, la toma no se registraba sola. Cada foto nueva
+ * vuelve a fundir las tomas con esa lista vieja: reaplicarCamara lo repone.
+ * La base cuenta al registrar: si algo no cuadra, contesta `faltan`.
+ * Devuelve si cambió algo.
+ */
+export function pasarACamara(
+  toma: Pick<TomaEnVisita, 'plantilla' | 'por_camara' | 'camara_servidor'>,
+  pos: string
+): boolean {
+  const antes = toma.plantilla.length;
+  toma.plantilla = toma.plantilla.filter((q) => q.pos !== pos);
+  const ya = toma.por_camara?.includes(pos) ?? false;
+  if (!ya) toma.por_camara = [...(toma.por_camara ?? []), pos];
+  const sabida = toma.camara_servidor?.includes(pos) ?? false;
+  if (!sabida) toma.camara_servidor = [...(toma.camara_servidor ?? []), pos];
+  return toma.plantilla.length !== antes || !ya || !sabida;
+}
+
+/** Después de fundir las tomas con la pantalla: lo que la base ya dijo por cámara sigue sin pedirse. */
+export function reaplicarCamara(toma: Pick<TomaEnVisita, 'plantilla' | 'por_camara' | 'camara_servidor'>): void {
+  for (const pos of toma.camara_servidor ?? []) pasarACamara(toma, pos);
+}
+
 /** ¿La toma sigue esperando algo de esta visita? (sin registrar y sin un final del servidor). */
 export function tomaAbierta(x: Pick<TomaEnVisita, 'reg' | 'estado'>): boolean {
   return !x.reg && x.estado !== 'por_revisar';
@@ -367,8 +418,13 @@ export type FotoEnVisita = {
   toma_ids: number[];
   /** Tomas donde ya cuenta (el servidor la ligó). */
   ligada_en: number[];
-  /** Tomas donde no entró, con la razón. */
-  no_ligada: { toma_id: number; razon: Exclude<ResolucionLiga, 'ligada'> }[];
+  /** Tomas donde no entró, con la razón (como se le dice: ver RazonNoLigada). */
+  /**
+   * ocupa: la base sí dejó la liga (una 'duplicada' de verdad), aunque el
+   * texto diga «por cámara»: esa campaña ya no se ofrece en «Usar también
+   * para…» (revisión adversarial, 29-oct-2026).
+   */
+  no_ligada: { toma_id: number; razon: RazonNoLigada; ocupa?: boolean }[];
   /**
    * ¿Hay copia en el teléfono? (miniatura y Guardar en Fotos). Una ligada ya
    * no: la pantalla usa el File que ella misma encoló o la URL pública.
@@ -483,7 +539,15 @@ export function estadoDeVisita(
         ligada_en: a.toma_ids.filter((id) => cuentaEnToma(a, id)),
         no_ligada: a.toma_ids
           .filter((id) => a.resueltas[String(id)] && !cuentaEnToma(a, id))
-          .map((id) => ({ toma_id: id, razon: a.resueltas[String(id)] as Exclude<ResolucionLiga, 'ligada'> })),
+          .map((id) => ({
+            toma_id: id,
+            razon: razonNoLigada(
+              a.resueltas[String(id)] as Exclude<ResolucionLiga, 'ligada'>,
+              t.tomas.find((x) => x.id === id),
+              a.pos
+            ),
+            ...(a.resueltas[String(id)] === 'duplicada' ? { ocupa: true } : {}),
+          })),
         // Al quedar ligada su copia se borra del teléfono (como en Pauta).
         enTelefono: !a.remoto && !esFinal(a.estado) && op.hayCopia(t.id, a.fid),
       });
@@ -551,8 +615,22 @@ export function leerRespSubirFoto(x: unknown): RespSubirFoto | null {
  * Cómo queda cada toma pedida tras comp_subir_foto. Una toma que no vino en
  * ninguna lista (no debe pasar) se da por ligada: la base no se quejó y, si
  * no entró, la plantilla lo dirá al registrar.
+ *
+ * 'por_camara' (comp_f3_revision, 29-oct-2026): la base contesta en
+ * `duplicadas` una posición que en esa toma va por cámara. Se distingue de
+ * la duplicada de siempre (devuelta, B4, u otro día de la campaña, A1) así:
+ *   · `esPorCamara(id)`: la pantalla ya sabe que esa posición va por cámara
+ *     en esa toma (por_camara de comp_mis_tomas);
+ *   · o la foto es NUEVA (`ya` = false): una foto que no existía no tiene
+ *     ligas viejas, así que no puede estar devuelta ni en otro día (A1 con
+ *     dos tomas de la misma campaña en una llamada es CP005). Cubre la lista
+ *     vieja del teléfono (el Supervisor cambió el modo después de leerla).
  */
-export function resolverLiga(pedidas: readonly number[], r: Extract<RespSubirFoto, { ok: true }>): Record<string, ResolucionLiga> {
+export function resolverLiga(
+  pedidas: readonly number[],
+  r: Extract<RespSubirFoto, { ok: true }>,
+  esPorCamara?: (tomaId: number) => boolean
+): Record<string, ResolucionLiga> {
   const out: Record<string, ResolucionLiga> = {};
   const marca = (lista: number[], que: ResolucionLiga) => {
     for (const id of lista) if (pedidas.includes(id) && !out[String(id)]) out[String(id)] = que;
@@ -561,7 +639,9 @@ export function resolverLiga(pedidas: readonly number[], r: Extract<RespSubirFot
   marca(r.cerradas, 'cerrada');
   marca(r.futuras, 'futura');
   marca(r.ajenas, 'ajena');
-  marca(r.duplicadas, 'duplicada');
+  for (const id of r.duplicadas)
+    if (pedidas.includes(id) && !out[String(id)])
+      out[String(id)] = !r.ya || esPorCamara?.(id) ? 'por_camara' : 'duplicada';
   for (const id of pedidas) out[String(id)] ??= 'ligada';
   return out;
 }
@@ -719,16 +799,35 @@ export function textoLogroComp(todos: readonly LogroComp[]): string {
   return partes.join(' · ');
 }
 
+/**
+ * La razón que se le dice al monitorista. POR QUÉ (29-oct-2026,
+ * comp_f3_revision): la base contesta en `duplicadas` también una foto cuya
+ * posición en esa toma va por cámara (la sube la analista); «ya se había
+ * devuelto: toma otra» lo mandaba a repetir una foto que no le toca. Una
+ * 'duplicada' que resolverLiga no pudo distinguir (foto ya existente y la
+ * lista de entonces sin por_camara) se dice «por cámara» en cuanto la lista
+ * nueva lo sabe. Solo cambia el texto.
+ */
+export function razonNoLigada(
+  que: Exclude<ResolucionLiga, 'ligada'>,
+  toma: Pick<TomaEnVisita, 'por_camara'> | null | undefined,
+  pos: string
+): RazonNoLigada {
+  return que === 'duplicada' && !!toma?.por_camara?.includes(pos) ? 'por_camara' : que;
+}
+
 /** Por qué una foto no se ligó a una toma, en palabras de campo. */
-export function textoNoLigada(razon: Exclude<ResolucionLiga, 'ligada'>): string {
+export function textoNoLigada(razon: RazonNoLigada): string {
   switch (razon) {
     case 'cerrada':
       return 'ya estaba comprobada, cancelada o su campaña se cerró';
     case 'futura':
       return 'es de un día que aún no llega';
     case 'ajena':
-      return 'ya no es tuya (la reasignaron)';
+      return 'ya no es tuya (la reasignaron, o ahora la sube la analista desde cámaras)';
     case 'duplicada':
       return 'esa foto ya cuenta en otro día de esa campaña o ya se había devuelto: toma otra';
+    case 'por_camara':
+      return 'esa foto la sube la analista desde cámaras (no tienes que tomarla)';
   }
 }

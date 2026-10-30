@@ -314,3 +314,82 @@ test('revisión: qué fallas de la lista dejan la copia sin alerta (monitorista-
   assert.equal(M.motivoCopiaDeFalla({ sinRed: false, codigo: 'falta_migracion' }), null);
   assert.equal(M.motivoCopiaDeFalla({ sinRed: false, codigo: 'otro' }), null);
 });
+
+// ------------------------------------------------------------
+// Incremento 3 (comp_f3_revision, 29-oct-2026): modo mixto
+// ------------------------------------------------------------
+
+const CAM_CORTA = [{ pos: 'corta', n: 1, alcance: 'version', momento: null, etiqueta: 'Corta', via: 'camara' }];
+const ML = CML.filter((q) => q.pos !== 'corta').map((q) => ({ ...q, via: 'campo' }));
+
+test('mixto: por_camara se lee aparte; sin la llave (antes de la migración) es []', () => {
+  const [a, b] = leer([toma({ plantilla: ML, por_camara: CAM_CORTA }), toma({ plantilla: CML })]);
+  assert.deepEqual(a.plantilla.map((q) => q.pos), ['media', 'larga']);
+  assert.ok(a.plantilla.every((q) => q.via !== 'camara'), 'via campo no se guarda');
+  assert.deepEqual(a.por_camara, [{ pos: 'corta', n: 1, alcance: 'version', momento: null, etiqueta: 'Corta', via: 'camara' }]);
+  assert.deepEqual(b.por_camara, []);
+  assert.deepEqual(b.plantilla.map((q) => q.pos), ['corta', 'media', 'larga']);
+});
+
+test('mixto: una posición con via camara que llegara en plantilla pasa a por_camara (nunca se pide)', () => {
+  const [t] = leer([
+    toma({ plantilla: [...CAM_CORTA, ...ML], por_camara: [{ ...CAM_CORTA[0], etiqueta: 'Corta repetida' }] }),
+  ]);
+  assert.deepEqual(t.plantilla.map((q) => q.pos), ['media', 'larga']);
+  assert.deepEqual(t.por_camara.map((q) => [q.pos, q.etiqueta]), [['corta', 'Corta']], 'sin repetir');
+  assert.deepEqual(M.faltanDeToma(t).map((q) => q.pos), ['media', 'larga']);
+  assert.deepEqual(M.posicionesDeVersion(t).map((q) => q.pos), ['media', 'larga']);
+  assert.deepEqual(M.partirPlantilla(null, 'basura'), { campo: [], camara: [] });
+});
+
+test('mixto: textoPorCamara dice que no la toma (una o varias, sin repetir)', () => {
+  assert.equal(M.textoPorCamara([]), '');
+  assert.equal(M.textoPorCamara([{ etiqueta: 'Corta' }]), 'La foto Corta la sube la analista desde cámaras: tú no la tomas.');
+  assert.equal(
+    M.textoPorCamara([{ etiqueta: 'Corta' }, { etiqueta: 'Media' }, { etiqueta: 'Corta' }]),
+    'Las fotos Corta y Media las sube la analista desde cámaras: tú no las tomas.'
+  );
+});
+
+test('mixto: el aviso va una vez en la tarjeta si todas las versiones abiertas llevan lo mismo', () => {
+  const [a, b, env] = leer([
+    toma({ plantilla: ML, por_camara: CAM_CORTA }),
+    toma({ plantilla: ML, por_camara: CAM_CORTA, campana_id: 11 }),
+    toma({ plantilla: CML, estado: 'por_revisar', campana_id: 12 }),
+  ]);
+  const comun = M.porCamaraDeTarjeta([a, b, env]);
+  assert.match(comun, /^La foto Corta la sube la analista desde cámaras/);
+  assert.equal(M.porCamaraDeToma(a, comun), '', 'ya lo dijo la tarjeta');
+  // Distintas: cada versión dice la suya; la de campo, nada.
+  const [c] = leer([toma({ plantilla: CML, campana_id: 13 })]);
+  assert.equal(M.porCamaraDeTarjeta([a, c]), null);
+  assert.match(M.porCamaraDeToma(a, null), /Corta/);
+  assert.equal(M.porCamaraDeToma(c, null), '');
+  // Una enviada no dice nada; sin tomas abiertas, nada arriba.
+  const [e2] = leer([toma({ plantilla: ML, por_camara: CAM_CORTA, estado: 'por_revisar' })]);
+  assert.equal(M.porCamaraDeToma(e2, null), '');
+  assert.equal(M.porCamaraDeTarjeta([e2]), null);
+});
+
+test('devueltas: la tarjeta sale arriba con sus rechazadas (pos y motivo); una pendiente no las trae', () => {
+  const [d, p] = leer([
+    toma({
+      sitio_clave: 'COL_7',
+      estado: 'regresada',
+      regreso_n: 1,
+      rechazo_motivo: 'Fotos rechazadas (1): salió movida',
+      plantilla: CML,
+      tiene: [{ pos: 'corta', momento: null, n: 1 }],
+      rechazadas: [{ evidencia_id: 55, path: 'comp/via-verde/2026-10/COL_7/20261029_x.jpg', pos: 'larga', motivo: 'salió movida' }],
+    }),
+    toma({ sitio_clave: 'COL_1', ruta_id: 1, ruta_numero: 1, secuencia: 1 }),
+  ]);
+  assert.deepEqual(d.rechazadas, [{ evidencia_id: 55, path: 'comp/via-verde/2026-10/COL_7/20261029_x.jpg', pos: 'larga', motivo: 'salió movida' }]);
+  assert.deepEqual(p.rechazadas, []);
+  const t = M.armarTarjetas([d, p], HOY, HOY);
+  assert.equal(t[0].sitio_clave, 'COL_7');
+  assert.equal(t[0].devuelta, true);
+  // La plantilla vuelve a pedir lo que falta (la rechazada ya no está en tiene).
+  assert.deepEqual(M.faltanDeToma(d).map((q) => q.pos), ['media', 'larga']);
+  assert.deepEqual(M.armarTarjetas([d, p], HOY, HOY, 'devueltas').map((x) => x.sitio_clave), ['COL_7']);
+});

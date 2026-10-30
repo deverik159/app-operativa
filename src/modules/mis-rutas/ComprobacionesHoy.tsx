@@ -30,6 +30,11 @@
 // (actualizarVisita: `tiene` y `regreso_n` nuevos) y anota qué ligas ya
 // venían contadas en `tiene` (`incluidas`, ver lib/capturaComp.ts).
 //
+// AVISO «Toma devuelta» (comp_toma, incremento 3, 29-oct-2026): llega como
+// `pedido` (App → MisRutasView) y abre Hoy con el chip «Devueltas», UNA vez
+// por aviso (como la vista de Mis rutas): al volver por el menú manda lo que
+// la persona eligió.
+//
 // Reglas anti-ciclo (app pasmada, 24-sep-2026): los efectos dependen de
 // textos o números, y todo setState que sigue a una lectura se compara antes
 // con un ref.
@@ -93,6 +98,12 @@ const TANDA = 40;
 /** Hoy en CDMX (no la zona del teléfono): el mismo día que usa la base. */
 const hoyAhora = () => diaCdmx(new Date());
 
+/** El último aviso «Toma devuelta» ya aplicado (sobrevive a desmontar la lista). */
+let nPedidoAplicado = 0;
+
+/** Lo que pide un aviso: el chip con que se abre la lista (`n` cambia en cada aviso). */
+export type PedidoComprobacionesHoy = { n: number; filtro: 'devueltas' };
+
 /**
  * Las ligas que ya venían contadas en `tiene` de la última lectura buena,
  * por correo (lib/capturaComp.ts). Fuera del componente: cambiar de vista
@@ -141,7 +152,16 @@ const ETIQUETA_FILTRO: Record<Exclude<FiltroMisTomas, null>, string> = {
   enviadas: 'Enviadas',
 };
 
-export default function ComprobacionesHoy({ email, recargarSignal }: { email: string; recargarSignal: number }) {
+export default function ComprobacionesHoy({
+  email,
+  recargarSignal,
+  pedido = null,
+}: {
+  email: string;
+  recargarSignal: number;
+  /** Aviso «Toma devuelta»: abre Hoy con el chip «Devueltas» (null = nada). */
+  pedido?: PedidoComprobacionesHoy | null;
+}) {
   // Dentro del ErrorBoundary de App (ver lib/vigia.ts).
   vigilarRender('ComprobacionesHoy');
 
@@ -159,7 +179,24 @@ export default function ComprobacionesHoy({ email, recargarSignal }: { email: st
 
   const [hoy, setHoy] = useState(hoyAhora);
   const [dia, setDia] = useState(hoy);
-  const [filtro, setFiltro] = useState<FiltroMisTomas>(null);
+  // Desde el primer render si llega con un aviso (sin un instante con «todas»).
+  // Sin marcarlo aplicado aquí (en modo estricto el inicializador corre dos
+  // veces): lo marca el efecto de abajo.
+  const [filtro, setFiltro] = useState<FiltroMisTomas>(() =>
+    pedido && pedido.n > nPedidoAplicado ? pedido.filtro : null
+  );
+  // El aviso (al montar o con la lista ya abierta): Hoy (ahí salen todas las
+  // devueltas) y el chip, una sola vez. Depende del número (reglas anti-ciclo).
+  const nPedido = pedido?.n ?? 0;
+  const pedidoRef = useRef(pedido);
+  pedidoRef.current = pedido;
+  useEffect(() => {
+    const p = pedidoRef.current;
+    if (!p || p.n <= nPedidoAplicado) return;
+    nPedidoAplicado = p.n;
+    setDia(hoyAhora());
+    setFiltro(p.filtro);
+  }, [nPedido]);
   const [limite, setLimite] = useState(TANDA);
   const [minuto, setMinuto] = useState<number | null>(() => minutosCdmx());
 

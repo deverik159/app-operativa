@@ -44,6 +44,8 @@ export type PermisosComp = {
   soloLectura: boolean;
   /** Tiene fila de analista en la unidad: ve «Mis campañas» y marca lo suyo. */
   esAnalista: boolean;
+  /** Manager: revisa cualquier toma (comp_puede_revisar). Sin la llave = no. */
+  esManager?: boolean;
 };
 
 /** Lo que comparten todas las pestañas. */

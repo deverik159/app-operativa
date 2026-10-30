@@ -15,15 +15,27 @@
 // en el teléfono, y ámbar lo que la base dijo que falta. Sin `captura` es la
 // misma tarjeta de solo lectura del incremento 1.
 //
+// MODO MIXTO (incremento 3, 29-oct-2026; spec §11): lo que la analista sube
+// desde cámaras (por_camara) no se pide ni se cuenta; la tarjeta lo dice con
+// texto («La foto Corta la sube la analista desde cámaras: tú no la tomas.»),
+// una vez arriba si todas las versiones llevan lo mismo, o en cada versión.
+//
+// DEVUELTAS (incremento 3): la tarjeta va arriba con borde rojo, cada toma
+// devuelta dice su motivo y las fotos que la analista rechazó salen con su
+// miniatura tachada, la posición, «rechazada» y el motivo; la plantilla
+// vuelve a pedir lo que falta (la base ya no las cuenta en `tiene`).
+//
 // Pensada primero para iPhone (375 px): todo envuelve (sin scroll
 // horizontal), los textos largos se parten y el único botón (IrAqui) mide
 // 44 px. Los colores salen de tonos.ts, que ya trae los del tema oscuro.
 // ============================================================
 import { memo, useState, type CSSProperties } from 'react';
 import IrAqui from '../../components/IrAqui';
+import { sb } from '../../lib/supabase';
+import { BUCKET_EVIDENCIAS } from '../../lib/storage';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import { estadoFranja } from '../../lib/franjaHorario';
-import type { FaltaPos } from '../../lib/plantillasComp';
+import { etiquetaDePos, type FaltaPos } from '../../lib/plantillasComp';
 import { textoFaltan, type EstadoVisita, type FinRegistro } from '../../lib/colaFotos/logicaComp';
 import type { ResultadoCerrar } from '../../lib/colaFotos/adaptadorComp';
 import { avanceCaptura, diaFilaSitio, fotosDeSitioCaptura } from '../../lib/capturaComp';
@@ -33,9 +45,12 @@ import {
   esVencida,
   grupoDeToma,
   nombreToma,
+  porCamaraDeTarjeta,
+  porCamaraDeToma,
   posicionesDeVersion,
   textoRuta,
   vencidasDeOtroDia,
+  type FotoRechazada,
   type TarjetaSitio,
   type TomaMia,
 } from '../../lib/misTomasComp';
@@ -179,6 +194,82 @@ function PillEstado({ t, hoy, fin }: { t: TomaMia; hoy: string; fin?: FinRegistr
   );
 }
 
+/**
+ * «La foto Corta la sube la analista desde cámaras: tú no la tomas.» Con
+ * texto (no solo color) y como nota: no es algo que falte.
+ */
+function NotaCamara({ texto }: { texto: string }) {
+  return (
+    <div
+      role="note"
+      style={{
+        fontSize: 13,
+        marginTop: 6,
+        padding: '6px 10px',
+        borderRadius: 8,
+        border: '1px dashed var(--line)',
+        color: 'var(--muted)',
+        overflowWrap: 'anywhere',
+      }}
+    >
+      <b style={{ color: 'var(--txt)' }}>Por cámara:</b> {texto}
+    </div>
+  );
+}
+
+/** La dirección pública de una foto (null si no se puede armar). */
+function urlFoto(path: string): string | null {
+  if (!path) return null;
+  try {
+    return sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path).data.publicUrl || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Una foto que la analista rechazó (comp_mis_tomas `rechazadas`, B2):
+ * miniatura tachada, posición, «rechazada» y el motivo. El tachado no va
+ * solo por color: la palabra «rechazada» y el motivo lo dicen.
+ */
+function FotoRechazadaFila({ r, etiqueta }: { r: FotoRechazada; etiqueta: string }) {
+  const [src, setSrc] = useState(() => urlFoto(r.path));
+  const caja: CSSProperties = {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    border: `2px solid ${colorTono('rojo')}`,
+    flexShrink: 0,
+    position: 'relative',
+    overflow: 'hidden',
+    background: 'var(--panel2)',
+  };
+  return (
+    <li style={{ display: 'flex', gap: 8, alignItems: 'flex-start', minWidth: 0 }}>
+      <div style={caja} aria-hidden="true">
+        {src && (
+          <img
+            src={src}
+            alt=""
+            loading="lazy"
+            onError={() => setSrc(null)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.45 }}
+          />
+        )}
+        {/* La «X» del tachado sobre la miniatura (adorno: el texto lo dice). */}
+        <svg viewBox="0 0 56 56" width="100%" height="100%" style={{ position: 'absolute', inset: 0 }}>
+          <line x1="4" y1="4" x2="52" y2="52" stroke={colorTono('rojo')} strokeWidth="3" />
+          <line x1="52" y1="4" x2="4" y2="52" stroke={colorTono('rojo')} strokeWidth="3" />
+        </svg>
+      </div>
+      <div style={{ minWidth: 0, fontSize: 13, overflowWrap: 'anywhere' }}>
+        <s>{etiqueta}</s> <b style={{ color: colorTono('rojo') }}>· rechazada</b>
+        {r.motivo ? <div style={{ color: 'var(--txt)' }}>Motivo: {r.motivo}</div> : null}
+      </div>
+    </li>
+  );
+}
+
 /** Una toma (campaña-versión) dentro de la tarjeta. */
 function FilaToma({
   x,
@@ -187,6 +278,7 @@ function FilaToma({
   esHoy,
   unHorario,
   cap,
+  camaraTarjeta,
 }: {
   x: TomaMia;
   hoy: string;
@@ -194,6 +286,8 @@ function FilaToma({
   esHoy: boolean;
   unHorario: boolean;
   cap: CapFila | null;
+  /** El aviso de cámara que ya dice la tarjeta (null = cada versión dice el suyo). */
+  camaraTarjeta: string | null;
 }) {
   const fin = cap?.fin.get(x.id) ?? null;
   // Lo que faltaba deja de decirse si la toma ya se envió (por la cola o
@@ -204,6 +298,11 @@ function FilaToma({
     ? avanceCaptura(x, cap.estado, cap.incluidas).filter((q) => q.alcance === 'version' || x.fecha !== cap.diaSitio)
     : posicionesDeVersion(x).map((q) => ({ ...q, enTelefono: 0 }));
   const enviada = x.estado === 'por_revisar' || fin === 'enviada';
+  const camara = enviada ? '' : porCamaraDeToma(x, camaraTarjeta);
+  const etiquetaRechazada = (pos: string) =>
+    x.plantilla.find((q) => q.pos === pos)?.etiqueta ??
+    (x.por_camara ?? []).find((q) => q.pos === pos)?.etiqueta ??
+    etiquetaDePos(pos);
   return (
     <li
       style={{
@@ -224,7 +323,7 @@ function FilaToma({
       )}
       {x.estado === 'regresada' && x.rechazo_motivo && (
         <div style={{ color: colorTono('rojo'), fontSize: 13, marginTop: 4, overflowWrap: 'anywhere' }} role="note">
-          {x.rechazo_motivo}
+          <b>Motivo de la devolución:</b> {x.rechazo_motivo}
         </div>
       )}
       {!enviada && pos.length > 0 && (
@@ -243,6 +342,7 @@ function FilaToma({
           ))}
         </div>
       )}
+      {camara && <NotaCamara texto={camara} />}
       {faltan && faltan.length > 0 && (
         <div style={{ color: colorTono('ambar'), fontSize: 13, marginTop: 4, overflowWrap: 'anywhere' }}>
           {textoFaltan(nombreToma(x), faltan)}
@@ -253,14 +353,18 @@ function FilaToma({
           {TEXTO_FIN[fin]}
         </div>
       )}
-      {x.rechazadas.length > 0 && (
-        <div style={{ fontSize: 12, marginTop: 6 }}>
-          {x.rechazadas.map((r) => (
-            <div key={r.evidencia_id} style={{ color: 'var(--muted)', overflowWrap: 'anywhere' }}>
-              <s>Foto rechazada</s>
-              {r.motivo ? `: ${r.motivo}` : ''}
-            </div>
-          ))}
+      {x.estado === 'regresada' && x.rechazadas.length > 0 && (
+        <div style={{ marginTop: 6 }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>
+            {x.rechazadas.length === 1
+              ? 'Foto rechazada: ya no cuenta, vuelve a tomarla'
+              : `Fotos rechazadas (${x.rechazadas.length}): ya no cuentan, vuelve a tomarlas`}
+          </div>
+          <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'grid', gap: 6 }}>
+            {x.rechazadas.map((r) => (
+              <FotoRechazadaFila key={r.evidencia_id} r={r} etiqueta={etiquetaRechazada(r.pos)} />
+            ))}
+          </ul>
         </div>
       )}
       {x.observaciones && <div className="obs">{x.observaciones}</div>}
@@ -355,8 +459,20 @@ function TarjetaSitioComp({
   for (const x of t.tomas) cuenta[grupoDeToma(x, hoy)]++;
   const porTomar = cuenta.por_tomar + cuenta.devueltas;
   const enviadas = cuenta.enviadas;
+  // Lo que va por cámara (29-oct-2026): una vez arriba si todas las versiones
+  // que todavía piden fotos llevan lo mismo.
+  const camaraTarjeta = porCamaraDeTarjeta(t.tomas);
   const fila = (x: TomaMia) => (
-    <FilaToma key={x.id} x={x} hoy={hoy} minuto={minuto} esHoy={esHoy} unHorario={unHorario} cap={cap} />
+    <FilaToma
+      key={x.id}
+      x={x}
+      hoy={hoy}
+      minuto={minuto}
+      esHoy={esHoy}
+      unHorario={unHorario}
+      cap={cap}
+      camaraTarjeta={camaraTarjeta}
+    />
   );
   // Una toma con algo en ámbar marca el borde de la tarjeta.
   const sigueAbierta = (id: number) =>
@@ -426,6 +542,8 @@ function TarjetaSitioComp({
           </div>
         </div>
       )}
+
+      {camaraTarjeta && <NotaCamara texto={camaraTarjeta} />}
 
       <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700, marginTop: 10 }}>
         {porTomar > 0 ? `Por tomar (${porTomar})` : 'Nada por tomar'}

@@ -18,6 +18,11 @@
 //   · «Usar también para…» abre la misma hoja con la posición fija; una
 //     versión que ya devolvió esa foto sale apagada con «Esta foto ya se
 //     devolvió: toma otra» (B4).
+//   · Modo mixto (29-oct-2026, spec §11): lo que la analista sube desde
+//     cámaras nunca se ofrece. Las opciones y las versiones salen solo de
+//     `plantilla` (capturaComp), que desde comp_f3_revision es la parte de
+//     campo; misTomasComp.partirPlantilla pasa a por_camara cualquier
+//     posición con via 'camara' que llegara en ella.
 //
 // Ventana con role="dialog", foco en el título y Escape = Cancelar
 // (useFocoModal). Pensada para 375 px: todo envuelve, botones de 44 px.

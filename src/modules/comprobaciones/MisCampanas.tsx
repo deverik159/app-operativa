@@ -378,7 +378,7 @@ export default function MisCampanas(props: PropsPestanaComp & { pedido?: PedidoM
                   </span>
                 </div>
                 <div className="rt-fila-tags" style={{ marginTop: 6 }}>
-                  {/* Solo lectura en el incremento 2: la revisión llega en el 3. */}
+                  {/* Al abrir la campaña, «Fotos» lleva a la revisión (incremento 3). */}
                   {porRevisarDe(c) > 0 && (
                     <span
                       className="tag"
@@ -443,6 +443,8 @@ export default function MisCampanas(props: PropsPestanaComp & { pedido?: PedidoM
         <DetalleCampana
           {...propsDetalle}
           campana={abierta}
+          // Con tomas por revisar se abre en «Fotos» (incremento 3, 29-oct-2026).
+          abrirEn={porRevisarDe(abierta) > 0 ? 'fotos' : undefined}
           onCerrar={() => {
             setAbiertaId(null);
             setAbiertaCopia(null);

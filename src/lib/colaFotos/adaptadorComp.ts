@@ -74,8 +74,11 @@ import {
   leerRespSubirFoto,
   nombreParaCompartirComp,
   ocupaCampana,
+  pasarACamara,
   porLigar,
+  reaplicarCamara,
   puedeSoltarVisita,
+  razonNoLigada,
   resolverLiga,
   rutaFotoComp,
   slugUnidad,
@@ -446,7 +449,9 @@ const adaptador: AdaptadorCola<TrabajoComp, ArchivoComp, LogroComp> = {
           return { tipo: 'definitivo', mensaje: `La foto ${a.n} no se pudo ligar (${d.codigo})` };
       }
     }
-    const resol = resolverLiga(pedidas, d);
+    // Una posición que en esa toma va por cámara también llega en
+    // `duplicadas` (29-oct-2026): resolverLiga la separa ('por_camara').
+    const resol = resolverLiga(pedidas, d, (id) => !!t.tomas.find((x) => x.id === id)?.por_camara?.includes(a.pos));
     // Lo que no se ligó: se avisa una vez por foto y toma. Un reintento de
     // una liga vigente llega en `ligadas`; una 'duplicada' (devuelta, B4, u
     // otro día de la campaña, A1) nunca cuenta y siempre se avisa.
@@ -462,10 +467,21 @@ const adaptador: AdaptadorCola<TrabajoComp, ArchivoComp, LogroComp> = {
       avisos.push({
         tipo: 'info',
         clave: t.clave,
-        texto: `${t.sitio_clave}: la foto ${a.n} no cuenta para ${nombreDe(t, id)}: ${textoNoLigada(que)}.`,
+        texto: `${t.sitio_clave}: la foto ${a.n} no cuenta para ${nombreDe(t, id)}: ${textoNoLigada(
+          razonNoLigada(que, t.tomas.find((x) => x.id === id), a.pos)
+        )}.`,
       });
     }
     if (cambiosTomas.size) await h.actualizar(t.id, (x) => cambiarTomas(x, cambiosTomas));
+    // Por cámara (29-oct-2026): esa posición ya no se pide en esa toma; lo
+    // demás de campo sigue y la toma se registra sola al completarlo.
+    const aCamara = pedidas.filter((id) => resol[String(id)] === 'por_camara');
+    if (aCamara.length)
+      await h.actualizar(t.id, (x) => {
+        let cambio = false;
+        for (const y of x.tomas) if (aCamara.includes(y.id)) cambio = pasarACamara(y, a.pos) || cambio;
+        return cambio ? x : null;
+      });
     return {
       tipo: 'ok',
       avisos,
@@ -793,7 +809,8 @@ const cola = crearColaFotos<TrabajoComp, ArchivoComp, LogroComp>(adaptador);
 // ------------------------------------------------------------
 
 /** Lo que la tarjeta sabe de cada toma (una TomaMia de comp_mis_tomas sirve tal cual). */
-export type TomaParaVisita = Pick<TomaMia, 'id' | 'campana_id' | 'campana' | 'version' | 'fecha' | 'estado' | 'regreso_n' | 'plantilla' | 'tiene'>;
+export type TomaParaVisita = Pick<TomaMia, 'id' | 'campana_id' | 'campana' | 'version' | 'fecha' | 'estado' | 'regreso_n' | 'plantilla' | 'tiene'> &
+  Partial<Pick<TomaMia, 'por_camara'>>;
 
 /** La visita: un sitio en un día, con sus tomas (las de la tarjeta). */
 export type VisitaComp = {
@@ -848,6 +865,7 @@ function tomaEnVisita(x: TomaParaVisita): Omit<TomaEnVisita, 'reg' | 'regEstado'
     estado: x.estado,
     regreso_n: x.regreso_n,
     plantilla: x.plantilla.map((p) => ({ ...p })),
+    por_camara: (x.por_camara ?? []).map((p) => p.pos),
     tiene: x.tiene.map((p) => ({ ...p })),
   };
 }
@@ -877,6 +895,9 @@ function fundirTomas(t: TrabajoComp, v: Pick<VisitaComp, 'tomas' | 'incluidas'>)
     }
     const volvio = n.regreso_n !== e.regreso_n;
     Object.assign(e, base);
+    // Lo que la base ya dijo que va por cámara (29-oct-2026) no se vuelve a
+    // pedir aunque la pantalla siga con la lista de antes.
+    reaplicarCamara(e);
     if (e.reg === 'regresada' || e.reg === 'futura' || (volvio && e.reg === 'enviada')) {
       e.reg = null;
       e.regEstado = null;

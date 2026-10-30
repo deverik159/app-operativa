@@ -438,8 +438,10 @@ function MisRutasView({
    * Vista que pide un aviso (App, al navegar desde una notificación): el de
    * ruta asignada abre Rutas aunque la última vez se eligiera Comprobaciones.
    * `n` cambia en cada aviso para que el mismo pedido se repita.
+   * `filtro` (incremento 3, 29-oct-2026): «Toma devuelta» (comp_toma) abre
+   * Comprobaciones con el chip «Devueltas».
    */
-  vistaPedida?: { vista: VistaMisRutas; n: number } | null;
+  vistaPedida?: { vista: VistaMisRutas; n: number; filtro?: 'devueltas' | null } | null;
 }) {
   // Dentro del ErrorBoundary de App (ver lib/vigia.ts).
   vigilarRender('MisRutasView');
@@ -880,7 +882,11 @@ function MisRutasView({
         <h2 className="page">Mis rutas</h2>
         {selector}
         <Suspense fallback={<div className="loading">Cargando tus comprobaciones…</div>}>
-          <ComprobacionesHoy email={email} recargarSignal={recargarSignal} />
+          <ComprobacionesHoy
+            email={email}
+            recargarSignal={recargarSignal}
+            pedido={vistaPedida?.vista === 'comp' && vistaPedida.filtro ? { n: vistaPedida.n, filtro: vistaPedida.filtro } : null}
+          />
         </Suspense>
       </>
     );

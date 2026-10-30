@@ -213,9 +213,11 @@ test('clave de la visita: correo en minúsculas|unidad|sitio|día', () => {
 // ------------------------------------------------------------
 
 test('resolverLiga: cada toma pedida con su respuesta; la que no vino cuenta como ligada', () => {
+  // ya: true (29-oct-2026): una duplicada solo existe para una foto que ya
+  // estaba (con ya: false la base solo la manda por cámara; ver abajo).
   const r = L.resolverLiga([1, 2, 3, 4, 5, 6], {
     ok: true,
-    ya: false,
+    ya: true,
     evidencia_id: 9,
     fecha: '2026-10-26',
     ligadas: [1],
@@ -322,7 +324,7 @@ test('registro: una duplicada con `ya` no completa la plantilla ni sale como lig
   assert.deepEqual(L.tomasPorRegistrar(visita({ archivos: [dup] })), []);
   const e = L.estadoDeVisita('k', [visita({ archivos: [dup] })], { enviando: () => false, hayCopia: () => false });
   assert.deepEqual(e.fotos[0].ligada_en, []);
-  assert.deepEqual(e.fotos[0].no_ligada, [{ toma_id: 1, razon: 'duplicada' }]);
+  assert.deepEqual(e.fotos[0].no_ligada, [{ toma_id: 1, razon: 'duplicada', ocupa: true }]);
   assert.deepEqual(e.ligadas, {});
 });
 
@@ -485,4 +487,81 @@ test('lápidas (26-oct-2026): «Quitar» entera sin confirmar sale «por confirm
   // La que la cola dejó al soltar la visita (sin fila, no cuenta en ninguna toma): no la quitó el monitorista.
   assert.deepEqual(lapidas(arch({ ...base, resueltas: {}, sinFila: true, limpiar: 'objeto' })), []);
   assert.deepEqual(lapidas(arch({ ...base, resueltas: {}, sinFila: true, borrando: true })), []);
+});
+
+// ------------------------------------------------------------
+// Incremento 3 (comp_f3_revision, 29-oct-2026): posición por cámara
+// ------------------------------------------------------------
+
+const resp = (o = {}) => ({
+  ok: true,
+  ya: false,
+  evidencia_id: 9,
+  fecha: '2026-10-29',
+  ligadas: [],
+  cerradas: [],
+  futuras: [],
+  ajenas: [],
+  duplicadas: [],
+  ...o,
+});
+
+test('por cámara: una duplicada de una foto NUEVA es «por cámara»; de una que ya estaba, duplicada (salvo que la pantalla lo sepa)', () => {
+  assert.deepEqual(L.resolverLiga([1, 2], resp({ ligadas: [2], duplicadas: [1] })), { 1: 'por_camara', 2: 'ligada' });
+  assert.deepEqual(L.resolverLiga([1], resp({ ya: true, duplicadas: [1] })), { 1: 'duplicada' });
+  assert.deepEqual(L.resolverLiga([1, 3], resp({ ya: true, duplicadas: [1, 3] }), (id) => id === 3), { 1: 'duplicada', 3: 'por_camara' });
+  // No cuenta y no ocupa la campaña (la base no creó la liga).
+  assert.equal(L.cuentaEnToma({ resueltas: { 1: 'por_camara' } }, 1), false);
+  assert.equal(L.ocupaCampana({ resueltas: { 1: 'por_camara' } }, 1), false);
+  assert.equal(L.ocupaCampana({ resueltas: { 1: 'duplicada' } }, 1), true);
+});
+
+test('por cámara: el texto dice que la sube la analista (no «toma otra»); la duplicada de siempre no cambia', () => {
+  assert.equal(L.textoNoLigada('por_camara'), 'esa foto la sube la analista desde cámaras (no tienes que tomarla)');
+  assert.doesNotMatch(L.textoNoLigada('por_camara'), /toma otra/);
+  assert.equal(L.textoNoLigada('duplicada'), 'esa foto ya cuenta en otro día de esa campaña o ya se había devuelto: toma otra');
+  assert.equal(L.razonNoLigada('duplicada', { por_camara: ['corta'] }, 'corta'), 'por_camara');
+  assert.equal(L.razonNoLigada('duplicada', { por_camara: ['corta'] }, 'media'), 'duplicada');
+  assert.equal(L.razonNoLigada('duplicada', undefined, 'corta'), 'duplicada', 'un trabajo de antes no trae por_camara');
+  assert.equal(L.razonNoLigada('ajena', { por_camara: ['corta'] }, 'corta'), 'ajena');
+});
+
+test('por cámara: estadoDeVisita la dice «por cámara» si la toma ya lo sabe; la guardada como tal también', () => {
+  const t = toma({ plantilla: CML.slice(1), por_camara: ['corta'] });
+  const dup = arch({ fid: 'c', pos: 'corta', estado: 'ligado', ya: true, resueltas: { 1: 'duplicada' } });
+  const cam = arch({ fid: 'd', cliente_id: 'otra', pos: 'corta', estado: 'ligado', resueltas: { 1: 'por_camara' } });
+  const e = L.estadoDeVisita('k', [visita({ tomas: [t], archivos: [dup, cam] })], { enviando: () => false, hayCopia: () => false });
+  // La duplicada de verdad (ya:true) se DICE «por cámara» pero sigue ocupando la campaña (ocupa).
+  assert.deepEqual(e.fotos.map((f) => f.no_ligada), [[{ toma_id: 1, razon: 'por_camara', ocupa: true }], [{ toma_id: 1, razon: 'por_camara' }]]);
+  assert.deepEqual(e.sinEnviar, [], 'la toma no se da por terminada');
+});
+
+test('por cámara: la cola SIGUE registrando la toma con lo de campo', () => {
+  const t = toma({ plantilla: CML.slice(1) });
+  const corta = arch({ fid: 'c', pos: 'corta', estado: 'ligado', resueltas: { 1: 'por_camara' } });
+  const media = arch({ fid: 'm', cliente_id: 'm1', pos: 'media', estado: 'ligado', resueltas: { 1: 'ligada' } });
+  const larga = arch({ fid: 'l', cliente_id: 'l1', pos: 'larga', estado: 'ligado', resueltas: { 1: 'ligada' } });
+  assert.deepEqual(L.tomasPorRegistrar(visita({ tomas: [t], archivos: [corta, media, larga] })), [1]);
+  assert.equal(L.tomaAbierta(t), true);
+});
+
+test('por cámara: con la plantilla vieja (pedía la Corta), pasarACamara deja de pedirla y la toma se registra', () => {
+  const t = toma({ plantilla: CML.map((q) => ({ ...q })) });
+  const corta = arch({ fid: 'c', pos: 'corta', estado: 'ligado', resueltas: { 1: 'por_camara' } });
+  const media = arch({ fid: 'm', cliente_id: 'm1', pos: 'media', estado: 'ligado', resueltas: { 1: 'ligada' } });
+  const larga = arch({ fid: 'l', cliente_id: 'l1', pos: 'larga', estado: 'ligado', resueltas: { 1: 'ligada' } });
+  const v = visita({ tomas: [t], archivos: [corta, media, larga] });
+  assert.deepEqual(L.tomasPorRegistrar(v), [], 'antes: la Corta nunca cuenta');
+  assert.equal(L.pasarACamara(t, 'corta'), true);
+  assert.deepEqual(t.plantilla.map((q) => q.pos), ['media', 'larga']);
+  assert.deepEqual(t.por_camara, ['corta']);
+  assert.deepEqual(L.tomasPorRegistrar(v), [1]);
+  assert.equal(L.pasarACamara(t, 'corta'), false, 'otra vez no cambia nada');
+  // La pantalla vuelve a mandar la lista vieja (cada foto funde las tomas):
+  // lo que la base ya dijo se repone.
+  Object.assign(t, { plantilla: CML.map((q) => ({ ...q })), por_camara: [] });
+  L.reaplicarCamara(t);
+  assert.deepEqual(t.plantilla.map((q) => q.pos), ['media', 'larga']);
+  assert.deepEqual(t.camara_servidor, ['corta']);
+  assert.deepEqual(L.tomasPorRegistrar(v), [1]);
 });

@@ -67,12 +67,15 @@ import {
   vigenciaTexto,
 } from './AvanceComun';
 import type { ContextoComp } from './tiposComp';
+import RevisionCampana from './RevisionCampana';
 
 type Props = ContextoComp & {
   periodo: PeriodoCargado;
   /** La fila de la lista; aquí se relee sola después de cada escritura. */
   campana: VwCampana;
   onCerrar: () => void;
+  /** 'fotos' = abre en la revisión de tomas (incremento 3, 29-oct-2026). */
+  abrirEn?: 'fotos';
 };
 
 type Filtro = 'pendientes' | 'comprobados' | 'cancelados' | 'todos';
@@ -127,6 +130,13 @@ export default function DetalleCampana(props: Props) {
   // queda adentro, Escape cierra y al cerrar el foco regresa: useFocoModal.
   const titRef = useRef<HTMLHeadingElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * «Sitios» (marcar a mano, cancelar, agregar) o «Fotos» (revisar las tomas
+   * del monitorista y subir las capturas de cámara; incremento 3,
+   * RevisionCampana). La marca a mano sigue de respaldo (decisión 4 de Erik).
+   */
+  const [vista, setVista] = useState<'sitios' | 'fotos'>(props.abrirEn ?? 'sitios');
 
   // ---- Campaña y sitios (se releen después de cada escritura) -----------
   const [camp, setCamp] = useState<VwCampana>(props.campana);
@@ -772,8 +782,45 @@ export default function DetalleCampana(props: Props) {
           )}
         </div>
 
-        {motivoLectura && <div className="banner">{motivoLectura}</div>}
-        {!motivoLectura && sinPorComprobar(camp) && (
+        <div className="rt-chips rt-segmento" role="group" aria-label="Qué ver" style={{ marginBottom: 8 }}>
+          {(
+            [
+              ['sitios', 'Sitios'],
+              ['fotos', 'Fotos de las tomas'],
+            ] as const
+          ).map(([k, l]) => (
+            <button
+              key={k}
+              type="button"
+              className={'rt-chip' + (vista === k ? ' on' : '')}
+              aria-pressed={vista === k}
+              disabled={ocupadoAqui}
+              onClick={() => {
+                setPanel(null);
+                setVista(k);
+              }}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+
+        {vista === 'fotos' && (
+          <RevisionCampana
+            camp={camp}
+            sitios={sitios}
+            email={email}
+            permisos={permisos}
+            nombreDe={nombreDe}
+            correr={correr}
+            ocupado={ocupado}
+            telefono={telefono}
+            onCambio={despues}
+          />
+        )}
+
+        {vista === 'sitios' && motivoLectura && <div className="banner">{motivoLectura}</div>}
+        {vista === 'sitios' && !motivoLectura && sinPorComprobar(camp) && (
           <div className="banner">
             {TEXTO_SIN_POR_COMPROBAR}: ya no le queda nada que marcar.{' '}
             {permisos.gestiona ? 'Ciérrala en Campañas → Acciones.' : 'Pídele al Supervisor que la cierre.'}
@@ -789,6 +836,8 @@ export default function DetalleCampana(props: Props) {
           </div>
         )}
 
+        {vista === 'sitios' && (
+        <>
         {/* Filtros */}
         <div className="rt-chips rt-segmento" role="group" aria-label="Qué sitios ver" style={{ marginBottom: 8 }}>
           {(
@@ -1134,6 +1183,9 @@ export default function DetalleCampana(props: Props) {
           </div>
         )}
         {!puedeEscribir && <div style={{ height: 8 }} />}
+        </>
+        )}
+        {vista === 'fotos' && <div style={{ height: 8 }} />}
       </div>
     </div>
   );

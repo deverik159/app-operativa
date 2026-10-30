@@ -231,16 +231,20 @@ function servidor() {
       } else if (!s.objetos.has(a.p_path)) return { ok: false, codigo: 'sin_objeto' };
       const r = { ligadas: [], cerradas: [], futuras: [], ajenas: [], duplicadas: [] };
       const ligables = [];
+      const camara = [];
       for (const t of ts) {
         if (t.estado === 'comprobada' || t.estado === 'cancelada' || t.cerrada) r.cerradas.push(t.id);
         else if (t.fecha > HOY) r.futuras.push(t.id);
         else if (!mio(t)) r.ajenas.push(t.id);
+        // Como comp_f3_revision (29-oct-2026): la posición que en esa toma va
+        // por cámara sale en duplicadas (sin liga).
+        else if ((t.por_camara ?? []).includes(ev?.pos ?? a.p_pos)) camara.push(t.id);
         else ligables.push(t);
       }
       if (new Set(ligables.map((t) => t.campana_id)).size !== ligables.length) return { __error: 'CP005' };
       // Como la base (26-oct-2026, antes del paso 9): una foto NUEVA que
       // ninguna toma acepta no crea fila; el objeto se queda suelto.
-      if (!ev && !ligables.length) return { ok: true, ya: false, evidencia_id: null, fecha: null, ...r };
+      if (!ev && !ligables.length) return { ok: true, ya: false, evidencia_id: null, fecha: null, ...r, duplicadas: camara };
       if (!ev) {
         ev = { id: ++s.evId, cliente_id: a.p_cliente_id, path: a.p_path, subido_por: s.sesion, tipo: a.p_tipo, pos: a.p_pos, momento: a.p_momento, fecha: HOY };
         s.evidencias.set(a.p_cliente_id, ev);
@@ -257,6 +261,7 @@ function servidor() {
         } else if (mismaToma && mismaToma.regresada_en == null) r.ligadas.push(t.id);
         else r.duplicadas.push(t.id);
       }
+      r.duplicadas.push(...camara);
       return { ok: true, ya, evidencia_id: ev.id, fecha: HOY, ...r };
     },
     comp_quitar_foto(a) {
@@ -1063,6 +1068,9 @@ test('cerradas, futuras, ajenas y duplicadas: cada una se avisa una vez y esa to
     const r = s.rpc(n, a);
     r.data.ligadas = r.data.ligadas.filter((x) => x !== t4.id);
     r.data.duplicadas = [t4.id];
+    // Una duplicada solo existe para una foto que ya estaba (29-oct-2026:
+    // con ya=false la base solo manda en duplicadas lo que va por cámara).
+    r.data.ya = true;
     s.ligas = s.ligas.filter((l) => l.toma_id !== t4.id);
     return r;
   };
@@ -1252,7 +1260,7 @@ test('B4: la foto ya devuelta en esa toma sale duplicada con `ya`: no cuenta, se
   await calma();
   const e = await estado(v);
   assert.deepEqual(e.fotos[0].ligada_en, []);
-  assert.deepEqual(e.fotos[0].no_ligada, [{ toma_id: t.id, razon: 'duplicada' }]);
+  assert.deepEqual(e.fotos[0].no_ligada, [{ toma_id: t.id, razon: 'duplicada', ocupa: true }]);
   assert.equal(registros(s), 0, 'no se pide el registro con una foto que no cuenta');
   assert.ok(Q.tomarAvisosTomasComp(EMAIL).some((a) => /no cuenta para .*devuelto/.test(a.texto)));
   // Quitarla de la visita no intenta desligar la liga devuelta.
@@ -2233,4 +2241,36 @@ test('«Quitar» entera confirmada en la misma corrida en que la visita se suelt
   assert.equal(g.estado, 'local');
   assert.equal(await Q.quitarFotoComp(EMAIL, v2, g), 'ok');
   assert.ok(Q.fotosQuitadasDeVerdad().has(g.cliente_id));
+});
+
+// ============================================================
+// Incremento 3 (comp_f3_revision, 29-oct-2026): posición por cámara
+// ============================================================
+
+test('mixto con la lista vieja del teléfono: la Corta sale «por cámara» (no «toma otra») y la toma se registra con Media y Larga', async () => {
+  const s = globalThis.__sb;
+  // La pantalla leyó la lista ANTES de que el Supervisor pasara la campaña a
+  // mixto: todavía pide Corta, Media y Larga.
+  const v = sitio({ plantilla: CML });
+  const t = v.tomas[0];
+  // El servidor ya la ve en mixto: la Corta la sube la analista.
+  const st = s.tomas.get(t.id);
+  st.plantilla = CML.filter((q) => q.pos !== 'corta');
+  st.por_camara = ['corta'];
+  await Q.encolarFotosComp(EMAIL, v, nuevas(1), hoja(v, 'corta'));
+  await calma();
+  const avisos = Q.tomarAvisosTomasComp(EMAIL).filter((a) => a.tipo === 'info');
+  assert.equal(avisos.length, 1);
+  assert.match(avisos[0].texto, /no cuenta para .*: esa foto la sube la analista desde cámaras \(no tienes que tomarla\)/);
+  assert.doesNotMatch(avisos[0].texto, /toma otra/);
+  let e = await estado(v);
+  assert.deepEqual(e.fotos[0].no_ligada, [{ toma_id: t.id, razon: 'por_camara' }]);
+  assert.deepEqual(e.sinEnviar, [], 'la toma sigue abierta');
+  assert.equal(registros(s), 0);
+  await Q.encolarFotosComp(EMAIL, v, nuevas(1), hoja(v, 'media'));
+  await Q.encolarFotosComp(EMAIL, v, nuevas(1), hoja(v, 'larga'));
+  await calma();
+  assert.equal(registros(s), 1, 'se registró sola sin esperar la Corta');
+  assert.equal(s.tomas.get(t.id).estado, 'por_revisar');
+  assert.equal(ligasDe(s, t.id).length, 2);
 });

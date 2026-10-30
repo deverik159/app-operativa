@@ -424,3 +424,26 @@ test('hoja «Usar también para…» (27-oct-2026): se cierra solo si la foto de
   );
   assert.equal(C.fotoDeLaHoja(estado({ trabajos: ['tv'], fotos: [{ ...f, estado: 'perdido' }], lapidas: [] }), f), null);
 });
+
+test('mixto (29-oct-2026): «¿Qué es?» y «¿De cuál?» nunca ofrecen lo que va por cámara', () => {
+  // Como la deja misTomasComp: plantilla = campo; por_camara aparte.
+  const ML = CML.filter((q) => q.pos !== 'corta');
+  const a = toma({ plantilla: ML, por_camara: [{ ...CML[0], via: 'camara' }] });
+  const b = toma({ plantilla: ML, por_camara: [{ ...CML[0], via: 'camara' }] });
+  const ops = C.opcionesQueEs([a, b], null, new Set(), HOY);
+  assert.deepEqual(ops.map((o) => o.pos), ['media', 'larga']);
+  assert.deepEqual(C.candidatasDeCual([a, b], 'corta', null, null, new Set(), HOY), []);
+  assert.equal(C.candidatasDeCual([a, b], 'media', null, null, new Set(), HOY).length, 2);
+  // «Otra» sigue valiendo para cualquiera.
+  assert.equal(C.candidatasDeCual([a], C.POS_EXTRA, null, null, new Set(), HOY).length, 1);
+});
+
+test('mixto: «Usar también para…» deja libre la campaña donde la foto salió «por cámara» (la base no la ligó)', () => {
+  const aAyer = toma({ fecha: AYER, plantilla: UNICA });
+  const aHoy = toma({ campana_id: aAyer.campana_id, plantilla: UNICA });
+  const f = foto({ toma_ids: [aAyer.id], no_ligada: [{ toma_id: aAyer.id, razon: 'por_camara' }] });
+  assert.deepEqual(
+    C.candidatasUsarTambien(f, [aAyer, aHoy], null, new Set(), HOY).map((c) => c.id),
+    [aHoy.id]
+  );
+});

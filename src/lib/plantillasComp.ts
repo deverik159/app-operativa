@@ -42,6 +42,12 @@ export type PosPlantilla = {
   momento: MomentoPos;
   /** Cómo se le dice en pantalla («Corta con periódico»). */
   etiqueta: string;
+  /**
+   * Modo de comprobación (29-oct-2026, comp_f3_revision): 'camara' = la sube
+   * la analista desde cámaras. Sin la llave = de campo (las plantillas
+   * enviadas antes de esa migración no la traen).
+   */
+  via?: 'camara';
 };
 
 /** Una fila de comp_plantillas_toma. */
@@ -165,7 +171,14 @@ export function leerPosiciones(x: unknown): PosPlantilla[] {
     const n = Math.trunc(Number(o.n));
     if (!Number.isFinite(n) || n < 1) continue;
     const etiqueta = typeof o.etiqueta === 'string' && o.etiqueta.trim() ? o.etiqueta.trim() : etiquetaDePos(pos);
-    out.push({ pos, n: Math.min(n, 20), alcance: o.alcance === 'sitio' ? 'sitio' : 'version', momento: aMomento(o.momento), etiqueta });
+    out.push({
+      pos,
+      n: Math.min(n, 20),
+      alcance: o.alcance === 'sitio' ? 'sitio' : 'version',
+      momento: aMomento(o.momento),
+      etiqueta,
+      ...(o.via === 'camara' ? { via: 'camara' as const } : {}),
+    });
   }
   return out;
 }

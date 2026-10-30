@@ -39,7 +39,7 @@ import {
 
 export type EstadoTomaMia = 'pendiente' | 'regresada' | 'por_revisar';
 
-/** Una foto que la analista rechazó (incremento 3; hoy llega vacía). */
+/** Una foto que la analista rechazó (incremento 3; solo en las devueltas). */
 export type FotoRechazada = { evidencia_id: number; path: string; pos: string; motivo: string };
 
 /** Una toma de comp_mis_tomas (§4.1 1i de la especificación). */
@@ -85,8 +85,19 @@ export type TomaMia = {
    * números se repiten entre Digital e Impreso: «Ruta 3» puede ser dos.
    */
   ruta_medio: string | null;
-  /** Lo que pide (plantilla_usada si ya se envió; si no, la vigente). */
+  /**
+   * Lo que pide AL MONITORISTA (plantilla_usada si ya se envió; si no, la
+   * vigente). Desde comp_f3_revision (29-oct-2026) es solo la parte de campo:
+   * una posición con via 'camara' nunca queda aquí (ver por_camara).
+   */
   plantilla: PosPlantilla[];
+  /**
+   * Posiciones que en esta toma sube la analista desde cámaras (modo mixto,
+   * spec §11; misma forma que plantilla, con via 'camara'). Solo se dicen
+   * («La foto Corta la sube la analista desde cámaras»): no se toman, no
+   * cuentan en la tarjeta ni en la hoja. Antes de la migración no viene: [].
+   */
+  por_camara: PosPlantilla[];
   /** Fotos vigentes no rechazadas, por posición. */
   tiene: TienePos[];
   rechazadas: FotoRechazada[];
@@ -151,6 +162,27 @@ function leerRechazadas(x: unknown): FotoRechazada[] {
   return out;
 }
 
+/**
+ * La plantilla de la respuesta partida en lo de campo y lo de cámara
+ * (comp_f3_revision, 29-oct-2026). La base ya manda 'plantilla' solo con lo de
+ * campo y 'por_camara' aparte; por si una posición con via 'camara' llegara en
+ * 'plantilla' (no debe pasar), se pasa a por_camara: el monitorista nunca la
+ * debe ver como «falta» ni ofrecer en «¿Qué es?».
+ */
+export function partirPlantilla(plantilla: unknown, porCamara: unknown): { campo: PosPlantilla[]; camara: PosPlantilla[] } {
+  const todas = leerPosiciones(plantilla);
+  const campo = todas.filter((p) => p.via !== 'camara');
+  const camara: PosPlantilla[] = [];
+  const vistas = new Set<string>();
+  for (const p of [...todas.filter((x) => x.via === 'camara'), ...leerPosiciones(porCamara)]) {
+    const k = `${p.pos}|${p.momento ?? ''}`;
+    if (vistas.has(k)) continue;
+    vistas.add(k);
+    camara.push({ ...p, via: 'camara' });
+  }
+  return { campo, camara };
+}
+
 /** Una toma de la respuesta, o null si le falta lo indispensable. */
 export function leerTomaMia(x: unknown): TomaMia | null {
   if (!x || typeof x !== 'object') return null;
@@ -163,6 +195,7 @@ export function leerTomaMia(x: unknown): TomaMia | null {
   const sitio_clave = texto(o.sitio_clave);
   if (id === null || campana_id === null || sitio_id === null || !ES_DIA.test(fecha) || !sitio_clave) return null;
   if (estado !== 'pendiente' && estado !== 'regresada' && estado !== 'por_revisar') return null;
+  const partes = partirPlantilla(o.plantilla, o.por_camara);
   return {
     id,
     estado,
@@ -191,7 +224,8 @@ export function leerTomaMia(x: unknown): TomaMia | null {
     secuencia: numero(o.secuencia),
     parada: numero(o.parada),
     ruta_medio: texto(o.ruta_medio),
-    plantilla: leerPosiciones(o.plantilla),
+    plantilla: partes.campo,
+    por_camara: partes.camara,
     tiene: leerTiene(o.tiene),
     rechazadas: leerRechazadas(o.rechazadas),
     unidad: unidadDe(o.unidad),
@@ -541,4 +575,62 @@ export function nombreToma(t: Pick<TomaMia, 'campana' | 'version'>): string {
   const v = (t.version || '').trim();
   if (!v) return c || 'Sin campaña';
   return c.toUpperCase().endsWith(v.toUpperCase()) ? c : `${c} ${v}`;
+}
+
+// ------------------------------------------------------------
+// Lo que va por cámara (modo mixto, comp_f3_revision, 29-oct-2026)
+// ------------------------------------------------------------
+
+/** «Corta», «Corta y Media», «Corta, Media y Larga» (sin repetir). */
+function listaEtiquetas(pos: readonly Pick<PosPlantilla, 'etiqueta'>[]): string {
+  const l = [...new Set(pos.map((p) => p.etiqueta.trim()).filter(Boolean))];
+  if (l.length <= 1) return l.join('');
+  return `${l.slice(0, -1).join(', ')} y ${l[l.length - 1]}`;
+}
+
+/**
+ * «La foto Corta la sube la analista desde cámaras: tú no la tomas.» (spec
+ * §11, Mis rutas). «La foto …» y no «La Corta …»: las etiquetas mezclan
+ * géneros (Ángulo, Toma). '' si no hay nada por cámara.
+ */
+export function textoPorCamara(pos: readonly Pick<PosPlantilla, 'etiqueta'>[]): string {
+  const lista = listaEtiquetas(pos);
+  if (!lista) return '';
+  const varias = lista.includes(' y ');
+  return varias
+    ? `Las fotos ${lista} las sube la analista desde cámaras: tú no las tomas.`
+    : `La foto ${lista} la sube la analista desde cámaras: tú no la tomas.`;
+}
+
+/** ¿La toma todavía pide fotos al monitorista? (las enviadas ya no). */
+const pideFotos = (t: Pick<TomaMia, 'estado'>) => t.estado !== 'por_revisar';
+
+/** Firma de lo que va por cámara (pos|momento ordenado). */
+const firmaCamara = (t: Pick<TomaMia, 'por_camara'>) =>
+  (t.por_camara ?? [])
+    .map((p) => `${p.pos}|${p.momento ?? ''}`)
+    .sort()
+    .join(',');
+
+/**
+ * El aviso de cámara de la TARJETA: si todas las tomas que todavía piden
+ * fotos llevan lo mismo por cámara (lo normal: la campaña de Vía Verde en
+ * mixto con la Corta por cámara), se dice una vez arriba y no en cada
+ * versión; si no, null y cada versión dice la suya (porCamaraDeToma).
+ */
+export function porCamaraDeTarjeta(tomas: readonly Pick<TomaMia, 'estado' | 'por_camara'>[]): string | null {
+  const abiertas = tomas.filter(pideFotos);
+  if (!abiertas.length) return null;
+  const f = firmaCamara(abiertas[0]);
+  if (!f || abiertas.some((t) => firmaCamara(t) !== f)) return null;
+  return textoPorCamara(abiertas[0].por_camara);
+}
+
+/**
+ * El aviso de cámara de UNA versión dentro de la tarjeta: '' si ya se dijo
+ * arriba (`deTarjeta`), si ya se envió o si no lleva nada por cámara.
+ */
+export function porCamaraDeToma(t: Pick<TomaMia, 'estado' | 'por_camara'>, deTarjeta: string | null): string {
+  if (deTarjeta || !pideFotos(t)) return '';
+  return textoPorCamara(t.por_camara ?? []);
 }

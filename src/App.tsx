@@ -473,8 +473,10 @@ function mismosRoles(a: UsuarioRol[] | null, b: UsuarioRol[]): boolean {
 
 /**
  * El periodo de un aviso de Comprobaciones (record_id = periodo_id en
- * comp_revision y comp_sin_analista, fase 3, 26-oct-2026). null si no es un
- * número entero positivo: entonces se abre el periodo de siempre.
+ * comp_revision y comp_sin_analista, fase 3, 26-oct-2026, y en
+ * comp_toma_sin_monitorista, incremento 3, 29-oct-2026). null si no es un
+ * número entero positivo: entonces se abre el periodo de siempre. OJO:
+ * comp_toma trae el id de la TOMA, no un periodo (no pasa por aquí).
  */
 function periodoDeAviso(v: unknown): number | null {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
@@ -1017,12 +1019,35 @@ function Main({
    * Mis rutas tiene dos vistas (Rutas · Comprobaciones, fase 3) y recuerda la
    * última. Un aviso que lleva a Mis rutas habla de una RUTA: abre Rutas
    * aunque la última vez se eligiera Comprobaciones (revisión del
-   * 26-oct-2026, monitorista-3). El aviso comp_toma del incremento 2 pedirá
-   * 'comp' por aquí mismo.
+   * 26-oct-2026, monitorista-3). «Toma devuelta» (comp_toma, incremento 3,
+   * 29-oct-2026) pide 'comp' con el chip «Devueltas» (`filtro`).
    */
-  const [vistaMisRutas, setVistaMisRutas] = useState<{ vista: 'rutas' | 'comp'; n: number } | null>(null);
+  const [vistaMisRutas, setVistaMisRutas] = useState<{
+    vista: 'rutas' | 'comp';
+    n: number;
+    filtro?: 'devueltas' | null;
+  } | null>(null);
   const pedirVistaMisRutas = (vista: 'rutas' | 'comp') =>
     setVistaMisRutas((p) => ({ vista, n: (p?.n ?? 0) + 1 }));
+
+  /**
+   * «Te devolvieron N tomas» (comp_toma, comp_aviso_regreso, incremento 3,
+   * 29-oct-2026; spec §6.3): a Mis rutas › Comprobaciones, Hoy, con el chip
+   * «Devueltas». record_id es el id de la toma más reciente: no se usa (la
+   * lista ya trae todas sus devueltas arriba) y, sobre todo, NO es una
+   * incidencia: se reconoce antes que record_id. Sin Mis rutas en el menú,
+   * el efecto de clavesConRuta la regresa a la de siempre.
+   */
+  const esAvisoTomaDevueltaComp = (e?: string | null) => e === 'comp_toma';
+  const irADevueltasComp = useCallback(() => {
+    setTab('mis_rutas');
+    // n = Date.now() y no p.n + 1 (revisión adversarial, 29-oct-2026): al
+    // cambiar de sesión sin recargar, el contador volvía a 1 y la lista ya
+    // había aplicado ese número, así que no ponía el chip «Devueltas».
+    setVistaMisRutas(() => ({ vista: 'comp', n: Date.now(), filtro: 'devueltas' }));
+    setRecargarSignal((n) => n + 1);
+    notifs.recargar();
+  }, [notifs.recargar]);
 
   /**
    * Comprobaciones (integración fase 2, 23-oct-2026): «Se te asignaron N
@@ -1039,9 +1064,13 @@ function Main({
   // analista). OJO: los dos traen
   // record_id = periodo_id, así que se reconocen ANTES que una incidencia
   // (que también va por record_id).
-  const esEventoComp = (e?: string | null) => e === 'comp_asignada' || e === 'comp_revision' || e === 'comp_sin_analista';
+  // Incremento 3 (29-oct-2026): «Toma devuelta sin monitorista»
+  // (comp_toma_sin_monitorista, al Supervisor o a los managers) lleva a
+  // Formato del periodo del aviso (record_id), donde se reasigna (V6).
+  const esEventoComp = (e?: string | null) =>
+    e === 'comp_asignada' || e === 'comp_revision' || e === 'comp_sin_analista' || e === 'comp_toma_sin_monitorista';
   const [vistaComp, setVistaComp] = useState<{
-    vista: 'mis' | 'pauta' | 'campanas';
+    vista: 'mis' | 'pauta' | 'campanas' | 'formato';
     n: number;
     unidad?: string | null;
     periodo?: number | null;
@@ -1067,6 +1096,8 @@ function Main({
         periodo: periodo ?? null,
         sinAnalista: true,
       }));
+    else if (evento === 'comp_toma_sin_monitorista')
+      setVistaComp((p) => ({ vista: 'formato', n: (p?.n ?? 0) + 1, unidad: unidad ?? null, periodo: periodo ?? null }));
     // La revisión de tomas de Pauta vive en Comprobaciones (Erik, 23-oct-2026).
     else if (esAvisoDelAnalista(evento)) setVistaComp((p) => ({ vista: 'pauta', n: (p?.n ?? 0) + 1 }));
     setRecargarSignal((n) => n + 1);
@@ -1236,6 +1267,8 @@ function Main({
       // viaja en el aviso (sw.js); sin ella se queda la última unidad usada.
       if (esEventoComp(e.data.evento))
         irAComprobaciones(e.data.evento, e.data.unidad ?? null, periodoDeAviso(e.data.record_id));
+      // «Toma devuelta» (29-oct-2026): record_id es la toma, no una incidencia.
+      else if (esAvisoTomaDevueltaComp(e.data.evento)) irADevueltasComp();
       else if (e.data.record_id) enfocarDesdePush(e.data.record_id);
       else if (esEventoPauta(e.data.evento)) irAPauta(e.data.evento);
       else if (esEventoBitacora(e.data.evento)) irABitacora();
@@ -1243,7 +1276,7 @@ function Main({
     };
     navigator.serviceWorker.addEventListener('message', onMsg);
     return () => navigator.serviceWorker.removeEventListener('message', onMsg);
-  }, [enfocarDesdePush, irAPauta, irABitacora, irAComprobaciones, notifs.recargar]);
+  }, [enfocarDesdePush, irAPauta, irABitacora, irAComprobaciones, irADevueltasComp, notifs.recargar]);
 
   /**
    * Tocar una notificación push con la app CERRADA: el SW abre la app con
@@ -1263,7 +1296,7 @@ function Main({
     window.history.replaceState(null, '', window.location.pathname);
     // El destino del aviso manda sobre la ruta con que se abrió la app
     // (también sobre la que quedó pendiente de los roles de la red).
-    if (record || ir === 'pauta' || ir === 'bitacora' || ir === 'comprobaciones') {
+    if (record || ir === 'pauta' || ir === 'bitacora' || ir === 'comprobaciones' || ir === 'devueltas_comp') {
       setRutaPedida(null);
       rutaPendiente.current = null;
     }
@@ -1283,6 +1316,9 @@ function Main({
     // abren el periodo del aviso.
     else if (ir === 'comprobaciones')
       avisoAComprobaciones(params.get('evento'), params.get('unidad'), () => null, periodoDeAviso(params.get('periodo')));
+    // `?ir=devueltas_comp` (sw.js, 29-oct-2026): «Toma devuelta» (comp_toma)
+    // con la app cerrada: Mis rutas › Comprobaciones, chip «Devueltas».
+    else if (ir === 'devueltas_comp') irADevueltasComp();
     // Solo al montar: el parámetro llega únicamente en el arranque.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2204,6 +2240,10 @@ function Main({
                 // (26-oct-2026): a Comprobaciones en la unidad y el periodo
                 // del aviso. Antes que record_id: estos lo usan para el periodo.
                 irAComprobaciones(n.evento, n.unidad_negocio, periodoDeAviso(n.record_id));
+              } else if (esAvisoTomaDevueltaComp(n.evento)) {
+                // «Te devolvieron N tomas» (29-oct-2026): a Mis rutas ›
+                // Comprobaciones, Devueltas. Antes que record_id (es la toma).
+                irADevueltasComp();
               } else if (n.record_id) {
                 // Se manda a la lista completa y se enfoca por record_id:
                 // el folio lo pone un trigger y la notificación no lo trae.

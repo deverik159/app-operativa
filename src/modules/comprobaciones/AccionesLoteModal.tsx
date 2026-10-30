@@ -18,6 +18,15 @@
 //     campaña (comp_poner_plantilla). Solo cambia las tomas por tomar o
 //     devueltas; las ya enviadas conservan la que tenían (A2) y la base dice
 //     cuántas. Sale solo si el catálogo se pudo leer.
+//   · Modo (fase 3, incremento 3, 29-oct-2026, spec §11): Campo, Cámaras o
+//     Mixto (comp_poner_modo); en Mixto, casillas con las posiciones de la
+//     plantilla que van por cámara (la unión, si las elegidas tienen
+//     plantillas distintas). Sin palomear se manda null: la base pone la
+//     Corta a las que entran a Mixto y deja las suyas a las que ya estaban.
+//     Biobox siempre es campo (la base lo rechaza): no se manda. Lo que
+//     contesta la base se queda en la ventana (enviadas que conservan, mixto
+//     sin cámara, pendientes con fotos de campo) hasta «Listo»; el aviso
+//     breve no alcanzaba a leerse.
 // ============================================================
 import { useMemo, useRef, useState } from 'react';
 import CerrarModal from '../../components/CerrarModal';
@@ -41,6 +50,17 @@ import {
   resumenPosiciones,
   type PlantillaToma,
 } from '../../lib/plantillasComp';
+import { ponerModo } from '../../lib/revisionApi';
+import type { CampanaModo, ModoToma } from '../../lib/revisionTomas';
+import {
+  ETIQUETA_MODO,
+  POS_CAMARA_POR_OMISION,
+  posicionesIniciales,
+  simularModo,
+  textoResultadoModo,
+  unionPosiciones,
+  type CampanaParaModo,
+} from '../../lib/modoComp';
 import type { ContextoComp } from './tiposComp';
 import { fmtDia, fmtN, opcionesAnalista, textoTomas, tituloCampana, cajaLista } from './CampanasPiezas';
 
@@ -55,7 +75,8 @@ export type AccionLote =
   | 'regresar'
   | 'full'
   | 'arte'
-  | 'plantilla';
+  | 'plantilla'
+  | 'modo';
 
 const ETIQUETA_ACCION: Record<AccionLote, string> = {
   asignar: 'Asignar a',
@@ -72,6 +93,7 @@ const ETIQUETA_ACCION: Record<AccionLote, string> = {
   // Verde no traen ARTES; antes solo se capturaba en el alta manual.
   arte: 'Arte',
   plantilla: 'Plantilla',
+  modo: 'Modo',
 };
 
 type Props = ContextoComp & {
@@ -85,6 +107,11 @@ type Props = ContextoComp & {
   plantillas?: PlantillaToma[] | null;
   /** plantilla_codigo de cada campaña (null = la de omisión). */
   plantillaDe?: Map<number, string | null> | null;
+  /**
+   * Modo de cada campaña (leerModoCampanas). Sin él (la migración
+   * comp_f3_revision no está, no se pudo leer o es Biobox) no se ofrece «Modo».
+   */
+  modoDe?: Map<number, CampanaModo> | null;
   /** Acción con la que abre (la barra o un atajo). */
   inicial?: AccionLote;
   onCerrar: () => void;
@@ -93,16 +120,18 @@ type Props = ContextoComp & {
 };
 
 export default function AccionesLoteModal(props: Props) {
-  const { elegidas, equipo, nombreDe, unidad, correr, ocupado, onCerrar, onHecho } = props;
+  const { elegidas, equipo, nombreDe, unidad, correr, ocupado, onCerrar, onHecho, telefono } = props;
   const esVV = unidad === 'Vía Verde';
   const elegibles = useMemo(() => (props.plantillas ? plantillasElegibles(props.plantillas) : []), [props.plantillas]);
   const hayPlantillas = elegibles.length > 0;
+  // Biobox siempre es campo: ahí no hay nada que elegir (spec §11).
+  const hayModo = !!props.modoDe && unidad !== 'Biobox';
   const acciones = useMemo<AccionLote[]>(
     () =>
       (
-        ['asignar', 'quitar', 'cerrar', 'reabrir', 'limite', 'meta', 'arte', 'plantilla', 'retirar', 'regresar', 'full'] as AccionLote[]
-      ).filter((a) => (a !== 'full' || esVV) && (a !== 'plantilla' || hayPlantillas)),
-    [esVV, hayPlantillas]
+        ['asignar', 'quitar', 'cerrar', 'reabrir', 'limite', 'meta', 'arte', 'plantilla', 'modo', 'retirar', 'regresar', 'full'] as AccionLote[]
+      ).filter((a) => (a !== 'full' || esVV) && (a !== 'plantilla' || hayPlantillas) && (a !== 'modo' || hayModo)),
+    [esVV, hayPlantillas, hayModo]
   );
   const [accion, setAccion] = useState<AccionLote>(props.inicial && acciones.includes(props.inicial) ? props.inicial : 'asignar');
   const [analista, setAnalista] = useState('');
@@ -112,6 +141,10 @@ export default function AccionesLoteModal(props: Props) {
   const [full, setFull] = useState<'si' | 'no' | 'carga'>('si');
   const [arte, setArte] = useState<'NUEVO' | 'REPITE' | 'carga'>('NUEVO');
   const [plantilla, setPlantilla] = useState('');
+  const [modo, setModo] = useState<ModoToma | ''>('');
+  const [posCam, setPosCam] = useState<string[]>([]);
+  /** Lo que contestó comp_poner_modo: se queda en la ventana hasta «Listo». */
+  const [resModo, setResModo] = useState<{ linea: string; avisos: string[] } | null>(null);
   const [err, setErr] = useState('');
   const trabajando = !!ocupado;
   // Foco, Tab y Escape de la ventana: ver useFocoModal.
@@ -136,6 +169,23 @@ export default function AccionesLoteModal(props: Props) {
   }, [elegidas]);
 
   const opciones = useMemo(() => opcionesAnalista(equipo, null, nombreDe), [equipo, nombreDe]);
+
+  // ---- Modo: lo que hay en pantalla de cada elegida ------------------------
+  const paraModo = useMemo<CampanaParaModo[]>(
+    () => elegidas.map((c) => ({ unidad: c.unidad, abierta: c.estatus === 'abierta', modo: props.modoDe?.get(c.id) ?? null })),
+    [elegidas, props.modoDe]
+  );
+  // Casillas de Mixto: la unión de las plantillas de las abiertas que no son
+  // Biobox (las cerradas no se tocan). La plantilla sale del modo leído (es
+  // la misma fila) y, si no, de plantillaDe.
+  const union = useMemo(() => {
+    const vivas = elegidas.filter((c) => c.estatus === 'abierta' && c.unidad !== 'Biobox');
+    const codigos = vivas.map((c) => {
+      const m = props.modoDe?.get(c.id);
+      return m ? m.plantilla_codigo : props.plantillaDe?.get(c.id) ?? null;
+    });
+    return unionPosiciones(props.plantillas, codigos);
+  }, [elegidas, props.modoDe, props.plantillaDe, props.plantillas]);
 
   /**
    * Corre la RPC con el candado y traduce el resultado. `f3`: el texto sale
@@ -288,6 +338,52 @@ export default function AccionesLoteModal(props: Props) {
         },
         true
       );
+  } else if (accion === 'modo') {
+    // Sin palomear = null: la Corta a las que entran a Mixto, las suyas a las que ya estaban.
+    const pos = modo === 'mixto' && posCam.length ? posCam : null;
+    const sim = modo ? simularModo(paraModo, modo, pos, props.plantillas) : null;
+    const pl = (n: number, s: string, p = s + 's') => (n === 1 ? s : p);
+    if (!modo) resumen = 'Elige cómo se comprueban estas campañas.';
+    else {
+      resumen =
+        modo === 'campo'
+          ? 'Campo: el monitorista toma todas las fotos en la calle.'
+          : modo === 'camaras'
+            ? 'Cámaras: la analista sube las capturas de cámara desde la computadora; cuentan solas, sin revisión, y la toma no lleva monitorista.'
+            : 'Mixto: cada toma lleva una parte de campo (el monitorista) y una de cámara (la analista); lo de cámara cuenta solo y la analista revisa el campo.';
+      if (sim)
+        resumen +=
+          ` Cambian ${fmtN(sim.cambian)} abierta${pl(sim.cambian, '')}` +
+          (sim.yaAsi ? ` (${fmtN(sim.yaAsi)} ya ${pl(sim.yaAsi, 'está', 'están')} así)` : '') +
+          '. Las tomas que ya se enviaron conservan el modo anterior.';
+    }
+    const avisos: string[] = [];
+    const bloqueaBiobox = !!sim && sim.biobox > 0 && modo !== 'campo';
+    if (bloqueaBiobox)
+      avisos.push(
+        `${fmtN(sim.biobox)} ${pl(sim.biobox, 'es', 'son')} de Biobox, que siempre se comprueba en campo: quíta${pl(sim.biobox, 'la', 'las')} de la selección para cambiar el modo.`
+      );
+    if (sim && sim.mixtoSinCamara)
+      avisos.push(
+        `${fmtN(sim.mixtoSinCamara)} quedaría${pl(sim.mixtoSinCamara, '', 'n')} en Mixto sin fotos por cámara (${pos ? 'su plantilla no tiene ninguna de las palomeadas' : 'su plantilla no tiene Corta'}): se porta${pl(sim.mixtoSinCamara, '', 'n')} como Campo.`
+      );
+    if (cuenta.cerradas) avisos.push(`${fmtN(cuenta.cerradas)} cerrada${pl(cuenta.cerradas, '')} no se toca${pl(cuenta.cerradas, '', 'n')}.`);
+    aviso = avisos.join(' ');
+    puede = !!modo && cuenta.abiertas > 0 && !bloqueaBiobox;
+    boton = `Guardar en ${fmtN(cuenta.abiertas)}`;
+    ejecutar = () =>
+      modo &&
+      lanzar(
+        'Cambiando el modo…',
+        () => ponerModo(ids, modo, pos),
+        (d) => {
+          // Se queda en la ventana (con «Listo») y se relee ya: la columna cambia detrás.
+          setResModo(textoResultadoModo(d, modo));
+          props.recargar();
+          return null;
+        },
+        true
+      );
   } else if (accion === 'retirar') {
     const n = cuenta.vivas.length;
     resumen = `Se retiran ${fmtN(n)} campaña${n === 1 ? '' : 's'}: dejan de contar en la meta y sus tomas pendientes salen del plan. Úsalo para la versión repetida o la campaña que ya no va.`;
@@ -324,7 +420,10 @@ export default function AccionesLoteModal(props: Props) {
   }
 
   const cerrar = () => {
-    if (!trabajando) onCerrar();
+    if (trabajando) return;
+    // Con el modo ya guardado, cerrar = terminar el lote (limpia la selección y relee).
+    if (resModo) onHecho(resModo.linea);
+    else onCerrar();
   };
   useFocoModal(modalRef, titRef, cerrar);
 
@@ -366,186 +465,281 @@ export default function AccionesLoteModal(props: Props) {
           </div>
         </details>
 
-        <div className="rt-chips rt-segmento" role="group" aria-label="Acción">
-          {acciones.map((a) => (
-            <button
-              key={a}
-              type="button"
-              className={'rt-chip' + (accion === a ? ' on' : '')}
-              aria-pressed={accion === a}
-              disabled={trabajando}
-              onClick={() => {
-                setAccion(a);
-                setErr('');
-              }}
-            >
-              {accion === a ? '✓ ' : ''}
-              {ETIQUETA_ACCION[a]}
-            </button>
-          ))}
-        </div>
+        {resModo ? (
+          // Lo que contestó comp_poner_modo (la lista detrás ya se releyó).
+          <>
+            <div className={resModo.avisos.length ? 'banner' : 'ok-msg'} role="status">
+              <b>{resModo.linea}</b>
+              {resModo.avisos.length > 0 && (
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18, lineHeight: 1.6 }}>
+                  {resModo.avisos.map((t) => (
+                    <li key={t}>{t}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="modal-actions pie-fijo">
+              <button type="button" className="btn" onClick={cerrar} disabled={trabajando}>
+                Listo
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="rt-chips rt-segmento" role="group" aria-label="Acción">
+              {acciones.map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  className={'rt-chip' + (accion === a ? ' on' : '')}
+                  aria-pressed={accion === a}
+                  disabled={trabajando}
+                  onClick={() => {
+                    setAccion(a);
+                    setErr('');
+                  }}
+                >
+                  {accion === a ? '✓ ' : ''}
+                  {ETIQUETA_ACCION[a]}
+                </button>
+              ))}
+            </div>
 
-        <div style={{ marginTop: 14 }}>
-          {accion === 'asignar' && (
-            <div className="field">
-              <label htmlFor="comp-acc-analista">Analista</label>
-              <select id="comp-acc-analista" value={analista} disabled={trabajando} onChange={(e) => setAnalista(e.target.value)}>
-                <option value="">Elige a quién…</option>
-                {opciones.map((o) => (
-                  <option key={o.email} value={o.email}>
-                    {o.nombre}
-                  </option>
-                ))}
-              </select>
-              {!opciones.length && (
-                <div className="phint" style={{ marginTop: 6 }}>
-                  No hay analistas con rol en esta unidad. Se dan de alta en Usuarios.
+            <div style={{ marginTop: 14 }}>
+              {accion === 'asignar' && (
+                <div className="field">
+                  <label htmlFor="comp-acc-analista">Analista</label>
+                  <select id="comp-acc-analista" value={analista} disabled={trabajando} onChange={(e) => setAnalista(e.target.value)}>
+                    <option value="">Elige a quién…</option>
+                    {opciones.map((o) => (
+                      <option key={o.email} value={o.email}>
+                        {o.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  {!opciones.length && (
+                    <div className="phint" style={{ marginTop: 6 }}>
+                      No hay analistas con rol en esta unidad. Se dan de alta en Usuarios.
+                    </div>
+                  )}
+                </div>
+              )}
+              {(accion === 'cerrar' || accion === 'reabrir') && (
+                <div className="field">
+                  <label htmlFor="comp-acc-motivo">
+                    Motivo{accion === 'cerrar' && cuenta.incompletas.length ? ' (obligatorio)' : ' (opcional)'}
+                  </label>
+                  <textarea
+                    id="comp-acc-motivo"
+                    rows={2}
+                    value={motivo}
+                    disabled={trabajando}
+                    placeholder={accion === 'cerrar' ? 'Ej.: el cliente bajó la campaña antes' : ''}
+                    onChange={(e) => setMotivo(e.target.value)}
+                  />
+                </div>
+              )}
+              {accion === 'cerrar' && cuenta.incompletas.length > 0 && (
+                <div className="lista-scroll" style={{ ...cajaLista, marginBottom: 12 }}>
+                  {cuenta.incompletas.slice(0, 60).map((c) => (
+                    <div key={c.id}>
+                      {tituloCampana(c)} · {fmtN(c.comprobados)}/{fmtN(c.meta)}
+                    </div>
+                  ))}
+                  {cuenta.incompletas.length > 60 && <div>y {fmtN(cuenta.incompletas.length - 60)} más</div>}
+                </div>
+              )}
+              {accion === 'limite' && (
+                <div className="field">
+                  <label htmlFor="comp-acc-fecha">Fecha límite</label>
+                  <input id="comp-acc-fecha" type="date" value={fecha} disabled={trabajando} onChange={(e) => setFecha(e.target.value)} />
+                  <div className="phint" style={{ marginTop: 6 }}>
+                    Déjala vacía para volver a la fecha de la regla o al fin de la campaña.
+                  </div>
+                </div>
+              )}
+              {accion === 'meta' && (
+                <div className="field">
+                  <label htmlFor="comp-acc-meta">Meta (sitios por comprobar)</label>
+                  <input
+                    id="comp-acc-meta"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    value={meta}
+                    disabled={trabajando}
+                    onChange={(e) => setMeta(e.target.value)}
+                  />
+                  <div className="phint" style={{ marginTop: 6 }}>
+                    Vacía = cada campaña cuenta sus sitios activos (o la meta FULL).
+                  </div>
+                </div>
+              )}
+              {accion === 'arte' && (
+                <div className="rt-chips rt-segmento" role="group" aria-label="Arte">
+                  {(
+                    [
+                      ['NUEVO', 'NUEVO'],
+                      ['REPITE', 'REPITE'],
+                      ['carga', 'Lo que diga la carga'],
+                    ] as const
+                  ).map(([v, t]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      className={'rt-chip' + (arte === v ? ' on' : '')}
+                      aria-pressed={arte === v}
+                      disabled={trabajando}
+                      onClick={() => setArte(v)}
+                    >
+                      {arte === v ? '✓ ' : ''}
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {accion === 'plantilla' && (
+                <div className="field">
+                  <label htmlFor="comp-acc-plantilla">Qué fotos pide cada toma</label>
+                  <select
+                    id="comp-acc-plantilla"
+                    value={plantilla}
+                    disabled={trabajando}
+                    onChange={(e) => setPlantilla(e.target.value)}
+                  >
+                    <option value="">Elige la plantilla…</option>
+                    {elegibles.map((x) => (
+                      <option key={x.codigo} value={x.codigo}>
+                        {x.nombre}
+                        {x.codigo === PLANTILLA_POR_OMISION ? ' (por omisión)' : ''}
+                        {x.confirmada ? '' : ' · sin confirmar'}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="phint" style={{ marginTop: 6 }}>
+                    Las fotos del mueble (copetes y laterales de Biobox) se suman solas según la máquina.
+                  </div>
+                </div>
+              )}
+              {accion === 'modo' && (
+                <>
+                  <div className="rt-chips rt-segmento" role="group" aria-label="Modo de comprobación">
+                    {(['campo', 'camaras', 'mixto'] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        className={'rt-chip' + (modo === v ? ' on' : '')}
+                        aria-pressed={modo === v}
+                        disabled={trabajando}
+                        onClick={() => {
+                          if (v === 'mixto' && modo !== 'mixto') setPosCam(posicionesIniciales(paraModo));
+                          setModo(v);
+                        }}
+                        style={telefono ? { minHeight: 44 } : undefined}
+                      >
+                        {modo === v ? '✓ ' : ''}
+                        {ETIQUETA_MODO[v]}
+                      </button>
+                    ))}
+                  </div>
+                  {modo === 'mixto' && (
+                    <fieldset style={{ border: 'none', padding: 0, margin: '12px 0 0' }}>
+                      <legend style={{ fontSize: 13, fontWeight: 700, padding: 0 }}>Qué fotos van por cámara</legend>
+                      {union.posiciones.length === 0 ? (
+                        <div className="phint" style={{ marginTop: 6 }}>
+                          No se pudo saber la plantilla de estas campañas.
+                        </div>
+                      ) : (
+                        union.posiciones.map((q) => (
+                          <label key={q.pos} className="rt-check" style={{ minHeight: telefono ? 44 : 32, alignItems: 'center', fontSize: 13 }}>
+                            <input
+                              type="checkbox"
+                              checked={posCam.includes(q.pos)}
+                              disabled={trabajando}
+                              onChange={(e) => {
+                                const si = e.target.checked;
+                                setPosCam((l) => (si ? [...l.filter((x) => x !== q.pos), q.pos] : l.filter((x) => x !== q.pos)));
+                              }}
+                              // La regla global input{width:100%} la estiraría.
+                              style={{ width: 'auto', margin: 0 }}
+                            />
+                            <span>
+                              {q.etiqueta}
+                              {union.distintas && q.en < union.plantillas && (
+                                <span style={{ color: 'var(--muted)' }}>
+                                  {' '}
+                                  (en {fmtN(q.en)} de {fmtN(union.plantillas)} plantillas)
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        ))
+                      )}
+                      {union.distintas && (
+                        <div className="phint" style={{ marginTop: 6 }}>
+                          Las elegidas tienen plantillas distintas: aquí salen todas sus posiciones, y en cada campaña solo cuentan las que su
+                          plantilla pide.
+                        </div>
+                      )}
+                      <div className="phint" style={{ marginTop: 6 }}>
+                        Al pasar a Mixto sin elegir, se pone la Corta
+                        {union.posiciones.some((q) => q.pos === POS_CAMARA_POR_OMISION) ? '' : ' (si la plantilla la tiene)'}; las que ya están en
+                        Mixto se quedan con las suyas. Para que nada vaya por cámara, elige Campo.
+                      </div>
+                    </fieldset>
+                  )}
+                  <div className="phint" style={{ marginTop: 8 }}>
+                    Las campañas nuevas de Ecovallas y Vía Verde nacen en Mixto con la Corta por cámara. Biobox siempre es Campo.
+                  </div>
+                </>
+              )}
+              {accion === 'full' && (
+                <div className="rt-chips rt-segmento" role="group" aria-label="FULL">
+                  {(
+                    [
+                      ['si', 'Sí es FULL'],
+                      ['no', 'No es FULL'],
+                      ['carga', 'Lo que diga la carga'],
+                    ] as const
+                  ).map(([v, t]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      className={'rt-chip' + (full === v ? ' on' : '')}
+                      aria-pressed={full === v}
+                      disabled={trabajando}
+                      onClick={() => setFull(v)}
+                    >
+                      {full === v ? '✓ ' : ''}
+                      {t}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
-          )}
-          {(accion === 'cerrar' || accion === 'reabrir') && (
-            <div className="field">
-              <label htmlFor="comp-acc-motivo">
-                Motivo{accion === 'cerrar' && cuenta.incompletas.length ? ' (obligatorio)' : ' (opcional)'}
-              </label>
-              <textarea
-                id="comp-acc-motivo"
-                rows={2}
-                value={motivo}
-                disabled={trabajando}
-                placeholder={accion === 'cerrar' ? 'Ej.: el cliente bajó la campaña antes' : ''}
-                onChange={(e) => setMotivo(e.target.value)}
-              />
-            </div>
-          )}
-          {accion === 'cerrar' && cuenta.incompletas.length > 0 && (
-            <div className="lista-scroll" style={{ ...cajaLista, marginBottom: 12 }}>
-              {cuenta.incompletas.slice(0, 60).map((c) => (
-                <div key={c.id}>
-                  {tituloCampana(c)} · {fmtN(c.comprobados)}/{fmtN(c.meta)}
-                </div>
-              ))}
-              {cuenta.incompletas.length > 60 && <div>y {fmtN(cuenta.incompletas.length - 60)} más</div>}
-            </div>
-          )}
-          {accion === 'limite' && (
-            <div className="field">
-              <label htmlFor="comp-acc-fecha">Fecha límite</label>
-              <input id="comp-acc-fecha" type="date" value={fecha} disabled={trabajando} onChange={(e) => setFecha(e.target.value)} />
-              <div className="phint" style={{ marginTop: 6 }}>
-                Déjala vacía para volver a la fecha de la regla o al fin de la campaña.
-              </div>
-            </div>
-          )}
-          {accion === 'meta' && (
-            <div className="field">
-              <label htmlFor="comp-acc-meta">Meta (sitios por comprobar)</label>
-              <input
-                id="comp-acc-meta"
-                type="number"
-                inputMode="numeric"
-                min={0}
-                step={1}
-                value={meta}
-                disabled={trabajando}
-                onChange={(e) => setMeta(e.target.value)}
-              />
-              <div className="phint" style={{ marginTop: 6 }}>
-                Vacía = cada campaña cuenta sus sitios activos (o la meta FULL).
-              </div>
-            </div>
-          )}
-          {accion === 'arte' && (
-            <div className="rt-chips rt-segmento" role="group" aria-label="Arte">
-              {(
-                [
-                  ['NUEVO', 'NUEVO'],
-                  ['REPITE', 'REPITE'],
-                  ['carga', 'Lo que diga la carga'],
-                ] as const
-              ).map(([v, t]) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={'rt-chip' + (arte === v ? ' on' : '')}
-                  aria-pressed={arte === v}
-                  disabled={trabajando}
-                  onClick={() => setArte(v)}
-                >
-                  {arte === v ? '✓ ' : ''}
-                  {t}
-                </button>
-              ))}
-            </div>
-          )}
-          {accion === 'plantilla' && (
-            <div className="field">
-              <label htmlFor="comp-acc-plantilla">Qué fotos pide cada toma</label>
-              <select
-                id="comp-acc-plantilla"
-                value={plantilla}
-                disabled={trabajando}
-                onChange={(e) => setPlantilla(e.target.value)}
-              >
-                <option value="">Elige la plantilla…</option>
-                {elegibles.map((x) => (
-                  <option key={x.codigo} value={x.codigo}>
-                    {x.nombre}
-                    {x.codigo === PLANTILLA_POR_OMISION ? ' (por omisión)' : ''}
-                    {x.confirmada ? '' : ' · sin confirmar'}
-                  </option>
-                ))}
-              </select>
-              <div className="phint" style={{ marginTop: 6 }}>
-                Las fotos del mueble (copetes y laterales de Biobox) se suman solas según la máquina.
-              </div>
-            </div>
-          )}
-          {accion === 'full' && (
-            <div className="rt-chips rt-segmento" role="group" aria-label="FULL">
-              {(
-                [
-                  ['si', 'Sí es FULL'],
-                  ['no', 'No es FULL'],
-                  ['carga', 'Lo que diga la carga'],
-                ] as const
-              ).map(([v, t]) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={'rt-chip' + (full === v ? ' on' : '')}
-                  aria-pressed={full === v}
-                  disabled={trabajando}
-                  onClick={() => setFull(v)}
-                >
-                  {full === v ? '✓ ' : ''}
-                  {t}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
 
-        <p className="phint" style={{ marginTop: 10 }}>
-          {resumen}
-        </p>
-        {aviso && <div className="banner">{aviso}</div>}
-        {err && (
-          <div className="err" role="alert">
-            {err}
-          </div>
+            <p className="phint" style={{ marginTop: 10 }}>
+              {resumen}
+            </p>
+            {aviso && <div className="banner">{aviso}</div>}
+            {err && (
+              <div className="err" role="alert">
+                {err}
+              </div>
+            )}
+
+            <div className="modal-actions pie-fijo">
+              <button type="button" className="btn ghost" onClick={cerrar} disabled={trabajando}>
+                Cancelar
+              </button>
+              <button type="button" className={accion === 'retirar' ? 'btn warn' : 'btn'} disabled={!puede || trabajando} onClick={ejecutar}>
+                {trabajando && <span className="spinner" />}
+                {trabajando ? ocupado : boton}
+              </button>
+            </div>
+          </>
         )}
-
-        <div className="modal-actions pie-fijo">
-          <button type="button" className="btn ghost" onClick={cerrar} disabled={trabajando}>
-            Cancelar
-          </button>
-          <button type="button" className={accion === 'retirar' ? 'btn warn' : 'btn'} disabled={!puede || trabajando} onClick={ejecutar}>
-            {trabajando && <span className="spinner" />}
-            {trabajando ? ocupado : boton}
-          </button>
-        </div>
       </div>
     </div>
   );

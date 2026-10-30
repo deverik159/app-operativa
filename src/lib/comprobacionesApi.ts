@@ -115,7 +115,7 @@ const leerRpc = <T>(nombre: string, args: Record<string, unknown>) => rpc<T>(nom
  * Si una página falla, falla todo: una lista a medias haría creer que lo
  * que falta no existe.
  */
-async function traerTodo<T>(
+export async function traerTodo<T>(
   pagina: (desde: number, hasta: number, senal: AbortSignal) => PromiseLike<unknown>,
   maxPaginas = 60
 ): Promise<ResultadoComp<T[]>> {
@@ -143,7 +143,7 @@ function trozos<T>(arr: T[], n: number): T[][] {
 }
 
 /** Lee por trozos de ids (para `.in()`), cada trozo paginado. */
-async function porTrozos<T>(
+export async function porTrozos<T>(
   ids: number[],
   consulta: (trozo: number[], desde: number, hasta: number, senal: AbortSignal) => PromiseLike<unknown>
 ): Promise<ResultadoComp<T[]>> {

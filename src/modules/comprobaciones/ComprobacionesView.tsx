@@ -164,7 +164,10 @@ function permisosEn(roles: FilaRol[], u: UnidadComp): PermisosComp {
     roles.filter((r) => r.rol !== 'manager'),
     ['analista']
   ).has(u);
-  return { gestiona, leeTodo, soloLectura: false, esAnalista };
+  // El manager revisa cualquier toma; el Supervisor solo si también es
+  // analista de la unidad (comp_puede_revisar; incremento 3, 29-oct-2026).
+  const esManager = roles.some((r) => r.rol === 'manager');
+  return { gestiona, leeTodo, soloLectura: false, esAnalista, esManager };
 }
 
 function vistasDe(p: PermisosComp, conPauta: boolean): VistaComp[] {

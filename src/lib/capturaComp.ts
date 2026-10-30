@@ -411,8 +411,13 @@ export function candidatasUsarTambien(
   const pos = foto.tipo === 'video' ? POS_EXTRA : foto.pos;
   // POR QUÉ (27-oct-2026): donde el servidor no la ligó por cerrada, futura o
   // ajena, la campaña sigue libre para esa foto (A1 solo cuenta ligas; una
-  // duplicada sí la ocupa). Igual que ocupaCampana de la cola.
-  const libres = new Set((foto.no_ligada ?? []).filter((x) => x.razon !== 'duplicada').map((x) => x.toma_id));
+  // duplicada sí la ocupa). Igual que ocupaCampana de la cola. Una «por
+  // cámara» (29-oct-2026) tampoco la ocupa: la base no creó la liga.
+  // Con lo que contestó la base (ocupa), no con el texto: una duplicada de
+  // verdad que se dice «por cámara» sigue ocupando la campaña.
+  const libres = new Set(
+    (foto.no_ligada ?? []).filter((x) => !x.ocupa && x.razon !== 'duplicada').map((x) => x.toma_id)
+  );
   const campanasYa = new Set(tomas.filter((t) => foto.toma_ids.includes(t.id) && !libres.has(t.id)).map((t) => t.campana_id));
   return candidatasDeCual(tomas, pos, foto.momento, estado, incluidas, hoy, foto.path).filter(
     (c) => !foto.toma_ids.includes(c.id) && !campanasYa.has(c.campana_id)

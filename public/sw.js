@@ -425,7 +425,16 @@ self.addEventListener('notificationclick', (event) => {
   // desde la fase 3 (26-oct-2026), «Tomas por revisar» y «Tomas sin
   // analista», que traen el PERIODO en record_id: van antes que `record=`
   // (que enfocaría una incidencia que no existe).
-  const esComp = evento === 'comp_asignada' || evento === 'comp_revision' || evento === 'comp_sin_analista';
+  // Incremento 3 (29-oct-2026): «Toma devuelta sin monitorista» también trae
+  // el periodo en record_id (va a Formato). «Toma devuelta» (comp_toma) trae
+  // el id de la TOMA: va a Mis rutas › Comprobaciones, Devueltas, y nunca a
+  // `record=` (enfocaría una incidencia que no existe).
+  const esComp =
+    evento === 'comp_asignada' ||
+    evento === 'comp_revision' ||
+    evento === 'comp_sin_analista' ||
+    evento === 'comp_toma_sin_monitorista';
+  const esTomaDevuelta = evento === 'comp_toma';
   const unidad = datos.unidad || null;
   // La URL se usa tanto al abrir una ventana nueva como al navegar una ya
   // abierta. De esta manera la app arranca desde el bundle actual y lee el
@@ -437,14 +446,16 @@ self.addEventListener('notificationclick', (event) => {
     ? destino + sep + 'ir=comprobaciones&evento=' + encodeURIComponent(evento) +
       (unidad ? '&unidad=' + encodeURIComponent(unidad) : '') +
       (recordId && evento !== 'comp_asignada' ? '&periodo=' + encodeURIComponent(recordId) : '')
-    : recordId
-      ? destino + sep + 'record=' + encodeURIComponent(recordId)
-      : esPauta
-        ? // Con el evento, la app elige el destino: Indicadores de Pauta o, para el analista, Comprobaciones › Tomas de Pauta (23-oct-2026).
-          destino + sep + 'ir=pauta&evento=' + encodeURIComponent(evento)
-        : esBitacora
-          ? destino + sep + 'ir=bitacora'
-          : destino;
+    : esTomaDevuelta
+      ? destino + sep + 'ir=devueltas_comp'
+      : recordId
+        ? destino + sep + 'record=' + encodeURIComponent(recordId)
+        : esPauta
+          ? // Con el evento, la app elige el destino: Indicadores de Pauta o, para el analista, Comprobaciones › Tomas de Pauta (23-oct-2026).
+            destino + sep + 'ir=pauta&evento=' + encodeURIComponent(evento)
+          : esBitacora
+            ? destino + sep + 'ir=bitacora'
+            : destino;
 
   event.waitUntil(
     (async () => {

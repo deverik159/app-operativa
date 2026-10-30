@@ -31,6 +31,12 @@
 //     Acciones. plantilla_codigo se lee de comp_campanas aparte: la vista
 //     vw_comp_campanas no se tocó (M9). Sin la migración de la fase 3 la
 //     columna y la acción no salen.
+//   · Modo (fase 3, incremento 3, 29-oct-2026, spec §11): columna «Modo»
+//     (Campo, Cámaras, «Mixto · Corta por cámara» o, en ámbar, «Mixto sin
+//     fotos por cámara») y acción en lote «Modo» en Acciones. modo_toma y
+//     pos_camara se leen de comp_campanas aparte (leerModoCampanas). Sin la
+//     migración comp_f3_revision la columna y la acción no salen. Biobox
+//     siempre es campo: en Biobox no salen.
 // Toda escritura va por las RPC (comprobacionesApi) con el candado del
 // esqueleto (correr) y se cuenta con lo que DEVUELVE la base: la RLS niega
 // en silencio. Después se relee en silencio (recargar) sin desmontar.
@@ -60,6 +66,9 @@ import {
   type VwCampana,
 } from '../../lib/comprobacionesApi';
 import { nombrePlantilla, type PlantillaToma } from '../../lib/plantillasComp';
+import { leerModoCampanas } from '../../lib/revisionApi';
+import type { CampanaModo } from '../../lib/revisionTomas';
+import { textoModo } from '../../lib/modoComp';
 import { colorTono, fondoTono } from '../../lib/tonos';
 import type { PropsPestanaComp } from './tiposComp';
 import AccionesLoteModal, { type AccionLote } from './AccionesLoteModal';
@@ -104,6 +113,7 @@ type ColK =
   | 'limite'
   | 'plan'
   | 'plantilla'
+  | 'modo'
   | 'estatus'
   | 'cierre';
 
@@ -261,6 +271,36 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
     return { nombre: nombrePlantilla(catalogo ?? [], cod), omision: cod === null };
   };
 
+  // ---- Modo de comprobación (fase 3, incremento 3; 29-oct-2026) -----------
+  // Mismo trato que la plantilla: null = todavía no se sabe; sinModo = la
+  // base no tiene la migración comp_f3_revision (ni columna ni acción). Biobox
+  // siempre es campo: ahí ni se lee.
+  const [modoDe, setModoDe] = useState<Map<number, CampanaModo> | null>(null);
+  const [sinModo, setSinModo] = useState(false);
+  const [errModo, setErrModo] = useState('');
+  const esBiobox = unidad === 'Biobox';
+  useEffect(() => {
+    let vivo = true;
+    const ids = Array.isArray(listaCampanas) ? listaCampanas.map((c) => c.id) : [];
+    if (!ids.length || sinModo || esBiobox) return;
+    leerModoCampanas(ids).then((r) => {
+      if (!vivo) return;
+      if (r.ok) {
+        setModoDe(r.data);
+        setErrModo('');
+      } else if (r.codigo === 'falta_migracion') setSinModo(true);
+      else setErrModo('No se pudo leer el modo de cada campaña: ' + textoFallaF3(r));
+    });
+    return () => {
+      vivo = false;
+    };
+    // Con cada lista nueva (después de un lote) se relee; ver listaCampanas arriba.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodo.id, unidad, listaCampanas, sinModo, esBiobox]);
+  // La columna sale cuando la primera lectura llegó (como la de plantilla).
+  const conModo = !sinModo && !esBiobox && !!modoDe;
+  const modoTexto = (c: VwCampana) => (modoDe && modoDe.has(c.id) ? textoModo(modoDe.get(c.id), c.unidad, catalogo) : null);
+
   const hoy = hoyCdmx();
   const carga = useMemo(() => cargaPorAnalista(campanas as CampanaFila[], creditos, hoy), [campanas, creditos, hoy]);
 
@@ -323,6 +363,8 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
           return c.plan_tomas ? describirPlan(c.plan_tomas) : null;
         case 'plantilla':
           return plantillaTexto(c)?.nombre ?? null;
+        case 'modo':
+          return modoTexto(c)?.texto ?? null;
         case 'estatus':
           return c.retirada ? 3 : c.estatus === 'cerrada' ? 2 : c.completa ? 1 : 0;
         case 'cierre':
@@ -341,9 +383,9 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
       return (orden.asc ? r : -r) || a.id - b.id;
     };
     return l.sort(cmp);
-    // plantillaDe y catalogo: el orden por «Plantilla» usa sus nombres.
+    // plantillaDe, modoDe y catalogo: el orden por «Plantilla» y «Modo» usa sus textos.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [base, fTarjeta, orden, nombreDe, plantillaDe, catalogo]);
+  }, [base, fTarjeta, orden, nombreDe, plantillaDe, modoDe, catalogo]);
 
   const visibles = filtradas.slice(0, limite);
   const elegidas = useMemo(() => campanas.filter((c) => sel.has(c.id)), [campanas, sel]);
@@ -590,6 +632,7 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
     { k: 'limite', t: 'Fecha límite' },
     { k: 'plan', t: 'Plan de tomas' },
     ...(conPlantilla ? [{ k: 'plantilla' as const, t: 'Plantilla' }] : []),
+    ...(conModo ? [{ k: 'modo' as const, t: 'Modo' }] : []),
     { k: 'estatus', t: 'Estatus' },
     { k: 'cierre', t: 'Cierre' },
   ];
@@ -603,6 +646,17 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
       </span>
     ) : (
       <span>{p.nombre}</span>
+    );
+  };
+  /** Celda o línea del modo: «Mixto sin fotos por cámara» en ámbar, Biobox en gris. */
+  const textoModoCelda = (c: VwCampana) => {
+    const m = modoTexto(c);
+    if (!m) return <span style={{ color: 'var(--muted)' }}>—</span>;
+    const color = m.tono === 'ambar' ? colorTono('ambar') : m.tono === 'gris' ? 'var(--muted)' : undefined;
+    return (
+      <span title={m.titulo} style={{ color, fontWeight: m.tono === 'ambar' ? 700 : undefined }}>
+        {m.texto}
+      </span>
     );
   };
   const clickOrden = (k: ColK) =>
@@ -733,6 +787,7 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
       )}
       {errCred && <div className="err">{errCred}</div>}
       {errPlant && <div className="err">{errPlant}</div>}
+      {errModo && <div className="err">{errModo}</div>}
 
       {/* Filtros y botones de la unidad. */}
       {/* El buscador en su propia fila (como Pauta): dentro de la tira de
@@ -848,6 +903,7 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
                       {c.tomas_total ? ` · ${fmtN(c.tomas_total)} tomas` : ''}
                     </div>
                     {conPlantilla && <div className="meta">Fotos: {textoPlantilla(c)}</div>}
+                    {conModo && <div className="meta">Modo: {textoModoCelda(c)}</div>}
                     {textoCierre(c) && (
                       <div className="meta">
                         {c.estatus === 'cerrada' ? 'Cerrada ' : ''}
@@ -987,6 +1043,7 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
                       {c.tomas_total > 0 && <div style={{ color: 'var(--muted)' }}>{fmtN(c.tomas_total)} tomas</div>}
                     </td>
                     {conPlantilla && <td style={{ ...celda, ...textoLegible, minWidth: 120 }}>{textoPlantilla(c)}</td>}
+                    {conModo && <td style={{ ...celda, ...textoLegible, minWidth: 130 }}>{textoModoCelda(c)}</td>}
                     <td style={celda}>
                       <PillEstatus c={c} />
                     </td>
@@ -1061,6 +1118,7 @@ export default function CampanasSupervisor(props: PropsPestanaComp) {
           inicial={modal.inicial}
           plantillas={catalogo}
           plantillaDe={plantillaDe}
+          modoDe={conModo ? modoDe : null}
           onCerrar={() => setModal(null)}
           onHecho={hecho}
         />

@@ -39,6 +39,10 @@ const EVENTOS_OPERACION = new Set([
   // y «N tomas sin analista» al Supervisor (o a los managers).
   'comp_revision',
   'comp_sin_analista',
+  // Incremento 3 (29-oct-2026): «Te devolvieron N tomas» al monitorista y
+  // «N tomas devueltas sin monitorista vigente» al Supervisor (o managers).
+  'comp_toma',
+  'comp_toma_sin_monitorista',
 ]);
 
 function CampanaNotifs({
