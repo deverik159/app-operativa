@@ -1,5 +1,5 @@
 // Máquinas por ruta, estado del inventario e incidencias abiertas.
-import { CircleCheck, Compass } from 'lucide-react';
+import { CircleCheck, Compass, MapPinCheck } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
@@ -13,9 +13,25 @@ import { tramosGoogleMaps } from '../../lib/navegacion';
 import { UNIDADES_BIOBOX } from '../../lib/constants';
 import { fueraDeLinea, maquinasUnicas, indicadoresMaquinas, pendienteRevision } from '../../lib/maquinasBiobox';
 import type { MaquinaBiobox } from '../../lib/maquinasBiobox';
+import {
+  DIAS_VISITA_AMBAR,
+  LEJOS_M,
+  diasDesde,
+  semaforoVisita,
+  textoDiasVisita,
+  ultimoContacto,
+} from '../../lib/visitaMaquina';
+import {
+  suscribirVisitas,
+  visitasMaquinaEnviadasEnSesion,
+  visitasPendientes,
+  type VisitaPendiente,
+} from '../../lib/visitas';
+import { guardarMaquinasBioboxLocal, haySesionReal, leerMaquinasBioboxLocal } from '../../lib/datosLocales';
 import EstadoMaquinaPanel from './EstadoMaquinaPanel';
 import RevisionModal from './RevisionModal';
 import HistorialModal from './HistorialModal';
+import VisitaMaquinaModal from './VisitaMaquinaModal';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 
@@ -37,6 +53,16 @@ function varRuta(color: string | null | undefined): CSSProperties {
   return color ? ({ '--ruta': color } as CSSProperties) : {};
 }
 
+/** La última visita rápida de una máquina (vw_maquina_ultima_visita). */
+type UltimaVisita = {
+  visitado_en: string;
+  usuario_email: string | null;
+  funciona: boolean;
+  distancia_m: number | null;
+};
+
+const COLOR_SEMAFORO = { verde: 'var(--ok)', ambar: 'var(--st-ambar)', rojo: 'var(--bad)' } as const;
+
 function BioboxView({ email, misDep, recargarSignal = 0 }: {
   email: string;
   misDep: string[];
@@ -57,6 +83,14 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
   const [actualizado, setActualizado] = useState<Date | null>(null);
   const [detalle, setDetalle] = useState<string | null>(null);
   const [maquinaAbierta, setMaquinaAbierta] = useState<string | null>(null);
+  // Visita rápida (29-oct-2026).
+  const [visitas, setVisitas] = useState<Record<string, UltimaVisita>>({});
+  const [visitando, setVisitando] = useState<MaquinaBiobox | null>(null);
+  const [aviso, setAviso] = useState('');
+  const [pend, setPend] = useState<VisitaPendiente[]>([]);
+  const [enviadasMaq, setEnviadasMaq] = useState<{ site_id: string; visitado_en: string; funciona: boolean }[]>([]);
+  /** Fecha de la copia del teléfono que se está enseñando (sin señal). */
+  const [copiaDe, setCopiaDe] = useState<string | null>(null);
   const solicitud = useRef(0);
 
   const cargar = useCallback(async () => {
@@ -95,15 +129,98 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
         Object.assign(resumen, await resumenMaquinas(sitios.slice(inicio, inicio + 100), true));
         if (turno !== solicitud.current) return;
       }
-      setUbics(filas.map((u) => ({ ...u, face_status: estadosInventario.get(u.vendor_face_id || '') ?? null })));
+      // Última visita rápida de cada máquina. Si falla no tumba la lista:
+      // solo faltan los días sin visita (cuentan las revisiones).
+      const ultimas: Record<string, UltimaVisita> = {};
+      let visitasCompletas = true;
+      for (let inicio = 0; inicio < sitios.length; inicio += 100) {
+        const { data, error } = await sb.from('vw_maquina_ultima_visita')
+          .select('site_id,visitado_en,usuario_email,funciona,distancia_m')
+          .in('site_id', sitios.slice(inicio, inicio + 100));
+        if (turno !== solicitud.current) return;
+        if (error) {
+          visitasCompletas = false;
+          break;
+        }
+        for (const v of data || []) ultimas[v.site_id] = v as UltimaVisita;
+      }
+      const maquinas = filas.map((u) => ({ ...u, face_status: estadosInventario.get(u.vendor_face_id || '') ?? null }));
+      setUbics(maquinas);
       setEstado(resumen);
+      setVisitas(ultimas);
+      setCopiaDe(null);
       setActualizado(new Date());
+      if (!visitasCompletas) setErr('No se pudieron leer las visitas rápidas: los días sin visita solo cuentan las revisiones.');
+      // Copia para abrir el módulo sin señal: solo lo que llegó completo y
+      // con sesión REAL (una consulta anónima trae [] sin error).
+      else if (await haySesionReal(email))
+        void guardarMaquinasBioboxLocal(email, unidad, { maquinas, estado: resumen, visitas: ultimas });
     } catch (error) {
-      if (turno === solicitud.current) setErr(error instanceof Error ? error.message : 'No se pudieron actualizar las máquinas.');
+      if (turno !== solicitud.current) return;
+      const copia = await leerMaquinasBioboxLocal<MaquinaBiobox, MapaResumen[string], UltimaVisita>(email, unidad);
+      if (turno !== solicitud.current) return;
+      if (copia && copia.maquinas.length) {
+        setUbics(copia.maquinas);
+        setEstado(copia.estado as MapaResumen);
+        setVisitas(copia.visitas);
+        setCopiaDe(copia.guardado);
+        setActualizado(null);
+      } else setErr(error instanceof Error ? error.message : 'No se pudieron actualizar las máquinas.');
     } finally {
       if (turno === solicitud.current) setCargando(false);
     }
-  }, [unidad]);
+  }, [unidad, email]);
+
+  // La cola de visitas rápidas: ⏳ en cada máquina mientras no entre, y las
+  // que ya entraron en esta pestaña cuentan aunque no se haya recargado.
+  useEffect(() => {
+    let vivo = true;
+    let t: number | undefined;
+    const leer = async () => {
+      const l = await visitasPendientes(email).catch(() => [] as VisitaPendiente[]);
+      if (!vivo) return;
+      setPend(l.filter((p) => p.destino === 'maquina'));
+      setEnviadasMaq(visitasMaquinaEnviadasEnSesion(email));
+    };
+    const alCambiar = () => {
+      window.clearTimeout(t);
+      t = window.setTimeout(() => void leer(), 200);
+    };
+    const quitar = suscribirVisitas(alCambiar);
+    void leer();
+    return () => {
+      vivo = false;
+      window.clearTimeout(t);
+      quitar();
+    };
+  }, [email]);
+
+  /** Por máquina: la marca más reciente (visita rápida, en cola o revisión). */
+  const contacto = useMemo(() => {
+    const m = new Map<string, { dias: number | null; pendiente: VisitaPendiente | null }>();
+    const enSesion = new Map<string, string>();
+    for (const e of enviadasMaq) enSesion.set(e.site_id, ultimoContacto(enSesion.get(e.site_id), e.visitado_en) || e.visitado_en);
+    const enCola = new Map<string, VisitaPendiente>();
+    for (const p of pend) {
+      const prev = enCola.get(p.site_id);
+      if (!prev || ultimoContacto(prev.visitado_en, p.visitado_en) === p.visitado_en) enCola.set(p.site_id, p);
+    }
+    const ahora = new Date();
+    for (const u of ubics) {
+      if (m.has(u.site_id)) continue;
+      const cola = enCola.get(u.site_id) || null;
+      const ultimo = ultimoContacto(
+        visitas[u.site_id]?.visitado_en,
+        enSesion.get(u.site_id),
+        cola?.visitado_en,
+        u.ultima_revision
+      );
+      m.set(u.site_id, { dias: diasDesde(ultimo, ahora), pendiente: cola });
+    }
+    return m;
+  }, [ubics, visitas, enviadasMaq, pend]);
+
+  const diasVisita = useCallback((u: MaquinaBiobox) => contacto.get(u.site_id)?.dias ?? null, [contacto]);
 
   useEffect(() => {
     void cargar();
@@ -136,14 +253,27 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
       .filter((u) => medio === 'todos' || u.medio === medio)
       .filter((u) => !soloPendientes || pendienteRevision(u))
       .filter((u) => !q || sinAcentos([u.site_legacy_id, u.direccion, u.site_id].join(' ')).includes(q)));
+    // "Más urgente": la que lleva más días sin que nadie pase (visita rápida
+    // o revisión); nunca visitada va primero.
     return filas.sort((a, b) => orden === 'abandono'
-      ? (b.dias_sin_revision ?? Number.MAX_SAFE_INTEGER) - (a.dias_sin_revision ?? Number.MAX_SAFE_INTEGER)
+      ? (diasVisita(b) ?? Number.MAX_SAFE_INTEGER) - (diasVisita(a) ?? Number.MAX_SAFE_INTEGER)
       : orden === 'secuencia'
       ? (a.secuencia ?? 9999) - (b.secuencia ?? 9999) || a.site_id.localeCompare(b.site_id)
       : (a.site_legacy_id || a.site_id).localeCompare(b.site_legacy_id || b.site_id, undefined, { numeric: true }));
-  }, [ubics, rutaFoco, medio, busca, orden, soloPendientes]);
+  }, [ubics, rutaFoco, medio, busca, orden, soloPendientes, diasVisita]);
 
-  const indicadores = useMemo(() => indicadoresMaquinas(visibles, estado), [visibles, estado]);
+  const indicadores = useMemo(() => {
+    const base = indicadoresMaquinas(visibles, estado);
+    // Sin visita (29-oct-2026): ni visita rápida ni revisión en más de
+    // DIAS_VISITA_AMBAR días, o nunca. Va segundo, junto al total.
+    const sinVisita = {
+      id: 'sin_visita',
+      titulo: 'Sin visita +' + DIAS_VISITA_AMBAR + ' días',
+      color: 'var(--bad)',
+      filas: maquinasUnicas(visibles).filter((u) => semaforoVisita(diasVisita(u)) === 'rojo'),
+    };
+    return [base[0], sinVisita, ...base.slice(1)];
+  }, [visibles, estado, diasVisita]);
   const indicadorAbierto = indicadores.find((i) => i.id === detalle);
   const tramos = useMemo(() => {
     if (rutaFoco == null) return [];
@@ -156,6 +286,9 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
     const e = estado[u.site_id];
     const alarma = (e?.horas_peor ?? 0) > HORAS_ALARMA;
     const panelId = (enDetalle ? 'detalle-' : 'lista-') + u.site_id;
+    const c = contacto.get(u.site_id);
+    const dias = c?.dias ?? null;
+    const uv = visitas[u.site_id];
     return (
       <div key={u.site_id} style={{ background: 'var(--panel2)', border: '1px solid var(--line)', borderLeft: '3px solid ' + u.ruta_color, borderRadius: 10, padding: '11px 12px', minWidth: 0, overflowWrap: 'anywhere' }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -167,6 +300,17 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
               <span className="tag ruta-nombre" style={{ color: u.ruta_color, ...varRuta(u.ruta_color) }}>{nombreRuta(u)}</span>
+              {/* Días sin que nadie pase: visita rápida o revisión (29-oct-2026). */}
+              <span className="tag" style={{ color: COLOR_SEMAFORO[semaforoVisita(dias)], fontWeight: 600 }}>
+                {textoDiasVisita(dias)}
+              </span>
+              {c?.pendiente && <span className="tag" style={{ color: c.pendiente.conError ? 'var(--bad)' : 'var(--muted)', whiteSpace: 'normal' }}>
+                {c.pendiente.conError ? '⚠ Visita sin enviar' : c.pendiente.enviando ? '⏳ Enviando visita…' : '⏳ Visita por enviar'}
+              </span>}
+              {uv && !uv.funciona && <span className="tag" style={{ color: 'var(--bad)' }}>No funcionaba en la última visita</span>}
+              {uv && uv.distancia_m != null && uv.distancia_m > LEJOS_M && <span className="tag" style={{ color: colorTono('ambar'), whiteSpace: 'normal' }}>
+                Última visita marcada a {uv.distancia_m >= 1000 ? (uv.distancia_m / 1000).toFixed(1) + ' km' : Math.round(uv.distancia_m) + ' m'}
+              </span>}
               {u.medio && <span className="tag" style={{ whiteSpace: 'normal' }}>{u.medio}{u.tipo_mueble ? ' · ' + u.tipo_mueble : ''}</span>}
               {/* Ámbar y naranja con pareja legible en el tema claro (tema
                   claro/oscuro, 24-sep-2026). */}
@@ -195,8 +339,11 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
             <button className="btn ghost sm" onClick={() => { setDetalle(null); setHistorial(u); }}>
               📖 Historial
             </button>
-            <button className="btn sm" onClick={() => { setDetalle(null); setRevisando(u); }}>
+            <button className="btn ghost sm" onClick={() => { setDetalle(null); setRevisando(u); }}>
               <Ic i={CircleCheck} />Revisar
+            </button>
+            <button className="btn sm" onClick={() => { setDetalle(null); setAviso(''); setVisitando(u); }}>
+              <Ic i={MapPinCheck} />Visita rápida
             </button>
           </div>
         </div>
@@ -230,6 +377,12 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
       <div role="status" style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
         {cargando ? 'Consultando máquinas, inventario e incidencias…' : actualizado ? 'Actualizado: ' + actualizado.toLocaleTimeString('es-MX') : ''}
       </div>
+      {copiaDe && <div className="banner" role="status">
+        Sin señal: es la lista guardada en el teléfono
+        {Number.isFinite(Date.parse(copiaDe)) ? ' el ' + new Date(copiaDe).toLocaleString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}.
+        La visita rápida funciona igual y se envía sola al volver la señal.
+      </div>}
+      {aviso && <div className="banner" role="status" style={{ color: 'var(--ok)' }}>{aviso}</div>}
       {err && <div className="err" role="alert">{err}{actualizado ? ' Se conservan los últimos datos cargados.' : ''}</div>}
       {!cargando && !ubics.length && !err && <div className="banner">
         No hay máquinas asignadas a rutas para {unidad}. Se dan de alta desde <b>Rutas de Operación → Importar mapa (KML)</b>.
@@ -295,6 +448,13 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
         misDep={misDep}
         onClose={() => setRevisando(null)}
         onGuardada={() => { void cargar(); }}
+      />}
+      {visitando && <VisitaMaquinaModal
+        email={email}
+        maquina={visitando}
+        onClose={() => setVisitando(null)}
+        onGuardada={(texto) => { setVisitando(null); setAviso(texto); }}
+        onRevisar={() => { const u = visitando; setVisitando(null); setRevisando(u); }}
       />}
       {historial && <HistorialModal
         siteId={historial.site_id}
