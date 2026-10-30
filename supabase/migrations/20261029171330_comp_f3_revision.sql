@@ -195,6 +195,44 @@ drop trigger if exists comp_campanas_modo on public.comp_campanas;
 create trigger comp_campanas_modo before insert or update of modo_toma, pos_camara, plantilla_codigo
   on public.comp_campanas for each row execute function public.comp_campana_modo_trg();
 
+-- Capturas que dejan de ir por cámara (revisión de seguridad, 29-oct-2026).
+-- POR QUÉ: una captura cuenta como correcta sin revisión porque la posición
+-- es de cámara. Si después cambia el modo, las fotos por cámara o la
+-- plantilla de la campaña, esa captura seguiría cubriendo una posición que
+-- ahora es de CAMPO, aprobada por quien la subió (comp_faltan cuenta fotos
+-- de cualquier origen). Así, en las tomas que todavía se cuentan contra la
+-- plantilla vigente (pendiente o devuelta), las capturas cuya posición ya no
+-- va por cámara dejan de contar (regresada_en, como una foto devuelta: se
+-- quedan de rastro) y la toma vuelve a pedir esa foto en campo. Las tomas
+-- por revisar o comprobadas se cuentan contra su plantilla enviada (A2): ahí
+-- la captura sigue valiendo.
+-- Orden de candados: quien cambia la campaña ya la tiene; aquí se bloquean
+-- sus tomas (order by id) y después las ligas. Ninguna RPC de tomas bloquea
+-- campañas, así que no hay ciclo.
+create or replace function public.comp_campana_modo_ligas_trg() returns trigger
+language plpgsql security definer set search_path to 'public', 'pg_temp' as $$
+begin
+  if (old.modo_toma, old.pos_camara, old.plantilla_codigo) is not distinct from (new.modo_toma, new.pos_camara, new.plantilla_codigo) then
+    return null;
+  end if;
+  perform 1 from comp_tomas t
+   where t.campana_id = new.id and t.estado in ('pendiente', 'regresada')
+     and exists (select 1 from comp_evidencia_tomas et join comp_evidencias e on e.id = et.evidencia_id
+                  where et.toma_id = t.id and et.regresada_en is null and e.origen = 'camara')
+   order by t.id for update;
+  update comp_evidencia_tomas et set regresada_en = now()
+    from comp_evidencias e, comp_tomas t
+   where e.id = et.evidencia_id and t.id = et.toma_id and t.campana_id = new.id
+     and t.estado in ('pendiente', 'regresada') and et.regresada_en is null and e.origen = 'camara'
+     and not exists (select 1 from jsonb_array_elements(comp_plantilla_parte(comp_plantilla_toma(t.id), 'camara')) y
+                      where y->>'pos' = e.pos and nullif(y->>'momento', '') is not distinct from e.momento);
+  return null;
+end $$;
+
+drop trigger if exists comp_campanas_modo_ligas on public.comp_campanas;
+create trigger comp_campanas_modo_ligas after update of modo_toma, pos_camara, plantilla_codigo
+  on public.comp_campanas for each row execute function public.comp_campana_modo_ligas_trg();
+
 -- ------------------------------------------------------------
 -- 3d) Internas (sin grant: solo las llaman otras funciones security definer).
 -- ------------------------------------------------------------
@@ -472,7 +510,7 @@ begin
   end loop;
 end $$;
 
-revoke all on function public.comp_campana_modo_trg(), public.comp_plantilla_toma(bigint),
+revoke all on function public.comp_campana_modo_trg(), public.comp_campana_modo_ligas_trg(), public.comp_plantilla_toma(bigint),
   public.comp_plantilla_parte(jsonb, text), public.comp_puede_capturar(bigint, text),
   public.comp_puede_revisar(bigint, text), public.comp_aviso_revision(bigint[]), public.comp_aviso_regreso(bigint[], text)
   from public, anon, authenticated;

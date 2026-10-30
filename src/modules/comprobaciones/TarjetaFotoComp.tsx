@@ -47,6 +47,9 @@ type Props = {
 };
 
 function estadoFoto(f: FotoRev, elegida: boolean): { texto: string; tono: Tono; marca: 'ok' | 'x' | null } {
+  if (f.devuelta && f.origen === 'camara')
+    // La campaña cambió de modo o de plantilla y esa posición ya no va por cámara.
+    return { texto: 'Ya no cuenta: esa posición dejó de ir por cámara', tono: 'gris', marca: 'x' };
   if (f.devuelta)
     return { texto: f.revision?.estado === 'rechazada' ? `Rechazada: ${f.revision.motivo || 'sin motivo'}` : 'Devuelta con la toma', tono: 'rojo', marca: 'x' };
   if (f.origen === 'camara') return { texto: 'De cámaras (cuenta sola)', tono: 'azul', marca: 'ok' };
