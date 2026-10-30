@@ -820,6 +820,19 @@ function KpiView({
     [f, nombres]
   );
 
+  // Quién apoya más (Op. Bio Box de Biobox, 29-oct-2026): el técnico que
+  // registraron como apoyo al reparar. Aparte de "Quién repara más", que no
+  // cambia (Erik). Igual: por correo, con el nombre al pintar.
+  const porApoyo = useMemo(
+    () =>
+      top((i) => i.apoyo_reparacion_email || null).map((x) => ({
+        ...x,
+        etiqueta: nombreDe(nombres, x.etiqueta),
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [f, nombres]
+  );
+
   // Quién levanta los reportes (captured_by). Igual que "Quién repara más":
   // se agrupa por CORREO (en minúsculas, para no partir a una persona en
   // dos barras) y el nombre se pone solo al pintar (Erik, 27-sep-2026).
@@ -1168,6 +1181,16 @@ function KpiView({
               onAbrir={(x) => abrir(`Reparadas por ${x.etiqueta}`, x.filas)}
             />
           </TarjetaBarras>,
+          // Solo si hay datos: hoy solo Op. Bio Box de Biobox lo registra.
+          porApoyo.length > 0 && (
+            <TarjetaBarras key="apoyo" titulo="Quién apoya más">
+              <Bars
+                data={porApoyo}
+                color="var(--ok)"
+                onAbrir={(x) => abrir(`Con apoyo de ${x.etiqueta}`, x.filas)}
+              />
+            </TarjetaBarras>
+          ),
           porLado.length > 0 && (
             <TarjetaBarras key="lado" titulo="Lado de la cara">
               <Bars

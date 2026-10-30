@@ -71,7 +71,7 @@ function exportar(items: Incidencia[]) {
     'origen', 'area_responsable', 'area_que_repara', 'clave_sitio', 'clave_medio', 'cara',
     'lado', 'direccion', 'municipio', 'plaza', 'campania', 'observaciones',
     'capturada_por', 'fecha_reporte', 'validada_por', 'fecha_validacion',
-    'reparada_por', 'fecha_reparacion', 'diagnostico', 'causa_raiz',
+    'reparada_por', 'apoyo_reparacion', 'fecha_reparacion', 'diagnostico', 'causa_raiz',
     'solucion', 'detalle_reparacion', 'rechazos_reparacion',
     'horas_validacion_a_reparacion', 'horas_en_proceso_ahora',
     'area_reportante', 'contacto_correo', 'contacto_telefono', 'via_reporte',
@@ -87,7 +87,7 @@ function exportar(items: Incidencia[]) {
       // En hora de CDMX: el ISO en UTC hacía ver en Excel las 19:00 como
       // la 01:00 del día siguiente (8-oct-2026).
       i.validator_email, fechaHoraCdmx(i.validator_at), i.repaired_by_email,
-      fechaHoraCdmx(i.repaired_at),
+      i.apoyo_reparacion_email, fechaHoraCdmx(i.repaired_at),
       i.diagnostico, i.causa_raiz, i.solucion, i.detalle_reparacion,
       i.rechazos_reparacion || 0,
       horasValidacionReparacion(i)?.toFixed(1) ?? '',
@@ -165,6 +165,12 @@ const COLUMNAS: {
     titulo: 'Reparó',
     k: 'reparo',
     valor: (i) => (i.repaired_by_email || '').split('@')[0] || null,
+  },
+  // Técnico que apoyó (Op. Bio Box de Biobox, 29-oct-2026).
+  {
+    titulo: 'Apoyó',
+    k: 'apoyo',
+    valor: (i) => (i.apoyo_reparacion_email || '').split('@')[0] || null,
   },
   // El detalle de la reparación, visible sin exportar (Erik, 22-sep-2026):
   // diagnóstico y reparación en las áreas de texto libre; causa raíz y
@@ -373,6 +379,9 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
                   </td>
                   <td style={{ ...celda, ...sinQuiebre }}>
                     {(i.repaired_by_email || '—').split('@')[0]}
+                  </td>
+                  <td style={{ ...celda, ...sinQuiebre }}>
+                    {(i.apoyo_reparacion_email || '—').split('@')[0]}
                   </td>
                   <td style={{ ...celda, minWidth: 180, ...textoLegible }}>
                     {i.diagnostico || '—'}

@@ -44,6 +44,8 @@ const TITULOS: Record<string, string> = {
   // (13-oct-2026); el evento y el estatus siguen siendo `rechazada`.
   rechazada: 'Incidencia devuelta para corregir',
   reasignacion: 'Reasignación aprobada',
+  // Al técnico de Op. Bio Box que registraron como apoyo (29-oct-2026).
+  apoyo_reparacion: 'Te registraron como apoyo',
   chat: 'Nuevo mensaje',
   ruta: 'Cambio en tu ruta',
   pauta_toma: 'Toma regresada',
