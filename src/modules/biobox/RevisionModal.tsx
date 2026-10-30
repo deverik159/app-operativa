@@ -31,6 +31,7 @@ import {
   subirMiniatura,
 } from '../../lib/storage';
 import { idCorto, sinAcentos } from '../../lib/helpers';
+import { diaCdmx } from '../../lib/fechasCdmx';
 import { explicarErrorGps } from '../../lib/plataforma';
 import { duplicadasEnProcesoDeSitio } from '../../lib/duplicados';
 import SubirArchivos from '../../components/SubirArchivos';
@@ -364,7 +365,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     const ext = (
       f.name.split('.').pop() || (tipo === 'video' ? 'mp4' : 'jpg')
     ).toLowerCase();
-    const fecha = new Date().toISOString().slice(0, 10);
+    const fecha = diaCdmx(new Date());
     const nombre =
       `${ubic.site_id}_${etiqueta}_${fecha}_${Date.now()}.${ext}`.replace(
         /[^\w.\-]/g,

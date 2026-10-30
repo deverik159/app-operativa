@@ -69,6 +69,9 @@ const TITULOS: Record<string, string> = {
   comp_sin_analista: 'Tomas sin analista',
   comp_toma: 'Toma devuelta',
   comp_toma_sin_monitorista: 'Toma devuelta sin monitorista',
+  // Aviso NUC (29-oct-2026): Digital lo marca y lo repara a distancia.
+  nuc_fuera_linea: 'NUC fuera de línea',
+  nuc_en_linea: 'NUC en línea',
 };
 
 type Cuerpo = {
