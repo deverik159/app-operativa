@@ -76,6 +76,8 @@ import {
   type EquipoCambio,
 } from '../../lib/equipos';
 import SubirArchivos from '../../components/SubirArchivos';
+import ApoyoModal from './ApoyoModal';
+import { pideApoyo } from '../../lib/apoyoReparacion';
 import PreviaVideo from '../../components/PreviaVideo';
 import type { ArbolDigital, Evidencia, Incidencia, InventarioItem } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
@@ -315,6 +317,11 @@ export type DatosReparacion = {
    * solución elegida lo pide (arbol_digital.equipo). null = no aplica.
    */
   cambioEquipo?: CambioEquipo | null;
+  /**
+   * Técnico que apoyó (Op. Bio Box de Biobox, 29-oct-2026): su correo, o
+   * null si nadie. undefined = la reparación no pregunta (otras áreas).
+   */
+  apoyoEmail?: string | null;
 };
 
 /**
@@ -854,7 +861,14 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
     setEvRep((prev) => prev.filter((x) => x.id !== item.id));
   };
 
-  const guardar = async () => {
+  /** Ventana «¿Te apoyó algún técnico?» abierta (ver ApoyoModal). */
+  const [preguntaApoyo, setPreguntaApoyo] = useState(false);
+
+  /**
+   * `apoyo` llega solo de ApoyoModal. En Op. Bio Box de Biobox, sin él,
+   * Guardar revisa todo lo demás y abre la ventana en vez de guardar.
+   */
+  const guardar = async (apoyo?: { email: string | null }) => {
     // Doble toque: dos reparaciones iguales en la cola chocarían entre sí.
     if (guardandoRef.current) return;
     // Con una foto a medio preparar, se iría sin ella (ver `procesando`); y
@@ -953,6 +967,14 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
         }
       : null;
 
+    // Se pregunta al final, con todo lo demás ya en regla: así la ventana
+    // es el último paso antes de guardar (Erik, 29-oct-2026).
+    const conApoyo = pideApoyo(inc);
+    if (conApoyo && !apoyo) {
+      setPreguntaApoyo(true);
+      return;
+    }
+
     guardandoRef.current = true;
     setBusy(true);
     setProgreso('');
@@ -968,6 +990,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
           archivos,
           ubicacion,
           cambioEquipo,
+          apoyoEmail: conApoyo ? (apoyo?.email ?? null) : undefined,
         },
         { alProgreso: setProgreso }
       );
@@ -1047,475 +1070,490 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
   const nSinCopia = archivos.filter((f) => sinCopia.includes(f)).length;
 
   return (
-    <div
-      className="overlay"
-      onClick={(e) => {
-        // Con el guardado en curso, un roce en el fondo no debe cerrar; con
-        // fotos nuevas elegidas, se pregunta (ver `cerrar`).
-        if ((e.target as HTMLElement).className === 'overlay') cerrar(true);
-      }}
-    >
-      <div className="modal">
-        {/* Igual que Cancelar: `cerrar` pregunta si hay fotos o guardado. */}
-        <CerrarModal onClick={() => cerrar()} />
-        <h2 style={{ margin: '0 0 3px' }}>Registrar reparación</h2>
-        <p className="phint">
-          {inc.folio} · {inc.nombre_incidencia} · cara {caraIncidencia(inc)}
-        </p>
+    <>
+      <div
+        className="overlay"
+        onClick={(e) => {
+          // Con el guardado en curso, un roce en el fondo no debe cerrar; con
+          // fotos nuevas elegidas, se pregunta (ver `cerrar`).
+          if ((e.target as HTMLElement).className === 'overlay') cerrar(true);
+        }}
+      >
+        <div className="modal">
+          {/* Igual que Cancelar: `cerrar` pregunta si hay fotos o guardado. */}
+          <CerrarModal onClick={() => cerrar()} />
+          <h2 style={{ margin: '0 0 3px' }}>Registrar reparación</h2>
+          <p className="phint">
+            {inc.folio} · {inc.nombre_incidencia} · cara {caraIncidencia(inc)}
+          </p>
 
-        {/* Contexto: qué reportó el reportante y con qué evidencia */}
-        <div
-          style={{
-            background: 'var(--panel2)',
-            border: '1px solid var(--line)',
-            borderRadius: 10,
-            padding: '11px 12px',
-            marginBottom: 14,
-          }}
-        >
-          <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>
-            <Ic i={ClipboardList} />Reporte del reportante
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Sitio: <b>{inc.clave_sitio}</b>
-            {inc.nombre_biobox ? ` · ${inc.nombre_biobox}` : ''}
-            <br />
-            {inc.direccion}
-            <br />
-            {/* Solo el nivel: tipo (Imponderable…) y origen se guardan para
-                los KPIs pero dejan de mostrarse (Erik, 30-ago-2026). */}
-            Nivel {inc.nivel || '—'}
-            {inc.reasignada_de && (
-              <>
-                <br />
-                {/* Morado legible en los dos temas (tema claro/oscuro,
-                    24-sep-2026). */}
-                <span style={{ color: colorTono('morado') }}>
-                  <Ic i={Repeat} />Reasignada: antes pertenecía a {inc.reasignada_de}
-                </span>
-              </>
-            )}
-            {inc.observaciones && (
-              <>
-                <br />
-                Obs.: “{inc.observaciones}”
-              </>
-            )}
-          </div>
-          {evReporte.length > 0 ? (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 9 }}>
-              {evReporte.map((e) => (
-                <Miniatura key={e.id} e={e} size={64} deshabilitado={ocupado} />
-              ))}
-            </div>
-          ) : (
-            !cargandoEv && (
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-                {/* Sin señal NO se sabe si hay: decir "no adjuntó" sería
-                    falso (modo sin señal, 24-sep-2026). */}
-                {evSinRed
-                  ? 'Sin señal: las fotos ya subidas se verán al volver la red.'
-                  : 'El reportante no adjuntó evidencia.'}
-              </div>
-            )
-          )}
-        </div>
-
-        {sinMaquina && (
-          <div className="field">
-            <label>
-              Máquina afectada —{' '}
-              <span style={{ color: colorTono('acento') }}>obligatoria</span>
-            </label>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-              Se reportó sin máquina: búscala por su clave o por su nombre.
-            </div>
-            {!maqSitio ? (
-              <>
-                <input
-                  value={maqQuery}
-                  onChange={(e) => setMaqQuery(e.target.value)}
-                  placeholder="Escribe para buscar…"
-                  disabled={ocupado}
-                />
-                {maqBuscando && maqOpts.length === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Buscando…</div>
-                )}
-                {!maqBuscando && !!maqQuery.trim() && maqOpts.length === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Sin resultados</div>
-                )}
-                {maqOpts.length > 0 && (
-                  <div
-                    style={{
-                      border: '1px solid var(--line)',
-                      borderRadius: 9,
-                      marginTop: 4,
-                      maxHeight: 220,
-                      overflow: 'auto',
-                    }}
-                  >
-                    {maqOpts.map((o) => (
-                      <button
-                        key={o.site_id}
-                        type="button"
-                        className="btn ghost"
-                        style={{ display: 'block', width: '100%', textAlign: 'left', borderRadius: 0, border: 'none' }}
-                        onClick={() => elegirMaquina(o)}
-                      >
-                        <b>{o.site_id}</b>
-                        {o.nombre && <span style={{ color: 'var(--muted)' }}> · {o.nombre}</span>}
-                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{o.direccion || 'sin dirección'}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="banner" style={{ marginBottom: 0 }}>
-                <b>{maqSitio.site_id}</b>
-                {maqSitio.nombre ? ` · ${maqSitio.nombre}` : ''}
-                {maqSitio.direccion ? ` · ${maqSitio.direccion}` : ''}{' '}
-                <button
-                  type="button"
-                  className="btn ghost sm"
-                  onClick={() => {
-                    maqSeq.current++;
-                    setMaqSitio(null);
-                    setMaqCaras([]);
-                    setMaqCara('');
-                    setMaqCargando(false);
-                  }}
-                  disabled={ocupado}
-                >
-                  Cambiar
-                </button>
-                {maqCargando && <div style={{ marginTop: 6 }}>Cargando sus caras…</div>}
-                {!maqCargando && maqCaras.length === 0 && (
-                  <div style={{ marginTop: 6, color: 'var(--warn)' }}>
-                    No se pudieron cargar sus caras. Toca Cambiar y vuelve a elegirla.
-                  </div>
-                )}
-                {maqCaras.length > 1 && (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-                    {maqCaras.map((c) => (
-                      <button
-                        key={c.vendor_face_id}
-                        type="button"
-                        className={'btn sm' + (maqCara === c.vendor_face_id ? '' : ' ghost')}
-                        onClick={() => setMaqCara(c.vendor_face_id)}
-                        disabled={ocupado}
-                      >
-                        {c.tipo_medio || c.cara || c.vendor_face_id}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {esDigital && !arbolListo && (
-          <div className="loading" style={{ marginBottom: 14 }}>
-            Cargando clasificación técnica de Digital…
-          </div>
-        )}
-
-        {esDigital && arbolListo && !usarArbol && (
+          {/* Contexto: qué reportó el reportante y con qué evidencia */}
           <div
-            className="banner"
-            style={
-              errArbol
-                ? { marginBottom: 14, borderColor: 'var(--warn)', color: 'var(--warn)' }
-                : { marginBottom: 14 }
-            }
+            style={{
+              background: 'var(--panel2)',
+              border: '1px solid var(--line)',
+              borderRadius: 10,
+              padding: '11px 12px',
+              marginBottom: 14,
+            }}
           >
-            {errArbol
-              ? `${errArbol}`
-              : `“${inc.nombre_incidencia || 'Esta incidencia'}” no tiene clasificación en arbol_digital${arbolDeCopia ? ' (según la copia del teléfono; sin señal)' : ''}. La reparación quedará como Sin clasificar.`}
-          </div>
-        )}
-
-        {usarArbol && arbolDeCopia && (
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
-            <Ic i={WifiOff} />Sin señal: clasificación Digital de la copia del teléfono.
-          </div>
-        )}
-
-        {!usarArbol && (!esDigital || arbolListo) && (
-          <>
-            <div className="field">
-              <label>
-                Diagnóstico —{' '}
-                <span style={{ color: colorTono('acento') }}>obligatorio</span>
-              </label>
-              <textarea
-                rows={2}
-                value={diag}
-                onChange={(e) => setDiag(e.target.value)}
-                placeholder="Qué se encontró en sitio…"
-              />
+            <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>
+              <Ic i={ClipboardList} />Reporte del reportante
             </div>
-            <div className="field">
-              <label>
-                Detalle de reparación —{' '}
-                <span style={{ color: colorTono('acento') }}>obligatorio</span>
-              </label>
-              <textarea
-                rows={2}
-                value={detalle}
-                onChange={(e) => setDetalle(e.target.value)}
-                placeholder="Qué se hizo para corregir…"
-              />
+            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+              Sitio: <b>{inc.clave_sitio}</b>
+              {inc.nombre_biobox ? ` · ${inc.nombre_biobox}` : ''}
+              <br />
+              {inc.direccion}
+              <br />
+              {/* Solo el nivel: tipo (Imponderable…) y origen se guardan para
+                  los KPIs pero dejan de mostrarse (Erik, 30-ago-2026). */}
+              Nivel {inc.nivel || '—'}
+              {inc.reasignada_de && (
+                <>
+                  <br />
+                  {/* Morado legible en los dos temas (tema claro/oscuro,
+                      24-sep-2026). */}
+                  <span style={{ color: colorTono('morado') }}>
+                    <Ic i={Repeat} />Reasignada: antes pertenecía a {inc.reasignada_de}
+                  </span>
+                </>
+              )}
+              {inc.observaciones && (
+                <>
+                  <br />
+                  Obs.: “{inc.observaciones}”
+                </>
+              )}
             </div>
-          </>
-        )}
-
-        {/* En Digital el árbol va ANTES de la evidencia, como el diagnóstico
-            y el detalle en las demás áreas: primero qué se encontró y qué se
-            hizo, al final la foto (Erik, 12-oct-2026). */}
-        {usarArbol && (
-          <>
-            <div className="field">
-              <label>Incidencia técnica de Digital ({tecnicasDig.length})</label>
-              <select
-                value={srdSel}
-                onChange={(e) => {
-                  setSrdSel(e.target.value);
-                  setCausaSel('');
-                  setDiagnosticoSel('');
-                  setSolSel('');
-                }}
-              >
-                <option value="">— Selecciona —</option>
-                {tecnicasDig.map((srd) => (
-                  <option key={srd} value={srd}>
-                    {srd}
-                  </option>
+            {evReporte.length > 0 ? (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 9 }}>
+                {evReporte.map((e) => (
+                  <Miniatura key={e.id} e={e} size={64} deshabilitado={ocupado} />
                 ))}
-              </select>
-              {categoriaDig && (
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                  Categoría: <b>{categoriaDig}</b>
+              </div>
+            ) : (
+              !cargandoEv && (
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                  {/* Sin señal NO se sabe si hay: decir "no adjuntó" sería
+                      falso (modo sin señal, 24-sep-2026). */}
+                  {evSinRed
+                    ? 'Sin señal: las fotos ya subidas se verán al volver la red.'
+                    : 'El reportante no adjuntó evidencia.'}
+                </div>
+              )
+            )}
+          </div>
+
+          {sinMaquina && (
+            <div className="field">
+              <label>
+                Máquina afectada —{' '}
+                <span style={{ color: colorTono('acento') }}>obligatoria</span>
+              </label>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                Se reportó sin máquina: búscala por su clave o por su nombre.
+              </div>
+              {!maqSitio ? (
+                <>
+                  <input
+                    value={maqQuery}
+                    onChange={(e) => setMaqQuery(e.target.value)}
+                    placeholder="Escribe para buscar…"
+                    disabled={ocupado}
+                  />
+                  {maqBuscando && maqOpts.length === 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Buscando…</div>
+                  )}
+                  {!maqBuscando && !!maqQuery.trim() && maqOpts.length === 0 && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Sin resultados</div>
+                  )}
+                  {maqOpts.length > 0 && (
+                    <div
+                      style={{
+                        border: '1px solid var(--line)',
+                        borderRadius: 9,
+                        marginTop: 4,
+                        maxHeight: 220,
+                        overflow: 'auto',
+                      }}
+                    >
+                      {maqOpts.map((o) => (
+                        <button
+                          key={o.site_id}
+                          type="button"
+                          className="btn ghost"
+                          style={{ display: 'block', width: '100%', textAlign: 'left', borderRadius: 0, border: 'none' }}
+                          onClick={() => elegirMaquina(o)}
+                        >
+                          <b>{o.site_id}</b>
+                          {o.nombre && <span style={{ color: 'var(--muted)' }}> · {o.nombre}</span>}
+                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>{o.direccion || 'sin dirección'}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="banner" style={{ marginBottom: 0 }}>
+                  <b>{maqSitio.site_id}</b>
+                  {maqSitio.nombre ? ` · ${maqSitio.nombre}` : ''}
+                  {maqSitio.direccion ? ` · ${maqSitio.direccion}` : ''}{' '}
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    onClick={() => {
+                      maqSeq.current++;
+                      setMaqSitio(null);
+                      setMaqCaras([]);
+                      setMaqCara('');
+                      setMaqCargando(false);
+                    }}
+                    disabled={ocupado}
+                  >
+                    Cambiar
+                  </button>
+                  {maqCargando && <div style={{ marginTop: 6 }}>Cargando sus caras…</div>}
+                  {!maqCargando && maqCaras.length === 0 && (
+                    <div style={{ marginTop: 6, color: 'var(--warn)' }}>
+                      No se pudieron cargar sus caras. Toca Cambiar y vuelve a elegirla.
+                    </div>
+                  )}
+                  {maqCaras.length > 1 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                      {maqCaras.map((c) => (
+                        <button
+                          key={c.vendor_face_id}
+                          type="button"
+                          className={'btn sm' + (maqCara === c.vendor_face_id ? '' : ' ghost')}
+                          onClick={() => setMaqCara(c.vendor_face_id)}
+                          disabled={ocupado}
+                        >
+                          {c.tipo_medio || c.cara || c.vendor_face_id}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-            {srdSel && (
+          )}
+
+          {esDigital && !arbolListo && (
+            <div className="loading" style={{ marginBottom: 14 }}>
+              Cargando clasificación técnica de Digital…
+            </div>
+          )}
+
+          {esDigital && arbolListo && !usarArbol && (
+            <div
+              className="banner"
+              style={
+                errArbol
+                  ? { marginBottom: 14, borderColor: 'var(--warn)', color: 'var(--warn)' }
+                  : { marginBottom: 14 }
+              }
+            >
+              {errArbol
+                ? `${errArbol}`
+                : `“${inc.nombre_incidencia || 'Esta incidencia'}” no tiene clasificación en arbol_digital${arbolDeCopia ? ' (según la copia del teléfono; sin señal)' : ''}. La reparación quedará como Sin clasificar.`}
+            </div>
+          )}
+
+          {usarArbol && arbolDeCopia && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
+              <Ic i={WifiOff} />Sin señal: clasificación Digital de la copia del teléfono.
+            </div>
+          )}
+
+          {!usarArbol && (!esDigital || arbolListo) && (
+            <>
               <div className="field">
-                <label>Causa raíz ({causasDig.length})</label>
+                <label>
+                  Diagnóstico —{' '}
+                  <span style={{ color: colorTono('acento') }}>obligatorio</span>
+                </label>
+                <textarea
+                  rows={2}
+                  value={diag}
+                  onChange={(e) => setDiag(e.target.value)}
+                  placeholder="Qué se encontró en sitio…"
+                />
+              </div>
+              <div className="field">
+                <label>
+                  Detalle de reparación —{' '}
+                  <span style={{ color: colorTono('acento') }}>obligatorio</span>
+                </label>
+                <textarea
+                  rows={2}
+                  value={detalle}
+                  onChange={(e) => setDetalle(e.target.value)}
+                  placeholder="Qué se hizo para corregir…"
+                />
+              </div>
+            </>
+          )}
+
+          {/* En Digital el árbol va ANTES de la evidencia, como el diagnóstico
+              y el detalle en las demás áreas: primero qué se encontró y qué se
+              hizo, al final la foto (Erik, 12-oct-2026). */}
+          {usarArbol && (
+            <>
+              <div className="field">
+                <label>Incidencia técnica de Digital ({tecnicasDig.length})</label>
                 <select
-                  value={causaSel}
+                  value={srdSel}
                   onChange={(e) => {
-                    setCausaSel(e.target.value);
+                    setSrdSel(e.target.value);
+                    setCausaSel('');
                     setDiagnosticoSel('');
                     setSolSel('');
                   }}
                 >
                   <option value="">— Selecciona —</option>
-                  {causasDig.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
+                  {tecnicasDig.map((srd) => (
+                    <option key={srd} value={srd}>
+                      {srd}
                     </option>
                   ))}
                 </select>
+                {categoriaDig && (
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    Categoría: <b>{categoriaDig}</b>
+                  </div>
+                )}
               </div>
-            )}
-            {causaSel && diagnosticosDig.length > 0 && (
-              <div className="field">
-                <label>Diagnóstico ({diagnosticosDig.length})</label>
-                <select
-                  value={diagnosticoSel}
-                  onChange={(e) => {
-                    setDiagnosticoSel(e.target.value);
-                    setSolSel('');
-                  }}
-                >
-                  <option value="">— Selecciona —</option>
-                  {diagnosticosDig.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {causaSel && (diagnosticosDig.length === 0 || diagnosticoSel) && (
-              <div className="field">
-                <label>Solución ({solsDig.length})</label>
-                <select value={solSel} onChange={(e) => setSolSel(e.target.value)}>
-                  <option value="">— Selecciona —</option>
-                  {solsDig.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {/* Historial del equipo (Erik, 15-oct-2026): la solución cambia
-                un equipo con serie. Queda en "Equipos" del menú. */}
-            {tipoEquipo && (
-              <div className="field">
-                <label>
-                  Historial del equipo · {tipoEquipo} —{' '}
-                  <span style={{ color: colorTono('acento') }}>obligatorio</span>
-                </label>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-                  Queda en Equipos: dónde está cada equipo y cuánto duró.
-                </div>
-                <CamposEquipo
-                  titulo="Equipo que sale"
-                  valor={cambio.sale}
-                  onCambio={(sale) => setCambio((c) => ({ ...c, sale }))}
-                  deshabilitado={ocupado}
-                />
-                <CamposEquipo
-                  titulo="Equipo que entra"
-                  valor={cambio.entra}
-                  onCambio={(entra) => setCambio((c) => ({ ...c, entra }))}
-                  deshabilitado={ocupado}
-                />
+              {srdSel && (
                 <div className="field">
-                  <label>Fecha del cambio</label>
-                  <input
-                    type="date"
-                    value={cambio.fecha}
-                    max={hoyCdmx}
-                    onChange={(e) => setCambio((c) => ({ ...c, fecha: e.target.value }))}
-                    disabled={ocupado}
-                  />
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        <div className="field">
-          <label>
-            Evidencia de la reparación (foto/video) —{' '}
-            {evRep.length + archivos.length > 0 ? (
-              <span style={{ color: 'var(--ok)' }}>
-                ✓ {evRep.length + archivos.length} adjunta
-                {evRep.length + archivos.length > 1 ? 's' : ''}
-              </span>
-            ) : (
-              // El naranja como TEXTO va con su tono (tema claro/oscuro,
-              // 24-sep-2026): --accent en claro solo sirve de fondo.
-              <span style={{ color: colorTono('acento') }}>obligatoria</span>
-            )}
-          </label>
-
-          {/* Lo ya subido (de un intento anterior o de 📎 Evidencia). */}
-          {cargandoEv ? (
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-              Buscando evidencia ya subida…
-            </div>
-          ) : (
-            <>
-              {evRep.length > 0 && (
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 6,
-                    flexWrap: 'wrap',
-                    marginBottom: 8,
-                  }}
-                >
-                  {evRep.map((e) => (
-                    <Miniatura
-                      key={e.id}
-                      e={e}
-                      size={56}
-                      deshabilitado={ocupado}
-                      onBorrar={
-                        puedeBorrarEv(e) ? () => borrarEvRep(e) : undefined
-                      }
-                    />
-                  ))}
+                  <label>Causa raíz ({causasDig.length})</label>
+                  <select
+                    value={causaSel}
+                    onChange={(e) => {
+                      setCausaSel(e.target.value);
+                      setDiagnosticoSel('');
+                      setSolSel('');
+                    }}
+                  >
+                    <option value="">— Selecciona —</option>
+                    {causasDig.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
-              {evRep.length > 0 && (
-                <div
-                  style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}
-                >
-                  Ya cuentas con evidencia de reparación subida. Puedes agregar
-                  más, o quitar con <Ic i={Trash} />las tuyas (con señal).
+              {causaSel && diagnosticosDig.length > 0 && (
+                <div className="field">
+                  <label>Diagnóstico ({diagnosticosDig.length})</label>
+                  <select
+                    value={diagnosticoSel}
+                    onChange={(e) => {
+                      setDiagnosticoSel(e.target.value);
+                      setSolSel('');
+                    }}
+                  >
+                    <option value="">— Selecciona —</option>
+                    {diagnosticosDig.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {causaSel && (diagnosticosDig.length === 0 || diagnosticoSel) && (
+                <div className="field">
+                  <label>Solución ({solsDig.length})</label>
+                  <select value={solSel} onChange={(e) => setSolSel(e.target.value)}>
+                    <option value="">— Selecciona —</option>
+                    {solsDig.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {/* Historial del equipo (Erik, 15-oct-2026): la solución cambia
+                  un equipo con serie. Queda en "Equipos" del menú. */}
+              {tipoEquipo && (
+                <div className="field">
+                  <label>
+                    Historial del equipo · {tipoEquipo} —{' '}
+                    <span style={{ color: colorTono('acento') }}>obligatorio</span>
+                  </label>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                    Queda en Equipos: dónde está cada equipo y cuánto duró.
+                  </div>
+                  <CamposEquipo
+                    titulo="Equipo que sale"
+                    valor={cambio.sale}
+                    onCambio={(sale) => setCambio((c) => ({ ...c, sale }))}
+                    deshabilitado={ocupado}
+                  />
+                  <CamposEquipo
+                    titulo="Equipo que entra"
+                    valor={cambio.entra}
+                    onCambio={(entra) => setCambio((c) => ({ ...c, entra }))}
+                    deshabilitado={ocupado}
+                  />
+                  <div className="field">
+                    <label>Fecha del cambio</label>
+                    <input
+                      type="date"
+                      value={cambio.fecha}
+                      max={hoyCdmx}
+                      onChange={(e) => setCambio((c) => ({ ...c, fecha: e.target.value }))}
+                      disabled={ocupado}
+                    />
+                  </div>
                 </div>
               )}
             </>
           )}
-          {recuperado && (
-            <div className="banner" style={{ marginBottom: 8 }} role="status">
-              <Ic i={RotateCcw} />
-              {recuperado.fotos > 0
-                ? `Recuperamos ${recuperado.fotos} ${recuperado.fotos === 1 ? 'foto que no se había enviado' : 'fotos que no se habían enviado'}${recuperado.textos ? ', y lo que habías escrito' : ''}. ${recuperado.fotos === 1 ? 'Revísala' : 'Revísalas'} antes de guardar.`
-                : recuperado.textos
-                  ? 'Recuperamos lo que habías escrito y no se había enviado.'
-                  : ''}
-              {recuperado.ilegibles > 0 &&
-                ` ${recuperado.ilegibles === 1 ? 'Una foto guardada no se pudo leer' : `${recuperado.ilegibles} fotos guardadas no se pudieron leer`} del teléfono: si falta, tómala otra vez.`}
-            </div>
-          )}
-          {/* Lo nuevo: se guarda en el teléfono al elegirlo y viaja con la
-              reparación al Guardar. Se puede revisar (tocándola) y quitar
-              con × antes de mandar; el selector no espera a la consulta de
-              lo ya subido. El envoltorio detecta cuándo empieza a preparar
-              una foto (ver `procesando`). */}
-          <div onChangeCapture={alEmpezarAElegir}>
-            <SubirArchivos
-              archivos={archivos}
-              onFiles={alElegir}
-              onQuitar={alQuitar}
-              disabled={ocupado}
-              ayuda="Se guardan en el teléfono en cuanto las eliges y se suben al guardar. Toca una para revisarla; quítala con × si salió mal."
-            />
-          </div>
-          {nSinCopia > 0 && (
-            <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 6 }}>
-              ⚠{' '}
-              {nSinCopia === 1
-                ? 'Una foto no se pudo guardar en el teléfono: si la app se cierra antes de Guardar, se pierde.'
-                : `${nSinCopia} fotos no se pudieron guardar en el teléfono: si la app se cierra antes de Guardar, se pierden.`}
-            </div>
-          )}
-        </div>
 
-        <div className="modal-actions pie-fijo">
-          {/* Nunca apagado (app pasmada sin señal, 24-sep-2026): mientras
-              prepara o guarda, `cerrar` pregunta en vez de ignorar. */}
-          <button className="btn ghost" onClick={() => cerrar()}>
-            Cancelar
-          </button>
-          {/* Mientras se busca lo ya subido, Guardar solo espera si todavía
-              no hay foto nueva: con una nueva, el requisito ya se cumple. El
-              progreso de las subidas ("Subiendo 2 de 3…") lo manda
-              lib/acciones.ts; sin red, la reparación queda en la cola.
-              Además espera (revisión sin señal, 24-sep-2026) a la foto que
-              se está preparando y, en Digital, al árbol: sin él se
-              guardaría sin clasificación. */}
-          <button
-            className="btn warn"
-            onClick={guardar}
-            disabled={
-              ocupado ||
-              procesando ||
-              recuperando ||
-              (esDigital && !arbolListo) ||
-              (cargandoEv && archivos.length === 0)
-            }
-          >
-            {(busy || procesando || recuperando) && <span className="spinner" />}
-            {busy
-              ? progreso || 'Guardando…'
-              : procesando
-                ? 'Preparando la foto…'
-                : recuperando
-                  ? 'Buscando fotos sin enviar…'
-                  : 'Guardar reparación'}
-          </button>
+          <div className="field">
+            <label>
+              Evidencia de la reparación (foto/video) —{' '}
+              {evRep.length + archivos.length > 0 ? (
+                <span style={{ color: 'var(--ok)' }}>
+                  ✓ {evRep.length + archivos.length} adjunta
+                  {evRep.length + archivos.length > 1 ? 's' : ''}
+                </span>
+              ) : (
+                // El naranja como TEXTO va con su tono (tema claro/oscuro,
+                // 24-sep-2026): --accent en claro solo sirve de fondo.
+                <span style={{ color: colorTono('acento') }}>obligatoria</span>
+              )}
+            </label>
+
+            {/* Lo ya subido (de un intento anterior o de 📎 Evidencia). */}
+            {cargandoEv ? (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                Buscando evidencia ya subida…
+              </div>
+            ) : (
+              <>
+                {evRep.length > 0 && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 6,
+                      flexWrap: 'wrap',
+                      marginBottom: 8,
+                    }}
+                  >
+                    {evRep.map((e) => (
+                      <Miniatura
+                        key={e.id}
+                        e={e}
+                        size={56}
+                        deshabilitado={ocupado}
+                        onBorrar={
+                          puedeBorrarEv(e) ? () => borrarEvRep(e) : undefined
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+                {evRep.length > 0 && (
+                  <div
+                    style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}
+                  >
+                    Ya cuentas con evidencia de reparación subida. Puedes agregar
+                    más, o quitar con <Ic i={Trash} />las tuyas (con señal).
+                  </div>
+                )}
+              </>
+            )}
+            {recuperado && (
+              <div className="banner" style={{ marginBottom: 8 }} role="status">
+                <Ic i={RotateCcw} />
+                {recuperado.fotos > 0
+                  ? `Recuperamos ${recuperado.fotos} ${recuperado.fotos === 1 ? 'foto que no se había enviado' : 'fotos que no se habían enviado'}${recuperado.textos ? ', y lo que habías escrito' : ''}. ${recuperado.fotos === 1 ? 'Revísala' : 'Revísalas'} antes de guardar.`
+                  : recuperado.textos
+                    ? 'Recuperamos lo que habías escrito y no se había enviado.'
+                    : ''}
+                {recuperado.ilegibles > 0 &&
+                  ` ${recuperado.ilegibles === 1 ? 'Una foto guardada no se pudo leer' : `${recuperado.ilegibles} fotos guardadas no se pudieron leer`} del teléfono: si falta, tómala otra vez.`}
+              </div>
+            )}
+            {/* Lo nuevo: se guarda en el teléfono al elegirlo y viaja con la
+                reparación al Guardar. Se puede revisar (tocándola) y quitar
+                con × antes de mandar; el selector no espera a la consulta de
+                lo ya subido. El envoltorio detecta cuándo empieza a preparar
+                una foto (ver `procesando`). */}
+            <div onChangeCapture={alEmpezarAElegir}>
+              <SubirArchivos
+                archivos={archivos}
+                onFiles={alElegir}
+                onQuitar={alQuitar}
+                disabled={ocupado}
+                ayuda="Se guardan en el teléfono en cuanto las eliges y se suben al guardar. Toca una para revisarla; quítala con × si salió mal."
+              />
+            </div>
+            {nSinCopia > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 6 }}>
+                ⚠{' '}
+                {nSinCopia === 1
+                  ? 'Una foto no se pudo guardar en el teléfono: si la app se cierra antes de Guardar, se pierde.'
+                  : `${nSinCopia} fotos no se pudieron guardar en el teléfono: si la app se cierra antes de Guardar, se pierden.`}
+              </div>
+            )}
+          </div>
+
+          <div className="modal-actions pie-fijo">
+            {/* Nunca apagado (app pasmada sin señal, 24-sep-2026): mientras
+                prepara o guarda, `cerrar` pregunta en vez de ignorar. */}
+            <button className="btn ghost" onClick={() => cerrar()}>
+              Cancelar
+            </button>
+            {/* Mientras se busca lo ya subido, Guardar solo espera si todavía
+                no hay foto nueva: con una nueva, el requisito ya se cumple. El
+                progreso de las subidas ("Subiendo 2 de 3…") lo manda
+                lib/acciones.ts; sin red, la reparación queda en la cola.
+                Además espera (revisión sin señal, 24-sep-2026) a la foto que
+                se está preparando y, en Digital, al árbol: sin él se
+                guardaría sin clasificación. */}
+            <button
+              className="btn warn"
+              onClick={() => guardar()}
+              disabled={
+                ocupado ||
+                procesando ||
+                recuperando ||
+                (esDigital && !arbolListo) ||
+                (cargandoEv && archivos.length === 0)
+              }
+            >
+              {(busy || procesando || recuperando) && <span className="spinner" />}
+              {busy
+                ? progreso || 'Guardando…'
+                : procesando
+                  ? 'Preparando la foto…'
+                  : recuperando
+                    ? 'Buscando fotos sin enviar…'
+                    : 'Guardar reparación'}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+      {/* Fuera del overlay de Reparar: un toque en su fondo no debe llegar al
+          de Reparar (que cierra). */}
+      {preguntaApoyo && (
+        <ApoyoModal
+          email={email}
+          inicial={inc.apoyo_reparacion_email}
+          onCancelar={() => setPreguntaApoyo(false)}
+          onElegir={(a) => {
+            setPreguntaApoyo(false);
+            void guardar({ email: a });
+          }}
+        />
+      )}
+    </>
   );
 }
 

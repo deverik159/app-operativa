@@ -671,6 +671,7 @@ function MisRutasView({
         m.set(v.site_id, { tipo: 'visitada', en: v.visitado_en });
     }
     for (const p of pend) {
+      if (p.destino === 'maquina') continue;
       const e = m.get(p.site_id);
       // Una visita en cola más nueva que la registrada es la que manda.
       if (!e || e.tipo !== 'visitada' || t(p.visitado_en) > t(e.en))

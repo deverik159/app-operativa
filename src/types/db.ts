@@ -182,6 +182,8 @@ export interface Incidencia {
   cerrada_en?: string | null;
   /** Equipo que salió y que entró en la reparación de Digital (lib/equipos.ts). */
   cambio_equipo?: import('../lib/equipos').CambioEquipo | null;
+  /** Técnico de Op. Bio Box que apoyó la reparación (lib/apoyoReparacion.ts, 29-oct-2026). */
+  apoyo_reparacion_email?: string | null;
   diagnostico: string | null;
   detalle_reparacion: string | null;
   /** Clasificación técnica elegida por Digital; no sustituye nombre_incidencia. */

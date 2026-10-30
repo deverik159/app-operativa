@@ -69,6 +69,7 @@ const COLUMNAS_KPI = [
   'medio',
   'lado', // ranking por lado y caraIncidencia
   'repaired_by_email',
+  'apoyo_reparacion_email', // "Quién apoya más" (29-oct-2026)
   'captured_by', // "Usuarios que reportan"
   'via_reporte', // "Vía de reporte (MKT)"
   'contacto_correo', // "Usuarios que más reportan (correo, MKT)"

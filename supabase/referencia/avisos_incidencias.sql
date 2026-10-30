@@ -2,7 +2,8 @@
 -- avisos_incidencias.sql — FOTO de los avisos de Incidencias tal como
 -- están en producción al 8-oct-2026 (leídos con pg_get_functiondef),
 -- actualizada con las migraciones 20261008224848_avisos_medio_y_area,
--- 20261013225529_aviso_devuelta y 20261016164756_aviso_correccion_area.
+-- 20261013225529_aviso_devuelta, 20261016164756_aviso_correccion_area y
+-- 20261029235621_apoyo_reparacion_op_biobox (aviso al técnico que apoyó).
 --
 -- QUÉ ES: la copia en el repo de las funciones y triggers que llenan la
 -- tabla `notificaciones` (la campana) y mandan el push. Hasta hoy, cuatro
@@ -31,6 +32,7 @@
 --   assigned_area cambia .................. asignacion_area → técnicos de esa área
 --   reasignación aprobada (incidencias) ... reasignacion → técnicos del área nueva
 --   Corrección cambia el área (en_proceso)  asignacion → técnicos del área nueva
+--   reparado con técnico de apoyo ......... apoyo_reparacion → ese técnico (Op. Bio Box de Biobox)
 --   reasignaciones INSERT Solicitada ...... reasignacion → validadores (menos quien pidió)
 --   reasignaciones Aprobada/Rechazada ..... reasignacion → quien pidió
 --   mensajes INSERT ....................... chat → participantes (ver notificar_chat)
@@ -470,3 +472,49 @@ drop trigger if exists trg_notificar_correccion_area on public.incidencias;
 create trigger trg_notificar_correccion_area
   after update on public.incidencias
   for each row execute function notificar_correccion_area();
+
+-- ------------------------------------------------------------
+-- Aviso al técnico que apoyó la reparación (Op. Bio Box de Biobox,
+-- 29-oct-2026, migración 20261029235621_apoyo_reparacion_op_biobox). El
+-- correo ya lo validó inc_valida_apoyo (BEFORE): es un técnico de Op. Bio
+-- Box de Biobox y no es el que reparó. La validación, la columna y la lista
+-- (tecnicos_apoyo_op_biobox) viven en esa migración.
+-- ------------------------------------------------------------
+create or replace function public.notificar_apoyo_reparacion()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  quien text;
+begin
+  if new.estatus = 'reparado'
+     and new.apoyo_reparacion_email is not null
+     and (old.estatus is distinct from 'reparado'
+          or new.apoyo_reparacion_email is distinct from old.apoyo_reparacion_email) then
+
+    select coalesce(nullif(btrim(u.nombre), ''), split_part(lower(new.repaired_by_email), '@', 1))
+      into quien
+      from (select 1) x
+      left join usuarios u on lower(btrim(u.email)) = lower(btrim(new.repaired_by_email))
+     limit 1;
+
+    insert into notificaciones(record_id, para_email, evento, mensaje, unidad_negocio)
+    values (
+      new.record_id,
+      new.apoyo_reparacion_email,
+      'apoyo_reparacion',
+      'Te registraron como apoyo en la reparación de ' || coalesce(new.folio, '') ||
+        ' · ' || coalesce(new.nombre_incidencia, '') ||
+        coalesce(', con ' || nullif(quien, ''), ''),
+      new.unidad_negocio
+    );
+  end if;
+  return new;
+end $function$;
+
+drop trigger if exists trg_notificar_apoyo_reparacion on public.incidencias;
+create trigger trg_notificar_apoyo_reparacion
+  after update on public.incidencias
+  for each row execute function notificar_apoyo_reparacion();

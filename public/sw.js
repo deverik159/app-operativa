@@ -435,6 +435,8 @@ self.addEventListener('notificationclick', (event) => {
     evento === 'comp_sin_analista' ||
     evento === 'comp_toma_sin_monitorista';
   const esTomaDevuelta = evento === 'comp_toma';
+  // Y estos en Aviso NUC (29-oct-2026): nuc_fuera_linea y nuc_en_linea.
+  const esNuc = !!evento && evento.startsWith('nuc_');
   const unidad = datos.unidad || null;
   // La URL se usa tanto al abrir una ventana nueva como al navegar una ya
   // abierta. De esta manera la app arranca desde el bundle actual y lee el
@@ -455,6 +457,8 @@ self.addEventListener('notificationclick', (event) => {
             destino + sep + 'ir=pauta&evento=' + encodeURIComponent(evento)
           : esBitacora
             ? destino + sep + 'ir=bitacora'
+            : esNuc
+              ? destino + sep + 'ir=aviso_nuc'
             : destino;
 
   event.waitUntil(

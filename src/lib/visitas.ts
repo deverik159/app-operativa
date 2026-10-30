@@ -67,7 +67,18 @@ import { anotarVisitaEnCopiaLocal } from './datosLocales';
 // Tipos (contrato con la vista y el aviso)
 // ------------------------------------------------------------
 
+/**
+ * A qué tabla va la visita. 'maquina' (Máquinas Biobox, 29-oct-2026) es la
+ * visita rápida del técnico: va a `maquina_visitas` con «¿funciona?», sin
+ * ruta y sin la copia local de Mis rutas. Las visitas guardadas antes no
+ * traen destino: son de ruta.
+ */
+export type DestinoVisita = 'ruta' | 'maquina';
+
 export type VisitaNueva = {
+  destino?: DestinoVisita;
+  /** Solo en destino 'maquina'. */
+  funciona?: boolean;
   ruta_id: number | null;
   site_id: string;
   /** Texto para el aviso, p. ej. "Ruta 3 · parada 5 · MX_CM_EV_3299". */
@@ -85,6 +96,7 @@ export type VisitaNueva = {
 /** Lo que la vista superpone en la lista: la parada con ⏳ o con error. */
 export type VisitaPendiente = {
   id: string;
+  destino: DestinoVisita;
   ruta_id: number | null;
   site_id: string;
   visitado_en: string;
@@ -132,6 +144,9 @@ type Visita = {
   email: string;
   creado_en: string;
   actualizado_en: string;
+  /** Sin destino = 'ruta' (visitas guardadas antes del 29-oct-2026). */
+  destino?: DestinoVisita;
+  funciona?: boolean | null;
   ruta_id: number | null;
   site_id: string;
   resumen: string;
@@ -425,6 +440,20 @@ const buzon: { email: string; texto: string }[] = [];
  * releer). Sin esto la parada pasaba de ⏳ a "pendiente" hasta recargar.
  */
 const enviadas: { email: string; site_id: string; ruta_id: number | null; visitado_en: string }[] = [];
+/** Lo mismo para las visitas de máquina (Máquinas Biobox): no cuentan en Mis rutas. */
+const maquinasEnviadas: { email: string; site_id: string; visitado_en: string; funciona: boolean }[] = [];
+
+const destinoDe = (v: Pick<Visita, 'destino'>): DestinoVisita => (v.destino === 'maquina' ? 'maquina' : 'ruta');
+
+/** Las visitas de máquina de este correo que ya entraron en esta pestaña. */
+export function visitasMaquinaEnviadasEnSesion(
+  email: string
+): { site_id: string; visitado_en: string; funciona: boolean }[] {
+  const em = (email || '').trim().toLowerCase();
+  return maquinasEnviadas
+    .filter((x) => x.email === em)
+    .map(({ site_id, visitado_en, funciona }) => ({ site_id, visitado_en, funciona }));
+}
 
 /** Las visitas de este correo que ya entraron en esta pestaña. */
 export function visitasEnviadasEnSesion(
@@ -509,22 +538,26 @@ const conPunto = (s: string) => (/[.!?…]$/.test(s.trim()) ? s.trim() : s.trim(
 // Armar y guardar
 // ------------------------------------------------------------
 
-/** La ruta de Storage de una foto: rutas/<site_id>/<cliente_id>_<n>.<ext> */
-function rutaFoto(siteId: string, id: string, n: number, f: File): string {
+/**
+ * La ruta de Storage de una foto: rutas/<site_id>/<cliente_id>_<n>.<ext>, o
+ * maquinas/<site_id>/… en las visitas de máquina.
+ */
+function rutaFoto(destino: DestinoVisita, siteId: string, id: string, n: number, f: File): string {
   const m = /\.([a-z0-9]{1,8})$/i.exec(f.name || '');
   const ext = (m ? m[1] : (f.type || '').split('/')[1] || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
   const sitio = (siteId || 'sitio').replace(/[^\w.\-]/g, '_');
-  return `rutas/${sitio}/${id}_${n}.${ext}`;
+  return `${destino === 'maquina' ? 'maquinas' : 'rutas'}/${sitio}/${id}_${n}.${ext}`;
 }
 
 function armar(email: string, vn: VisitaNueva, archivos: Map<string, File>): Visita {
   const id = nuevoIdEnvio();
   const ahora = new Date().toISOString();
+  const destino: DestinoVisita = vn.destino === 'maquina' ? 'maquina' : 'ruta';
   const lista: ArchivoVisita[] = vn.fotos.map((f, i) => {
     const n = i + 1;
     const clave = `v:${id}:${n}`;
     archivos.set(clave, f);
-    return { clave, path: rutaFoto(vn.site_id, id, n, f), n, nombre: f.name || `foto ${n}`, bytes: f.size };
+    return { clave, path: rutaFoto(destino, vn.site_id, id, n, f), n, nombre: f.name || `foto ${n}`, bytes: f.size };
   });
   return {
     v: 1,
@@ -532,7 +565,9 @@ function armar(email: string, vn: VisitaNueva, archivos: Map<string, File>): Vis
     email,
     creado_en: ahora,
     actualizado_en: ahora,
-    ruta_id: vn.ruta_id,
+    destino,
+    funciona: destino === 'maquina' ? !!vn.funciona : null,
+    ruta_id: destino === 'maquina' ? null : vn.ruta_id,
     site_id: vn.site_id,
     resumen: vn.resumen || `Visita a ${vn.site_id}`,
     visitado_en: vn.visitado_en || ahora,
@@ -659,6 +694,7 @@ async function listarTodas(email: string): Promise<Visita[]> {
 function aPendiente(v: Visita): VisitaPendiente {
   return {
     id: v.id,
+    destino: destinoDe(v),
     ruta_id: v.ruta_id,
     site_id: v.site_id,
     visitado_en: v.visitado_en,
@@ -771,7 +807,13 @@ async function fotoDe(v: Visita, x: ArchivoVisita): Promise<File | null> {
 }
 
 /** Las palabras de campo para los errores definitivos del INSERT. */
-function mensajeInsert(e: { message: string; code?: string }): string {
+function mensajeInsert(e: { message: string; code?: string }, destino: DestinoVisita): string {
+  if (destino === 'maquina') {
+    if (e.code === '42501')
+      return 'tu rol no permite marcar visitas a máquinas Biobox. Pide al coordinador que revise tu acceso';
+    if (e.code === '23514') return 'si la máquina no funciona, escribe qué tiene';
+    return e.message;
+  }
   if (e.code === '42501')
     return 'ya no tienes esta ruta asignada (o tu rol no permite marcar visitas). Pide al coordinador que te la asigne';
   if (e.code === '23503') return 'la ruta ya no existe (la quitaron mientras tanto)';
@@ -789,21 +831,28 @@ async function insertar(v: Visita): Promise<'ok' | { definitivo: string }> {
     path,
     url: sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path).data.publicUrl,
   }));
-  const r = await sb
-    .from('ruta_visitas')
-    .insert({
-      cliente_id: v.id,
-      ruta_id: v.ruta_id,
-      site_id: v.site_id,
-      usuario_email: v.email,
-      visitado_en: v.visitado_en,
-      lat: v.lat,
-      lng: v.lng,
-      precision_m: v.precision_m,
-      fotos,
-      nota: v.nota,
-    })
-    .abortSignal(tope(ESPERA_INSERT_MS));
+  const comun = {
+    cliente_id: v.id,
+    site_id: v.site_id,
+    usuario_email: v.email,
+    visitado_en: v.visitado_en,
+    lat: v.lat,
+    lng: v.lng,
+    precision_m: v.precision_m,
+    fotos,
+    nota: v.nota,
+  };
+  const destino = destinoDe(v);
+  const r =
+    destino === 'maquina'
+      ? await sb
+          .from('maquina_visitas')
+          .insert({ ...comun, funciona: !!v.funciona })
+          .abortSignal(tope(ESPERA_INSERT_MS))
+      : await sb
+          .from('ruta_visitas')
+          .insert({ ...comun, ruta_id: v.ruta_id })
+          .abortSignal(tope(ESPERA_INSERT_MS));
   if (!r.error) return 'ok';
   if (r.error.code === '23505') return 'ok';
   if (esFallaRedPg(r.error, r.status)) throw new SinRed(r.error.message);
@@ -811,7 +860,7 @@ async function insertar(v: Visita): Promise<'ok' | { definitivo: string }> {
   // si ya no hay sesión del dueño, exigirSesion lanza y sigue en cola.
   if (r.error.code === '42501') await exigirSesion(ESPERA_SESION_INTERACTIVA_MS, v.email);
   reportarError('visitas.insert', r.error, { code: r.error.code }, v.id);
-  return { definitivo: mensajeInsert(r.error) };
+  return { definitivo: mensajeInsert(r.error, destino) };
 }
 
 /**
@@ -867,10 +916,15 @@ async function ejecutar(v0: Visita): Promise<ResultadoInterno> {
       await anotar(v, mensaje, true);
       return { tipo: 'error', mensaje };
     }
-    enviadas.push({ email: norm(v.email), site_id: v.site_id, ruta_id: v.ruta_id, visitado_en: v.visitado_en });
-    await quitar(v.id);
-    // Que la parada siga viéndose visitada aunque la señal se vaya otra vez.
-    void anotarVisitaEnCopiaLocal(v.email, { site_id: v.site_id, ruta_id: v.ruta_id, visitado_en: v.visitado_en });
+    if (destinoDe(v) === 'maquina') {
+      maquinasEnviadas.push({ email: norm(v.email), site_id: v.site_id, visitado_en: v.visitado_en, funciona: !!v.funciona });
+      await quitar(v.id);
+    } else {
+      enviadas.push({ email: norm(v.email), site_id: v.site_id, ruta_id: v.ruta_id, visitado_en: v.visitado_en });
+      await quitar(v.id);
+      // Que la parada siga viéndose visitada aunque la señal se vaya otra vez.
+      void anotarVisitaEnCopiaLocal(v.email, { site_id: v.site_id, ruta_id: v.ruta_id, visitado_en: v.visitado_en });
+    }
     return avisos.length ? { tipo: 'hecha', aviso: avisos.join(' ') } : { tipo: 'hecha' };
   } catch (err) {
     if (err instanceof SinRed) {
@@ -932,6 +986,10 @@ export async function marcarVisita(email: string, vn: VisitaNueva): Promise<Resu
   if (!em) return { tipo: 'error', mensaje: 'Sin sesión: vuelve a entrar a la app.' };
   if (!vn.site_id) return { tipo: 'error', mensaje: 'Falta el sitio de la visita.' };
   if (!vn.fotos?.length) return { tipo: 'error', mensaje: 'La foto es obligatoria: toma al menos una.' };
+  if (vn.destino === 'maquina' && typeof vn.funciona !== 'boolean')
+    return { tipo: 'error', mensaje: 'Indica si la máquina funciona.' };
+  if (vn.destino === 'maquina' && !vn.funciona && !(vn.nota || '').trim())
+    return { tipo: 'error', mensaje: 'Si la máquina no funciona, escribe qué tiene.' };
   const archivos = new Map<string, File>();
   const v = armar(em, vn, archivos);
   ocultas.add(v.id);

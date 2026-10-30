@@ -43,6 +43,9 @@ const EVENTOS_OPERACION = new Set([
   // «N tomas devueltas sin monitorista vigente» al Supervisor (o managers).
   'comp_toma',
   'comp_toma_sin_monitorista',
+  // Aviso NUC (29-oct-2026).
+  'nuc_fuera_linea',
+  'nuc_en_linea',
 ]);
 
 function CampanaNotifs({

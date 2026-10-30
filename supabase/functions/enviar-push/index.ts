@@ -44,6 +44,8 @@ const TITULOS: Record<string, string> = {
   // (13-oct-2026); el evento y el estatus siguen siendo `rechazada`.
   rechazada: 'Incidencia devuelta para corregir',
   reasignacion: 'Reasignación aprobada',
+  // Al técnico de Op. Bio Box que registraron como apoyo (29-oct-2026).
+  apoyo_reparacion: 'Te registraron como apoyo',
   chat: 'Nuevo mensaje',
   ruta: 'Cambio en tu ruta',
   pauta_toma: 'Toma regresada',
@@ -67,6 +69,9 @@ const TITULOS: Record<string, string> = {
   comp_sin_analista: 'Tomas sin analista',
   comp_toma: 'Toma devuelta',
   comp_toma_sin_monitorista: 'Toma devuelta sin monitorista',
+  // Aviso NUC (29-oct-2026): Digital lo marca y lo repara a distancia.
+  nuc_fuera_linea: 'NUC fuera de línea',
+  nuc_en_linea: 'NUC en línea',
 };
 
 type Cuerpo = {

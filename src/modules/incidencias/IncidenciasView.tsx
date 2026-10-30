@@ -2426,6 +2426,7 @@ function IncidenciasView({
       archivos,
       ubicacion,
       cambioEquipo,
+      apoyoEmail,
     }: DatosReparacion,
     op?: { alProgreso?: (texto: string) => void }
   ): Promise<FinReparacion | undefined> => {
@@ -2454,6 +2455,15 @@ function IncidenciasView({
       causa_raiz: causa || null,
       solucion: solucion || null,
       repaired_by_email: email,
+      // Técnico que apoyó (Op. Bio Box de Biobox, 29-oct-2026): ahí siempre
+      // se manda, null si nadie, para no dejar el de una reparación anterior
+      // que se rechazó. En otras áreas solo se limpia si quedó uno de antes
+      // (corrección de área); si no, la columna ni se menciona.
+      ...(apoyoEmail !== undefined
+        ? { apoyo_reparacion_email: apoyoEmail }
+        : inc.apoyo_reparacion_email
+          ? { apoyo_reparacion_email: null }
+          : {}),
       // Biobox reportada sin máquina: la que eligió quien repara.
       ...(ubicacion || {}),
       // Fijada UNA vez, al tocar Guardar: es la marca con la que la cola

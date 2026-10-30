@@ -259,9 +259,11 @@ export const PORTICOS_LADO_FIJO: Record<string, string> = {
 /**
  * Áreas que SALTAN la validación inicial: la incidencia entra directo a
  * 'en_proceso' con requiere_prevalidacion=true, y el área la prevalida al
- * recibirla. Solo aplica fuera del horario del validador.
+ * recibirla. Solo aplica fuera del horario del validador. Op. Bio Box se
+ * sumó el 29-oct-2026 (pedido de Erik). Los nombres van tal cual vienen del
+ * catálogo en area_responsable.
  */
-export const AREAS_AUTORUTEO = ['Digital'];
+export const AREAS_AUTORUTEO = ['Digital', 'Op. Bio Box'];
 
 /** Horario del validador (America/Mexico_City): Lun–Vie 9:30–18:30. */
 export const VAL_DIAS = [1, 2, 3, 4, 5];

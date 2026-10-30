@@ -388,7 +388,7 @@ function IncCard({
         {i.semana ? ` · Sem ${i.semana}` : ''}
         {i.captured_by ? ` · por ${String(i.captured_by).split('@')[0]}` : ''}
       </div>
-      {(i.detalle_reparacion || i.diagnostico || i.causa_raiz || i.solucion) && (
+      {(i.detalle_reparacion || i.diagnostico || i.causa_raiz || i.solucion || i.apoyo_reparacion_email) && (
         <div className="obs inc-detalle">
           {i.diagnostico && (
             <div>
@@ -408,6 +408,12 @@ function IncCard({
           {i.detalle_reparacion && (
             <div>
               <b>Reparación:</b> {i.detalle_reparacion}
+            </div>
+          )}
+          {/* Técnico que apoyó (Op. Bio Box de Biobox, 29-oct-2026). */}
+          {i.apoyo_reparacion_email && (
+            <div>
+              <b>Apoyó:</b> {i.apoyo_reparacion_email.split('@')[0]}
             </div>
           )}
         </div>
@@ -469,7 +475,7 @@ function IncCard({
               teléfono ensanchaba TODA la lista de tarjetas (los items del
               grid no encogen por debajo de su min-content). */}
           <span className="pill multilinea" style={chip('azul')}>
-            <Ic i={Zap} />Directa a Digital · prevalidación pendiente
+            <Ic i={Zap} />Directa a {i.area_responsable || 'tu área'} · prevalidación pendiente
           </span>
         </div>
       )}

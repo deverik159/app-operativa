@@ -43,7 +43,9 @@ export function indicadoresMaquinas(filas: MaquinaBiobox[], estado: MapaResumen)
       filas: base.filter((u) => (u.puntos_anomalia || 0) > 0) },
     { id: 'incidencias', titulo: 'Con incidencias abiertas', color: naranja,
       filas: base.filter((u) => (estado[u.site_id]?.abiertas || 0) > 0) },
-    { id: 'fuera', titulo: 'Fuera de línea', color: 'var(--bad)',
+    // «No comercializable» y no «Fuera de línea», que es el estado del NUC
+    // (Erik, 30-oct-2026).
+    { id: 'fuera', titulo: 'No comercializable', color: 'var(--bad)',
       filas: base.filter(fueraDeLinea) },
     { id: 'coordenadas', titulo: 'Sin coordenadas', color: 'var(--muted)',
       filas: base.filter((u) => !u.navegable) },

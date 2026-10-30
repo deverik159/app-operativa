@@ -1239,6 +1239,98 @@ export async function borrarListaLocal(email: string): Promise<void> {
   await borrarMisRutasLocal(email);
   // Y su lista de Comprobaciones (fase 3, 26-oct-2026).
   await borrarCompHoyLocal(email);
+  // Y su copia de Máquinas Biobox (visita rápida, 29-oct-2026).
+  await borrarMaquinasBioboxLocal(email);
+}
+
+// ------------------------------------------------------------
+// Máquinas Biobox (visita rápida, 29-oct-2026)
+//
+// La visita rápida se guarda sin señal, pero para tocarla hace falta la
+// lista de máquinas: sin copia, abrir el módulo sin señal no enseñaba nada.
+// Mismo almacén `listas`, llave 'biobox|<unidad>|<correo>' (ningún correo
+// empieza así). Las mismas reglas que Mis rutas: solo se guarda lo que llegó
+// completo, con red y con sesión REAL de ese correo.
+// ------------------------------------------------------------
+
+export type MaquinasBioboxLocal<M = unknown, E = unknown, V = unknown> = {
+  guardado: string;
+  maquinas: M[];
+  estado: Record<string, E>;
+  visitas: Record<string, V>;
+};
+
+const memMaquinasBiobox = new Map<string, MaquinasBioboxLocal>();
+
+function llaveMaquinasBiobox(email: string, unidad: string): string {
+  const k = llaveEmail(email);
+  const u = (unidad || '').trim().toLowerCase();
+  return k && u ? `biobox|${u}|${k}` : '';
+}
+
+/** Guarda la lista de máquinas tal como se acaba de ver. No lanza. */
+export async function guardarMaquinasBioboxLocal<M, E, V>(
+  email: string,
+  unidad: string,
+  datos: Omit<MaquinasBioboxLocal<M, E, V>, 'guardado'>
+): Promise<void> {
+  const k = llaveMaquinasBiobox(email, unidad);
+  if (!k || !datos || !Array.isArray(datos.maquinas)) return;
+  const valor: MaquinasBioboxLocal = {
+    guardado: new Date().toISOString(),
+    maquinas: datos.maquinas,
+    estado: datos.estado || {},
+    visitas: datos.visitas || {},
+  };
+  memMaquinasBiobox.set(k, valor);
+  try {
+    await datosPut('listas', { email: k, ...valor }, topeEscritura(valor.maquinas.length));
+  } catch (e) {
+    if (!(e instanceof ErrorDatos && e.motivo === 'no-disponible'))
+      reportarUnaVez('biobox:guardar', e, {
+        maquinas: valor.maquinas.length,
+        motivo: e instanceof ErrorDatos ? e.motivo : 'otro',
+      });
+  }
+}
+
+/** La última copia de esa unidad y ese correo, o null. No lanza. */
+export async function leerMaquinasBioboxLocal<M, E, V>(
+  email: string,
+  unidad: string
+): Promise<MaquinasBioboxLocal<M, E, V> | null> {
+  try {
+    const k = llaveMaquinasBiobox(email, unidad);
+    if (!k) return null;
+    const m = memMaquinasBiobox.get(k);
+    if (m) return m as MaquinasBioboxLocal<M, E, V>;
+    const r = await datosGet<MaquinasBioboxLocal & { email?: string }>('listas', k);
+    if (!r || !Array.isArray(r.maquinas)) return null;
+    const copia: MaquinasBioboxLocal = {
+      guardado: typeof r.guardado === 'string' ? r.guardado : '',
+      maquinas: r.maquinas,
+      estado: r.estado || {},
+      visitas: r.visitas || {},
+    };
+    memMaquinasBiobox.set(k, copia);
+    return copia as MaquinasBioboxLocal<M, E, V>;
+  } catch {
+    return null;
+  }
+}
+
+/** Borra las copias de Máquinas Biobox de ese correo (todas las unidades). No lanza. */
+export async function borrarMaquinasBioboxLocal(email: string): Promise<void> {
+  for (const u of UNIDADES_BIOBOX) {
+    const k = llaveMaquinasBiobox(email, u);
+    if (!k) continue;
+    memMaquinasBiobox.delete(k);
+    try {
+      await datosDelete('listas', k);
+    } catch {
+      /* sin base: no había nada */
+    }
+  }
 }
 
 // ------------------------------------------------------------
