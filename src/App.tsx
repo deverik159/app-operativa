@@ -1662,7 +1662,7 @@ function Main({
       const { data, error } = await sb
         .from('nuc_avisos')
         .select('estado,unidad_negocio')
-        .in('estado', ['fuera_linea', 'en_revision']);
+        .neq('estado', 'en_linea');
       // Si falla (p. ej. la tabla aún no existe) el menú queda sin número.
       if (vivo && !error) setPendientesNucMenu(pendientesNuc(data || [], rolesDetalle));
     };

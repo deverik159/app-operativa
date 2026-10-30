@@ -304,7 +304,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
   /** Leyenda del NUC: cuántas máquinas de la unidad hay en cada estado. */
   const conteoNuc = useMemo(() => {
     if (!nuc) return null;
-    const n: Record<EstadoNuc, number> = { fuera_linea: 0, en_revision: 0, en_linea: 0 };
+    const n: Record<EstadoNuc, number> = { fuera_linea: 0, en_linea: 0 };
     for (const u of maquinasUnicas(ubics)) n[estadoNuc(nuc.get(u.site_id))]++;
     return n;
   }, [ubics, nuc]);

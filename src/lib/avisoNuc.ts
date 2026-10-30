@@ -14,8 +14,14 @@ import { UNIDADES_BIOBOX } from './constants';
 import { sinAcentos } from './helpers';
 import type { Tono } from './tonos';
 
-/** Estado del NUC de una máquina. Sin aviso abierto = en_linea. */
-export type EstadoNuc = 'fuera_linea' | 'en_revision' | 'en_linea';
+/**
+ * Estado del NUC de una máquina. Sin aviso abierto = en_linea. «En revisión»
+ * se quitó el 30-oct-2026 (Erik): todo lo hace Digital, no hacía falta.
+ */
+export type EstadoNuc = 'fuera_linea' | 'en_linea';
+
+/** Estado de un evento del historial: los de antes del 30-oct pueden decir en_revision. */
+export type EstadoEventoNuc = EstadoNuc | 'en_revision';
 
 /** tabla `nuc_avisos`. */
 export interface AvisoNuc {
@@ -27,22 +33,24 @@ export interface AvisoNuc {
   nota_digital: string | null;
   abierto_por: string;
   abierto_en: string;
-  /** Quién de Digital lo está revisando. */
+  /** Quién lo tomó con «Estoy revisándolo» (solo avisos de antes del 30-oct). */
   tomado_por: string | null;
   tomado_en: string | null;
   cerrado_por: string | null;
   cerrado_en: string | null;
-  /** Qué hizo Digital para ponerlo en línea. */
+  /** Qué hizo Digital para ponerlo en línea (una de RESPUESTAS_DIGITAL). */
   nota_cierre: string | null;
+  /** Foto del cierre en el bucket evidencias (nuc/<id>/…); obligatoria desde el 30-oct. */
+  foto_cierre: string | null;
   actualizado_en: string;
 }
 
-/** tabla `nuc_avisos_eventos`. */
+/** tabla `nuc_avisos_eventos`. «tomado» solo queda en el historial viejo. */
 export interface EventoNuc {
   id: number;
   aviso_id: number;
   accion: 'abierto' | 'tomado' | 'en_linea';
-  estado: EstadoNuc;
+  estado: EstadoEventoNuc;
   por: string;
   en: string;
   nota: string | null;
@@ -70,26 +78,29 @@ export interface MaquinaNuc {
   municipio: string | null;
 }
 
-export const ESTADOS_NUC: readonly EstadoNuc[] = ['fuera_linea', 'en_revision', 'en_linea'];
+export const ESTADOS_NUC: readonly EstadoNuc[] = ['fuera_linea', 'en_linea'];
 
 export const ETIQUETA_NUC: Record<EstadoNuc, string> = {
   fuera_linea: 'Fuera de línea',
-  en_revision: 'En revisión',
   en_linea: 'En línea',
 };
 
-export const TONO_NUC: Record<EstadoNuc, Tono> = {
+/** Colores; en_revision solo para pintar el historial viejo. */
+export const TONO_NUC: Record<EstadoEventoNuc, Tono> = {
   fuera_linea: 'rojo',
   en_revision: 'ambar',
   en_linea: 'verde',
 };
 
-/** Respuestas rápidas de Digital al ponerlo en línea; también puede escribir la suya. */
+/**
+ * Lo que Digital puede responder al ponerlo en línea: una es obligatoria y
+ * no hay nota libre (Erik, 30-oct-2026). La base acepta exactamente estas
+ * (nuc_aviso_en_linea, migración 20261030182357).
+ */
 export const RESPUESTAS_DIGITAL: readonly string[] = [
   'Se reinició el NUC',
   'Se restableció la red',
-  'Volvió solo',
-  'Se reinstaló el software',
+  'VPN apagada',
 ];
 
 type Rol = { rol: string; unidad_negocio: string | null; departamento: string | null };
@@ -161,9 +172,9 @@ export function maquinasDeInventario(filas: FilaInventarioNuc[]): MaquinaNuc[] {
   }));
 }
 
-/** Estado del NUC: el del aviso abierto, o en línea si no hay. */
-export function estadoNuc(aviso: Pick<AvisoNuc, 'estado'> | null | undefined): EstadoNuc {
-  return aviso && aviso.estado !== 'en_linea' ? aviso.estado : 'en_linea';
+/** Estado del NUC: con aviso abierto, fuera de línea; si no hay, en línea. */
+export function estadoNuc(aviso: { estado: string } | null | undefined): EstadoNuc {
+  return aviso && aviso.estado !== 'en_linea' ? 'fuera_linea' : 'en_linea';
 }
 
 /** Cuántas máquinas hay en cada estado. */
@@ -171,17 +182,17 @@ export function contarEstados(
   maquinas: Pick<MaquinaNuc, 'site_id'>[],
   avisos: Map<string, Pick<AvisoNuc, 'estado'>>
 ): Record<EstadoNuc, number> {
-  const n: Record<EstadoNuc, number> = { fuera_linea: 0, en_revision: 0, en_linea: 0 };
+  const n: Record<EstadoNuc, number> = { fuera_linea: 0, en_linea: 0 };
   for (const m of maquinas) n[estadoNuc(avisos.get(m.site_id))]++;
   return n;
 }
 
-const PESO: Record<EstadoNuc, number> = { fuera_linea: 0, en_revision: 1, en_linea: 2 };
+const PESO: Record<EstadoNuc, number> = { fuera_linea: 0, en_linea: 1 };
 
 /**
  * Orden del tablero: primero las fuera de línea (la más vieja arriba: es la
- * que más lleva esperando), luego en revisión y al final las en línea por
- * clave del mueble, que es lo que el tablero enseña arriba.
+ * que más lleva esperando) y al final las en línea por clave del mueble, que
+ * es lo que el tablero enseña arriba.
  */
 export function ordenarTablero<M extends Pick<MaquinaNuc, 'site_id'>>(
   maquinas: M[],
@@ -215,21 +226,19 @@ export function haceCuanto(iso: string | null | undefined, ahora: number = Date.
 }
 
 /**
- * Número del menú: al técnico y al validador, cuántas de sus unidades están
- * fuera de línea o en revisión (lo que necesitan saber); a Digital, cuántas
- * siguen fuera de línea sin que nadie las revise (lo que le toca atender).
+ * Número del menú: cuántas máquinas siguen fuera de línea. Al técnico y al
+ * validador, las de sus unidades; a Digital, todas (las tiene que atender).
  * Cada aviso cuenta una vez aunque la persona sea varias cosas.
  */
 export function pendientesNuc(
-  avisos: Pick<AvisoNuc, 'estado' | 'unidad_negocio'>[],
+  avisos: { estado: string; unidad_negocio: string }[],
   roles: Rol[]
 ): number {
   const digital = esDigitalNuc(roles);
   return avisos.filter(
     (a) =>
-      (a.estado !== 'en_linea' &&
-        (esTecnicoNuc(roles, a.unidad_negocio) || esValidadorNuc(roles, a.unidad_negocio))) ||
-      (a.estado === 'fuera_linea' && digital)
+      a.estado !== 'en_linea' &&
+      (digital || esTecnicoNuc(roles, a.unidad_negocio) || esValidadorNuc(roles, a.unidad_negocio))
   ).length;
 }
 
