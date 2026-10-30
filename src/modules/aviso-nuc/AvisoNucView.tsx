@@ -212,8 +212,10 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
       <div key={m.site_id} style={{ background: 'var(--panel2)', border: '1px solid ' + (e === 'en_linea' ? 'var(--line)' : p.borderColor), borderLeft: '4px solid ' + p.color, borderRadius: 10, padding: '11px 12px', minWidth: 0, overflowWrap: 'anywhere' }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div style={{ flex: '1 1 220px', minWidth: 0 }}>
-            <b>{m.nombre}</b>
-            {m.nombre !== m.site_id && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{m.site_id}</div>}
+            {/* La clave del mueble va primero: es la nomenclatura con que trabaja
+                el técnico (Erik, 29-oct-2026); el nombre, debajo. */}
+            <b>{m.site_id}</b>
+            {m.nombre !== m.site_id && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{m.nombre}</div>}
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
               {m.direccion || '(sin dirección)'}{m.municipio ? ' · ' + m.municipio : ''}{m.tipo_mueble ? ' · ' + m.tipo_mueble : ''}
             </div>
@@ -302,7 +304,7 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="nuc-accion-titulo" style={{ maxWidth: 520 }}>
             <CerrarModal onClick={() => setAccion(null)} disabled={guardando} />
             <h2 id="nuc-accion-titulo">{accion.tipo === 'abrir' ? 'Marcar NUC fuera de línea' : 'Poner el NUC en línea'}</h2>
-            <p className="phint">{accion.m.nombre} · {accion.m.direccion || accion.m.site_id}</p>
+            <p className="phint">{accion.m.site_id} · {accion.m.nombre !== accion.m.site_id ? accion.m.nombre : accion.m.direccion}</p>
             {accion.tipo === 'en_linea' && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
               {RESPUESTAS_DIGITAL.map((r) => <button key={r} type="button" className="btn ghost sm" aria-pressed={nota === r} onClick={() => setNota(r)}>{r}</button>)}
             </div>}
@@ -326,7 +328,7 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="nuc-historial-titulo" style={{ maxWidth: 560 }}>
             <CerrarModal onClick={() => setHistorial(null)} />
             <h2 id="nuc-historial-titulo">Historial del NUC</h2>
-            <p className="phint">{historial.m.nombre} · últimos 10 avisos</p>
+            <p className="phint">{historial.m.site_id} · últimos 10 avisos</p>
             {historial.err && <div className="err" role="alert">{historial.err}</div>}
             {!historial.eventos && <p>Cargando…</p>}
             {historial.eventos && !historial.eventos.length && !historial.err && <p>Esta máquina no ha tenido avisos de NUC.</p>}

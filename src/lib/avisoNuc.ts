@@ -181,9 +181,9 @@ const PESO: Record<EstadoNuc, number> = { fuera_linea: 0, en_revision: 1, en_lin
 /**
  * Orden del tablero: primero las fuera de línea (la más vieja arriba: es la
  * que más lleva esperando), luego en revisión y al final las en línea por
- * nombre.
+ * clave del mueble, que es lo que el tablero enseña arriba.
  */
-export function ordenarTablero<M extends Pick<MaquinaNuc, 'site_id' | 'nombre'>>(
+export function ordenarTablero<M extends Pick<MaquinaNuc, 'site_id'>>(
   maquinas: M[],
   avisos: Map<string, Pick<AvisoNuc, 'estado' | 'actualizado_en'>>
 ): M[] {
@@ -196,7 +196,7 @@ export function ordenarTablero<M extends Pick<MaquinaNuc, 'site_id' | 'nombre'>>
       const t = Date.parse(aa.actualizado_en) - Date.parse(ab.actualizado_en);
       if (t) return t;
     }
-    return a.nombre.localeCompare(b.nombre, undefined, { numeric: true });
+    return a.site_id.localeCompare(b.site_id, undefined, { numeric: true });
   });
 }
 

@@ -81,6 +81,12 @@ test('El tablero pone primero la fuera de línea más vieja y cuenta por estado'
   ]);
   assert.deepEqual(ordenarTablero(maq, avisos).map((m) => m.site_id), ['D', 'C', 'E', 'B', 'A', 'F']);
   assert.deepEqual(contarEstados(maq, avisos), { fuera_linea: 2, en_revision: 2, en_linea: 2 });
+  // Las en línea van por clave del mueble, no por nombre (Erik, 29-oct-2026).
+  const porClave = [
+    { site_id: 'MX_CM_BB_MED_0117', nombre: 'A LA SALLE' },
+    { site_id: 'MX_CM_BB_MED_0087', nombre: 'Z INSURGENTES Y LA PAZ' },
+  ];
+  assert.deepEqual(ordenarTablero(porClave, new Map()).map((m) => m.site_id), ['MX_CM_BB_MED_0087', 'MX_CM_BB_MED_0117']);
 });
 
 test('Tiempo transcurrido legible', () => {
