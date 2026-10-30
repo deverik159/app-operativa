@@ -572,9 +572,15 @@ function IncCard({
             Editar
           </button>
         )}
+        {/* Reasignar es del técnico que repara ESTA incidencia (rol y área,
+            como «Registrar reparación»). Desde el 30-oct-2026 quien escribió
+            en el chat la sigue viendo aunque haya pasado a otra área
+            (inc_sel_participante_chat); sin `puedeReparar` le salía el botón
+            en un folio que ya no es suyo. */}
         {i.estatus === 'en_proceso' &&
           !i.reasignacion_pendiente &&
-          can.reasignar && (
+          can.reasignar &&
+          puedeReparar && (
             <button
               className="btn ghost sm"
               onClick={() => onReassign(i, 'solicitar')}
