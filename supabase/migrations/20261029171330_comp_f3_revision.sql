@@ -102,7 +102,7 @@ do $$ begin
     raise exception 'comp_subir_foto cambió en producción: revisa antes de reemplazar.';
   end if;
   if coalesce(pg_temp.md5_fn('comp_registrar_tomas', 'p_toma_ids bigint[]'), 'falta')
-       not in ('d180e6c003e95eaf6af5fb845cc8b80b', '706ae925bbe7516351b04eca9543fc3e') then
+       not in ('d180e6c003e95eaf6af5fb845cc8b80b', '3cb9994317446a49cbca7244ebc70d01') then
     raise exception 'comp_registrar_tomas cambió en producción: revisa antes de reemplazar.';
   end if;
   if coalesce(pg_temp.md5_fn('comp_marcar_sitios', 'p_sitio_ids bigint[], p_comprobado boolean, p_dia date'), 'falta')
@@ -209,23 +209,43 @@ create trigger comp_campanas_modo before insert or update of modo_toma, pos_cama
 -- Orden de candados: quien cambia la campaña ya la tiene; aquí se bloquean
 -- sus tomas (order by id) y después las ligas. Ninguna RPC de tomas bloquea
 -- campañas, así que no hay ciclo.
+-- La regla, en UN lugar (segunda revisión de seguridad, 29-oct-2026): la
+-- llaman este trigger, comp_rechazar_fotos y comp_regresar_toma (una toma
+-- por revisar que conservaba su captura por A2 vuelve a contarse contra la
+-- vigente al regresar) y comp_registrar_tomas antes de contar (cualquier
+-- otro camino a pendiente o devuelta queda cubierto ahí). Solo toca tomas
+-- pendientes o devueltas; quien llama ya bloqueó esas tomas. Devuelve
+-- cuántas ligas dejaron de contar.
+create or replace function public.comp_invalidar_capturas(p_toma_ids bigint[]) returns int
+language plpgsql security definer set search_path to 'public', 'pg_temp' as $$
+declare
+  v_n int;
+begin
+  update comp_evidencia_tomas et set regresada_en = now()
+    from comp_evidencias e, comp_tomas t
+   where e.id = et.evidencia_id and t.id = et.toma_id and t.id = any (coalesce(p_toma_ids, '{}'))
+     and t.estado in ('pendiente', 'regresada') and et.regresada_en is null and e.origen = 'camara'
+     and not exists (select 1 from jsonb_array_elements(comp_plantilla_parte(comp_plantilla_toma(t.id), 'camara')) y
+                      where y->>'pos' = e.pos and nullif(y->>'momento', '') is not distinct from e.momento);
+  get diagnostics v_n = row_count;
+  return v_n;
+end $$;
+
 create or replace function public.comp_campana_modo_ligas_trg() returns trigger
 language plpgsql security definer set search_path to 'public', 'pg_temp' as $$
+declare
+  v_ids bigint[];
 begin
   if (old.modo_toma, old.pos_camara, old.plantilla_codigo) is not distinct from (new.modo_toma, new.pos_camara, new.plantilla_codigo) then
     return null;
   end if;
-  perform 1 from comp_tomas t
-   where t.campana_id = new.id and t.estado in ('pendiente', 'regresada')
-     and exists (select 1 from comp_evidencia_tomas et join comp_evidencias e on e.id = et.evidencia_id
-                  where et.toma_id = t.id and et.regresada_en is null and e.origen = 'camara')
-   order by t.id for update;
-  update comp_evidencia_tomas et set regresada_en = now()
-    from comp_evidencias e, comp_tomas t
-   where e.id = et.evidencia_id and t.id = et.toma_id and t.campana_id = new.id
-     and t.estado in ('pendiente', 'regresada') and et.regresada_en is null and e.origen = 'camara'
-     and not exists (select 1 from jsonb_array_elements(comp_plantilla_parte(comp_plantilla_toma(t.id), 'camara')) y
-                      where y->>'pos' = e.pos and nullif(y->>'momento', '') is not distinct from e.momento);
+  select array_agg(t.id order by t.id) into v_ids
+    from (select t.id from comp_tomas t
+           where t.campana_id = new.id and t.estado in ('pendiente', 'regresada')
+             and exists (select 1 from comp_evidencia_tomas et join comp_evidencias e on e.id = et.evidencia_id
+                          where et.toma_id = t.id and et.regresada_en is null and e.origen = 'camara')
+           order by t.id for update) t;
+  perform comp_invalidar_capturas(v_ids);
   return null;
 end $$;
 
@@ -510,7 +530,8 @@ begin
   end loop;
 end $$;
 
-revoke all on function public.comp_campana_modo_trg(), public.comp_campana_modo_ligas_trg(), public.comp_plantilla_toma(bigint),
+revoke all on function public.comp_campana_modo_trg(), public.comp_campana_modo_ligas_trg(),
+  public.comp_invalidar_capturas(bigint[]), public.comp_plantilla_toma(bigint),
   public.comp_plantilla_parte(jsonb, text), public.comp_puede_capturar(bigint, text),
   public.comp_puede_revisar(bigint, text), public.comp_aviso_revision(bigint[]), public.comp_aviso_regreso(bigint[], text)
   from public, anon, authenticated;
@@ -760,6 +781,9 @@ begin
       elsif v_x.fecha > v_hoy then
         v_res := v_res || jsonb_build_object('id', v_x.id, 'estado', v_x.estado, 'codigo', 'futura', 'regreso_n', v_x.regreso_n);
       else
+        -- Seguridad (29-oct-2026): antes de contar, una captura que ya no va
+        -- por cámara deja de contar (cubre cualquier camino a pendiente o devuelta).
+        perform comp_invalidar_capturas(array[v_x.id]);
         v_faltan := comp_faltan(v_x.id, v_campo, false);
         -- POR QUÉ también sin ninguna foto vigente (26-oct-2026, revisor-rls):
         -- con una plantilla vacía (si alguien borra «unica») comp_faltan da
@@ -1232,6 +1256,8 @@ begin
          rechazada_por = v_email, rechazada_en = now(), regreso_n = t.regreso_n + 1,
          comprobada_en = null, comprobada_por = null
    where t.id = p_toma_id;
+  -- Devuelta = se cuenta contra la vigente: una captura que ya no va por cámara deja de contar.
+  perform comp_invalidar_capturas(array[p_toma_id]);
   perform comp_sitio_credito(v_t.sitio_id);
 
   select array_agg(x) into v_borrar from unnest(coalesce(v_viejas, '{}')) x
@@ -1292,6 +1318,7 @@ begin
          rechazada_por = v_email, rechazada_en = now(), regreso_n = t.regreso_n + 1,
          comprobada_en = null, comprobada_por = null
    where t.id = p_toma_id;
+  perform comp_invalidar_capturas(array[p_toma_id]);
   perform comp_sitio_credito(v_t.sitio_id);
 
   insert into comp_movimientos (accion, unidad, periodo_id, campana_ids, n, detalle, por)
