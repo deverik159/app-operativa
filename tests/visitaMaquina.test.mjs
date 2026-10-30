@@ -47,7 +47,7 @@ test('Semáforo: verde hasta 7, ámbar hasta 14, rojo más o nunca', () => {
   assert.equal(textoDiasVisita(5), 'Visitada hace 5 días');
 });
 
-test('Lejos de la máquina solo con las dos coordenadas y más de 150 m', () => {
+test('Lejos de la máquina solo con las dos coordenadas y más de 300 m', () => {
   const maq = { latitud: '19.4326', longitud: '-99.1332' };
   assert.equal(distanciaAMaquina(null, maq), null);
   assert.equal(distanciaAMaquina({ lat: 19.4326, lng: -99.1332 }, { latitud: null, longitud: null }), null);
@@ -59,4 +59,12 @@ test('Lejos de la máquina solo con las dos coordenadas y más de 150 m', () => 
   assert.equal(estaLejos(lejos), true);
   assert.equal(estaLejos(null), false);
   assert.equal(estaLejos(LEJOS_M), false);
+  assert.equal(estaLejos(166), false); // la coordenada corrida de la prueba del 30-oct
+});
+
+test('Lejos descuenta el margen del GPS hasta 100 m', () => {
+  assert.equal(estaLejos(LEJOS_M + 50), true);
+  assert.equal(estaLejos(LEJOS_M + 50, 60), false);
+  assert.equal(estaLejos(LEJOS_M + 150, 2000), true);
+  assert.equal(estaLejos(LEJOS_M + 50, null), true);
 });

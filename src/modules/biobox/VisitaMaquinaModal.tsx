@@ -123,7 +123,7 @@ function VisitaMaquinaModal({
   }, []);
 
   const distancia = gps.estado === 'listo' ? distanciaAMaquina({ lat: gps.lat, lng: gps.lng }, maquina) : null;
-  const lejos = estaLejos(distancia);
+  const lejos = estaLejos(distancia, gps.estado === 'listo' ? gps.precision : null);
   const pideNota = funciona === false || lejos;
   const etiquetaNota =
     funciona === false && lejos

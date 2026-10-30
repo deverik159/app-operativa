@@ -16,8 +16,8 @@ import { fueraDeLinea, maquinasUnicas, indicadoresMaquinas, pendienteRevision } 
 import type { MaquinaBiobox } from '../../lib/maquinasBiobox';
 import {
   DIAS_VISITA_AMBAR,
-  LEJOS_M,
   diasDesde,
+  estaLejos,
   semaforoVisita,
   textoDiasVisita,
   ultimoContacto,
@@ -60,6 +60,8 @@ type UltimaVisita = {
   usuario_email: string | null;
   funciona: boolean;
   distancia_m: number | null;
+  /** Margen del GPS; las copias del teléfono de antes del 30-oct no lo traen. */
+  precision_m?: number | null;
 };
 
 const COLOR_SEMAFORO = { verde: 'var(--ok)', ambar: 'var(--st-ambar)', rojo: 'var(--bad)' } as const;
@@ -171,7 +173,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
       let visitasCompletas = true;
       for (let inicio = 0; inicio < sitios.length; inicio += 100) {
         const { data, error } = await sb.from('vw_maquina_ultima_visita')
-          .select('site_id,visitado_en,usuario_email,funciona,distancia_m')
+          .select('site_id,visitado_en,usuario_email,funciona,distancia_m,precision_m')
           .in('site_id', sitios.slice(inicio, inicio + 100));
         if (turno !== solicitud.current) return;
         if (error) {
@@ -357,7 +359,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
                 {c.pendiente.conError ? '⚠ Visita sin enviar' : c.pendiente.enviando ? '⏳ Enviando visita…' : '⏳ Visita por enviar'}
               </span>}
               {uv && !uv.funciona && <span className="tag" style={{ color: 'var(--bad)' }}>No funcionaba en la última visita</span>}
-              {uv && uv.distancia_m != null && uv.distancia_m > LEJOS_M && <span className="tag" style={{ color: colorTono('ambar'), whiteSpace: 'normal' }}>
+              {uv && uv.distancia_m != null && estaLejos(uv.distancia_m, uv.precision_m) && <span className="tag" style={{ color: colorTono('ambar'), whiteSpace: 'normal' }}>
                 Última visita marcada a {uv.distancia_m >= 1000 ? (uv.distancia_m / 1000).toFixed(1) + ' km' : Math.round(uv.distancia_m) + ' m'}
               </span>}
               {u.medio && <span className="tag" style={{ whiteSpace: 'normal' }}>{u.medio}{u.tipo_mueble ? ' · ' + u.tipo_mueble : ''}</span>}
