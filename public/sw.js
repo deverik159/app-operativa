@@ -437,6 +437,9 @@ self.addEventListener('notificationclick', (event) => {
   const esTomaDevuelta = evento === 'comp_toma';
   // Y estos en Aviso NUC (29-oct-2026): nuc_fuera_linea y nuc_en_linea.
   const esNuc = !!evento && evento.startsWith('nuc_');
+  // Y estos en Máquinas Biobox (30-oct-2026): ruta asignada al técnico de
+  // Op. Bio Box e incidencia de Digital o TI en una máquina de su ruta.
+  const esMaquina = evento === 'maquina_incidencia' || evento === 'ruta_tecnico';
   const unidad = datos.unidad || null;
   // La URL se usa tanto al abrir una ventana nueva como al navegar una ya
   // abierta. De esta manera la app arranca desde el bundle actual y lee el
@@ -459,6 +462,8 @@ self.addEventListener('notificationclick', (event) => {
             ? destino + sep + 'ir=bitacora'
             : esNuc
               ? destino + sep + 'ir=aviso_nuc'
+            : esMaquina
+              ? destino + sep + 'ir=biobox'
             : destino;
 
   event.waitUntil(

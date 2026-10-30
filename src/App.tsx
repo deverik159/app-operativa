@@ -1155,6 +1155,9 @@ function Main({
   /** Eventos de Aviso NUC (fuera de línea, en línea). */
   const esEventoNuc = (e?: string | null) => !!e && e.startsWith('nuc_');
 
+  /** Eventos que llevan a Máquinas Biobox (técnico de Op. Bio Box, 30-oct-2026). */
+  const esEventoMaquina = (e?: string | null) => e === 'maquina_incidencia' || e === 'ruta_tecnico';
+
   /**
    * Pestañas con ruta del menú de ESTE usuario ('a|b|c'), al día en cada
    * render (se llena junto al menú, más abajo). Para el destino de los avisos.
@@ -1269,6 +1272,18 @@ function Main({
   }, [notifs.recargar]);
 
   /**
+   * Abre Máquinas Biobox recargado (30-oct-2026): ruta asignada al técnico
+   * de Op. Bio Box e incidencia de Digital o TI en una máquina de su ruta.
+   * Van sin record_id: el técnico no puede abrir la incidencia de otra área;
+   * la ve en la máquina («Ver incidencias»).
+   */
+  const irABiobox = useCallback(() => {
+    setTab('biobox');
+    setRecargarSignal((n) => n + 1);
+    notifs.recargar();
+  }, [notifs.recargar]);
+
+  /**
    * Tocar una notificación push CON la app ya abierta.
    *
    * El service worker enfoca la ventana y manda este mensaje
@@ -1291,11 +1306,12 @@ function Main({
       else if (esEventoPauta(e.data.evento)) irAPauta(e.data.evento);
       else if (esEventoBitacora(e.data.evento)) irABitacora();
       else if (esEventoNuc(e.data.evento)) irAAvisoNuc();
+      else if (esEventoMaquina(e.data.evento)) irABiobox();
       else notifs.recargar();
     };
     navigator.serviceWorker.addEventListener('message', onMsg);
     return () => navigator.serviceWorker.removeEventListener('message', onMsg);
-  }, [enfocarDesdePush, irAPauta, irABitacora, irAAvisoNuc, irAComprobaciones, irADevueltasComp, notifs.recargar]);
+  }, [enfocarDesdePush, irAPauta, irABitacora, irAAvisoNuc, irABiobox, irAComprobaciones, irADevueltasComp, notifs.recargar]);
 
   /**
    * Tocar una notificación push con la app CERRADA: el SW abre la app con
@@ -1315,7 +1331,7 @@ function Main({
     window.history.replaceState(null, '', window.location.pathname);
     // El destino del aviso manda sobre la ruta con que se abrió la app
     // (también sobre la que quedó pendiente de los roles de la red).
-    if (record || ir === 'pauta' || ir === 'bitacora' || ir === 'comprobaciones' || ir === 'devueltas_comp' || ir === 'aviso_nuc') {
+    if (record || ir === 'pauta' || ir === 'bitacora' || ir === 'comprobaciones' || ir === 'devueltas_comp' || ir === 'aviso_nuc' || ir === 'biobox') {
       setRutaPedida(null);
       rutaPendiente.current = null;
     }
@@ -1329,6 +1345,8 @@ function Main({
     else if (ir === 'bitacora') irABitacora();
     // `?ir=aviso_nuc`: push de Aviso NUC con la app cerrada (29-oct-2026).
     else if (ir === 'aviso_nuc') irAAvisoNuc();
+    // `?ir=biobox`: ruta de técnico o incidencia en su máquina (30-oct-2026).
+    else if (ir === 'biobox') irABiobox();
     // `?ir=comprobaciones&evento=comp_asignada&unidad=…`: listo para cuando
     // sw.js lo mande (hoy el clic del push de Comprobaciones abre la portada).
     // Sin la pestaña en el menú de la copia no se mueve: se guarda por si
@@ -2337,6 +2355,10 @@ function Main({
               } else if (esEventoNuc(n.evento)) {
                 // NUC fuera de línea / en línea (29-oct-2026).
                 setTab('aviso_nuc');
+                setRecargarSignal((x) => x + 1);
+              } else if (esEventoMaquina(n.evento)) {
+                // Ruta del técnico o incidencia en su máquina (30-oct-2026).
+                setTab('biobox');
                 setRecargarSignal((x) => x + 1);
               }
             }}

@@ -109,6 +109,10 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
   // entonces no se enseña nada, para no pintar «En línea» sin saberlo.
   const [nuc, setNuc] = useState<Map<string, AvisoNuc> | null>(null);
   const [filtroNuc, setFiltroNuc] = useState<EstadoNuc | null>(null);
+  // Rutas donde esta persona es el técnico de Op. Bio Box (ruta_tecnicos,
+  // 30-oct-2026): sus máquinas salen primero. Puede ver y visitar todas.
+  const [misRutas, setMisRutas] = useState<Set<number>>(new Set());
+  const [soloMias, setSoloMias] = useState(false);
   const solicitud = useRef(0);
   const veNuc = unidadesNuc.includes(unidad);
 
@@ -119,6 +123,19 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
     if (error) { setNuc(null); return; }
     setNuc(new Map(((data || []) as AvisoNuc[]).map((a) => [a.site_id, a])));
   }, [veNuc, unidad]);
+
+  // Sus rutas como técnico. Si falla (sin señal), la lista sale completa.
+  useEffect(() => {
+    let vivo = true;
+    void sb.from('ruta_tecnicos').select('ruta_id').eq('usuario_email', email.toLowerCase())
+      .then(({ data, error }) => {
+        if (!vivo || error) return;
+        const ids = new Set(((data || []) as { ruta_id: number }[]).map((r) => r.ruta_id));
+        setMisRutas(ids);
+        setSoloMias(ids.size > 0);
+      });
+    return () => { vivo = false; };
+  }, [email, recargarSignal]);
 
   // Como el tablero de Aviso NUC: cada minuto con la pestaña a la vista y
   // al volver a ella.
@@ -287,6 +304,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
   const visibles = useMemo(() => {
     const q = sinAcentos(busca.trim());
     const filas = maquinasUnicas(ubics
+      .filter((u) => !soloMias || misRutas.has(u.ruta_id))
       .filter((u) => rutaFoco == null || nombreRuta(u) === rutaFoco)
       .filter((u) => medio === 'todos' || u.medio === medio)
       .filter((u) => !soloPendientes || pendienteRevision(u))
@@ -299,7 +317,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
       : orden === 'secuencia'
       ? (a.secuencia ?? 9999) - (b.secuencia ?? 9999) || a.site_id.localeCompare(b.site_id)
       : (a.site_legacy_id || a.site_id).localeCompare(b.site_legacy_id || b.site_id, undefined, { numeric: true }));
-  }, [ubics, rutaFoco, medio, busca, orden, soloPendientes, diasVisita, filtroNuc, nuc]);
+  }, [ubics, rutaFoco, medio, busca, orden, soloPendientes, diasVisita, filtroNuc, nuc, soloMias, misRutas]);
 
   /** Leyenda del NUC: cuántas máquinas de la unidad hay en cada estado. */
   const conteoNuc = useMemo(() => {
@@ -449,6 +467,10 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
             <option value="secuencia">Ordenar: secuencia de la ruta</option>
             <option value="nombre">Ordenar: número de máquina</option>
           </select>
+          {misRutas.size > 0 && <label className="pildora-check">
+            <input type="checkbox" checked={soloMias} onChange={(e) => { setSoloMias(e.target.checked); setRutaFoco(null); }} />
+            Solo mis rutas
+          </label>}
           {/* Casilla real dentro de una píldora (.pildora-check). */}
           <label className="pildora-check">
             <input type="checkbox" checked={soloPendientes} onChange={(e) => setSoloPendientes(e.target.checked)} />
@@ -459,7 +481,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
           <button className="btn ghost sm" aria-pressed={rutaFoco == null} onClick={() => setRutaFoco(null)} style={{ color: rutaFoco == null ? 'var(--accent-txt)' : undefined }}>
             Todas ({maquinasUnicas(ubics).length})
           </button>
-          {rutas.map((r) => <button key={r.nombre} className="btn ghost sm ruta-nombre" aria-pressed={rutaFoco === r.nombre} onClick={() => setRutaFoco(rutaFoco === r.nombre ? null : r.nombre)} style={{ color: r.color, borderColor: rutaFoco === r.nombre ? r.color : undefined, ...varRuta(r.color) }}>
+          {rutas.map((r) => <button key={r.nombre} className="btn ghost sm ruta-nombre" aria-pressed={rutaFoco === r.nombre} onClick={() => { setRutaFoco(rutaFoco === r.nombre ? null : r.nombre); setSoloMias(false); }} style={{ color: r.color, borderColor: rutaFoco === r.nombre ? r.color : undefined, ...varRuta(r.color) }}>
             {r.nombre} ({r.sitios.size})
           </button>)}
         </div>
