@@ -39,6 +39,9 @@ const EVENTOS_OPERACION = new Set([
   // y «N tomas sin analista» al Supervisor (o a los managers).
   'comp_revision',
   'comp_sin_analista',
+  // Aviso NUC (29-oct-2026).
+  'nuc_fuera_linea',
+  'nuc_en_linea',
 ]);
 
 function CampanaNotifs({

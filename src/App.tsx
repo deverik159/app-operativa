@@ -30,6 +30,7 @@ import {
 import { Lock, RefreshCw, WifiOff } from 'lucide-react';
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
+import { unidadesAvisoNuc, pendientesNuc } from './lib/avisoNuc';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES, URL_BIOGUARD } from './lib/constants';
 import {
   abreComprobaciones,
@@ -117,6 +118,11 @@ const EquiposView = lazyConReintento(
   () => import('./modules/equipos/EquiposView'),
   'EquiposView'
 );
+// Aviso NUC (29-oct-2026): Digital avisa NUC fuera de línea a Op. Bio Box.
+const AvisoNucView = lazyConReintento(
+  () => import('./modules/aviso-nuc/AvisoNucView'),
+  'AvisoNucView'
+);
 
 /**
  * Módulo diferido de cada pestaña. App le avisa a cargaDiferida cuál está
@@ -136,6 +142,7 @@ const DIFERIDO_DE_TAB: Record<string, ComponentType<any>> = {
   usuarios: UsuariosView,
   mis_rutas: MisRutasView,
   equipos: EquiposView,
+  aviso_nuc: AvisoNucView,
 };
 
 /** A los cuántos ms el "Cargando…" de un módulo diferido ofrece salidas. */
@@ -215,6 +222,7 @@ const RUTA_DE_TAB: Record<string, string> = {
   usuarios: '/usuarios',
   mis_rutas: '/mis-rutas',
   equipos: '/equipos',
+  aviso_nuc: '/aviso-nuc',
 };
 const TAB_DE_RUTA: Record<string, string> = Object.fromEntries(
   Object.entries(RUTA_DE_TAB).map(([tab, ruta]) => [ruta, tab])
@@ -1113,6 +1121,9 @@ function Main({
   const esEventoBitacora = (e?: string | null) =>
     e === 'vv_version' || e === 'vv_programada';
 
+  /** Eventos de Aviso NUC (fuera de línea, en línea). */
+  const esEventoNuc = (e?: string | null) => !!e && e.startsWith('nuc_');
+
   /**
    * Pestañas con ruta del menú de ESTE usuario ('a|b|c'), al día en cada
    * render (se llena junto al menú, más abajo). Para el destino de los avisos.
@@ -1219,6 +1230,13 @@ function Main({
     notifs.recargar();
   }, [notifs.recargar]);
 
+  /** Abre Aviso NUC recargado (29-oct-2026). */
+  const irAAvisoNuc = useCallback(() => {
+    setTab('aviso_nuc');
+    setRecargarSignal((n) => n + 1);
+    notifs.recargar();
+  }, [notifs.recargar]);
+
   /**
    * Tocar una notificación push CON la app ya abierta.
    *
@@ -1239,11 +1257,12 @@ function Main({
       else if (e.data.record_id) enfocarDesdePush(e.data.record_id);
       else if (esEventoPauta(e.data.evento)) irAPauta(e.data.evento);
       else if (esEventoBitacora(e.data.evento)) irABitacora();
+      else if (esEventoNuc(e.data.evento)) irAAvisoNuc();
       else notifs.recargar();
     };
     navigator.serviceWorker.addEventListener('message', onMsg);
     return () => navigator.serviceWorker.removeEventListener('message', onMsg);
-  }, [enfocarDesdePush, irAPauta, irABitacora, irAComprobaciones, notifs.recargar]);
+  }, [enfocarDesdePush, irAPauta, irABitacora, irAAvisoNuc, irAComprobaciones, notifs.recargar]);
 
   /**
    * Tocar una notificación push con la app CERRADA: el SW abre la app con
@@ -1263,7 +1282,7 @@ function Main({
     window.history.replaceState(null, '', window.location.pathname);
     // El destino del aviso manda sobre la ruta con que se abrió la app
     // (también sobre la que quedó pendiente de los roles de la red).
-    if (record || ir === 'pauta' || ir === 'bitacora' || ir === 'comprobaciones') {
+    if (record || ir === 'pauta' || ir === 'bitacora' || ir === 'comprobaciones' || ir === 'aviso_nuc') {
       setRutaPedida(null);
       rutaPendiente.current = null;
     }
@@ -1275,6 +1294,8 @@ function Main({
     else if (ir === 'pauta') irAPauta(params.get('evento'));
     // `?ir=bitacora`: push de la Bitácora VV con la app cerrada.
     else if (ir === 'bitacora') irABitacora();
+    // `?ir=aviso_nuc`: push de Aviso NUC con la app cerrada (29-oct-2026).
+    else if (ir === 'aviso_nuc') irAAvisoNuc();
     // `?ir=comprobaciones&evento=comp_asignada&unidad=…`: listo para cuando
     // sw.js lo mande (hoy el clic del push de Comprobaciones abre la portada).
     // Sin la pestaña en el menú de la copia no se mueve: se guarda por si
@@ -1585,6 +1606,39 @@ function Main({
     rolesDetalle.some(
       (r) => r.rol === 'reparacion' && (r.departamento || '').trim().toLowerCase() === 'digital'
     );
+
+  /**
+   * Aviso NUC (29-oct-2026): unidades Biobox cuyo tablero ve (vacío = no lo
+   * ve) y su contador del menú (pendientesNuc): al técnico y al validador,
+   * las fuera de línea o en revisión; a Digital, las que nadie revisa. Se
+   * cuenta cada 2 min con la app a la vista y al volver de un aviso.
+   */
+  const unidadesNuc = useMemo(() => unidadesAvisoNuc(rolesDetalle), [rolesDetalle]);
+  const [pendientesNucMenu, setPendientesNucMenu] = useState(0);
+  useEffect(() => {
+    if (!unidadesNuc.length) {
+      setPendientesNucMenu(0);
+      return;
+    }
+    let vivo = true;
+    const contar = async () => {
+      if (document.visibilityState !== 'visible') return;
+      const { data, error } = await sb
+        .from('nuc_avisos')
+        .select('estado,unidad_negocio')
+        .in('estado', ['fuera_linea', 'en_revision']);
+      // Si falla (p. ej. la tabla aún no existe) el menú queda sin número.
+      if (vivo && !error) setPendientesNucMenu(pendientesNuc(data || [], rolesDetalle));
+    };
+    void contar();
+    const id = window.setInterval(() => void contar(), 2 * 60 * 1000);
+    document.addEventListener('visibilitychange', contar);
+    return () => {
+      vivo = false;
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', contar);
+    };
+  }, [unidadesNuc, rolesDetalle, recargarSignal]);
 
   /**
    * Unidades del usuario, para acotar módulos y filtros. Una fila sin
@@ -1913,6 +1967,15 @@ function Main({
     // La RLS (ur_manager_all / usr_write) exige manager de todos modos.
     // Historial de los equipos que se cambian en Digital (15-oct-2026).
     veEquipos && { k: 'equipos', ic: '🖥️', t: 'Equipos', grupo: 'campo' },
+    // NUC fuera de línea en máquinas Biobox: Digital lo revisa y lo pone en
+    // línea; Op. Bio Box y el validador se enteran (29-oct-2026).
+    unidadesNuc.length > 0 && {
+      k: 'aviso_nuc',
+      ic: '📡',
+      t: 'Aviso NUC',
+      badge: pendientesNucMenu,
+      grupo: 'campo',
+    },
     misRoles.includes('manager') && { k: 'usuarios', ic: '👥', t: 'Usuarios', grupo: 'admin' },
     // BioGuard es otra app (de Biobox): aquí solo es un enlace que se abre en
     // otra pestaña. Lo ven el manager y quien pertenece al área SRD (Erik,
@@ -2231,6 +2294,10 @@ function Main({
                 // también recargada.
                 setTab('bitacora_vv');
                 setRecargarSignal((x) => x + 1);
+              } else if (esEventoNuc(n.evento)) {
+                // NUC fuera de línea / en línea (29-oct-2026).
+                setTab('aviso_nuc');
+                setRecargarSignal((x) => x + 1);
               }
             }}
           />
@@ -2408,6 +2475,13 @@ function Main({
               )}
               {tab === 'disponibilidad' && <DisponibilidadView />}
               {tab === 'equipos' && <EquiposView recargarSignal={recargaManual} />}
+              {tab === 'aviso_nuc' && (
+                <AvisoNucView
+                  roles={rolesDetalle}
+                  unidades={unidadesNuc}
+                  recargarSignal={recargarSignal}
+                />
+              )}
               {tab === 'bitacora_vv' && (
                 <BitacoraVVView
                   email={email}

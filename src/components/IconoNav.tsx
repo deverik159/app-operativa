@@ -19,6 +19,7 @@ import {
   Package,
   Paperclip,
   Plus,
+  Router,
   ScanSearch,
   Signpost,
   Users,
@@ -41,6 +42,8 @@ const ICONOS: Record<string, LucideIcon> = {
   mis_rutas: Compass,
   biobox: Package,
   equipos: Cpu,
+  // Aviso NUC (29-oct-2026): el NUC es la computadora de la máquina.
+  aviso_nuc: Router,
   usuarios: Users,
 };
 
