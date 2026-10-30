@@ -56,7 +56,8 @@ const tonoVar = (hex: string | null | undefined) =>
 const IC = { size: 15, strokeWidth: 2, 'aria-hidden': true } as const;
 
 /** Modo del modal de reasignación: pedirla, o revisarla como coordinador. */
-export type ModoReasign = 'solicitar' | 'aprobar';
+/** 'op_biobox' = «Pasar a Op. Bio Box» directo (Digital/TI, Biobox, 30-oct-2026). */
+export type ModoReasign = 'solicitar' | 'aprobar' | 'op_biobox';
 
 type IncCardProps = {
   i: Incidencia;
@@ -588,6 +589,24 @@ function IncCard({
             >
               <Shuffle {...IC} />
               Reasignar
+            </button>
+          )}
+        {/* (30-oct-2026) Digital o TI no pudieron a distancia: directo a Op.
+            Bio Box, sin validador; le llega al técnico de la ruta. La base
+            vuelve a revisar todo (inc_pasar_a_op_biobox). */}
+        {i.estatus === 'en_proceso' &&
+          !i.reasignacion_pendiente &&
+          can.reasignar &&
+          puedeReparar &&
+          /^biobox/i.test((i.unidad_negocio || '').trim()) &&
+          /^(digital|ti)$/i.test(areaReal.trim()) && (
+            <button
+              className="btn ghost sm"
+              onClick={() => onReassign(i, 'op_biobox')}
+              disabled={bloqueadaRed}
+            >
+              <Wrench {...IC} />
+              Pasar a Op. Bio Box
             </button>
           )}
         {i.reasignacion_pendiente && can.aprobarReasign && (
