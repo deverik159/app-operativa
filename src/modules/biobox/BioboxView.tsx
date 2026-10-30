@@ -1,5 +1,5 @@
 // Máquinas por ruta, estado del inventario e incidencias abiertas.
-import { CircleCheck, Compass, MapPinCheck } from 'lucide-react';
+import { CircleCheck, Compass, MapPinCheck, Router } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
@@ -8,7 +8,8 @@ import IrAqui from '../../components/IrAqui';
 import { resumenMaquinas, HORAS_ALARMA } from '../../lib/estadoMaquina';
 import type { MapaResumen } from '../../lib/estadoMaquina';
 import { fmtHoras, sinAcentos, NARANJA } from '../../lib/helpers';
-import { colorTono } from '../../lib/tonos';
+import { colorTono, fondoTono, bordeTono } from '../../lib/tonos';
+import { ESTADOS_NUC, ETIQUETA_NUC, TONO_NUC, estadoNuc, type AvisoNuc, type EstadoNuc } from '../../lib/avisoNuc';
 import { tramosGoogleMaps } from '../../lib/navegacion';
 import { UNIDADES_BIOBOX } from '../../lib/constants';
 import { fueraDeLinea, maquinasUnicas, indicadoresMaquinas, pendienteRevision } from '../../lib/maquinasBiobox';
@@ -63,9 +64,19 @@ type UltimaVisita = {
 
 const COLOR_SEMAFORO = { verde: 'var(--ok)', ambar: 'var(--st-ambar)', rojo: 'var(--bad)' } as const;
 
-function BioboxView({ email, misDep, recargarSignal = 0 }: {
+/** Colores de la pastilla del NUC, los mismos del módulo Aviso NUC. */
+function pastillaNuc(e: EstadoNuc) {
+  const t = TONO_NUC[e];
+  return { color: colorTono(t), background: fondoTono(t), borderColor: bordeTono(t) };
+}
+
+const REFRESCO_NUC_MS = 60 * 1000;
+
+function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
   email: string;
   misDep: string[];
+  /** Unidades cuyo Aviso NUC puede leer (unidadesAvisoNuc); en las demás no se enseña. */
+  unidadesNuc?: string[];
   recargarSignal?: number;
 }) {
   const [cargando, setCargando] = useState(true);
@@ -91,7 +102,32 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
   const [enviadasMaq, setEnviadasMaq] = useState<{ site_id: string; visitado_en: string; funciona: boolean }[]>([]);
   /** Fecha de la copia del teléfono que se está enseñando (sin señal). */
   const [copiaDe, setCopiaDe] = useState<string | null>(null);
+  // Estado del NUC (Aviso NUC) en la lista, para no tener que abrir ese
+  // módulo (Erik, 30-oct-2026). null = no se pudo leer o no le toca verlo:
+  // entonces no se enseña nada, para no pintar «En línea» sin saberlo.
+  const [nuc, setNuc] = useState<Map<string, AvisoNuc> | null>(null);
+  const [filtroNuc, setFiltroNuc] = useState<EstadoNuc | null>(null);
   const solicitud = useRef(0);
+  const veNuc = unidadesNuc.includes(unidad);
+
+  const cargarNuc = useCallback(async () => {
+    if (!veNuc) { setNuc(null); return; }
+    const { data, error } = await sb.from('nuc_avisos').select('*')
+      .eq('unidad_negocio', unidad).neq('estado', 'en_linea');
+    if (error) { setNuc(null); return; }
+    setNuc(new Map(((data || []) as AvisoNuc[]).map((a) => [a.site_id, a])));
+  }, [veNuc, unidad]);
+
+  // Como el tablero de Aviso NUC: cada minuto con la pestaña a la vista y
+  // al volver a ella.
+  useEffect(() => {
+    setNuc(null);
+    void cargarNuc();
+    const tic = () => { if (document.visibilityState === 'visible') void cargarNuc(); };
+    const id = window.setInterval(tic, REFRESCO_NUC_MS);
+    document.addEventListener('visibilitychange', tic);
+    return () => { window.clearInterval(id); document.removeEventListener('visibilitychange', tic); };
+  }, [cargarNuc, recargarSignal]);
 
   const cargar = useCallback(async () => {
     const turno = ++solicitud.current;
@@ -99,7 +135,7 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
     setErr('');
     try {
       // La vista aporta rutas, ubicación y última revisión. El estado de
-      // inventario se consulta aparte para el indicador Fuera de línea.
+      // inventario se consulta aparte para el indicador No comercializable.
       const filas: MaquinaBiobox[] = [];
       for (let inicio = 0; ; inicio += 500) {
         const { data, error } = await sb.from('vw_revision_ubicaciones')
@@ -252,6 +288,7 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
       .filter((u) => rutaFoco == null || nombreRuta(u) === rutaFoco)
       .filter((u) => medio === 'todos' || u.medio === medio)
       .filter((u) => !soloPendientes || pendienteRevision(u))
+      .filter((u) => !filtroNuc || !nuc || estadoNuc(nuc.get(u.site_id)) === filtroNuc)
       .filter((u) => !q || sinAcentos([u.site_legacy_id, u.direccion, u.site_id].join(' ')).includes(q)));
     // "Más urgente": la que lleva más días sin que nadie pase (visita rápida
     // o revisión); nunca visitada va primero.
@@ -260,7 +297,15 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
       : orden === 'secuencia'
       ? (a.secuencia ?? 9999) - (b.secuencia ?? 9999) || a.site_id.localeCompare(b.site_id)
       : (a.site_legacy_id || a.site_id).localeCompare(b.site_legacy_id || b.site_id, undefined, { numeric: true }));
-  }, [ubics, rutaFoco, medio, busca, orden, soloPendientes, diasVisita]);
+  }, [ubics, rutaFoco, medio, busca, orden, soloPendientes, diasVisita, filtroNuc, nuc]);
+
+  /** Leyenda del NUC: cuántas máquinas de la unidad hay en cada estado. */
+  const conteoNuc = useMemo(() => {
+    if (!nuc) return null;
+    const n: Record<EstadoNuc, number> = { fuera_linea: 0, en_revision: 0, en_linea: 0 };
+    for (const u of maquinasUnicas(ubics)) n[estadoNuc(nuc.get(u.site_id))]++;
+    return n;
+  }, [ubics, nuc]);
 
   const indicadores = useMemo(() => {
     const base = indicadoresMaquinas(visibles, estado);
@@ -289,6 +334,7 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
     const c = contacto.get(u.site_id);
     const dias = c?.dias ?? null;
     const uv = visitas[u.site_id];
+    const eNuc = nuc ? estadoNuc(nuc.get(u.site_id)) : null;
     return (
       <div key={u.site_id} style={{ background: 'var(--panel2)', border: '1px solid var(--line)', borderLeft: '3px solid ' + u.ruta_color, borderRadius: 10, padding: '11px 12px', minWidth: 0, overflowWrap: 'anywhere' }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -300,6 +346,9 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
               <span className="tag ruta-nombre" style={{ color: u.ruta_color, ...varRuta(u.ruta_color) }}>{nombreRuta(u)}</span>
+              {eNuc && <span className="tag" style={{ ...pastillaNuc(eNuc), fontWeight: eNuc === 'en_linea' ? undefined : 600 }}>
+                <Ic i={Router} />NUC {ETIQUETA_NUC[eNuc].toLowerCase()}
+              </span>}
               {/* Días sin que nadie pase: visita rápida o revisión (29-oct-2026). */}
               <span className="tag" style={{ color: COLOR_SEMAFORO[semaforoVisita(dias)], fontWeight: 600 }}>
                 {textoDiasVisita(dias)}
@@ -321,7 +370,7 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
                 {u.puntos_anomalia} anomalía{u.puntos_anomalia === 1 ? '' : 's'}
               </span>}
               <span className="tag" style={{ color: fueraDeLinea(u) ? 'var(--bad)' : 'var(--muted)', whiteSpace: 'normal' }}>
-                {fueraDeLinea(u) ? 'Fuera de línea' : u.face_status || 'Sin estado en inventario'}
+                {fueraDeLinea(u) ? 'No comercializable' : u.face_status || 'Sin estado en inventario'}
               </span>
               {!!e?.abiertas && <span className="tag" style={{ color: alarma ? 'var(--bad)' : NARANJA, whiteSpace: 'normal', maxWidth: '100%' }}>
                 ⚠ {e.abiertas} abierta{e.abiertas === 1 ? '' : 's'}
@@ -412,6 +461,16 @@ function BioboxView({ email, misDep, recargarSignal = 0 }: {
             {r.nombre} ({r.sitios.size})
           </button>)}
         </div>
+        {conteoNuc && <div role="group" aria-label="Estado del NUC" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}><Ic i={Router} />NUC</span>
+          {ESTADOS_NUC.map((e) => {
+            const p = pastillaNuc(e);
+            const activo = filtroNuc === e;
+            return <button key={e} type="button" className="btn ghost sm" aria-pressed={activo} onClick={() => setFiltroNuc(activo ? null : e)} style={{ color: p.color, background: conteoNuc[e] && e !== 'en_linea' ? p.background : undefined, borderColor: activo ? p.color : p.borderColor }}>
+              {ETIQUETA_NUC[e]} ({conteoNuc[e]})
+            </button>;
+          })}
+        </div>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 9, margin: '14px 0' }}>
           {indicadores.map((i) => <button key={i.id} type="button" disabled={cargando} onClick={() => { setDetalle(i.id); setMaquinaAbierta(null); }} className="card" style={{ minWidth: 0, textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
             <div className="n" style={{ color: i.color }}>{i.filas.length}</div>

@@ -2532,6 +2532,7 @@ function Main({
                 <BioboxView
                   email={email}
                   misDep={misDep}
+                  unidadesNuc={unidadesNuc}
                   recargarSignal={recargarSignal}
                 />
               )}
