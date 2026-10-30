@@ -207,8 +207,11 @@ create trigger comp_campanas_modo before insert or update of modo_toma, pos_cama
 -- por revisar o comprobadas se cuentan contra su plantilla enviada (A2): ahí
 -- la captura sigue valiendo.
 -- Orden de candados: quien cambia la campaña ya la tiene; aquí se bloquean
--- sus tomas (order by id) y después las ligas. Ninguna RPC de tomas bloquea
--- campañas, así que no hay ciclo.
+-- sus tomas (order by id) y después las ligas, con SKIP LOCKED (revisor-rls,
+-- 29-oct-2026): comp_cancelar_sitios y comp_restaurar_sitios (vía
+-- comp_aplicar_planes) bloquean tomas y luego tocan la campaña, y esperar
+-- aquí haría un ciclo. Una toma que otra sesión tiene tomada se salta: la
+-- invalida comp_registrar_tomas antes de contar, con la toma bloqueada.
 -- La regla, en UN lugar (segunda revisión de seguridad, 29-oct-2026): la
 -- llaman este trigger, comp_rechazar_fotos y comp_regresar_toma (una toma
 -- por revisar que conservaba su captura por A2 vuelve a contarse contra la
@@ -244,7 +247,7 @@ begin
            where t.campana_id = new.id and t.estado in ('pendiente', 'regresada')
              and exists (select 1 from comp_evidencia_tomas et join comp_evidencias e on e.id = et.evidencia_id
                           where et.toma_id = t.id and et.regresada_en is null and e.origen = 'camara')
-           order by t.id for update) t;
+           order by t.id for update skip locked) t;
   perform comp_invalidar_capturas(v_ids);
   return null;
 end $$;
