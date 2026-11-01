@@ -179,18 +179,24 @@ input[type="checkbox"]:focus-visible,input[type="radio"]:focus-visible{outline:2
 /* ---- Hoja "Más" (celular) ----
    z-index 955: sobre el menú inferior (900) y los paneles de la barra
    (950), bajo los modales (960). Con fondo sólido (sin backdrop-filter). */
-.hoja-mas-velo{position:fixed;inset:0;z-index:955;background:var(--overlay)}
+.hoja-mas-velo{position:fixed;inset:0;z-index:955;background:var(--overlay);touch-action:none}
+/* La hoja no se desplaza: es columna con la cabeza fija (se arrastra para
+   cerrar, ver MenuMas.tsx) y solo .hoja-mas-lista tiene scroll, contenido
+   para que no arrastre el módulo de atrás. */
 .hoja-mas{position:fixed;left:0;right:0;bottom:0;z-index:956;background:var(--bg);
   border-top:1px solid var(--line2);border-radius:18px 18px 0 0;
-  padding:8px 14px max(24px, calc(12px + env(safe-area-inset-bottom,0px)));
+  padding:0 14px max(24px, calc(12px + env(safe-area-inset-bottom,0px)));
   padding-left:max(14px, env(safe-area-inset-left,0px));padding-right:max(14px, env(safe-area-inset-right,0px));
-  max-height:80vh;overflow-y:auto;box-shadow:0 -10px 40px var(--sombra);animation:hoja-mas-sube .24s cubic-bezier(.2,.8,.2,1),tf-aparece .01s}
+  display:flex;flex-direction:column;
+  max-height:80vh;overflow:hidden;box-shadow:0 -10px 40px var(--sombra);animation:hoja-mas-sube .24s cubic-bezier(.2,.8,.2,1),tf-aparece .01s}
 @supports (height: 1dvh){.hoja-mas{max-height:80dvh}}
 @keyframes hoja-mas-sube{from{transform:translateY(30px);opacity:.5}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion: reduce){.hoja-mas{animation:tf-aparece .01s}}
+.hoja-mas-cabeza{flex:0 0 auto;padding-top:8px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
 .hoja-mas-asa{width:36px;height:5px;border-radius:3px;background:var(--line2);margin:0 auto 12px}
 .hoja-mas h3{font-size:17px;font-weight:650;letter-spacing:-.015em;margin:0 4px 12px}
-.hoja-mas-lista{background:var(--panel);border:1px solid var(--line);border-radius:14px}
+.hoja-mas-lista{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  background:var(--panel);border:1px solid var(--line);border-radius:14px}
 .hoja-mas-fila{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:10px 14px;
   border:0;background:none;color:var(--txt);font:inherit;font-size:15px;text-align:left;cursor:pointer}
 .hoja-mas-fila+.hoja-mas-fila::before{content:'';position:absolute;top:0;left:54px;right:0;height:1px;background:var(--line)}
