@@ -18,3 +18,7 @@
 - Nunca escribas en las fichas contraseñas, llaves, tokens, servidores ni correos.
 - Las fichas y las notas internas nunca van a este repo, que es público: aquí solo
   viven este archivo y `CLAUDE.md`.
+- SQL (Erik, 31-oct-2026): todo cambio de base es una migración en
+  `supabase/migrations/`, el único lugar del repo con `.sql`. No se dejan SQL sueltos
+  ni diagnósticos guardados. Los SQL viejos están en `contexto/_archivo/sql-historico/`
+  (ver su `INDICE.md`) y **nunca se vuelven a correr**.

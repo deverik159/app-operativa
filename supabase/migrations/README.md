@@ -4,9 +4,19 @@ Desde el 24-sep-2026 (auditoría primer mes), **todo cambio de base nuevo es
 un archivo aquí**, se aplica primero en staging y después en producción. El
 paso a paso completo está en [GUIA-STAGING-Y-CARGA.md](../../GUIA-STAGING-Y-CARGA.md) §3.
 
-Los ~58 `.sql` sueltos de la raíz son la **historia** hasta hoy: no se mueven
-(el HANDOFF los referencia) y no se vuelven a correr. Los diagnósticos de
-solo lectura tampoco son migraciones: siguen como archivo suelto.
+**Esta carpeta es el único lugar del repo con SQL** (Erik, 31-oct-2026). Los
+62 `.sql` sueltos que había en la raíz (la historia de agosto y septiembre),
+la foto de `supabase/referencia/` y `scripts/limpiar-storage.mjs` se movieron al
+repo privado de contexto, en `contexto/_archivo/sql-historico/`, con un
+`INDICE.md` que dice de cada uno si está aplicado, si era diagnóstico o si es
+peligroso. **Ninguno se vuelve a correr**: varios regresan funciones que una
+migración cambió después (así se perdió la retención del chat). Cuando un
+comentario del código, el HANDOFF o una guía cite un `.sql` que no está aquí,
+es uno de esos archivos.
+
+- La base de producción dice cómo está todo hoy; esta carpeta, cómo se llegó.
+- Los diagnósticos no se guardan: se corren y listo.
+- El guardia de commits de Claude bloquea un `.sql` nuevo fuera de esta carpeta.
 
 ## Nombre y orden
 

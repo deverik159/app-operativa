@@ -3,6 +3,11 @@
 _Auditoría primer mes, 24-sep-2026 · para Erik. Nada de esto se ha ejecutado
 contra ninguna base: son los pasos y los scripts para hacerlo._
 
+> **(31-oct-2026)** Los `.sql` sueltos que cita esta guía (`prelanzamiento_300.sql`,
+> `push_secret_vault.sql`, `primer_mes.sql`) se movieron a
+> `contexto/_archivo/sql-historico/` (privado). Aquí solo se usan **en staging**;
+> en producción no se vuelven a correr.
+
 **En una línea:** un proyecto de Supabase aparte (staging) con el mismo
 esquema que producción y sin datos personales; ahí se prueban los SQL antes
 de producción y se corre la prueba de 300 usuarios.
@@ -199,7 +204,7 @@ que en staging ya existe: si el psql de §2.6 falla con
 
 | Qué | Dónde vive | Cómo se repone en staging |
 |---|---|---|
-| Tareas de pg_cron | esquema `cron` | §2.7 (o re-correr `prelanzamiento_300.sql`) |
+| Tareas de pg_cron | esquema `cron` | §2.7 (o re-correr `prelanzamiento_300.sql`, solo en staging) |
 | Bucket `evidencias` | `storage.buckets` | §2.7 |
 | Políticas de Storage | `storage.objects` | §2.7 |
 | Configuración de Auth (URLs, Google, plantillas, límites) | ajustes del proyecto | a mano (§4 y §5.2) |
