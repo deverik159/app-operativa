@@ -180,6 +180,8 @@ export interface Incidencia {
   repaired_at: string | null;
   /** Cuándo pasó a 'cerrada'. Lo pone el trigger inc_marca_cierre (8-oct-2026). */
   cerrada_en?: string | null;
+  /** Cuándo pasó a 'no_reparado'. Lo pone el mismo trigger (31-oct-2026, retención del chat). */
+  no_reparado_en?: string | null;
   /** Equipo que salió y que entró en la reparación de Digital (lib/equipos.ts). */
   cambio_equipo?: import('../lib/equipos').CambioEquipo | null;
   /** Técnico de Op. Bio Box que apoyó la reparación (lib/apoyoReparacion.ts, 29-oct-2026). */
