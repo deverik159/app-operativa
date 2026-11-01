@@ -1,3 +1,7 @@
+-- ⚠ OBSOLETO (31-oct-2026): NO volver a correr. Regresa la purga a 2 días,
+--   le da la vista a authenticated y la limpieza a un secreto viejo. Lo
+--   vigente está en supabase/migrations/20261101025349_limpieza_chat_secreto_vault.sql
+--   y 20261101030539_chat_retencion_desde_cierre.sql.
 -- ============================================================
 -- chat_adjuntos_continuar.sql
 --

@@ -1,3 +1,6 @@
+-- ⚠ OBSOLETO (31-oct-2026): NO volver a correr. Desde el 31-oct-2026 los
+--   30 días se cuentan desde el cierre: ver
+--   supabase/migrations/20261101030539_chat_retencion_desde_cierre.sql.
 -- ============================================================
 -- chat_retencion_30_dias.sql — los archivos del chat viven 30 días
 -- Correr una vez en Supabase → SQL Editor.
