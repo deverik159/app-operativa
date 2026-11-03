@@ -690,6 +690,17 @@
     .rt-dir-opciones{grid-template-columns:1fr}
   }
 
+  /* Con un modal abierto en el celular, la página de atrás no se desplaza
+     (3-nov-2026): en iPhone el dedo a veces movía el scroll de la página
+     (se veía su barra) y el modal fijo se quedaba pasmado (detalle de
+     campaña de Comprobaciones, al revisar fotos). El único scroll que
+     queda es el del .overlay. Con el armazón, ver .main:has(.overlay). */
+  @media(max-width:780px){
+    html:has(.overlay),
+    html:has(.overlay) body{overflow:hidden}
+    .overlay{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  }
+
   /* ===== Armazón de app: PRUEBA por teléfono (5-oct-2026; ver lib/armazon.ts)
      Solo con html.armazon (lo pone armazon.ts desde localStorage), en
      celular y cuando existe la barra de la app (no en el login). El
@@ -714,6 +725,12 @@
        poder subir lo último de .main por encima de él. */
     html.armazon:has(.topbar) .layout>.main{order:1;flex:1 1 auto;min-height:0;
       overflow-y:auto;overflow-x:hidden;padding-bottom:calc(20px + var(--teclado, 0px))}
+    /* Con un modal abierto, .main no se desplaza (3-nov-2026): el .overlay
+       fijo vive DENTRO de .main y en iPhone el dedo a veces movía el scroll
+       de .main (se veía su barra) mientras el modal se quedaba pasmado (el
+       detalle de campaña de Comprobaciones, al revisar fotos). Así el único
+       scroll que queda es el del .overlay. */
+    html.armazon:has(.topbar) .layout>.main:has(.overlay){overflow-y:hidden}
     html.armazon:has(.topbar) .layout>.side{order:2;flex:0 0 auto;position:relative;
       bottom:auto;left:auto;right:auto;z-index:1}
   }
