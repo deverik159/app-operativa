@@ -72,6 +72,9 @@ const TITULOS: Record<string, string> = {
   // Aviso NUC (29-oct-2026): Digital lo marca y lo repara a distancia.
   nuc_fuera_linea: 'NUC fuera de línea',
   nuc_en_linea: 'NUC en línea',
+  // Técnico de Op. Bio Box por ruta (30-oct-2026).
+  ruta_tecnico: 'Cambio en tu ruta',
+  maquina_incidencia: 'Incidencia en tu máquina',
 };
 
 type Cuerpo = {

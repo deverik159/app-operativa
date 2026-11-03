@@ -43,7 +43,8 @@ import { colorTono } from '../../lib/tonos';
 import type { Incidencia, Reasignacion } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
 
-export type ModoReasign = 'solicitar' | 'aprobar';
+/** 'op_biobox' lo abre PasarOpBioboxModal, no este (30-oct-2026). */
+export type ModoReasign = 'solicitar' | 'aprobar' | 'op_biobox';
 
 type Props = {
   inc: Incidencia;

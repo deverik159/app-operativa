@@ -59,24 +59,10 @@ npm run dev:http     # sin HTTPS; el GPS deja de funcionar
 
 ## Estado de la base de datos
 
-El código de este zip espera que **ya estén aplicados**:
-
-| Archivo | Para qué |
-|---|---|
-| `pauta_schema.sql`, `importar_pauta.sql` | módulo Pauta |
-| `notificar_area_asignada.sql` | notificaciones del área asignada |
-| `revisiones_schema.sql` | checklist y revisiones de Biobox |
-| `importar_rutas_capas.sql` | importar rutas desde el KML |
-
-**Pendientes de aplicar** (la app funciona sin ellos, pero esas partes no):
-
-| Archivo | Qué se cae sin él |
-|---|---|
-| `pauta_evidencias.sql` | subir fotos al registrar una toma |
-| `push_suscripciones.sql` | notificaciones push (ver `GUIA-PUSH.md`) |
-
-Para comprobar que lo de Biobox quedó bien: corre `verificar_biobox.sql`, que
-es solo lectura y va diciendo qué debe salir en cada bloque.
+(31-oct-2026) Todo lo que esta sección pedía aplicar ya está en producción. Los
+SQL sueltos se movieron a `contexto/_archivo/sql-historico/` (privado) y **no se
+vuelven a correr**. Los cambios de base van solo como migración en
+`supabase/migrations/` (ver su README).
 
 ---
 

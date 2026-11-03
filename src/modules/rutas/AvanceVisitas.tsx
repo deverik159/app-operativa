@@ -40,6 +40,8 @@ import {
 } from './rutasComun';
 
 type Foto = { path?: string; url?: string };
+/** monitoreo = Mis rutas; rapida = visita rápida de Máquinas Biobox; revision = checklist completo. */
+type TipoVisita = 'monitoreo' | 'rapida' | 'revision';
 type Visita = {
   id: number;
   site_id: string;
@@ -51,6 +53,13 @@ type Visita = {
   precision_m: number | null;
   fotos: Foto[] | null;
   nota: string | null;
+  tipo?: TipoVisita;
+};
+
+const TXT_TIPO: Record<TipoVisita, string> = {
+  monitoreo: 'Monitoreo',
+  rapida: 'Visita rápida',
+  revision: 'Revisión',
 };
 
 const fmtCuando = (iso: string) => {
@@ -80,6 +89,31 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
   const [nombres, setNombres] = useState<Record<string, string>>({});
   const [visor, setVisor] = useState<{ fotos: string[]; i: number } | null>(null);
   const [intento, setIntento] = useState(0);
+  /** Biobox (30-oct-2026): cuentan también la visita rápida y la revisión del técnico. */
+  const esBiobox = ruta.unidad_negocio.startsWith('Biobox');
+  /** Técnicos de Op. Bio Box asignados a esta ruta (ruta_tecnicos). */
+  const [tecnicos, setTecnicos] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!esBiobox) return;
+    let activo = true;
+    void sb.from('ruta_tecnicos').select('usuario_email').eq('ruta_id', ruta.id)
+      .then(({ data }) => {
+        if (activo) setTecnicos(((data || []) as { usuario_email: string }[]).map((t) => t.usuario_email.toLowerCase()));
+      });
+    // Sus nombres (la lista de monitoristas no los trae).
+    void sb.rpc('tecnicos_asignables_ruta', { p_ruta_id: ruta.id }).then(({ data }) => {
+      if (!activo || !data) return;
+      setNombres((m) => {
+        const n = { ...m };
+        (data as { email: string; nombre: string }[]).forEach((x) => { n[x.email.toLowerCase()] = x.nombre; });
+        return n;
+      });
+    });
+    return () => {
+      activo = false;
+    };
+  }, [esBiobox, ruta.id, intento]);
 
   // Solo las paradas vigentes cuentan (una RETIRADA ya no existe).
   const vigentes = useMemo(
@@ -114,7 +148,8 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
       ((p.data as { email: string; nombre: string }[] | null) || []).forEach((x) => {
         m[x.email.toLowerCase()] = x.nombre;
       });
-      setNombres(m);
+      // Se suma a los de los técnicos, que pueden haber llegado antes.
+      setNombres((prev) => ({ ...m, ...prev }));
       setCats(lista);
       if (!catsListas.current) {
         catsListas.current = true;
@@ -168,7 +203,62 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
           setCargando(false);
           return;
         }
-        todas.push(...r.filas);
+        todas.push(...r.filas.map((v) => ({ ...v, tipo: 'monitoreo' as const })));
+        // Biobox: la visita rápida y la revisión del técnico también cuentan.
+        if (esBiobox) {
+          const rq = await traerPaginado<Visita>((desde, hasta, senal) =>
+            sb
+              .from('maquina_visitas')
+              .select('id,site_id,usuario_email,visitado_en,lat,lng,precision_m,fotos,nota')
+              .in('site_id', t)
+              .gte('visitado_en', desdeIso)
+              .lt('visitado_en', hastaIso)
+              .order('visitado_en', { ascending: false })
+              .order('id', { ascending: false })
+              .range(desde, hasta)
+              .abortSignal(senal)
+          );
+          if (!activo) return;
+          if (rq.error) {
+            setErr('No se pudieron leer las visitas rápidas. ' + textoFalla(rq.error, rq.sinRed));
+            setCargando(false);
+            return;
+          }
+          todas.push(...rq.filas.map((v) => ({ ...v, ruta_id: null, tipo: 'rapida' as const })));
+          const rr = await traerPaginado<{ id: number; site_id: string; revisado_por: string; revisado_en: string }>(
+            (desde, hasta, senal) =>
+              sb
+                .from('revisiones')
+                .select('id,site_id,revisado_por,revisado_en')
+                .in('site_id', t)
+                .gte('revisado_en', desdeIso)
+                .lt('revisado_en', hastaIso)
+                .order('revisado_en', { ascending: false })
+                .range(desde, hasta)
+                .abortSignal(senal)
+          );
+          if (!activo) return;
+          if (rr.error) {
+            setErr('No se pudieron leer las revisiones. ' + textoFalla(rr.error, rr.sinRed));
+            setCargando(false);
+            return;
+          }
+          todas.push(
+            ...rr.filas.map((v) => ({
+              id: v.id,
+              site_id: v.site_id,
+              ruta_id: null,
+              usuario_email: v.revisado_por || '',
+              visitado_en: v.revisado_en,
+              lat: null,
+              lng: null,
+              precision_m: null,
+              fotos: null,
+              nota: null,
+              tipo: 'revision' as const,
+            }))
+          );
+        }
       }
       if (!activo) return;
       setVisitas(todas);
@@ -177,7 +267,7 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
     return () => {
       activo = false;
     };
-  }, [claveSitios, desdeIso, hastaIso, intento, catSel]);
+  }, [claveSitios, desdeIso, hastaIso, intento, catSel, esBiobox]);
 
   /** site_id → su ÚLTIMA visita del periodo. */
   const ultima = useMemo(() => {
@@ -192,6 +282,18 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
   const visitadas = vigentes.filter((u) => ultima.has(u.site_id)).length;
   const pct = vigentes.length ? Math.round((visitadas / vigentes.length) * 100) : 0;
   const quien = (c: string) => nombres[c.toLowerCase()] || nombreDesdeCorreo(c);
+
+  /** Cuántas paradas tiene cada persona como última visita del periodo. */
+  const porPersona = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const u of vigentes) {
+      const v = ultima.get(u.site_id);
+      if (!v || !v.usuario_email) continue;
+      const k = v.usuario_email.toLowerCase();
+      m.set(k, (m.get(k) || 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [vigentes, ultima]);
 
   // Visor: Escape cierra.
   useEffect(() => {
@@ -246,6 +348,22 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
           <div className="rt-barra" aria-hidden="true">
             <div style={{ width: `${cargando ? 0 : pct}%` }} />
           </div>
+          {esBiobox && (
+            <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.6 }}>
+              <div>
+                <b>Técnico de la ruta:</b>{' '}
+                {tecnicos.length
+                  ? tecnicos.map((t) => `${quien(t)} (${porPersona.find(([e]) => e === t)?.[1] || 0} de ${vigentes.length})`).join(' · ')
+                  : 'sin asignar (pestaña «Técnico Op. Bio Box»)'}
+              </div>
+              {!cargando && porPersona.length > 0 && (
+                <div style={{ color: 'var(--muted)' }}>
+                  Por persona: {porPersona.map(([e, n]) => `${quien(e)} ${n}`).join(' · ')}
+                </div>
+              )}
+              <div style={{ color: 'var(--muted)' }}>Cuentan la visita rápida, la revisión y el monitoreo; vale la última de cada máquina.</div>
+            </div>
+          )}
         </>
       )}
 
@@ -284,6 +402,7 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
                       <span style={{ color: colorTono('verde'), fontWeight: 700 }}>✓ {quien(v.usuario_email)}</span>
                       {' · '}
                       {fmtCuando(v.visitado_en)}
+                      {esBiobox && v.tipo && <span style={{ color: 'var(--muted)' }}> · {TXT_TIPO[v.tipo]}</span>}
                       {v.lat != null && v.lng != null && (
                         <>
                           {' · '}

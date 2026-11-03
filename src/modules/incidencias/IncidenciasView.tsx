@@ -71,6 +71,7 @@ import type { DatosReparacion, FinReparacion } from './RepararModal';
 import EvidenciaModal from './EvidenciaModal';
 import ChatModal from './ChatModal';
 import ReasignModal from './ReasignModal';
+import PasarOpBioboxModal from './PasarOpBioboxModal';
 import type { ModoReasign } from './ReasignModal';
 import EditModal from './EditModal';
 import CorreccionModal from './CorreccionModal';
@@ -3169,7 +3170,19 @@ function IncidenciasView({
           }}
         />
       )}
-      {reassignOf && (
+      {reassignOf && reassignOf.mode === 'op_biobox' && (
+        <PasarOpBioboxModal
+          inc={reassignOf.inc}
+          onClose={() => setReassignOf(null)}
+          onDone={(rid, patch) => {
+            patchInc(rid, patch);
+            setReassignOf(null);
+            onNotifAtendida(rid);
+            setTimeout(onRecargarNotifs, 400);
+          }}
+        />
+      )}
+      {reassignOf && reassignOf.mode !== 'op_biobox' && (
         <ReasignModal
           inc={reassignOf.inc}
           mode={reassignOf.mode}

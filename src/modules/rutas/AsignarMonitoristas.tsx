@@ -23,6 +23,13 @@
 // la otra mitad sin dueño.
 //
 // Toda escritura se cuenta con .select(): la RLS niega en silencio.
+//
+// Modo «tecnico» (Erik, 30-oct-2026): en las rutas de Biobox la misma
+// pestaña asigna al TÉCNICO de Op. Bio Box, sin darle rol de monitorista.
+// Escribe en `ruta_tecnicos` (no en ruta_asignaciones, que alimenta Mis
+// rutas y Pauta) y la lista sale de `tecnicos_asignables_ruta`. Con eso sus
+// máquinas le salen primero en Máquinas Biobox y le llegan los avisos de
+// incidencias de Digital o TI en ellas.
 // ============================================================
 import { User } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -50,8 +57,30 @@ function esFuncionFaltante(e: { code?: string; message?: string } | null): boole
 const normNombre = (s: string | null | undefined) =>
   sinAcentos(s || '').replace(/\s+/g, ' ').trim();
 
-export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
+export type ModoAsignar = 'monitorista' | 'tecnico';
+
+/** Lo que cambia entre asignar monitoristas y técnicos de Op. Bio Box. */
+const CFG = {
+  monitorista: {
+    tabla: 'ruta_asignaciones',
+    rpc: 'usuarios_asignables_ruta',
+    titulo: 'Monitoristas asignados',
+    quien: 'monitorista',
+    quienes: 'monitoristas',
+  },
+  tecnico: {
+    tabla: 'ruta_tecnicos',
+    rpc: 'tecnicos_asignables_ruta',
+    titulo: 'Técnicos de Op. Bio Box asignados',
+    quien: 'técnico',
+    quienes: 'técnicos de Op. Bio Box',
+  },
+} as const;
+
+export default function AsignarMonitoristas({ ruta, modo = 'monitorista' }: { ruta: Resumen; modo?: ModoAsignar }) {
   vigilarRender('AsignarMonitoristas');
+  const cfg = CFG[modo];
+  const esTecnico = modo === 'tecnico';
   const [asig, setAsig] = useState<Asig[]>([]);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [gemela, setGemela] = useState<Gemela | null>(null);
@@ -82,7 +111,9 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
   const esBiobox = ruta.unidad_negocio.startsWith('Biobox');
   /** Dónde la ve el monitorista: Ecovallas Impreso vive en Pauta; el resto
    *  en «Mis rutas». */
-  const dondeLaVe = esSegmentoDePauta(ruta.unidad_negocio, ruta.tipo_medio) ? 'Pauta y Monitoreo' : 'Mis rutas';
+  const dondeLaVe = esTecnico
+    ? 'Máquinas Biobox'
+    : esSegmentoDePauta(ruta.unidad_negocio, ruta.tipo_medio) ? 'Pauta y Monitoreo' : 'Mis rutas';
 
   // Carga: gemela (Biobox), personas asignables y asignaciones vigentes.
   useEffect(() => {
@@ -111,18 +142,19 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
       const ids = gem ? [ruta.id, gem.id] : [ruta.id];
       const [a, pRuta] = await Promise.all([
         sb
-          .from('ruta_asignaciones')
+          .from(cfg.tabla)
           .select('id,ruta_id,usuario_email')
           .in('ruta_id', ids)
           .abortSignal(tope(TOPE_LECTURA_MS)),
-        sb.rpc('usuarios_asignables_ruta', { p_ruta_id: ruta.id }).abortSignal(tope(TOPE_LECTURA_MS)),
+        sb.rpc(cfg.rpc, { p_ruta_id: ruta.id }).abortSignal(tope(TOPE_LECTURA_MS)),
       ]);
       if (!activo) return;
       // La gemela de Biobox es de la misma unidad: los que sirven para esta
       // sirven para ella, no hace falta pedir otra lista.
       let p = pRuta;
       let sinFiltro = false;
-      if (pRuta.error && esFuncionFaltante(pRuta.error)) {
+      // El respaldo sin filtro solo existe para monitoristas.
+      if (!esTecnico && pRuta.error && esFuncionFaltante(pRuta.error)) {
         // La migración nueva aún no corre en esta base: la lista de antes,
         // con aviso (la base, sin el trigger, tampoco lo exige todavía).
         p = await sb.rpc('usuarios_asignables').abortSignal(tope(TOPE_LECTURA_MS));
@@ -140,8 +172,8 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
         // Antes la lista vacía decía solo "no hay monitoristas"; ahora se
         // distingue de un error de lectura (rutas, 5-oct-2026).
         const msg = pareceSinRed(p.error, p.status)
-          ? 'Sin señal: no se pudo leer la lista de monitoristas.'
-          : 'No se pudo leer la lista de monitoristas: ' + (p.error?.message || '');
+          ? `Sin señal: no se pudo leer la lista de ${cfg.quienes}.`
+          : `No se pudo leer la lista de ${cfg.quienes}: ` + (p.error?.message || '');
         setErr((e) => (e ? e + ' ' : '') + msg);
       }
       setGemela(gem);
@@ -165,7 +197,7 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
     return () => {
       activo = false;
     };
-  }, [ruta.id, ruta.nombre, ruta.unidad_negocio, ruta.tipo_medio, esBiobox, recarga]);
+  }, [ruta.id, ruta.nombre, ruta.unidad_negocio, ruta.tipo_medio, ruta.coordinador_email, esBiobox, esTecnico, cfg, recarga]);
 
   const deEsta = asig.filter((a) => a.ruta_id === ruta.id);
   const deGemela = gemela ? asig.filter((a) => a.ruta_id === gemela.id) : [];
@@ -198,9 +230,12 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
         rutas.push(gemela.id);
       let hechas = 0;
       for (const rid of rutas) {
+        // ruta_tecnicos solo acepta ruta y correo: el resto lo pone la base.
+        const fila: Record<string, string | number | null> = { ruta_id: rid, usuario_email: p.email.toLowerCase() };
+        if (!esTecnico) fila.asignado_por = yo || null;
         const { data, error, status } = await sb
-          .from('ruta_asignaciones')
-          .insert({ ruta_id: rid, usuario_email: p.email.toLowerCase(), asignado_por: yo || null })
+          .from(cfg.tabla)
+          .insert(fila)
           .select('id')
           .abortSignal(tope(TOPE_LECTURA_MS));
         if (!vivo.current) return;
@@ -260,7 +295,7 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
       }
       const ids = gem ? [a.id, gem.id] : [a.id];
       const { data, error, status } = await sb
-        .from('ruta_asignaciones')
+        .from(cfg.tabla)
         .delete()
         .in('id', ids)
         .select('id')
@@ -286,7 +321,7 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
 
   return (
     <div className="rt-seccion">
-      <div className="rt-seccion-tit"><Ic i={User} />Monitoristas asignados</div>
+      <div className="rt-seccion-tit"><Ic i={User} />{cfg.titulo}</div>
       {cargando && (
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
           <span className="spinner" />
@@ -327,7 +362,7 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar monitorista por nombre o correo"
+            placeholder={`Buscar ${cfg.quien} por nombre o correo`}
             style={{ marginTop: 8 }}
             disabled={ocupado}
           />
@@ -351,7 +386,9 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
           )}
           {personas.length === 0 && !err && (
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-              {sinFiltroUnidad
+              {esTecnico
+                ? `No hay técnicos de Op. Bio Box con la unidad ${ruta.unidad_negocio}.`
+                : sinFiltroUnidad
                 ? 'No hay monitoristas para asignar.'
                 : `No hay monitoristas con la unidad ${ruta.unidad_negocio}. Dásela desde Usuarios para poder asignarle la ruta.`}
             </div>
@@ -363,7 +400,9 @@ export default function AsignarMonitoristas({ ruta }: { ruta: Resumen }) {
             </div>
           )}
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-            Al asignar, al monitorista le llega una notificación y la ruta aparece en su sección «{dondeLaVe}».
+            {esTecnico
+              ? 'Al asignar, al técnico le llega una notificación, sus máquinas le salen primero en «Máquinas Biobox» y le llegan los avisos de incidencias de Digital o TI en ellas. No se le da rol de monitorista.'
+              : `Al asignar, al monitorista le llega una notificación y la ruta aparece en su sección «${dondeLaVe}».`}
           </div>
         </>
       )}

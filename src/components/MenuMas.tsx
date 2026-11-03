@@ -12,8 +12,12 @@
 // La hoja se monta en <body> con un portal, por la misma razón que
 // CampanaNotifs y MenuUsuario: en iOS lo fijo dentro de otra pieza fija o
 // sticky pinta bien pero puede no recibir los toques.
+//
+// (1-nov-2026, Erik) Con 12 módulos la lista ya no cabe: la cabeza (asa y
+// título) se queda fija y se arrastra hacia abajo para cerrar; solo la
+// lista se desplaza. Antes el asa era puro dibujo y el dedo movía la lista.
 // ============================================================
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRight, MoreHorizontal } from 'lucide-react';
 import IconoNav from './IconoNav';
@@ -30,6 +34,42 @@ type Props = {
 export default function MenuMas({ items, activa, onElegir }: Props) {
   const [abierta, setAbierta] = useState(false);
   const pendientes = items.reduce((s, i) => s + (i.badge && i.badge > 0 ? i.badge : 0), 0);
+  const hoja = useRef<HTMLDivElement>(null);
+  const arrastre = useRef<{ y0: number; t0: number; dy: number } | null>(null);
+
+  // Mueve la hoja con el dedo; `con` = con transición (soltar o regresar).
+  const moverHoja = (dy: number, con: boolean) => {
+    const h = hoja.current;
+    if (!h) return;
+    h.style.transition = con ? 'transform .2s cubic-bezier(.2,.8,.2,1)' : 'none';
+    h.style.transform = dy ? `translateY(${dy}px)` : '';
+  };
+
+  const empezarArrastre = (e: PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    arrastre.current = { y0: e.clientY, t0: e.timeStamp, dy: 0 };
+  };
+
+  const seguirArrastre = (e: PointerEvent<HTMLDivElement>) => {
+    const a = arrastre.current;
+    if (!a) return;
+    a.dy = Math.max(0, e.clientY - a.y0);
+    moverHoja(a.dy, false);
+  };
+
+  // Cierra si bajó más de 80px o si fue un jalón rápido; si no, regresa.
+  const soltarArrastre = (e: PointerEvent<HTMLDivElement>) => {
+    const a = arrastre.current;
+    arrastre.current = null;
+    if (!a) return;
+    const rapido = a.dy > 20 && a.dy / Math.max(1, e.timeStamp - a.t0) > 0.5;
+    if (a.dy > 80 || rapido) {
+      moverHoja(hoja.current?.offsetHeight ?? 600, true);
+      setTimeout(() => setAbierta(false), 180);
+    } else {
+      moverHoja(0, true);
+    }
+  };
 
   useEffect(() => {
     if (!abierta) return;
@@ -55,9 +95,17 @@ export default function MenuMas({ items, activa, onElegir }: Props) {
         createPortal(
           <>
             <div className="hoja-mas-velo" onClick={() => setAbierta(false)} />
-            <div className="hoja-mas" role="dialog" aria-label="Más módulos">
-              <div className="hoja-mas-asa" />
-              <h3>Más módulos</h3>
+            <div ref={hoja} className="hoja-mas" role="dialog" aria-label="Más módulos">
+              <div
+                className="hoja-mas-cabeza"
+                onPointerDown={empezarArrastre}
+                onPointerMove={seguirArrastre}
+                onPointerUp={soltarArrastre}
+                onPointerCancel={soltarArrastre}
+              >
+                <div className="hoja-mas-asa" />
+                <h3>Más módulos</h3>
+              </div>
               <div className="hoja-mas-lista">
                 {items.map((n) => (
                   <button

@@ -68,19 +68,21 @@ test('Una máquina por sitio, con el nombre de la cara digital', () => {
 test('Sin aviso abierto la máquina está en línea', () => {
   assert.equal(estadoNuc(undefined), 'en_linea');
   assert.equal(estadoNuc({ estado: 'en_linea' }), 'en_linea');
-  assert.equal(estadoNuc({ estado: 'en_revision' }), 'en_revision');
+  assert.equal(estadoNuc({ estado: 'fuera_linea' }), 'fuera_linea');
+  // Un aviso viejo «en revisión» (antes del 30-oct) cuenta como fuera de línea.
+  assert.equal(estadoNuc({ estado: 'en_revision' }), 'fuera_linea');
 });
 
 test('El tablero pone primero la fuera de línea más vieja y cuenta por estado', () => {
   const maq = ['A', 'B', 'C', 'D', 'E', 'F'].map((s) => ({ site_id: s, nombre: 'Máquina ' + s }));
   const avisos = new Map([
-    ['B', { estado: 'en_revision', actualizado_en: '2026-10-29T10:00:00Z' }],
+    ['B', { estado: 'fuera_linea', actualizado_en: '2026-10-29T10:00:00Z' }],
     ['C', { estado: 'fuera_linea', actualizado_en: '2026-10-29T12:00:00Z' }],
     ['D', { estado: 'fuera_linea', actualizado_en: '2026-10-29T09:00:00Z' }],
-    ['E', { estado: 'en_revision', actualizado_en: '2026-10-29T08:00:00Z' }],
+    ['E', { estado: 'fuera_linea', actualizado_en: '2026-10-29T08:00:00Z' }],
   ]);
-  assert.deepEqual(ordenarTablero(maq, avisos).map((m) => m.site_id), ['D', 'C', 'E', 'B', 'A', 'F']);
-  assert.deepEqual(contarEstados(maq, avisos), { fuera_linea: 2, en_revision: 2, en_linea: 2 });
+  assert.deepEqual(ordenarTablero(maq, avisos).map((m) => m.site_id), ['E', 'D', 'B', 'C', 'A', 'F']);
+  assert.deepEqual(contarEstados(maq, avisos), { fuera_linea: 4, en_linea: 2 });
   // Las en línea van por clave del mueble, no por nombre (Erik, 29-oct-2026).
   const porClave = [
     { site_id: 'MX_CM_BB_MED_0117', nombre: 'A LA SALLE' },
@@ -99,14 +101,15 @@ test('Tiempo transcurrido legible', () => {
   assert.equal(haceCuanto(null, ahora), '');
 });
 
-test('Número del menú: al técnico lo abierto de su unidad, a Digital lo que nadie revisa', () => {
+test('Número del menú: al técnico lo fuera de línea de su unidad, a Digital todo', () => {
   const avisos = [
     { estado: 'fuera_linea', unidad_negocio: 'Biobox' },
     { estado: 'fuera_linea', unidad_negocio: 'Biobox Perú' },
-    { estado: 'en_revision', unidad_negocio: 'Biobox' },
+    { estado: 'fuera_linea', unidad_negocio: 'Biobox' },
+    { estado: 'en_linea', unidad_negocio: 'Biobox' },
   ];
   assert.equal(pendientesNuc(avisos, [rol('reparacion', 'Biobox', 'Op. Bio Box')]), 2);
-  assert.equal(pendientesNuc(avisos, [rol('reparacion', 'Vía Verde', 'Digital')]), 2);
+  assert.equal(pendientesNuc(avisos, [rol('reparacion', 'Vía Verde', 'Digital')]), 3);
   assert.equal(pendientesNuc(avisos, [rol('manager')]), 3);
   assert.equal(pendientesNuc(avisos, [rol('validador', 'Biobox', 'Operaciones')]), 2);
   assert.equal(pendientesNuc(avisos, [rol('validador', 'Biobox', 'Operaciones'), rol('reparacion', 'Biobox', 'Op. Bio Box')]), 2);

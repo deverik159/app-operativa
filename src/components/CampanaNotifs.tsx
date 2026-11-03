@@ -46,6 +46,9 @@ const EVENTOS_OPERACION = new Set([
   // Aviso NUC (29-oct-2026).
   'nuc_fuera_linea',
   'nuc_en_linea',
+  // Ruta asignada al técnico de Op. Bio Box (30-oct-2026). «Incidencia en tu
+  // máquina» (maquina_incidencia) se queda en Incidencias.
+  'ruta_tecnico',
 ]);
 
 function CampanaNotifs({

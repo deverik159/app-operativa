@@ -6,6 +6,12 @@ _Última actualización: 24 de septiembre de 2026. Reemplaza la versión anterio
 arquitectura, módulos, esquema de datos, decisiones tomadas, errores cometidos
 y pendientes. Léelo completo antes de continuar._
 
+> **(31-oct-2026) Los `.sql` que cita este documento ya no están en la raíz.** Se
+> movieron al repo privado de contexto (`contexto/_archivo/sql-historico/`, con
+> su `INDICE.md`) y **no se vuelven a correr**: varios regresan funciones que una
+> migración cambió después. Todo cambio de base va como migración en
+> `supabase/migrations/`.
+
 ---
 
 ## 0. RESUMEN EJECUTIVO (leer primero)

@@ -759,7 +759,7 @@ function RutasView({
   }, [porRuta, loading]);
 
   // Pestaña del detalle de ruta (rutas, 5-oct-2026).
-  const [pestanaDetalle, setPestanaDetalle] = useState<'paradas' | 'avance' | 'monitoristas'>('paradas');
+  const [pestanaDetalle, setPestanaDetalle] = useState<'paradas' | 'avance' | 'monitoristas' | 'tecnicos'>('paradas');
   const abrirDetalle = (r: Resumen) => {
     setPestanaDetalle('paradas');
     setDetalleRuta(r);
@@ -1134,10 +1134,26 @@ function RutasView({
                 Monitoristas
               </button>
             )}
+            {/* Técnico de Op. Bio Box de la ruta (Erik, 30-oct-2026): aparte
+                de los monitoristas, sin darle ese rol. Solo Biobox. */}
+            {puedeGestionar && detalle.unidad_negocio.startsWith('Biobox') && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pestanaDetalle === 'tecnicos'}
+                className={'rt-tab' + (pestanaDetalle === 'tecnicos' ? ' on' : '')}
+                onClick={() => setPestanaDetalle('tecnicos')}
+              >
+                Técnico Op. Bio Box
+              </button>
+            )}
           </div>
 
           {pestanaDetalle === 'avance' && puedeGestionar && <AvanceVisitas ruta={detalle} paradas={ubicsDetalle} />}
           {pestanaDetalle === 'monitoristas' && puedeGestionar && <AsignarMonitoristas ruta={detalle} />}
+          {pestanaDetalle === 'tecnicos' && puedeGestionar && detalle.unidad_negocio.startsWith('Biobox') && (
+            <AsignarMonitoristas key={'tec-' + detalle.id} ruta={detalle} modo="tecnico" />
+          )}
 
           {pestanaDetalle === 'paradas' && (
             <>

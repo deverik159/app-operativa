@@ -32,6 +32,12 @@ regenerar el par y **todos** los dispositivos tienen que volver a suscribirse.
 
 ## 2. Base de datos
 
+> **(31-oct-2026) En producción esto ya está hecho; no lo repitas.** Los SQL de
+> esta sección viven en `contexto/_archivo/sql-historico/` (privado). Para un
+> proyecto nuevo (staging) **no** uses `push_suscripciones.sql`: guarda el
+> secreto con ALTER DATABASE, que Supabase ya no permite. Usa
+> `push_secret_vault.sql` como dice `GUIA-STAGING-Y-CARGA.md`.
+
 Aplica `push_suscripciones.sql` en el SQL Editor.
 
 **Antes de ejecutarlo**, cambia `CAMBIA-ESTE-SECRETO` (aparece dos veces) por

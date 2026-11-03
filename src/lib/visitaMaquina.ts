@@ -24,10 +24,17 @@ export const DIAS_VISITA_AMBAR = 14;
 
 /**
  * Más lejos que esto de la máquina, la visita se marca «lejos» (no se
- * bloquea: sin señal se perdería). 150 m da margen al GPS del iPhone dentro
- * de una tienda y a coordenadas de QTM un poco corridas.
+ * bloquea: sin señal se perdería). Era 150 m; Erik lo amplió a 300 m el
+ * 30-oct-2026 porque en las pruebas de los técnicos la coordenada del
+ * inventario venía corrida aunque estuvieran en la máquina.
  */
-export const LEJOS_M = 150;
+export const LEJOS_M = 300;
+
+/**
+ * Al medir se descuenta el margen de error que reporta el GPS, hasta este
+ * tope: un GPS de ±2 km no debe dar por buena cualquier visita.
+ */
+export const MARGEN_GPS_MAX_M = 100;
 
 export type Semaforo = 'verde' | 'ambar' | 'rojo';
 
@@ -81,6 +88,8 @@ export function distanciaAMaquina(
   return metros(gps, { lat, lng });
 }
 
-export function estaLejos(distancia: number | null): boolean {
-  return distancia != null && distancia > LEJOS_M;
+export function estaLejos(distancia: number | null, precision?: number | null): boolean {
+  if (distancia == null) return false;
+  const margen = Math.min(Math.max(precision ?? 0, 0), MARGEN_GPS_MAX_M);
+  return distancia - margen > LEJOS_M;
 }
