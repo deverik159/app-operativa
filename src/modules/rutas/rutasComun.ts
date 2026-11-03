@@ -69,7 +69,13 @@ export type Coordinador = { email: string; nombre: string };
 /** Lo que devuelve rutas_contexto(p_unidad): quién soy y a quién puedo ver.
  *  Un coordinador solo se ve a sí mismo; el manager, a todos los de la
  *  unidad (los que tienen el rol y los dueños de rutas que ya existen). */
-export type ContextoRutas = { yo: string; es_manager: boolean; coordinadores: Coordinador[] };
+export type ContextoRutas = {
+  yo: string;
+  es_manager: boolean;
+  /** Consulta (viewer, 3-nov-2026): ve las rutas de todos los coordinadores, sin tocar nada. */
+  ve_todo?: boolean;
+  coordinadores: Coordinador[];
+};
 
 /** Filtro "todos los coordinadores" del manager (no es un correo). */
 export const TODOS_COORDINADORES = '';

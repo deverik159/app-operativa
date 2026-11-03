@@ -72,9 +72,16 @@ const UNIDADES_CON_RUTAS = ['Ecovallas', 'Biobox', 'Vía Verde'];
 
 function RutasView({
   puedeGestionar,
+  soloLectura = false,
   unidades,
 }: {
   puedeGestionar: boolean;
+  /**
+   * Viewer (Consulta, Erik 3 y 10-nov-2026): ve las rutas de todos los
+   * coordinadores de su unidad, sin crear, importar, armar ni asignar. El
+   * avance de visitas no: lleva el GPS de cada monitorista.
+   */
+  soloLectura?: boolean;
   /** Unidades del usuario (App): acota qué rutas puede ver y tocar. */
   unidades: string[];
 }) {
@@ -194,9 +201,11 @@ function RutasView({
   }, [unidad, intentoCtx]);
   const ctxListo = ctx != null && ctx.unidad === unidad;
   const esManager = !!(ctxListo && ctx!.datos.es_manager);
+  /** Ve las rutas de todos (con el filtro de coordinador): manager o consulta. */
+  const veTodas = esManager || !!(soloLectura && ctxListo && ctx!.datos.ve_todo);
   /** De quién son las rutas en pantalla: el coordinador, las suyas; el
    *  manager, las del filtro ('' = de todos). null = aún no se sabe. */
-  const duenoVista: string | null = !ctxListo ? null : esManager ? filtroCoord : ctx!.datos.yo;
+  const duenoVista: string | null = !ctxListo ? null : veTodas ? filtroCoord : ctx!.datos.yo;
   /** Con qué dueño se crea o importa: null si el manager está en "Todos"
    *  (tiene que elegir a alguien antes; Erik, 22-oct-2026). */
   const duenoAccion: string | null = duenoVista || null;
@@ -1437,7 +1446,7 @@ function RutasView({
             {/* (Erik, 22-oct-2026) Cada coordinador ve solo sus rutas; el
                 manager elige de quién (o todos). Botones, no <select>: ver
                 arriba lo de iOS. */}
-            {esManager && (
+            {veTodas && (
               <div className="rt-chips rt-segmento" role="group" aria-label="Coordinador">
                 {[{ email: TODOS_COORDINADORES, nombre: 'Todos' }, ...ctx!.datos.coordinadores].map((c) => (
                   <button
@@ -1674,7 +1683,7 @@ function RutasView({
                                   repetidos entre ellos): el medio va primero. */}
                               {verAmbos ? `${r.tipo_medio} · ` : ''}
                               {/* Manager viendo a todos: de quién es cada una. */}
-                              {esManager && !filtroCoord ? `${nombreCorto(r.coordinador_nombre)} · ` : ''}
+                              {veTodas && !filtroCoord ? `${nombreCorto(r.coordinador_nombre)} · ` : ''}
                               {r.total_ubicaciones} ubicaciones
                               {Number(r.inhabilitadas) > 0
                                 ? ` · ${r.inhabilitadas} inhabilitadas`

@@ -132,10 +132,16 @@ const conErrorDe = (p: AccionPendiente): boolean =>
 function FijacionExternaView({
   email,
   verTodo,
+  soloLectura = false,
   onNotifAtendida,
 }: {
   email: string;
   verTodo: boolean;
+  /**
+   * Viewer (Consulta, Erik 3-nov-2026): ve todas las órdenes y sus
+   * incidencias, pero no marca fijado ni registra reparaciones.
+   */
+  soloLectura?: boolean;
   /** Al reparar desde aquí: apaga en la campana los avisos de esa incidencia. */
   onNotifAtendida?: (recordId: string) => void;
 }) {
@@ -898,7 +904,7 @@ function FijacionExternaView({
       </h2>
       <p className="phint">
         Registros asignados por el área de fijación (sistema externo).{' '}
-        {verTodo ? 'Vista completa.' : 'Mostrando los tuyos.'} Sesión: {email}
+        {soloLectura ? 'Consulta: vista completa, sin cambios.' : verTodo ? 'Vista completa.' : 'Mostrando los tuyos.'} Sesión: {email}
       </p>
 
       {err && <div className="err">{err}</div>}
@@ -1122,7 +1128,7 @@ function FijacionExternaView({
                     <Ic i={MapPin} />Maps
                   </a>
                 )}
-                {r.estado === 'PENDIENTE' && (
+                {r.estado === 'PENDIENTE' && !soloLectura && (
                   <button className="btn sm ok" onClick={() => abrirFijado(r)}>
                     Marcar fijado
                   </button>
@@ -1263,7 +1269,7 @@ function FijacionExternaView({
                     paddingTop: 11,
                   }}
                 >
-                  {inc.estatus === 'en_proceso' && (
+                  {inc.estatus === 'en_proceso' && !soloLectura && (
                     <button
                       className="btn warn sm"
                       onClick={() => abrirReparacion(inc)}

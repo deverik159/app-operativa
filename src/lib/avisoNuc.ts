@@ -209,17 +209,25 @@ export function recibeNucOtra(roles: Rol[], unidad: string): boolean {
 }
 
 /**
- * Unidades cuyo tablero puede abrir: Digital, manager y Consulta ven todas;
- * el técnico, el coordinador y el validador, las de sus filas; quien el
- * manager agregó a mano (`extras`), esas. Lista vacía = no ve el módulo.
+ * Unidades cuyo tablero puede abrir: Digital y manager ven todas; el
+ * técnico, el coordinador, el validador y Consulta (viewer, desde el
+ * 10-nov-2026), las de sus filas (fila sin unidad = todas); quien el manager
+ * agregó a mano (`extras`), esas. Lista vacía = no ve el módulo.
  */
 export function unidadesAvisoNuc(roles: Rol[], extras: readonly string[] = []): string[] {
-  if (esDigitalNuc(roles) || roles.some((r) => r.rol === 'viewer')) return [...UNIDADES_AVISO_NUC];
+  if (esDigitalNuc(roles)) return [...UNIDADES_AVISO_NUC];
+  const consulta = (u: string) =>
+    roles.some(
+      (r) =>
+        r.rol === 'viewer' &&
+        (!(r.unidad_negocio || '').trim() || (r.unidad_negocio || '').trim().toLowerCase() === u.toLowerCase())
+    );
   return UNIDADES_AVISO_NUC.filter(
     (u) =>
       esTecnicoNuc(roles, u) ||
       esValidadorNuc(roles, u) ||
       extras.some((x) => igual(x, u)) ||
+      consulta(u) ||
       roles.some((r) => r.rol === 'coordinador' && (!r.unidad_negocio || igual(r.unidad_negocio, u)))
   );
 }

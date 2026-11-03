@@ -662,13 +662,13 @@ function IncidenciasView({
    */
   /**
    * Unidades de negocio del usuario, para acotar el filtro y el alta.
-   * Una fila con unidad null (= todas) o el comodín manager/viewer abren
-   * la lista completa; si no, solo las unidades de sus filas de rol.
+   * Una fila con unidad null (= todas) o el manager abren la lista
+   * completa; si no, solo las unidades de sus filas de rol. El viewer ya no
+   * es comodín (Erik, 10-nov-2026): ve las de su fila, como la base.
    */
   const misUnidades = useMemo(() => {
     const todas =
       misRoles.includes('manager') ||
-      misRoles.includes('viewer') ||
       rolesDetalle.some((r) => !r.unidad_negocio);
     if (todas || rolesDetalle.length === 0) return UNIDADES;
     return UNIDADES.filter((u) =>

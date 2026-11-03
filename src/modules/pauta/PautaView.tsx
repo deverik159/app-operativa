@@ -130,6 +130,11 @@ type Props = {
    */
   soloRevisa?: boolean;
   /**
+   * Viewer (Consulta, Erik 3-nov-2026): ve TODA la pauta, como el
+   * coordinador, pero no registra tomas, no sube fotos, no importa ni asigna.
+   */
+  soloLectura?: boolean;
+  /**
    * Quien ve «Tomas de Pauta» en Comprobaciones: en modo 'completo' se le
    * dice dónde quedó la revisión y este botón lo lleva ahí (revisión 3,
    * 23-oct-2026: el aviso «Toma por revisar» todavía dice «pestaña
@@ -149,10 +154,14 @@ function PautaView({
   vistaPedida,
   modo = 'completo',
   soloVer,
-  soloRevisa,
+  soloRevisa: soloRevisaProp,
+  soloLectura,
   onIrATomas,
 }: Props) {
   vigilarRender('PautaView');
+  // La consulta se porta como «solo revisión»: ve la evidencia que existe y
+  // nada más (registrar, terminar y subir quedan cerrados).
+  const soloRevisa = !!soloRevisaProp || !!soloLectura;
   const [filas, setFilas] = useState<PautaRuta[]>([]);
   /**
    * Catorcenas con pauta cargada, la más reciente primero. Desde el
@@ -176,7 +185,7 @@ function PautaView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vistaPedida?.n]);
   /** Coordinador, manager y analista ven todas las rutas; el monitorista, las suyas. */
-  const veTodo = puedeImportar || !!revisaAnalista;
+  const veTodo = puedeImportar || !!revisaAnalista || !!soloLectura;
   const [loading, setLoading] = useState(true);
   /** Ya terminó la primera carga: cambiar de catorcena ya NO cambia la
    *  pantalla por "Cargando pauta…". Desmontaba el selector con la rueda de

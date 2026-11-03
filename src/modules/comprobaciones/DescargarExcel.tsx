@@ -603,12 +603,14 @@ export default function DescargarExcel(props: PropsPestanaComp) {
                   </>
                 )}{' '}
                 Si ya les asignaste monitorista en Rutas, actualiza las tomas; si no, repártelas a mano en la pestaña Formato.
-                <div style={{ marginTop: 8 }}>
+                {/* Escribe (refresca y genera tomas): solo quien gestiona; el
+                    viewer de Consulta solo descarga (3-nov-2026). */}
+                {gestiona && <div style={{ marginTop: 8 }}>
                   <button type="button" className="btn sm" disabled={ocupado} onClick={() => actualizarRutas(medio)}>
                     {trabajando === 'rutas|' + medio && <span className="spinner" />}
                     Actualizar ruta y monitorista
                   </button>
-                </div>
+                </div>}
               </div>
             )}
 

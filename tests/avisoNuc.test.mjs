@@ -45,6 +45,9 @@ test('Unidades del tablero según el rol', () => {
   const todas = ['Biobox', 'Biobox Perú', 'Ecovallas', 'Vía Verde'];
   assert.deepEqual(unidadesAvisoNuc([rol('reparacion', 'Vía Verde', 'Digital')]), todas);
   assert.deepEqual(unidadesAvisoNuc([rol('viewer')]), todas);
+  // Consulta con unidad: solo la suya (Erik, 10-nov-2026).
+  assert.deepEqual(unidadesAvisoNuc([rol('viewer', 'Biobox')]), ['Biobox']);
+  assert.deepEqual(unidadesAvisoNuc([rol('viewer', 'Ecovallas')]), ['Ecovallas']);
   assert.deepEqual(unidadesAvisoNuc([rol('reparacion', 'Biobox', 'Op. Bio Box')]), ['Biobox']);
   // El técnico de Op. Bio Box sin unidad no ve Ecovallas ni Vía Verde.
   assert.deepEqual(unidadesAvisoNuc([rol('reparacion', null, 'Op. Bio Box')]), ['Biobox', 'Biobox Perú']);

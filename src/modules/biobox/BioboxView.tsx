@@ -75,12 +75,14 @@ function pastillaNuc(e: EstadoNuc) {
 
 const REFRESCO_NUC_MS = 60 * 1000;
 
-function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
+function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloLectura = false }: {
   email: string;
   misDep: string[];
   /** Unidades cuyo Aviso NUC puede leer (unidadesAvisoNuc); en las demás no se enseña. */
   unidadesNuc?: string[];
   recargarSignal?: number;
+  /** Viewer (Consulta, Erik 3-nov-2026): ve máquinas, incidencias e historial; no revisa ni visita. */
+  soloLectura?: boolean;
 }) {
   const [cargando, setCargando] = useState(true);
   const [err, setErr] = useState('');
@@ -428,12 +430,14 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
             <button className="btn ghost sm" onClick={() => { setDetalle(null); setHistorial(u); }}>
               📖 Historial
             </button>
+            {!soloLectura && <>
             <button className="btn ghost sm" onClick={() => { setDetalle(null); setRevisando(u); }}>
               <Ic i={CircleCheck} />Revisar
             </button>
             <button className="btn sm" onClick={() => { setDetalle(null); setAviso(''); setVisitando(u); }}>
               <Ic i={MapPinCheck} />Visita rápida
             </button>
+            </>}
           </div>
         </div>
         {maquinaAbierta === panelId && <div style={{ marginTop: 12 }}>

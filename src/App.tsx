@@ -1725,9 +1725,10 @@ function Main({
   // Comprobaciones: no cuenta para la copia del inventario ni para Biobox
   // (revisión de pantallas, 23-oct-2026); si no, su iPhone bajaba el
   // inventario de todas las unidades para módulos que no usa.
+  // El viewer ya no abre todas por ser viewer (Erik, 10-nov-2026): solo si su
+  // fila de viewer es sin unidad, como cualquier otro rol.
   const tieneTodasLasUnidades =
     misRoles.includes('manager') ||
-    misRoles.includes('viewer') ||
     (roles || []).some((r) => !r.unidad_negocio && r.rol !== 'supervisor');
   // Misma llave que misRoles (ver firmaRoles): la lista filtrada era nueva
   // en cada render.
@@ -1784,6 +1785,22 @@ function Main({
    */
   const veMaquinasBiobox = abreMaquinasBiobox(rolesDetalle);
   const veReportesApp = abreReportesAppBiobox(rolesDetalle);
+
+  /**
+   * Viewer = Consulta (Erik, 3 y 10-nov-2026): mira los módulos de operación
+   * de SU unidad (rol y unidad de la MISMA fila; fila sin unidad = todas),
+   * sin ninguna acción que escriba. No entra a Pauta VV ni a Comprobaciones
+   * (datos comerciales y de personas que no necesita), ni a Usuarios o
+   * BioGuard. Si además tiene un rol que trabaja en un módulo, ahí manda ese
+   * rol. La base aplica la misma regla (viewer_de en la migración del 10-nov).
+   */
+  const filasViewer = rolesDetalle.filter((r) => r.rol === 'viewer');
+  const esConsulta = filasViewer.length > 0;
+  const consultaEcovallasImpreso = esConsulta && abreModuloEcovallasImpreso(filasViewer, ['viewer']);
+  const consultaBiobox = filasViewer.some(
+    (r) => !(r.unidad_negocio || '').trim() || /^biobox/i.test((r.unidad_negocio || '').trim())
+  );
+  const gestionaRutas = has('manager') || has('coordinador');
 
   /**
    * LA confirmación de salir vive AQUÍ, una sola vez, y los dos botones que
@@ -1985,13 +2002,13 @@ function Main({
     // ya no la ve: gestiona pauta y rutas, la fijación es de los técnicos
     // (Erik, 21-sep-2026). El rol tiene que ser de Ecovallas Impreso, no
     // de otra unidad (veFijacionExterna, 8-oct-2026).
-    veFijacionExterna && {
+    (veFijacionExterna || consultaEcovallasImpreso) && {
       k: 'fijacion_externa',
       ic: '📎',
       t: 'Fijación Externa',
       grupo: 'campo',
     },
-    (has('manager') || has('coordinador')) && {
+    (gestionaRutas || esConsulta) && {
       k: 'rutas',
       ic: '🗺️',
       t: 'Rutas de Operación',
@@ -2004,7 +2021,7 @@ function Main({
     // por no existir su rol). Pauta y Monitoreo es de Ecovallas Impreso: un
     // monitorista o coordinador de otra unidad no la ve aunque tenga otro
     // rol en Ecovallas (vePauta, 8-oct-2026).
-    vePauta && {
+    (vePauta || consultaEcovallasImpreso) && {
       k: 'pauta',
       ic: '📋',
       t: 'Pauta y Monitoreo',
@@ -2030,7 +2047,8 @@ function Main({
       grupo: 'campo',
     },
     // Revisión de máquinas Biobox: solo Op. Bio Box (ver veMaquinasBiobox).
-    veMaquinasBiobox && {
+    // La consulta de Biobox la ve en solo lectura (10-nov-2026).
+    (veMaquinasBiobox || consultaBiobox) && {
         k: 'biobox',
         ic: '♻️',
         t: 'Máquinas Biobox',
@@ -2583,13 +2601,15 @@ function Main({
               {tab === 'fijacion_externa' && (
                 <FijacionExternaView
                   email={email}
-                  verTodo={has('manager')}
+                  verTodo={has('manager') || consultaEcovallasImpreso}
+                  soloLectura={consultaEcovallasImpreso && !veFijacionExterna}
                   onNotifAtendida={notifs.marcarDeRegistro}
                 />
               )}
               {tab === 'rutas' && (
                 <RutasView
-                  puedeGestionar={has('manager') || has('coordinador')}
+                  puedeGestionar={gestionaRutas}
+                  soloLectura={esConsulta && !gestionaRutas}
                   unidades={misUnidades}
                 />
               )}
@@ -2601,6 +2621,7 @@ function Main({
                   recargarSignal={recargarSignal}
                   revisaAnalista={has('analista')}
                   soloRevisa={soloRevisaPauta}
+                  soloLectura={consultaEcovallasImpreso && !vePauta}
                   vistaPedida={vistaPauta}
                   onIrATomas={
                     veTomasPauta(rolesDetalle) && clavesConRuta.split('|').includes('comprobaciones')
@@ -2624,6 +2645,7 @@ function Main({
                   misDep={misDep}
                   unidadesNuc={unidadesNuc}
                   recargarSignal={recargarSignal}
+                  soloLectura={consultaBiobox && !veMaquinasBiobox}
                 />
               )}
               {tab === 'usuarios' && <UsuariosView email={email} />}
