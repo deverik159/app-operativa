@@ -19,7 +19,7 @@
 // revisar quién llama y en qué estado está el aviso; aquí solo se ofrece lo
 // que la base va a aceptar. La lista se refresca sola cada minuto.
 // ============================================================
-import { Camera, Check, History, Image as IconoImagen, RefreshCw, Router, TriangleAlert } from 'lucide-react';
+import { Camera, Check, History, Image as IconoImagen, RefreshCw, Router, TriangleAlert, Users } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { sb } from '../../lib/supabase';
@@ -34,8 +34,10 @@ import {
   ETIQUETA_NUC,
   TONO_NUC,
   RESPUESTAS_DIGITAL,
+  MUEBLES_VV_NUC,
   coincideMaquina,
   contarEstados,
+  contarPorUnidad,
   esDigitalNuc,
   estadoNuc,
   haceCuanto,
@@ -47,8 +49,17 @@ import {
   type FilaInventarioNuc,
   type MaquinaNuc,
 } from '../../lib/avisoNuc';
+import { sinAcentos } from '../../lib/helpers';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
+import GraficoNuc from './GraficoNuc';
+import DestinatariosNuc from './DestinatariosNuc';
+
+/** Valor del selector para ver todas las unidades juntas. */
+const TODAS = 'Todas';
+
+/** Lo que dice la tarjeta de cada unidad. */
+const NOMBRE_UNIDAD: Record<string, string> = { 'Vía Verde': 'Vía Verde', Ecovallas: 'Ecovallas Digital' };
 
 type Rol = { rol: string; unidad_negocio: string | null; departamento: string | null };
 
@@ -99,11 +110,15 @@ const urlFoto = (path: string) => sb.storage.from(BUCKET_EVIDENCIAS).getPublicUr
 
 function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
   roles: Rol[];
-  /** Unidades Biobox que puede ver (unidadesAvisoNuc). */
+  /** Unidades que puede ver (unidadesAvisoNuc). */
   unidades: string[];
   recargarSignal?: number;
 }) {
-  const [unidad, setUnidad] = useState(unidades[0] || 'Biobox');
+  // Con más de una unidad abre con todas juntas (Erik, 4-nov-2026): cada
+  // tarjeta dice de qué unidad es.
+  const [unidad, setUnidad] = useState(unidades.length > 1 ? TODAS : unidades[0] || 'Biobox');
+  const lista = useMemo(() => (unidad === TODAS ? unidades : [unidad]), [unidad, unidades]);
+  const [destinatarios, setDestinatarios] = useState(false);
   const [maquinas, setMaquinas] = useState<MaquinaNuc[]>([]);
   const [avisos, setAvisos] = useState<Map<string, AvisoNuc>>(new Map());
   /** El último cierre con foto de cada máquina, para «Ver imagen». */
@@ -126,26 +141,33 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
   const turno = useRef(0);
 
   const digital = esDigitalNuc(roles);
+  const manager = roles.some((r) => r.rol === 'manager');
 
   const cargar = useCallback(async (silencioso = false) => {
     const t = ++turno.current;
     if (!silencioso) setCargando(true);
     try {
       const filas: FilaInventarioNuc[] = [];
-      for (let inicio = 0; ; inicio += 1000) {
-        const { data, error } = await sb.from('inventario').select(COLUMNAS_INV)
-          .eq('unidad_negocio', unidad).order('vendor_face_id').range(inicio, inicio + 999);
-        if (error) throw new Error('No se pudieron cargar las máquinas: ' + error.message);
-        filas.push(...((data || []) as FilaInventarioNuc[]));
-        if (!data || data.length < 1000) break;
+      for (const u of lista) {
+        for (let inicio = 0; ; inicio += 1000) {
+          let q = sb.from('inventario').select(COLUMNAS_INV).eq('unidad_negocio', u);
+          // Ecovallas: solo pantallas; Vía Verde: columnas y pórticos (los
+          // impresos de Ecovallas son miles y no tienen NUC).
+          if (sinAcentos(u) === 'ecovallas') q = q.eq('tipo_medio', 'Digital');
+          else if (sinAcentos(u) === 'via verde') q = q.in('tipo_mueble', [...MUEBLES_VV_NUC]);
+          const { data, error } = await q.order('vendor_face_id').range(inicio, inicio + 999);
+          if (error) throw new Error('No se pudieron cargar las máquinas: ' + error.message);
+          filas.push(...((data || []) as FilaInventarioNuc[]));
+          if (!data || data.length < 1000) break;
+        }
       }
       const { data: abiertos, error: e2 } = await sb.from('nuc_avisos').select('*')
-        .eq('unidad_negocio', unidad).neq('estado', 'en_linea');
+        .in('unidad_negocio', lista).neq('estado', 'en_linea');
       if (e2) throw new Error('No se pudieron cargar los avisos: ' + e2.message);
       // Último cierre con foto por máquina. Si falla, solo falta «Ver imagen».
       const { data: cerrados } = await sb.from('nuc_avisos')
         .select('id,site_id,foto_cierre,nota_cierre,cerrado_por,cerrado_en')
-        .eq('unidad_negocio', unidad).eq('estado', 'en_linea').not('foto_cierre', 'is', null)
+        .in('unidad_negocio', lista).eq('estado', 'en_linea').not('foto_cierre', 'is', null)
         .order('cerrado_en', { ascending: false }).limit(1000);
       if (t !== turno.current) return;
       const ultimos = new Map<string, Cierre>();
@@ -161,7 +183,7 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
     } finally {
       if (t === turno.current) setCargando(false);
     }
-  }, [unidad]);
+  }, [lista]);
 
   useEffect(() => {
     void cargar();
@@ -187,6 +209,12 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
   useEffect(() => () => { if (foto) URL.revokeObjectURL(foto.preview); }, [foto]);
 
   const conteo = useMemo(() => contarEstados(maquinas, avisos), [maquinas, avisos]);
+  const porUnidad = useMemo(() => contarPorUnidad(maquinas, avisos), [maquinas, avisos]);
+
+  /** «2 Vía Verde · 1 Ecovallas · 1 Biobox», de mayor a menor. */
+  const desglose = (e: EstadoNuc): string =>
+    Object.entries(porUnidad[e]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([u, k]) => `${k} ${u}`).join(' · ');
 
   const visibles = useMemo(() => {
     const q = busca.trim();
@@ -306,6 +334,9 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
               <span className="tag" style={{ ...p, whiteSpace: 'normal' }}>{detalleEstado(a)}</span>
+              {/* De qué unidad es (Erik, 4-nov-2026): el tablero mezcla Biobox,
+                  Ecovallas y Vía Verde. */}
+              <span className="tag">{NOMBRE_UNIDAD[m.unidad_negocio] || m.unidad_negocio}</span>
             </div>
             {a && e !== 'en_linea' && a.nota_digital && <div style={{ fontSize: 12, marginTop: 6 }}>
               <span style={{ color: 'var(--muted)' }}>Digital:</span> {a.nota_digital}
@@ -348,18 +379,22 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
       <h2 className="page"><Ic i={Router} />Aviso NUC</h2>
       <p className="phint">
         {digital
-          ? 'Marca las máquinas Biobox con el NUC fuera de línea y ponlas en línea, en los dos casos con foto; el técnico de Op. Bio Box recibe el aviso en cada caso.'
-          : 'Máquinas Biobox con el NUC fuera de línea. Te llega un aviso cuando una se cae y cuando vuelve a estar en línea.'}
+          ? 'Marca las máquinas Biobox y las pantallas de Ecovallas y Vía Verde con el NUC fuera de línea y ponlas en línea, en los dos casos con foto; la gente de cada unidad recibe el aviso.'
+          : 'Máquinas y pantallas con el NUC fuera de línea. Te llega un aviso cuando una se cae y cuando vuelve a estar en línea.'}
       </p>
       <div className="toolbar filtros-pildora">
         {unidades.length > 1 && <select aria-label="Unidad" value={unidad} onChange={(e) => {
           setUnidad(e.target.value); setMaquinas([]); setAvisos(new Map()); setCierres(new Map()); setActualizado(null);
         }}>
-          {unidades.map((u) => <option key={u} value={u}>Unidad: {u}</option>)}
+          <option value={TODAS}>Unidad: todas</option>
+          {unidades.map((u) => <option key={u} value={u}>Unidad: {NOMBRE_UNIDAD[u] || u}</option>)}
         </select>}
         <button className="btn sm ghost" onClick={() => void cargar()} disabled={cargando}>
           <Ic i={RefreshCw} />{cargando ? 'Actualizando…' : 'Actualizar'}
         </button>
+        {manager && <button className="btn sm ghost" onClick={() => setDestinatarios(true)}>
+          <Ic i={Users} />Quién más recibe
+        </button>}
       </div>
       <div role="status" style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
         {cargando ? 'Consultando máquinas y avisos…' : actualizado ? 'Actualizado: ' + actualizado.toLocaleTimeString('es-MX') + ' · se actualiza solo cada minuto' : ''}
@@ -373,6 +408,8 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
           return <button key={e} type="button" aria-pressed={activo} onClick={() => { setFiltro(activo ? 'abiertos' : e); setBusca(''); }} className="card" style={{ minWidth: 0, textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit', background: conteo[e] && e !== 'en_linea' ? p.background : undefined, borderColor: activo ? p.color : undefined }}>
             <div className="n" style={{ color: p.color }}>{conteo[e]}</div>
             <div className="l">{ETIQUETA_NUC[e]}</div>
+            {/* Con varias unidades, de cuál es cada una (Erik, 4-nov-2026). */}
+            {lista.length > 1 && conteo[e] > 0 && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{desglose(e)}</div>}
           </button>;
         })}
       </div>
@@ -381,7 +418,7 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
         <input className="search" aria-label="Buscar máquina" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por número, clave o dirección" />
       </div>
       <div style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
-        {busca.trim() ? `Buscando en las ${maquinas.length} máquinas de ${unidad}`
+        {busca.trim() ? `Buscando en las ${maquinas.length} máquinas ${unidad === TODAS ? 'de todas las unidades' : 'de ' + unidad}`
           : filtro === 'abiertos' ? 'Máquinas con aviso abierto'
           : filtro === 'todas' ? 'Todas las máquinas'
           : ETIQUETA_NUC[filtro as EstadoNuc]}
@@ -391,7 +428,7 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
         </button>
       </div>
 
-      {!cargando && !err && !maquinas.length && <div className="banner">No hay máquinas de {unidad} en el inventario.</div>}
+      {!cargando && !err && !maquinas.length && <div className="banner">No hay máquinas {unidad === TODAS ? '' : 'de ' + unidad + ' '}en el inventario.</div>}
       <div style={{ display: 'grid', gap: 9 }}>{visibles.map(tarjeta)}</div>
       {!!maquinas.length && !visibles.length && <div className="banner">
         {busca.trim() ? 'Ninguna máquina coincide con la búsqueda.'
@@ -432,11 +469,14 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="nuc-historial-titulo" style={{ maxWidth: 560 }}>
             <CerrarModal onClick={() => setHistorial(null)} />
             <h2 id="nuc-historial-titulo">Historial del NUC</h2>
-            <p className="phint">{historial.m.site_id} · últimos 10 avisos</p>
+            <p className="phint">{historial.m.site_id} · {NOMBRE_UNIDAD[historial.m.unidad_negocio] || historial.m.unidad_negocio}</p>
+            {/* Días fuera de línea en el rango que se elija (Erik, 4-nov-2026). */}
+            <GraficoNuc siteId={historial.m.site_id} />
+            <div style={{ fontSize: 13, fontWeight: 600, margin: '4px 0 6px' }}>Últimos 10 avisos</div>
             {historial.err && <div className="err" role="alert">{historial.err}</div>}
             {!historial.eventos && <p>Cargando…</p>}
             {historial.eventos && !historial.eventos.length && !historial.err && <p>Esta máquina no ha tenido avisos de NUC.</p>}
-            <div style={{ display: 'grid', gap: 8, maxHeight: '60dvh', overflowY: 'auto' }}>
+            <div style={{ display: 'grid', gap: 8 }}>
               {historial.eventos?.map((ev) => {
                 const av = historial.avisos.get(ev.aviso_id);
                 const f = ev.accion === 'en_linea' ? fotoCierre(av) : ev.accion === 'abierto' ? fotoFuera(av) : null;
@@ -454,6 +494,7 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
           </section>
         </div>, document.body
       )}
+      {destinatarios && <DestinatariosNuc nombres={nombres} onCerrar={() => setDestinatarios(false)} />}
       {/* Después del historial: se abre encima de él. */}
       {viendo && createPortal(
         <div className="overlay" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) setViendo(null); }}>

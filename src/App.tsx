@@ -1662,12 +1662,23 @@ function Main({
     );
 
   /**
-   * Aviso NUC (29-oct-2026): unidades Biobox cuyo tablero ve (vacío = no lo
-   * ve) y su contador del menú (pendientesNuc): al técnico y al validador,
-   * las fuera de línea o en revisión; a Digital, las que nadie revisa. Se
-   * cuenta cada 2 min con la app a la vista y al volver de un aviso.
+   * Aviso NUC (29-oct-2026): unidades cuyo tablero ve (vacío = no lo ve) y
+   * su contador del menú (pendientesNuc): a quien recibe los avisos, las
+   * fuera de línea de sus unidades; a Digital, todas. Se cuenta cada 2 min
+   * con la app a la vista y al volver de un aviso. Desde el 4-nov-2026 entran
+   * Ecovallas y Vía Verde, y las unidades a las que el manager agregó a esta
+   * persona a mano (nuc_avisos_extra; si falla, solo cuentan sus roles).
    */
-  const unidadesNuc = useMemo(() => unidadesAvisoNuc(rolesDetalle), [rolesDetalle]);
+  const [extrasNuc, setExtrasNuc] = useState<string[]>([]);
+  useEffect(() => {
+    let vivo = true;
+    void sb.from('nuc_avisos_extra').select('unidad_negocio').eq('usuario_email', email)
+      .then(({ data, error }) => {
+        if (vivo && !error) setExtrasNuc(((data || []) as { unidad_negocio: string }[]).map((x) => x.unidad_negocio));
+      });
+    return () => { vivo = false; };
+  }, [email]);
+  const unidadesNuc = useMemo(() => unidadesAvisoNuc(rolesDetalle, extrasNuc), [rolesDetalle, extrasNuc]);
   const [pendientesNucMenu, setPendientesNucMenu] = useState(0);
   useEffect(() => {
     if (!unidadesNuc.length) {
@@ -1682,7 +1693,7 @@ function Main({
         .select('estado,unidad_negocio')
         .neq('estado', 'en_linea');
       // Si falla (p. ej. la tabla aún no existe) el menú queda sin número.
-      if (vivo && !error) setPendientesNucMenu(pendientesNuc(data || [], rolesDetalle));
+      if (vivo && !error) setPendientesNucMenu(pendientesNuc(data || [], rolesDetalle, extrasNuc));
     };
     void contar();
     const id = window.setInterval(() => void contar(), 2 * 60 * 1000);
@@ -1692,7 +1703,7 @@ function Main({
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', contar);
     };
-  }, [unidadesNuc, rolesDetalle, recargarSignal]);
+  }, [unidadesNuc, rolesDetalle, extrasNuc, recargarSignal]);
 
   /**
    * Unidades del usuario, para acotar módulos y filtros. Una fila sin
