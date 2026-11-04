@@ -261,6 +261,13 @@ export interface Mensaje {
    * con el original.
    */
   responde_a?: number | null;
+  /**
+   * A quién mencionó con @ (4-nov-2026): [{tipo:'persona', email, nombre}]
+   * o [{tipo:'area', area, nombre}]. Solo viaja si hay menciones; la base
+   * las valida y guarda a los mencionados en `chat_menciones` — ver
+   * supabase/migrations/…_chat_menciones.sql y lib/menciones.ts.
+   */
+  menciones?: unknown;
 }
 
 /**

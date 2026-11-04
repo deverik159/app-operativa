@@ -38,6 +38,19 @@ import {
 import { enLineaAhora, pareceSinRed, useEnLinea } from '../../lib/enLinea';
 import { haySesionReal, motivoSinRed, redOLocal } from '../../lib/datosLocales';
 import { guardarChatLocal, leerChatLocal, type ChatLocal } from '../../lib/chatLocal';
+import {
+  aElegida,
+  esParaMi,
+  filtrarMencionables,
+  insertarMencion,
+  leerMenciones,
+  mencionesVigentes,
+  partesTexto,
+  tokenMencion,
+  type MencionElegida,
+  type Mencionable,
+  type TokenMencion,
+} from '../../lib/menciones';
 import type {
   Incidencia,
   Mensaje,
@@ -49,6 +62,7 @@ import { vigilarRender } from '../../lib/vigia';
 import PreviaVideo from '../../components/PreviaVideo';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
+import { ROLE_LABEL } from '../../lib/constants';
 
 type Props = {
   inc: Incidencia;
@@ -158,6 +172,61 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   textoRef.current = texto;
   const respondiendoRef = useRef<Mensaje | null>(null);
   respondiendoRef.current = respondiendo;
+
+  // Menciones con @ (4-nov-2026). La lista se pide a la base la primera vez
+  // que se escribe un @ (chat_mencionables: personas y áreas de la unidad).
+  const [mencionables, setMencionables] = useState<Mencionable[] | null>(null);
+  const pidiendoMencionables = useRef(false);
+  /** El @ a medio escribir; null = la lista está cerrada. */
+  const [tokenAt, setTokenAt] = useState<TokenMencion | null>(null);
+  /** Lo elegido en la lista para el mensaje que se está escribiendo. */
+  const [elegidas, setElegidas] = useState<MencionElegida[]>([]);
+  const elegidasRef = useRef<MencionElegida[]>([]);
+  elegidasRef.current = elegidas;
+  const sugerencias =
+    tokenAt && mencionables
+      ? filtrarMencionables(mencionables, tokenAt.consulta, email)
+      : [];
+
+  const pedirMencionables = async () => {
+    if (mencionables || pidiendoMencionables.current) return;
+    pidiendoMencionables.current = true;
+    const { data, error } = await sb.rpc('chat_mencionables', {
+      p_record_id: inc.record_id,
+    });
+    pidiendoMencionables.current = false;
+    // Sin la función (app antes que la migración) o sin señal: no hay lista,
+    // y el @ se queda como texto normal.
+    if (error) {
+      console.warn('[chat] no se pudo leer a quién mencionar:', error.message);
+      return;
+    }
+    setMencionables((data || []) as Mencionable[]);
+  };
+
+  /** Al escribir: abre, filtra o cierra la lista del @. */
+  const cambiarTexto = (valor: string, cursor: number | null) => {
+    setTexto(valor);
+    const t = tokenMencion(valor, cursor ?? valor.length);
+    setTokenAt(t);
+    if (t) void pedirMencionables();
+  };
+
+  const elegirMencion = (m: Mencionable) => {
+    if (!tokenAt) return;
+    const cursor = inputRef.current?.selectionStart ?? texto.length;
+    const r = insertarMencion(texto, tokenAt, cursor, m.nombre);
+    setTexto(r.texto);
+    setElegidas((prev) => [...prev, aElegida(m)]);
+    setTokenAt(null);
+    // Sincrónico, dentro del toque: iOS solo deja el teclado si el foco
+    // vuelve en el mismo gesto.
+    const el = inputRef.current;
+    if (el) {
+      el.focus();
+      requestAnimationFrame(() => el.setSelectionRange(r.cursor, r.cursor));
+    }
+  };
 
   /** Quién vio este chat, hasta qué mensaje y cuándo (sin la fila propia). */
   const [lecturas, setLecturas] = useState<ChatLectura[]>([]);
@@ -1160,8 +1229,13 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
 
     const archivo = pendiente;
     const resp = respondiendo;
+    const elegidasEnvio = elegidas;
+    // Solo las que siguen escritas: si se borró "@Juan", ya no se menciona.
+    const menciones = mencionesVigentes(t, elegidasEnvio);
     // Se limpia de inmediato para que se sienta ágil; si falla, se restaura.
     setTexto('');
+    setElegidas([]);
+    setTokenAt(null);
     setPendiente(null);
     setRespondiendo(null);
     setErrAdj('');
@@ -1188,6 +1262,8 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
           // Solo viaja cuando se responde: un mensaje suelto no depende de
           // la columna (migración chat_respuestas_lecturas).
           ...(resp ? { responde_a: resp.id } : {}),
+          // Igual: solo viaja si hay menciones (migración chat_menciones).
+          ...(menciones.length ? { menciones } : {}),
         })
         .select()
         .single();
@@ -1252,6 +1328,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
         if (archivo && !otroDestino) setPendiente(archivo);
       } else {
         setTexto(t);
+        if (!elegidasRef.current.length) setElegidas(elegidasEnvio);
         // null o el mismo mensaje: no hay otro destino que respetar.
         setRespondiendo(resp);
         if (archivo) setPendiente(archivo);
@@ -1693,13 +1770,29 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                           </div>
                         ) : (
                           <div
+                            className={mio ? 'sobre-acento-txt' : undefined}
                             style={{
                               fontSize: 14,
                               lineHeight: 1.4,
                               whiteSpace: 'pre-wrap',
                             }}
                           >
-                            {m.texto}
+                            {partesTexto(m.texto, leerMenciones(m.menciones)).map((p, i) =>
+                              p.mencion ? (
+                                <span
+                                  key={i}
+                                  className={
+                                    esParaMi(p.mencion, email)
+                                      ? 'mencion mencion-mia'
+                                      : 'mencion'
+                                  }
+                                >
+                                  {p.texto}
+                                </span>
+                              ) : (
+                                p.texto
+                              )
+                            )}
                           </div>
                         )}
 
@@ -2029,6 +2122,46 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 min-content del campo (~200px) + 📎 + "Enviar" sumaban más
                 que el ancho del modal en 360px y el botón de enviar quedaba
                 cortado fuera de pantalla, peor aún durante "Subiendo…". */}
+            {tokenAt && (
+              <div className="mencion-lista" role="listbox" aria-label="Mencionar a">
+                {!mencionables ? (
+                  <div className="mencion-vacia">
+                    <span className="spinner" /> Cargando…
+                  </div>
+                ) : sugerencias.length === 0 ? (
+                  <div className="mencion-vacia">Nadie con ese nombre en esta unidad.</div>
+                ) : (
+                  sugerencias.map((s) => (
+                    <button
+                      key={`${s.tipo}:${s.clave}`}
+                      type="button"
+                      role="option"
+                      aria-selected={false}
+                      className="mencion-opcion"
+                      // pointerdown y no click: en el celular, el click llega
+                      // después de que el campo pierde el foco y se cierra el
+                      // teclado; así el @ se completa sin parpadeo.
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        elegirMencion(s);
+                      }}
+                      onClick={(e) => e.preventDefault()}
+                    >
+                      <b>@{s.nombre}</b>
+                      <span>
+                        {s.tipo === 'area'
+                          ? `Área · ${s.detalle} técnico${s.detalle === '1' ? '' : 's'}`
+                          : (s.detalle || '')
+                              .split(', ')
+                              .map((d) => ROLE_LABEL[d] || d)
+                              .join(', ')}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
             <form onSubmit={enviar} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <input
                 ref={fileRef}
@@ -2050,13 +2183,19 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
               <input
                 ref={inputRef}
                 value={texto}
-                onChange={(e) => setTexto(e.target.value)}
+                onChange={(e) => cambiarTexto(e.target.value, e.target.selectionStart)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && tokenAt) {
+                    e.stopPropagation();
+                    setTokenAt(null);
+                  }
+                }}
                 placeholder={
                   pendiente
                     ? 'Comentario (opcional)…'
                     : respondiendo
                       ? 'Escribe tu respuesta…'
-                      : 'Escribe un mensaje…'
+                      : 'Escribe un mensaje… (@ para mencionar)'
                 }
                 disabled={subiendo}
                 // 100 y no 140: en 320px (iPhone SE de 1a) con 140 el campo

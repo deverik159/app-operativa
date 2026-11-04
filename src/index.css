@@ -234,6 +234,20 @@
      oscuro dejaba el ↩︎ (#151515) invisible mientras el toque "se pega" al
      hover en iOS/Android. */
   .btn-icono.sobre-acento:active,.btn-icono.sobre-acento:hover{background:rgba(0,0,0,.12)}
+  /* Menciones con @ en el chat (4-nov-2026). Solo tokens con pareja
+     clara/oscura: --accent2 sobre --panel pasa 4.5 en los dos temas. En la
+     burbuja propia (naranja) la mención hereda el color y va en negritas. */
+  .mencion{font-weight:700;color:var(--accent2)}
+  .mencion-mia{background:var(--tag-fondo);border-radius:4px;padding:0 3px}
+  .sobre-acento-txt .mencion{color:inherit;text-decoration:underline}
+  .mencion-lista{margin-bottom:8px;max-height:220px;overflow-y:auto;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;padding:4px}
+  .mencion-opcion{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;
+    text-align:left;padding:8px 10px;border:0;border-radius:8px;background:transparent;
+    color:var(--txt);font-size:14px;cursor:pointer}
+  .mencion-opcion span{font-size:12px;color:var(--muted)}
+  .mencion-opcion:hover,.mencion-opcion:active,.mencion-opcion:focus-visible{background:var(--panel2)}
+  .mencion-vacia{padding:8px 10px;font-size:12px;color:var(--muted)}
   .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;background:var(--tag-fondo);color:var(--muted)}
   @keyframes pulseDot{0%,100%{transform:scale(1)}50%{transform:scale(1.22)}}
   .badge-pulse{display:inline-block;animation:pulseDot 1.4s ease-in-out infinite}
