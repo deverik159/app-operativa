@@ -336,7 +336,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
   /** Leyenda del NUC: cuántas máquinas de la unidad hay en cada estado. */
   const conteoNuc = useMemo(() => {
     if (!nuc) return null;
-    const n: Record<EstadoNuc, number> = { fuera_linea: 0, en_linea: 0 };
+    const n: Record<EstadoNuc, number> = { fuera_linea: 0, apagado: 0, en_linea: 0 };
     for (const u of maquinasUnicas(ubics)) n[estadoNuc(nuc.get(u.site_id))]++;
     return n;
   }, [ubics, nuc]);
@@ -386,7 +386,8 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 }}>
               <span className="tag ruta-nombre" style={{ color: u.ruta_color, ...varRuta(u.ruta_color) }}>{nombreRuta(u)}</span>
               {eNuc && <span className="tag" style={{ ...pastillaNuc(eNuc), fontWeight: eNuc === 'en_linea' ? undefined : 600 }}>
-                <Ic i={Router} />NUC {ETIQUETA_NUC[eNuc].toLowerCase()}
+                {/* Sitio apagado en gris claro (Erik, 4-nov-2026). */}
+                <Ic i={Router} />{eNuc === 'apagado' ? ETIQUETA_NUC.apagado : 'NUC ' + ETIQUETA_NUC[eNuc].toLowerCase()}
               </span>}
               {/* Días sin que nadie pase: visita rápida o revisión (29-oct-2026). */}
               <span className="tag" style={{ color: COLOR_SEMAFORO[semaforoVisita(dias)], fontWeight: 600 }}>

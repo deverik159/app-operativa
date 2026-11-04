@@ -44,8 +44,10 @@ export function entraEnTablero(f: { unidad_negocio: string | null; tipo_medio: s
 /**
  * Estado del NUC de una máquina. Sin aviso abierto = en_linea. «En revisión»
  * se quitó el 30-oct-2026 (Erik): todo lo hace Digital, no hacía falta.
+ * «Sitio apagado» (Erik, 4-nov-2026): el NUC ya se diagnosticó y no regresa
+ * porque el sitio está apagado completo; sigue siendo un aviso abierto.
  */
-export type EstadoNuc = 'fuera_linea' | 'en_linea';
+export type EstadoNuc = 'fuera_linea' | 'apagado' | 'en_linea';
 
 /** Estado de un evento del historial: los de antes del 30-oct pueden decir en_revision. */
 export type EstadoEventoNuc = EstadoNuc | 'en_revision';
@@ -74,6 +76,11 @@ export interface AvisoNuc {
    * desde el 4-nov-2026 (migración 20261104171200). Los avisos de antes no la tienen.
    */
   foto_abierto: string | null;
+  /** Sitio apagado (4-nov-2026, migración 20261104213357): quién, cuándo, nota y foto (nuc/<id>/…). */
+  apagado_por: string | null;
+  apagado_en: string | null;
+  nota_apagado: string | null;
+  foto_apagado: string | null;
   actualizado_en: string;
 }
 
@@ -81,7 +88,7 @@ export interface AvisoNuc {
 export interface EventoNuc {
   id: number;
   aviso_id: number;
-  accion: 'abierto' | 'tomado' | 'en_linea';
+  accion: 'abierto' | 'tomado' | 'apagado' | 'en_linea';
   estado: EstadoEventoNuc;
   por: string;
   en: string;
@@ -110,30 +117,38 @@ export interface MaquinaNuc {
   municipio: string | null;
 }
 
-export const ESTADOS_NUC: readonly EstadoNuc[] = ['fuera_linea', 'en_linea'];
+export const ESTADOS_NUC: readonly EstadoNuc[] = ['fuera_linea', 'apagado', 'en_linea'];
 
 export const ETIQUETA_NUC: Record<EstadoNuc, string> = {
   fuera_linea: 'Fuera de línea',
+  apagado: 'Sitio apagado',
   en_linea: 'En línea',
 };
 
-/** Colores; en_revision solo para pintar el historial viejo. */
+/** Colores; en_revision solo para pintar el historial viejo. Apagado, gris claro (Erik). */
 export const TONO_NUC: Record<EstadoEventoNuc, Tono> = {
   fuera_linea: 'rojo',
+  apagado: 'gris',
   en_revision: 'ambar',
   en_linea: 'verde',
 };
 
 /**
  * Lo que Digital puede responder al ponerlo en línea: una es obligatoria y
- * no hay nota libre (Erik, 30-oct-2026). La base acepta exactamente estas
- * (nuc_aviso_en_linea, migración 20261030182357).
+ * no hay nota libre (Erik, 30-oct-2026). «Se encendió el sitio» solo se
+ * ofrece cuando el sitio estaba apagado (4-nov-2026). La base acepta
+ * exactamente estas (nuc_aviso_en_linea, migración 20261104213357).
  */
 export const RESPUESTAS_DIGITAL: readonly string[] = [
   'Se reinició el NUC',
   'Se restableció la red',
   'VPN apagada',
 ];
+export const RESPUESTA_ENCENDIDO = 'Se encendió el sitio';
+
+/** Las respuestas que se ofrecen según cómo está el aviso. */
+export const respuestasPara = (estado: EstadoNuc): string[] =>
+  estado === 'apagado' ? [RESPUESTA_ENCENDIDO, ...RESPUESTAS_DIGITAL] : [...RESPUESTAS_DIGITAL];
 
 type Rol = { rol: string; unidad_negocio: string | null; departamento: string | null; medio?: string | null };
 
@@ -214,7 +229,7 @@ export function contarPorUnidad(
   maquinas: Pick<MaquinaNuc, 'site_id' | 'unidad_negocio'>[],
   avisos: Map<string, Pick<AvisoNuc, 'estado'>>
 ): Record<EstadoNuc, Record<string, number>> {
-  const n: Record<EstadoNuc, Record<string, number>> = { fuera_linea: {}, en_linea: {} };
+  const n: Record<EstadoNuc, Record<string, number>> = { fuera_linea: {}, apagado: {}, en_linea: {} };
   for (const m of maquinas) {
     const e = estadoNuc(avisos.get(m.site_id));
     n[e][m.unidad_negocio] = (n[e][m.unidad_negocio] || 0) + 1;
@@ -222,12 +237,14 @@ export function contarPorUnidad(
   return n;
 }
 
-/** Un día del gráfico: cuánto estuvo fuera de línea y cuántas veces se cayó. */
+/** Un día del gráfico: cuánto estuvo fuera de línea y apagado, y cuántas veces se cayó. */
 export interface DiaNuc {
   /** 'YYYY-MM-DD' en CDMX. */
   dia: string;
-  /** Minutos fuera de línea ese día (0 a 1440). */
+  /** Minutos fuera de línea ese día, sin contar el apagado. */
   minutos: number;
+  /** Minutos con el sitio apagado ese día (Erik, 4-nov-2026). Fuera + apagado ≤ 1440. */
+  apagado: number;
   /** Avisos abiertos ese día (cada «Marcar fuera de línea» cuenta uno). */
   caidas: number;
 }
@@ -241,19 +258,28 @@ export function diaSiguiente(dia: string): string {
 
 /**
  * Día por día, de `desde` a `hasta` (inclusive, días de CDMX): minutos fuera
- * de línea y veces que se cayó. Un aviso abierto cuenta hasta `ahora`. Los
- * avisos de una máquina no se enciman (solo hay uno abierto a la vez), así
- * que los minutos se suman. Rango inválido o al revés = lista vacía; tope de
- * 400 días para no colgar el teléfono.
+ * de línea, minutos con el sitio apagado y veces que se cayó. Un aviso
+ * abierto cuenta hasta `ahora`; si se marcó apagado, lo de antes es fuera de
+ * línea y lo de después, apagado. Los avisos de una máquina no se enciman
+ * (solo hay uno abierto a la vez), así que los minutos se suman. Rango
+ * inválido o al revés = lista vacía; tope de 400 días para no colgar el
+ * teléfono.
  */
 export function diasFueraDeLinea(
-  avisos: Pick<AvisoNuc, 'abierto_en' | 'cerrado_en'>[],
+  avisos: (Pick<AvisoNuc, 'abierto_en' | 'cerrado_en'> & { apagado_en?: string | null })[],
   desde: string,
   hasta: string,
   ahora: number = Date.now()
 ): DiaNuc[] {
   const tramos = avisos
-    .map((a) => ({ ini: Date.parse(a.abierto_en), fin: a.cerrado_en ? Date.parse(a.cerrado_en) : ahora }))
+    .map((a) => {
+      const ini = Date.parse(a.abierto_en);
+      const fin = a.cerrado_en ? Date.parse(a.cerrado_en) : ahora;
+      const ap = a.apagado_en ? Date.parse(a.apagado_en) : NaN;
+      // El apagado parte el tramo: [ini, corte) fuera de línea, [corte, fin) apagado.
+      const corte = Number.isNaN(ap) ? fin : Math.min(Math.max(ap, ini), fin);
+      return { ini, fin, corte };
+    })
     .filter((t) => !Number.isNaN(t.ini) && !Number.isNaN(t.fin) && t.fin >= t.ini);
   const salida: DiaNuc[] = [];
   let dia = desde;
@@ -264,12 +290,17 @@ export function diasFueraDeLinea(
     const sig = diaSiguiente(dia);
     const fin: number = inicioDiaCdmx(sig) ?? ini + DIA_MS;
     let ms = 0;
+    let msApagado = 0;
     let caidas = 0;
+    const cruce = (a: number, b: number) => Math.max(0, Math.min(b, fin) - Math.max(a, ini));
     for (const t of tramos) {
-      ms += Math.max(0, Math.min(t.fin, fin) - Math.max(t.ini, ini));
+      ms += cruce(t.ini, t.corte);
+      msApagado += cruce(t.corte, t.fin);
       if (t.ini >= ini && t.ini < fin) caidas++;
     }
-    salida.push({ dia, minutos: Math.min(1440, Math.round(ms / 60000)), caidas });
+    const minutos = Math.min(1440, Math.round(ms / 60000));
+    const apagado = Math.min(1440 - minutos, Math.round(msApagado / 60000));
+    salida.push({ dia, minutos, apagado, caidas });
     dia = sig;
     ini = fin;
   }
@@ -306,9 +337,13 @@ export function maquinasDeInventario(filas: FilaInventarioNuc[]): MaquinaNuc[] {
   }));
 }
 
-/** Estado del NUC: con aviso abierto, fuera de línea; si no hay, en línea. */
+/**
+ * Estado del NUC: sin aviso, en línea; con aviso abierto, apagado si así se
+ * marcó y, si no, fuera de línea.
+ */
 export function estadoNuc(aviso: { estado: string } | null | undefined): EstadoNuc {
-  return aviso && aviso.estado !== 'en_linea' ? 'fuera_linea' : 'en_linea';
+  if (!aviso || aviso.estado === 'en_linea') return 'en_linea';
+  return aviso.estado === 'apagado' ? 'apagado' : 'fuera_linea';
 }
 
 /** Cuántas máquinas hay en cada estado. */
@@ -316,17 +351,17 @@ export function contarEstados(
   maquinas: Pick<MaquinaNuc, 'site_id'>[],
   avisos: Map<string, Pick<AvisoNuc, 'estado'>>
 ): Record<EstadoNuc, number> {
-  const n: Record<EstadoNuc, number> = { fuera_linea: 0, en_linea: 0 };
+  const n: Record<EstadoNuc, number> = { fuera_linea: 0, apagado: 0, en_linea: 0 };
   for (const m of maquinas) n[estadoNuc(avisos.get(m.site_id))]++;
   return n;
 }
 
-const PESO: Record<EstadoNuc, number> = { fuera_linea: 0, en_linea: 1 };
+const PESO: Record<EstadoNuc, number> = { fuera_linea: 0, apagado: 1, en_linea: 2 };
 
 /**
  * Orden del tablero: primero las fuera de línea (la más vieja arriba: es la
- * que más lleva esperando) y al final las en línea por clave del mueble, que
- * es lo que el tablero enseña arriba.
+ * que más lleva esperando), luego los sitios apagados y al final las en
+ * línea por clave del mueble, que es lo que el tablero enseña arriba.
  */
 export function ordenarTablero<M extends Pick<MaquinaNuc, 'site_id'>>(
   maquinas: M[],

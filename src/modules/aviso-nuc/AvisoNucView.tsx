@@ -19,7 +19,7 @@
 // revisar quién llama y en qué estado está el aviso; aquí solo se ofrece lo
 // que la base va a aceptar. La lista se refresca sola cada minuto.
 // ============================================================
-import { Camera, Check, History, Image as IconoImagen, RefreshCw, Router, TriangleAlert, Users } from 'lucide-react';
+import { Camera, Check, History, Image as IconoImagen, PowerOff, RefreshCw, Router, TriangleAlert, Users } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { sb } from '../../lib/supabase';
@@ -33,7 +33,7 @@ import {
   ESTADOS_NUC,
   ETIQUETA_NUC,
   TONO_NUC,
-  RESPUESTAS_DIGITAL,
+  respuestasPara,
   MUEBLES_VV_NUC,
   coincideMaquina,
   contarEstados,
@@ -66,6 +66,7 @@ type Rol = { rol: string; unidad_negocio: string | null; departamento: string | 
 /** Qué ventana está abierta y sobre qué máquina. */
 type Accion =
   | { tipo: 'abrir'; m: MaquinaNuc }
+  | { tipo: 'apagado'; m: MaquinaNuc; a: AvisoNuc }
   | { tipo: 'en_linea'; m: MaquinaNuc; a: AvisoNuc };
 
 /** Filtro de la lista: los avisos abiertos, un estado o todas. */
@@ -74,8 +75,9 @@ type Filtro = 'abiertos' | EstadoNuc | 'todas';
 /** El último cierre con foto de una máquina. */
 type Cierre = Pick<AvisoNuc, 'id' | 'site_id' | 'foto_cierre' | 'nota_cierre' | 'cerrado_por' | 'cerrado_en'>;
 
-/** Un aviso del historial, con sus dos fotos. */
-type AvisoHistorial = Cierre & Pick<AvisoNuc, 'foto_abierto' | 'nota_digital' | 'abierto_por' | 'abierto_en'>;
+/** Un aviso del historial, con sus fotos. */
+type AvisoHistorial = Cierre & Pick<AvisoNuc, 'foto_abierto' | 'nota_digital' | 'abierto_por' | 'abierto_en'
+  | 'foto_apagado' | 'nota_apagado' | 'apagado_por' | 'apagado_en'>;
 
 /** Lo que enseña «Ver imagen»: la foto, qué se dijo, quién y cuándo. */
 type FotoVista = { path: string; titulo: string; detalle: string; por: string | null; en: string | null };
@@ -90,6 +92,11 @@ const fotoFuera = (a: Pick<AvisoNuc, 'foto_abierto' | 'nota_digital' | 'abierto_
     ? { path: a.foto_abierto, titulo: 'Foto del NUC fuera de línea', detalle: a.nota_digital || 'Fuera de línea', por: a.abierto_por, en: a.abierto_en }
     : null;
 
+const fotoApagado = (a: Pick<AvisoNuc, 'foto_apagado' | 'nota_apagado' | 'apagado_por' | 'apagado_en'> | undefined): FotoVista | null =>
+  a?.foto_apagado
+    ? { path: a.foto_apagado, titulo: 'Foto del sitio apagado', detalle: a.nota_apagado || 'Sitio apagado', por: a.apagado_por, en: a.apagado_en }
+    : null;
+
 const REFRESCO_MS = 60 * 1000;
 
 const COLUMNAS_INV =
@@ -98,6 +105,7 @@ const COLUMNAS_INV =
 const ACCION_TXT: Record<EventoNuc['accion'], string> = {
   abierto: 'Lo marcó fuera de línea',
   tomado: 'Empezó a revisarlo',
+  apagado: 'Marcó el sitio apagado',
   en_linea: 'Lo puso en línea',
 };
 
@@ -278,7 +286,9 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
     }
     const { error } = accion.tipo === 'abrir'
       ? await sb.rpc('nuc_aviso_abrir', { p_site_id: accion.m.site_id, p_nota: nota.trim() || null, p_foto: path })
-      : await sb.rpc('nuc_aviso_en_linea', { p_id: accion.a.id, p_respuesta: respuesta, p_foto: path });
+      : accion.tipo === 'apagado'
+        ? await sb.rpc('nuc_aviso_apagado', { p_id: accion.a.id, p_nota: nota.trim() || null, p_foto: path })
+        : await sb.rpc('nuc_aviso_en_linea', { p_id: accion.a.id, p_respuesta: respuesta, p_foto: path });
     setGuardando(false);
     if (error) {
       // La foto quedó suelta: se borra (es de quien la subió).
@@ -294,7 +304,7 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
   const verHistorial = async (m: MaquinaNuc) => {
     setHistorial({ m, eventos: null, avisos: new Map(), err: '' });
     const { data: avs, error } = await sb.from('nuc_avisos')
-      .select('id,site_id,foto_cierre,nota_cierre,cerrado_por,cerrado_en,foto_abierto,nota_digital,abierto_por,abierto_en')
+      .select('id,site_id,foto_cierre,nota_cierre,cerrado_por,cerrado_en,foto_abierto,nota_digital,abierto_por,abierto_en,foto_apagado,nota_apagado,apagado_por,apagado_en')
       .eq('site_id', m.site_id).order('abierto_en', { ascending: false }).limit(10);
     if (error) { setHistorial({ m, eventos: [], avisos: new Map(), err: error.message }); return; }
     const lista = (avs || []) as AvisoHistorial[];
@@ -310,7 +320,9 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
 
   /** Qué dice la pastilla de estado: el estado y desde cuándo. */
   const detalleEstado = (a: AvisoNuc | undefined): string => {
-    if (!a || estadoNuc(a) === 'en_linea') return ETIQUETA_NUC.en_linea;
+    const e = estadoNuc(a);
+    if (!a || e === 'en_linea') return ETIQUETA_NUC.en_linea;
+    if (e === 'apagado') return `Sitio apagado ${haceCuanto(a.apagado_en || a.actualizado_en, ahora)}`;
     return `Fuera de línea ${haceCuanto(a.abierto_en, ahora)}`;
   };
 
@@ -318,9 +330,12 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
     const a = avisos.get(m.site_id);
     const e = estadoNuc(a);
     const p = pastilla(e);
-    // Mientras está fuera de línea, su foto; si no la tiene (avisos de antes
-    // del 4-nov) o ya está en línea, la del último cierre.
-    const f = (e !== 'en_linea' ? fotoFuera(a) : null) || fotoCierre(cierres.get(m.site_id));
+    // Con el sitio apagado, la foto del apagado; mientras está fuera de línea,
+    // la suya; si no la tiene (avisos de antes del 4-nov) o ya está en línea,
+    // la del último cierre.
+    const f = (e === 'apagado' ? fotoApagado(a) : null)
+      || (e !== 'en_linea' ? fotoFuera(a) : null)
+      || fotoCierre(cierres.get(m.site_id));
     return (
       <div key={m.site_id} style={{ background: 'var(--panel2)', border: '1px solid ' + (e === 'en_linea' ? 'var(--line)' : p.borderColor), borderLeft: '4px solid ' + p.color, borderRadius: 10, padding: '11px 12px', minWidth: 0, overflowWrap: 'anywhere' }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -341,12 +356,20 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
             {a && e !== 'en_linea' && a.nota_digital && <div style={{ fontSize: 12, marginTop: 6 }}>
               <span style={{ color: 'var(--muted)' }}>Digital:</span> {a.nota_digital}
             </div>}
+            {a && e === 'apagado' && a.nota_apagado && <div style={{ fontSize: 12, marginTop: 4 }}>
+              <span style={{ color: 'var(--muted)' }}>Sitio apagado:</span> {a.nota_apagado}
+            </div>}
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button className="btn ghost sm" onClick={() => void verHistorial(m)}><Ic i={History} />Historial</button>
             {f && <button className="btn ghost sm" onClick={() => setViendo({ f, m })}><Ic i={IconoImagen} />Ver imagen</button>}
             {digital && e === 'en_linea' && <button className="btn ghost sm" onClick={() => abrirAccion({ tipo: 'abrir', m })}>
               <Ic i={TriangleAlert} />Marcar fuera de línea
+            </button>}
+            {/* Tercer botón (Erik, 4-nov-2026): el NUC ya se diagnosticó y no
+                regresa porque el sitio está apagado completo. */}
+            {digital && a && e === 'fuera_linea' && <button className="btn ghost sm" onClick={() => abrirAccion({ tipo: 'apagado', m, a })}>
+              <Ic i={PowerOff} />Sitio apagado
             </button>}
             {digital && a && e !== 'en_linea' && <button className="btn sm" onClick={() => abrirAccion({ tipo: 'en_linea', m, a })}>
               <Ic i={Check} />Ya está en línea
@@ -358,9 +381,10 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
   };
 
   const enLinea = accion?.tipo === 'en_linea';
-  const listo = !!foto && (accion?.tipo === 'abrir' || !!respuesta);
+  const listo = !!foto && (accion?.tipo !== 'en_linea' || !!respuesta);
+  const TITULO_ACCION = { abrir: 'Marcar NUC fuera de línea', apagado: 'Marcar sitio apagado', en_linea: 'Poner el NUC en línea' };
 
-  // La foto es obligatoria en las dos ventanas.
+  // La foto es obligatoria en las tres ventanas.
   const bloqueFoto = (
     <>
       <div style={{ fontSize: 13, marginBottom: 6 }}>Foto (obligatoria)</div>
@@ -440,12 +464,15 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
         <div className="overlay" role="presentation" onClick={(e) => { if (e.target === e.currentTarget && !guardando) setAccion(null); }}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="nuc-accion-titulo" style={{ maxWidth: 520 }}>
             <CerrarModal onClick={() => setAccion(null)} disabled={guardando} />
-            <h2 id="nuc-accion-titulo">{enLinea ? 'Poner el NUC en línea' : 'Marcar NUC fuera de línea'}</h2>
+            <h2 id="nuc-accion-titulo">{TITULO_ACCION[accion.tipo]}</h2>
             <p className="phint">{accion.m.site_id} · {accion.m.nombre !== accion.m.site_id ? accion.m.nombre : accion.m.direccion}</p>
-            {enLinea ? <>
+            {accion.tipo === 'apagado' && <p style={{ fontSize: 13, marginTop: 0 }}>
+              El NUC ya se revisó y no regresa porque el sitio está apagado completo. Se le avisa a la gente de la unidad.
+            </p>}
+            {accion.tipo === 'en_linea' ? <>
               <div style={{ fontSize: 13, marginBottom: 6 }}>¿Qué se hizo? (obligatorio)</div>
               <div role="group" aria-label="Qué se hizo" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-                {RESPUESTAS_DIGITAL.map((r) => <button key={r} type="button" className={'btn sm' + (respuesta === r ? '' : ' ghost')} aria-pressed={respuesta === r} onClick={() => { setRespuesta(r); setErrAccion(''); }}>{r}</button>)}
+                {respuestasPara(estadoNuc(accion.a)).map((r) => <button key={r} type="button" className={'btn sm' + (respuesta === r ? '' : ' ghost')} aria-pressed={respuesta === r} onClick={() => { setRespuesta(r); setErrAccion(''); }}>{r}</button>)}
               </div>
               {bloqueFoto}
             </> : <>
@@ -479,7 +506,9 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
             <div style={{ display: 'grid', gap: 8 }}>
               {historial.eventos?.map((ev) => {
                 const av = historial.avisos.get(ev.aviso_id);
-                const f = ev.accion === 'en_linea' ? fotoCierre(av) : ev.accion === 'abierto' ? fotoFuera(av) : null;
+                const f = ev.accion === 'en_linea' ? fotoCierre(av)
+                  : ev.accion === 'abierto' ? fotoFuera(av)
+                  : ev.accion === 'apagado' ? fotoApagado(av) : null;
                 return <div key={ev.id} style={{ borderLeft: '3px solid ' + colorTono(TONO_NUC[ev.estado]), paddingLeft: 10 }}>
                   <div style={{ fontSize: 13 }}><b>{ACCION_TXT[ev.accion]}</b> · {persona(ev.por)}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{fechaHoraCdmx(ev.en)}</div>

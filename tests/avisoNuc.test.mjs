@@ -14,7 +14,7 @@ const { outputFiles } = await build({
 const {
   esDigitalNuc, esTecnicoNuc, unidadesAvisoNuc, maquinasDeInventario, estadoNuc,
   contarEstados, ordenarTablero, haceCuanto, pendientesNuc, coincideMaquina,
-  entraEnTablero, recibeNucOtra, contarPorUnidad, diasFueraDeLinea, diaSiguiente, duracionTexto,
+  entraEnTablero, recibeNucOtra, contarPorUnidad, diasFueraDeLinea, diaSiguiente, duracionTexto, respuestasPara,
 } = await import('data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64'));
 
 const rol = (r, unidad = null, dep = null) => ({ rol: r, unidad_negocio: unidad, departamento: dep });
@@ -116,6 +116,7 @@ test('Desglose por unidad de cada estado', () => {
   const av = new Map([['A', { estado: 'fuera_linea' }], ['B', { estado: 'fuera_linea' }], ['C', { estado: 'fuera_linea' }], ['D', { estado: 'fuera_linea' }]]);
   assert.deepEqual(contarPorUnidad(maq, av), {
     fuera_linea: { 'Vía Verde': 2, Ecovallas: 1, Biobox: 1 },
+    apagado: {},
     en_linea: { Biobox: 1 },
   });
 });
@@ -133,13 +134,13 @@ test('Días fuera de línea: horas por día de CDMX y veces que se cayó', () =>
   const ahora = Date.parse('2026-11-04T16:00:00Z');
   const d = diasFueraDeLinea(avisos, '2026-11-02', '2026-11-04', ahora);
   assert.deepEqual(d, [
-    { dia: '2026-11-02', minutos: 0, caidas: 0 },
-    { dia: '2026-11-03', minutos: 210, caidas: 2 },
-    { dia: '2026-11-04', minutos: 180, caidas: 1 },
+    { dia: '2026-11-02', minutos: 0, apagado: 0, caidas: 0 },
+    { dia: '2026-11-03', minutos: 210, apagado: 0, caidas: 2 },
+    { dia: '2026-11-04', minutos: 180, apagado: 0, caidas: 1 },
   ]);
   // Un aviso de varios días llena las 24 h del día de en medio.
   const largo = diasFueraDeLinea([{ abierto_en: '2026-11-01T18:00:00Z', cerrado_en: '2026-11-03T18:00:00Z' }], '2026-11-02', '2026-11-02');
-  assert.deepEqual(largo, [{ dia: '2026-11-02', minutos: 1440, caidas: 0 }]);
+  assert.deepEqual(largo, [{ dia: '2026-11-02', minutos: 1440, apagado: 0, caidas: 0 }]);
   assert.deepEqual(diasFueraDeLinea(avisos, '2026-11-05', '2026-11-01'), []);
   assert.deepEqual(diasFueraDeLinea(avisos, 'mal', '2026-11-01'), []);
   assert.equal(diaSiguiente('2026-12-31'), '2027-01-01');
@@ -178,7 +179,7 @@ test('El tablero pone primero la fuera de línea más vieja y cuenta por estado'
     ['E', { estado: 'fuera_linea', actualizado_en: '2026-10-29T08:00:00Z' }],
   ]);
   assert.deepEqual(ordenarTablero(maq, avisos).map((m) => m.site_id), ['E', 'D', 'B', 'C', 'A', 'F']);
-  assert.deepEqual(contarEstados(maq, avisos), { fuera_linea: 4, en_linea: 2 });
+  assert.deepEqual(contarEstados(maq, avisos), { fuera_linea: 4, apagado: 0, en_linea: 2 });
   // Las en línea van por clave del mueble, no por nombre (Erik, 29-oct-2026).
   const porClave = [
     { site_id: 'MX_CM_BB_MED_0117', nombre: 'A LA SALLE' },
@@ -219,4 +220,37 @@ test('Búsqueda por nombre, clave o dirección sin acentos', () => {
   assert.equal(coincideMaquina(m, 'palmás'), true);
   assert.equal(coincideMaquina(m, 'horacio'), false);
   assert.equal(coincideMaquina(m, '  '), true);
+});
+
+test('Sitio apagado: tercer estado, orden y respuesta para encenderlo (4-nov-2026)', () => {
+  assert.equal(estadoNuc({ estado: 'apagado' }), 'apagado');
+  const maq = [{ site_id: 'A' }, { site_id: 'B' }, { site_id: 'C' }];
+  const av = new Map([
+    ['A', { estado: 'apagado', actualizado_en: '2026-11-04T10:00:00Z' }],
+    ['B', { estado: 'fuera_linea', actualizado_en: '2026-11-04T11:00:00Z' }],
+  ]);
+  assert.deepEqual(contarEstados(maq, av), { fuera_linea: 1, apagado: 1, en_linea: 1 });
+  // Primero fuera de línea, luego apagado, al final en línea.
+  assert.deepEqual(ordenarTablero(maq, av).map((m) => m.site_id), ['B', 'A', 'C']);
+  assert.equal(respuestasPara('apagado')[0], 'Se encendió el sitio');
+  assert.equal(respuestasPara('fuera_linea').includes('Se encendió el sitio'), false);
+  // El apagado cuenta como pendiente en el menú.
+  assert.equal(pendientesNuc([{ estado: 'apagado', unidad_negocio: 'Biobox' }], [rol('reparacion', 'Biobox', 'Op. Bio Box')]), 1);
+});
+
+test('Gráfico: lo de antes del apagado es fuera de línea; lo de después, apagado', () => {
+  // 3-nov CDMX: cae 08:00, se marca apagado 10:00, se enciende 15:00.
+  const d = diasFueraDeLinea([{
+    abierto_en: '2026-11-03T14:00:00Z', apagado_en: '2026-11-03T16:00:00Z', cerrado_en: '2026-11-03T21:00:00Z',
+  }], '2026-11-03', '2026-11-03');
+  assert.deepEqual(d, [{ dia: '2026-11-03', minutos: 120, apagado: 300, caidas: 1 }]);
+  // Sigue apagado: cuenta hasta "ahora", y al día siguiente es todo apagado.
+  const ahora = Date.parse('2026-11-04T18:00:00Z'); // 4-nov 12:00 CDMX
+  const sigue = diasFueraDeLinea([{
+    abierto_en: '2026-11-03T14:00:00Z', apagado_en: '2026-11-03T16:00:00Z', cerrado_en: null,
+  }], '2026-11-03', '2026-11-04', ahora);
+  assert.deepEqual(sigue, [
+    { dia: '2026-11-03', minutos: 120, apagado: 840, caidas: 1 },
+    { dia: '2026-11-04', minutos: 0, apagado: 720, caidas: 0 },
+  ]);
 });

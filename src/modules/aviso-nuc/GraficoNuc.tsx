@@ -14,7 +14,13 @@ import { colorTono } from '../../lib/tonos';
 import { diaCdmx, inicioDiaCdmx } from '../../lib/fechasCdmx';
 import { diaSiguiente, diasFueraDeLinea, duracionTexto, type AvisoNuc, type DiaNuc } from '../../lib/avisoNuc';
 
-type Tramo = Pick<AvisoNuc, 'id' | 'abierto_en' | 'cerrado_en'>;
+type Tramo = Pick<AvisoNuc, 'id' | 'abierto_en' | 'cerrado_en' | 'apagado_en'>;
+
+/** Rectángulo con las esquinas de arriba redondeadas (la punta de la barra). */
+function puntaRedonda(x: number, top: number, ancho: number, alto: number): string {
+  const r = Math.min(4, ancho / 2, alto);
+  return `M${x},${top + alto} V${top + r} Q${x},${top} ${x + r},${top} H${x + ancho - r} Q${x + ancho},${top} ${x + ancho},${top + r} V${top + alto} Z`;
+}
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
@@ -60,7 +66,7 @@ function GraficoNuc({ siteId }: { siteId: string }) {
     const iniIso = new Date(ini).toISOString();
     // Los avisos que tocan el rango: abiertos antes de que termine y cerrados
     // (o sin cerrar) después de que empieza.
-    void sb.from('nuc_avisos').select('id,abierto_en,cerrado_en').eq('site_id', siteId)
+    void sb.from('nuc_avisos').select('id,abierto_en,cerrado_en,apagado_en').eq('site_id', siteId)
       .lt('abierto_en', finIso).or(`cerrado_en.is.null,cerrado_en.gte.${iniIso}`)
       .order('abierto_en').limit(2000)
       .then(({ data, error }) => {
@@ -76,10 +82,13 @@ function GraficoNuc({ siteId }: { siteId: string }) {
     [tramos, desde, hasta, rangoMal]
   );
   const total = dias.reduce((s, d) => s + d.minutos, 0);
+  const totalApagado = dias.reduce((s, d) => s + d.apagado, 0);
   const caidas = dias.reduce((s, d) => s + d.caidas, 0);
-  const conCaida = dias.filter((d) => d.minutos > 0 || d.caidas > 0);
+  const conCaida = dias.filter((d) => d.minutos > 0 || d.apagado > 0 || d.caidas > 0);
 
   const rojo = colorTono('rojo');
+  // Sitio apagado: gris claro (Erik, 4-nov-2026), encima del rojo en la misma barra.
+  const gris = colorTono('gris');
   const n = dias.length || 1;
   const paso = (ANCHO - IZQ - DER) / n;
   const anchoBarra = Math.max(1, paso - 2); // 2 px de aire entre barras
@@ -115,11 +124,18 @@ function GraficoNuc({ siteId }: { siteId: string }) {
           {caidas
             ? <>Se cayó <b>{caidas} {caidas === 1 ? 'vez' : 'veces'}</b> · <b>{duracionTexto(total)}</b> fuera de línea en {conCaida.length} {conCaida.length === 1 ? 'día' : 'días'}</>
             : total ? <>Fuera de línea <b>{duracionTexto(total)}</b> (venía de antes del rango)</>
+            : totalApagado ? 'Sin caídas nuevas en este rango.'
             : 'Sin caídas en este rango.'}
+          {totalApagado > 0 && <> · sitio apagado <b>{duracionTexto(totalApagado)}</b></>}
         </div>
+        {/* Dos partes en la barra: leyenda (y la tabla de abajo) para no depender del color. */}
+        {totalApagado > 0 && <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
+          <span><span aria-hidden style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: rojo, marginRight: 5 }} />Fuera de línea</span>
+          <span><span aria-hidden style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: gris, marginRight: 5 }} />Sitio apagado</span>
+        </div>}
         <div style={{ position: 'relative' }} onMouseLeave={() => setSel(null)}>
           <svg viewBox={`0 0 ${ANCHO} ${ALTO}`} width="100%" role="img"
-            aria-label={`Horas fuera de línea por día, del ${corto(desde)} al ${corto(hasta)}: ${caidas} caídas, ${duracionTexto(total)} en total.`}
+            aria-label={`Horas fuera de línea por día, del ${corto(desde)} al ${corto(hasta)}: ${caidas} caídas, ${duracionTexto(total)} fuera de línea${totalApagado ? ' y ' + duracionTexto(totalApagado) + ' con el sitio apagado' : ''}.`}
             style={{ display: 'block', overflow: 'visible' }}>
             {MARCAS_H.map((h) => (
               <g key={h}>
@@ -130,14 +146,21 @@ function GraficoNuc({ siteId }: { siteId: string }) {
             {dias.map((d, i) => {
               const x = IZQ + i * paso + 1;
               // Una caída muy corta igual se ve: mínimo 2 px.
-              const alto = d.minutos > 0 || d.caidas > 0 ? Math.max(2, altoUtil * (d.minutos / 1440)) : 0;
+              const altoRojo = d.minutos > 0 || (d.caidas > 0 && !d.apagado) ? Math.max(2, altoUtil * (d.minutos / 1440)) : 0;
+              const altoGris = d.apagado > 0 ? Math.max(2, altoUtil * (d.apagado / 1440)) : 0;
+              // 2 px de superficie entre la parte roja y la gris.
+              const hueco = altoRojo && altoGris ? 2 : 0;
+              const alto = altoRojo + hueco + altoGris;
               const top = ARRIBA + altoUtil - alto;
-              const r = Math.min(4, anchoBarra / 2, alto);
+              const opacidad = sel === null || sel === i ? 1 : 0.55;
               return (
                 <g key={d.dia}>
-                  {alto > 0 && <path
-                    d={`M${x},${top + alto} V${top + r} Q${x},${top} ${x + r},${top} H${x + anchoBarra - r} Q${x + anchoBarra},${top} ${x + anchoBarra},${top + r} V${top + alto} Z`}
-                    fill={rojo} opacity={sel === null || sel === i ? 1 : 0.55} />}
+                  {altoRojo > 0 && <path
+                    d={altoGris
+                      ? `M${x},${ARRIBA + altoUtil - altoRojo} h${anchoBarra} v${altoRojo} h${-anchoBarra} Z`
+                      : puntaRedonda(x, ARRIBA + altoUtil - altoRojo, anchoBarra, altoRojo)}
+                    fill={rojo} opacity={opacidad} />}
+                  {altoGris > 0 && <path d={puntaRedonda(x, top, anchoBarra, altoGris)} fill={gris} opacity={opacidad} />}
                   {d.caidas > 1 && <text x={x + anchoBarra / 2} y={top - 4} textAnchor="middle" fontSize={16} fill="var(--txt)">×{d.caidas}</text>}
                   {(i % cadaCuanto === 0 || i === dias.length - 1) && (
                     <text x={x + anchoBarra / 2} y={ALTO - 6} textAnchor="middle" fontSize={16} fill="var(--muted)">{corto(d.dia)}</text>
@@ -158,6 +181,7 @@ function GraficoNuc({ siteId }: { siteId: string }) {
             }}>
               <b>{corto(dias[sel].dia)}</b><br />
               {duracionTexto(dias[sel].minutos)} fuera de línea<br />
+              {dias[sel].apagado > 0 && <>{duracionTexto(dias[sel].apagado)} sitio apagado<br /></>}
               {dias[sel].caidas} {dias[sel].caidas === 1 ? 'caída' : 'caídas'}
             </div>
           )}
@@ -168,6 +192,7 @@ function GraficoNuc({ siteId }: { siteId: string }) {
             <tr style={{ color: 'var(--muted)', textAlign: 'left' }}>
               <th style={{ fontWeight: 500, padding: '3px 4px' }}>Día</th>
               <th style={{ fontWeight: 500, padding: '3px 4px' }}>Fuera de línea</th>
+              {totalApagado > 0 && <th style={{ fontWeight: 500, padding: '3px 4px' }}>Apagado</th>}
               <th style={{ fontWeight: 500, padding: '3px 4px', textAlign: 'right' }}>Veces</th>
             </tr>
           </thead>
@@ -176,6 +201,7 @@ function GraficoNuc({ siteId }: { siteId: string }) {
               <tr key={d.dia} style={{ borderTop: '1px solid var(--line)' }}>
                 <td style={{ padding: '3px 4px' }}>{corto(d.dia)} {d.dia.slice(0, 4)}</td>
                 <td style={{ padding: '3px 4px' }}>{duracionTexto(d.minutos)}</td>
+                {totalApagado > 0 && <td style={{ padding: '3px 4px' }}>{duracionTexto(d.apagado)}</td>}
                 <td style={{ padding: '3px 4px', textAlign: 'right' }}>{d.caidas}</td>
               </tr>
             ))}
