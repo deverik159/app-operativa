@@ -28,6 +28,14 @@ import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib
 import { nombrePortico, porticosPorNombre } from '../../lib/claveSitio';
 import { patronNombreSinAcentos } from '../../lib/datosLocales';
 import { UNIDADES_BIOBOX } from '../../lib/constants';
+import {
+  COLUMNAS_IDS_ANTERIORES,
+  anterioresDe,
+  armarIdsAnteriores,
+  carasPorIdAnterior,
+  type IdAnterior,
+  type IdsAnteriores,
+} from '../../lib/idsAnteriores';
 
 /** Fila de `inventario` con las columnas de estatus. */
 type Cara = {
@@ -184,6 +192,16 @@ function DisponibilidadView() {
   const [buscando, setBuscando] = useState(false);
   const [err, setErr] = useState('');
   const [buscado, setBuscado] = useState(false);
+  /** IDs viejos de máquinas Biobox (3-nov-2026). Si no contestan, se busca sin ellos. */
+  const [idsAnteriores, setIdsAnteriores] = useState<IdsAnteriores>(new Map());
+
+  useEffect(() => {
+    void sb
+      .from('inventario_ids_anteriores')
+      .select(COLUMNAS_IDS_ANTERIORES)
+      .limit(1000)
+      .then(({ data }) => setIdsAnteriores(armarIdsAnteriores(data as IdAnterior[] | null)));
+  }, []);
 
   // Catorcenas desde hoy en adelante: son las que se pueden vender.
   useEffect(() => {
@@ -240,6 +258,9 @@ function DisponibilidadView() {
       ? [`vendor_face_id.in.(${idsPorNombre.join(',')})`]
       : [];
     const porPortico = porticosPorNombre(t).map((n) => `site_id.ilike.%_POR_${n}`);
+    // ID viejo de una máquina Biobox: «IID_0002» encuentra MX_EM_BB_UCL_0007.
+    const viejas = carasPorIdAnterior(idsAnteriores, t).map((v) => JSON.stringify(v));
+    const porIdAnterior = viejas.length ? [`vendor_face_id.in.(${viejas.join(',')})`] : [];
     const { data, error } = await sb
       .from('inventario')
       .select(
@@ -253,6 +274,7 @@ function DisponibilidadView() {
           `direccion.ilike.${patron}`,
           ...porNombre,
           ...porPortico,
+          ...porIdAnterior,
         ].join(',')
       )
       .order('site_id')
@@ -299,7 +321,7 @@ function DisponibilidadView() {
       setPautas([]);
     }
     setBuscando(false);
-  }, [q, catSel]);
+  }, [q, catSel, idsAnteriores]);
 
   /** Historial de una cara. Se pide al abrirla, no antes. */
   const abrir = async (vfid: string) => {
@@ -438,10 +460,16 @@ function DisponibilidadView() {
             {sitios.map(([siteId, lista]) => {
               const primera = lista[0];
               const nombre = nombreDelSitio(primera);
+              const antes = [...new Set(lista.flatMap((c) => anterioresDe(idsAnteriores, c.vendor_face_id)))];
               return (
                 <div className="inc" key={siteId}>
                   <div style={{ marginBottom: 10 }}>
                     <div className="folio">{siteId}</div>
+                    {antes.length > 0 && (
+                      <div className="meta" title="ID con que se conocía antes esta máquina">
+                        Antes: {antes.join(', ')}
+                      </div>
+                    )}
                     <div className="titulo">
                       {nombre || primera.direccion || '(sin dirección)'}
                     </div>

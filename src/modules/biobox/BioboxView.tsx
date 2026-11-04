@@ -12,6 +12,7 @@ import { colorTono, fondoTono, bordeTono } from '../../lib/tonos';
 import { ESTADOS_NUC, ETIQUETA_NUC, TONO_NUC, estadoNuc, type AvisoNuc, type EstadoNuc } from '../../lib/avisoNuc';
 import { tramosGoogleMaps } from '../../lib/navegacion';
 import { UNIDADES_BIOBOX } from '../../lib/constants';
+import { COLUMNAS_IDS_ANTERIORES, anterioresDe, armarIdsAnteriores, type IdAnterior, type IdsAnteriores } from '../../lib/idsAnteriores';
 import { fueraDeLinea, maquinasUnicas, indicadoresMaquinas, pendienteRevision } from '../../lib/maquinasBiobox';
 import type { MaquinaBiobox } from '../../lib/maquinasBiobox';
 import {
@@ -115,6 +116,19 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
   const [soloMias, setSoloMias] = useState(false);
   const solicitud = useRef(0);
   const veNuc = unidadesNuc.includes(unidad);
+  // IDs viejos de las máquinas (3-nov-2026): buscar por ellos y enseñarlos.
+  // Sin señal o sin respuesta, la lista sigue igual, solo sin el alias.
+  const [idsAnteriores, setIdsAnteriores] = useState<IdsAnteriores>(new Map());
+  useEffect(() => {
+    let vivo = true;
+    void sb.from('inventario_ids_anteriores').select(COLUMNAS_IDS_ANTERIORES).limit(1000)
+      .then(({ data }) => { if (vivo) setIdsAnteriores(armarIdsAnteriores(data as IdAnterior[] | null)); });
+    return () => { vivo = false; };
+  }, []);
+  const anteriores = useCallback(
+    (u: MaquinaBiobox) => anterioresDe(idsAnteriores, u.vendor_face_id || u.site_id),
+    [idsAnteriores]
+  );
 
   const cargarNuc = useCallback(async () => {
     if (!veNuc) { setNuc(null); return; }
@@ -309,7 +323,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
       .filter((u) => medio === 'todos' || u.medio === medio)
       .filter((u) => !soloPendientes || pendienteRevision(u))
       .filter((u) => !filtroNuc || !nuc || estadoNuc(nuc.get(u.site_id)) === filtroNuc)
-      .filter((u) => !q || sinAcentos([u.site_legacy_id, u.direccion, u.site_id].join(' ')).includes(q)));
+      .filter((u) => !q || sinAcentos([u.site_legacy_id, u.direccion, u.site_id, ...anteriores(u)].join(' ')).includes(q)));
     // "Más urgente": la que lleva más días sin que nadie pase (visita rápida
     // o revisión); nunca visitada va primero.
     return filas.sort((a, b) => orden === 'abandono'
@@ -317,7 +331,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
       : orden === 'secuencia'
       ? (a.secuencia ?? 9999) - (b.secuencia ?? 9999) || a.site_id.localeCompare(b.site_id)
       : (a.site_legacy_id || a.site_id).localeCompare(b.site_legacy_id || b.site_id, undefined, { numeric: true }));
-  }, [ubics, rutaFoco, medio, busca, orden, soloPendientes, diasVisita, filtroNuc, nuc, soloMias, misRutas]);
+  }, [ubics, rutaFoco, medio, busca, orden, soloPendientes, diasVisita, filtroNuc, nuc, soloMias, misRutas, anteriores]);
 
   /** Leyenda del NUC: cuántas máquinas de la unidad hay en cada estado. */
   const conteoNuc = useMemo(() => {
@@ -361,6 +375,11 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0 }: {
           <div style={{ flex: '1 1 200px', minWidth: 0 }}>
             <b>{u.site_legacy_id ? '#' + u.site_legacy_id : u.site_id}</b>
             {u.site_legacy_id && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{u.site_id}</div>}
+            {anteriores(u).length > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--muted)' }} title="ID con que se conocía antes esta máquina">
+                Antes: {anteriores(u).join(', ')}
+              </div>
+            )}
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
               {u.direccion || '(sin dirección)'}{u.municipio ? ' · ' + u.municipio : ''}
             </div>
