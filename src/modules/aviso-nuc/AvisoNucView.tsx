@@ -4,14 +4,16 @@
 // estado de su NUC, para que el técnico de Op. Bio Box sepa de un vistazo
 // cuáles están fuera de línea.
 //
-//   Digital  → lo repara a distancia: «Marcar fuera de línea» y «Ya está en
-//              línea», con una de tres respuestas y una foto obligatoria
-//              (Erik, 30-oct-2026: sin «Estoy revisándolo» ni nota libre).
+//   Digital  → lo repara a distancia: «Marcar fuera de línea» (nota opcional
+//              y foto obligatoria, Erik, 4-nov-2026) y «Ya está en línea»,
+//              con una de tres respuestas y una foto obligatoria (Erik,
+//              30-oct-2026: sin «Estoy revisándolo» ni nota libre).
 //   Técnico  → solo ve el estado y el historial; le llegan los avisos de
 //              fuera de línea y de en línea.
 //
-// La foto del cierre no se pinta en la tarjeta, para no ensuciar el
-// tablero: solo un botón «Ver imagen».
+// Las fotos no se pintan en la tarjeta, para no ensuciar el tablero: solo un
+// botón «Ver imagen» (la de fuera de línea mientras sigue abierto; si no, la
+// del último cierre).
 //
 // Todo cambio va por las funciones nuc_aviso_* de la base, que vuelven a
 // revisar quién llama y en qué estado está el aviso; aquí solo se ofrece lo
@@ -58,8 +60,24 @@ type Accion =
 /** Filtro de la lista: los avisos abiertos, un estado o todas. */
 type Filtro = 'abiertos' | EstadoNuc | 'todas';
 
-/** Lo que enseña «Ver imagen»: la foto y quién la puso en línea. */
+/** El último cierre con foto de una máquina. */
 type Cierre = Pick<AvisoNuc, 'id' | 'site_id' | 'foto_cierre' | 'nota_cierre' | 'cerrado_por' | 'cerrado_en'>;
+
+/** Un aviso del historial, con sus dos fotos. */
+type AvisoHistorial = Cierre & Pick<AvisoNuc, 'foto_abierto' | 'nota_digital' | 'abierto_por' | 'abierto_en'>;
+
+/** Lo que enseña «Ver imagen»: la foto, qué se dijo, quién y cuándo. */
+type FotoVista = { path: string; titulo: string; detalle: string; por: string | null; en: string | null };
+
+const fotoCierre = (c: Cierre | undefined): FotoVista | null =>
+  c?.foto_cierre
+    ? { path: c.foto_cierre, titulo: 'Foto del NUC en línea', detalle: c.nota_cierre || 'En línea', por: c.cerrado_por, en: c.cerrado_en }
+    : null;
+
+const fotoFuera = (a: Pick<AvisoNuc, 'foto_abierto' | 'nota_digital' | 'abierto_por' | 'abierto_en'> | undefined): FotoVista | null =>
+  a?.foto_abierto
+    ? { path: a.foto_abierto, titulo: 'Foto del NUC fuera de línea', detalle: a.nota_digital || 'Fuera de línea', por: a.abierto_por, en: a.abierto_en }
+    : null;
 
 const REFRESCO_MS = 60 * 1000;
 
@@ -102,8 +120,8 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
   const [foto, setFoto] = useState<{ file: File; preview: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [errAccion, setErrAccion] = useState('');
-  const [historial, setHistorial] = useState<{ m: MaquinaNuc; eventos: EventoNuc[] | null; fotos: Map<number, Cierre>; err: string } | null>(null);
-  const [viendo, setViendo] = useState<{ c: Cierre; m: MaquinaNuc } | null>(null);
+  const [historial, setHistorial] = useState<{ m: MaquinaNuc; eventos: EventoNuc[] | null; avisos: Map<number, AvisoHistorial>; err: string } | null>(null);
+  const [viendo, setViendo] = useState<{ f: FotoVista; m: MaquinaNuc } | null>(null);
   const [ahora, setAhora] = useState(Date.now());
   const turno = useRef(0);
 
@@ -194,8 +212,11 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
     setErrAccion('');
   };
 
-  /** Sube la foto a nuc/<aviso>/… y regresa su ruta. */
-  const subirFoto = async (avisoId: number, file: File): Promise<string> => {
+  /**
+   * Sube la foto y regresa su ruta: nuc/<aviso>/… al ponerlo en línea, o
+   * nuc/fuera/… al marcarlo fuera de línea (el aviso aún no existe).
+   */
+  const subirFoto = async (carpeta: string, file: File): Promise<string> => {
     let archivo = file;
     try {
       archivo = await comprimirImagen(file);
@@ -203,7 +224,7 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
       /* sube la original */
     }
     // Nombre no adivinable: con upsert apagado, nadie puede ocuparlo antes.
-    const path = `nuc/${avisoId}/${Date.now()}_${idCorto()}.jpg`;
+    const path = `nuc/${carpeta}/${Date.now()}_${idCorto()}.jpg`;
     const { error } = await sb.storage.from(BUCKET_EVIDENCIAS).upload(path, archivo, {
       upsert: false,
       contentType: archivo.type || 'image/jpeg',
@@ -216,31 +237,26 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
   const guardarAccion = async () => {
     if (!accion) return;
     setErrAccion('');
-    if (accion.tipo === 'abrir') {
-      setGuardando(true);
-      const { error } = await sb.rpc('nuc_aviso_abrir', { p_site_id: accion.m.site_id, p_nota: nota.trim() || null });
+    if (accion.tipo === 'en_linea' && !respuesta) { setErrAccion('Elige qué se hizo.'); return; }
+    if (!foto) { setErrAccion('Agrega la foto.'); return; }
+    setGuardando(true);
+    let path = '';
+    try {
+      path = await subirFoto(accion.tipo === 'abrir' ? 'fuera' : String(accion.a.id), foto.file);
+    } catch (e) {
       setGuardando(false);
-      if (error) { setErrAccion(error.message); return; }
-    } else {
-      if (!respuesta) { setErrAccion('Elige qué se hizo.'); return; }
-      if (!foto) { setErrAccion('Agrega la foto.'); return; }
-      setGuardando(true);
-      let path = '';
-      try {
-        path = await subirFoto(accion.a.id, foto.file);
-      } catch (e) {
-        setGuardando(false);
-        setErrAccion(e instanceof Error ? e.message : 'No se pudo subir la foto.');
-        return;
-      }
-      const { error } = await sb.rpc('nuc_aviso_en_linea', { p_id: accion.a.id, p_respuesta: respuesta, p_foto: path });
-      setGuardando(false);
-      if (error) {
-        // La foto quedó suelta: se borra (es de quien la subió).
-        void sb.storage.from(BUCKET_EVIDENCIAS).remove([path]);
-        setErrAccion(error.message);
-        return;
-      }
+      setErrAccion(e instanceof Error ? e.message : 'No se pudo subir la foto.');
+      return;
+    }
+    const { error } = accion.tipo === 'abrir'
+      ? await sb.rpc('nuc_aviso_abrir', { p_site_id: accion.m.site_id, p_nota: nota.trim() || null, p_foto: path })
+      : await sb.rpc('nuc_aviso_en_linea', { p_id: accion.a.id, p_respuesta: respuesta, p_foto: path });
+    setGuardando(false);
+    if (error) {
+      // La foto quedó suelta: se borra (es de quien la subió).
+      void sb.storage.from(BUCKET_EVIDENCIAS).remove([path]);
+      setErrAccion(error.message);
+      return;
     }
     setAccion(null);
     setFoto(null);
@@ -248,18 +264,18 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
   };
 
   const verHistorial = async (m: MaquinaNuc) => {
-    setHistorial({ m, eventos: null, fotos: new Map(), err: '' });
+    setHistorial({ m, eventos: null, avisos: new Map(), err: '' });
     const { data: avs, error } = await sb.from('nuc_avisos')
-      .select('id,site_id,foto_cierre,nota_cierre,cerrado_por,cerrado_en').eq('site_id', m.site_id)
-      .order('abierto_en', { ascending: false }).limit(10);
-    if (error) { setHistorial({ m, eventos: [], fotos: new Map(), err: error.message }); return; }
-    const lista = (avs || []) as Cierre[];
-    const fotos = new Map(lista.filter((c) => c.foto_cierre).map((c) => [c.id, c]));
+      .select('id,site_id,foto_cierre,nota_cierre,cerrado_por,cerrado_en,foto_abierto,nota_digital,abierto_por,abierto_en')
+      .eq('site_id', m.site_id).order('abierto_en', { ascending: false }).limit(10);
+    if (error) { setHistorial({ m, eventos: [], avisos: new Map(), err: error.message }); return; }
+    const lista = (avs || []) as AvisoHistorial[];
+    const avisosH = new Map(lista.map((c) => [c.id, c]));
     const ids = lista.map((x) => x.id);
-    if (!ids.length) { setHistorial({ m, eventos: [], fotos, err: '' }); return; }
+    if (!ids.length) { setHistorial({ m, eventos: [], avisos: avisosH, err: '' }); return; }
     const { data: evs, error: e2 } = await sb.from('nuc_avisos_eventos').select('*')
       .in('aviso_id', ids).order('en', { ascending: false });
-    setHistorial({ m, eventos: (evs || []) as EventoNuc[], fotos, err: e2 ? e2.message : '' });
+    setHistorial({ m, eventos: (evs || []) as EventoNuc[], avisos: avisosH, err: e2 ? e2.message : '' });
   };
 
   const persona = (correo: string | null) => nombreDe(nombres, correo);
@@ -274,7 +290,9 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
     const a = avisos.get(m.site_id);
     const e = estadoNuc(a);
     const p = pastilla(e);
-    const c = cierres.get(m.site_id);
+    // Mientras está fuera de línea, su foto; si no la tiene (avisos de antes
+    // del 4-nov) o ya está en línea, la del último cierre.
+    const f = (e !== 'en_linea' ? fotoFuera(a) : null) || fotoCierre(cierres.get(m.site_id));
     return (
       <div key={m.site_id} style={{ background: 'var(--panel2)', border: '1px solid ' + (e === 'en_linea' ? 'var(--line)' : p.borderColor), borderLeft: '4px solid ' + p.color, borderRadius: 10, padding: '11px 12px', minWidth: 0, overflowWrap: 'anywhere' }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -295,7 +313,7 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button className="btn ghost sm" onClick={() => void verHistorial(m)}><Ic i={History} />Historial</button>
-            {c && <button className="btn ghost sm" onClick={() => setViendo({ c, m })}><Ic i={IconoImagen} />Ver imagen</button>}
+            {f && <button className="btn ghost sm" onClick={() => setViendo({ f, m })}><Ic i={IconoImagen} />Ver imagen</button>}
             {digital && e === 'en_linea' && <button className="btn ghost sm" onClick={() => abrirAccion({ tipo: 'abrir', m })}>
               <Ic i={TriangleAlert} />Marcar fuera de línea
             </button>}
@@ -309,14 +327,28 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
   };
 
   const enLinea = accion?.tipo === 'en_linea';
-  const listo = accion?.tipo === 'abrir' || (!!respuesta && !!foto);
+  const listo = !!foto && (accion?.tipo === 'abrir' || !!respuesta);
+
+  // La foto es obligatoria en las dos ventanas.
+  const bloqueFoto = (
+    <>
+      <div style={{ fontSize: 13, marginBottom: 6 }}>Foto (obligatoria)</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {foto && <img src={foto.preview} alt="Foto del NUC" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)' }} />}
+        <label className="btn ghost sm" style={{ cursor: guardando ? 'default' : 'pointer' }}>
+          <Ic i={Camera} />{foto ? 'Cambiar foto' : 'Agregar foto'}
+          <input type="file" accept="image/*" hidden disabled={guardando} onChange={(e) => { elegirFoto(e.target.files); e.target.value = ''; }} />
+        </label>
+      </div>
+    </>
+  );
 
   return (
     <div>
       <h2 className="page"><Ic i={Router} />Aviso NUC</h2>
       <p className="phint">
         {digital
-          ? 'Marca las máquinas Biobox con el NUC fuera de línea y ponlas en línea con la foto; el técnico de Op. Bio Box recibe el aviso en cada caso.'
+          ? 'Marca las máquinas Biobox con el NUC fuera de línea y ponlas en línea, en los dos casos con foto; el técnico de Op. Bio Box recibe el aviso en cada caso.'
           : 'Máquinas Biobox con el NUC fuera de línea. Te llega un aviso cuando una se cae y cuando vuelve a estar en línea.'}
       </p>
       <div className="toolbar filtros-pildora">
@@ -378,17 +410,11 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
               <div role="group" aria-label="Qué se hizo" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
                 {RESPUESTAS_DIGITAL.map((r) => <button key={r} type="button" className={'btn sm' + (respuesta === r ? '' : ' ghost')} aria-pressed={respuesta === r} onClick={() => { setRespuesta(r); setErrAccion(''); }}>{r}</button>)}
               </div>
-              <div style={{ fontSize: 13, marginBottom: 6 }}>Foto (obligatoria)</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                {foto && <img src={foto.preview} alt="Foto del cierre" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)' }} />}
-                <label className="btn ghost sm" style={{ cursor: guardando ? 'default' : 'pointer' }}>
-                  <Ic i={Camera} />{foto ? 'Cambiar foto' : 'Agregar foto'}
-                  <input type="file" accept="image/*" hidden disabled={guardando} onChange={(e) => { elegirFoto(e.target.files); e.target.value = ''; }} />
-                </label>
-              </div>
+              {bloqueFoto}
             </> : <>
               <label style={{ display: 'block', fontSize: 13, marginBottom: 4 }} htmlFor="nuc-nota">Nota para el técnico (opcional)</label>
-              <textarea id="nuc-nota" rows={3} maxLength={500} value={nota} onChange={(e) => { setNota(e.target.value); setErrAccion(''); }} style={{ width: '100%', fontSize: 16 }} />
+              <textarea id="nuc-nota" rows={3} maxLength={500} value={nota} onChange={(e) => { setNota(e.target.value); setErrAccion(''); }} style={{ width: '100%', fontSize: 16, marginBottom: 12 }} />
+              {bloqueFoto}
             </>}
             {errAccion && <div className="err" role="alert" style={{ marginTop: 8 }}>{errAccion}</div>}
             <div className="modal-actions pie-fijo" style={{ marginTop: 12 }}>
@@ -412,12 +438,13 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
             {historial.eventos && !historial.eventos.length && !historial.err && <p>Esta máquina no ha tenido avisos de NUC.</p>}
             <div style={{ display: 'grid', gap: 8, maxHeight: '60dvh', overflowY: 'auto' }}>
               {historial.eventos?.map((ev) => {
-                const c = ev.accion === 'en_linea' ? historial.fotos.get(ev.aviso_id) : undefined;
+                const av = historial.avisos.get(ev.aviso_id);
+                const f = ev.accion === 'en_linea' ? fotoCierre(av) : ev.accion === 'abierto' ? fotoFuera(av) : null;
                 return <div key={ev.id} style={{ borderLeft: '3px solid ' + colorTono(TONO_NUC[ev.estado]), paddingLeft: 10 }}>
                   <div style={{ fontSize: 13 }}><b>{ACCION_TXT[ev.accion]}</b> · {persona(ev.por)}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{fechaHoraCdmx(ev.en)}</div>
                   {ev.nota && <div style={{ fontSize: 13 }}>{ev.nota}</div>}
-                  {c && <button className="btn ghost sm" style={{ marginTop: 4 }} onClick={() => setViendo({ c, m: historial.m })}>
+                  {f && <button className="btn ghost sm" style={{ marginTop: 4 }} onClick={() => setViendo({ f, m: historial.m })}>
                     <Ic i={IconoImagen} />Ver imagen
                   </button>}
                 </div>;
@@ -432,14 +459,14 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
         <div className="overlay" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) setViendo(null); }}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="nuc-imagen-titulo" style={{ maxWidth: 640 }}>
             <CerrarModal onClick={() => setViendo(null)} />
-            <h2 id="nuc-imagen-titulo">Foto del NUC en línea</h2>
+            <h2 id="nuc-imagen-titulo">{viendo.f.titulo}</h2>
             <p className="phint">
-              {viendo.m.site_id} · {viendo.c.nota_cierre || 'En línea'} · {persona(viendo.c.cerrado_por)}
-              {viendo.c.cerrado_en ? ' · ' + fechaHoraCdmx(viendo.c.cerrado_en) : ''}
+              {viendo.m.site_id} · {viendo.f.detalle} · {persona(viendo.f.por)}
+              {viendo.f.en ? ' · ' + fechaHoraCdmx(viendo.f.en) : ''}
             </p>
-            {viendo.c.foto_cierre && <a href={urlFoto(viendo.c.foto_cierre)} target="_blank" rel="noopener noreferrer">
-              <img src={urlFoto(viendo.c.foto_cierre)} alt={'Foto del NUC de ' + viendo.m.site_id} style={{ width: '100%', maxHeight: '65dvh', objectFit: 'contain', borderRadius: 8, background: 'var(--panel2)' }} />
-            </a>}
+            <a href={urlFoto(viendo.f.path)} target="_blank" rel="noopener noreferrer">
+              <img src={urlFoto(viendo.f.path)} alt={'Foto del NUC de ' + viendo.m.site_id} style={{ width: '100%', maxHeight: '65dvh', objectFit: 'contain', borderRadius: 8, background: 'var(--panel2)' }} />
+            </a>
             <div className="modal-actions pie-fijo" style={{ marginTop: 12 }}><button autoFocus className="btn ghost" onClick={() => setViendo(null)}>Cerrar</button></div>
           </section>
         </div>, document.body

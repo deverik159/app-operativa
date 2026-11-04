@@ -42,6 +42,11 @@ export interface AvisoNuc {
   nota_cierre: string | null;
   /** Foto del cierre en el bucket evidencias (nuc/<id>/…); obligatoria desde el 30-oct. */
   foto_cierre: string | null;
+  /**
+   * Foto de cuando Digital lo marcó fuera de línea (nuc/fuera/…); obligatoria
+   * desde el 4-nov-2026 (migración 20261104171200). Los avisos de antes no la tienen.
+   */
+  foto_abierto: string | null;
   actualizado_en: string;
 }
 
