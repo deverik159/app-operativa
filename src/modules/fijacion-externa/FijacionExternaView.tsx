@@ -159,6 +159,9 @@ function FijacionExternaView({
   const BLOQUE = 50;
   const [fijando, setFijando] = useState<Registro | null>(null);
   const [fotos, setFotos] = useState<FotoLocal[]>([]);
+  /** Avance de un video que se comprime y su resultado (4-nov-2026). */
+  const [avanceFotos, setAvanceFotos] = useState('');
+  const [notaFotos, setNotaFotos] = useState('');
   // El toggle "No pude tomar foto" se retiró (retro de la presentación,
   // sep-2026): la evidencia SIEMPRE es obligatoria — mínimo un archivo,
   // foto o video. Sin escape, porque el escape se volvía el camino fácil.
@@ -188,6 +191,7 @@ function FijacionExternaView({
       prev.forEach((f) => URL.revokeObjectURL(f.preview));
       return [];
     });
+    setNotaFotos('');
     setFijando(null);
   };
 
@@ -197,7 +201,16 @@ function FijacionExternaView({
     if (!files.length) return;
     // Comprimir al elegir, igual que SubirArchivos: menos memoria retenida
     // en el modal y subidas de ~400 KB en vez de 8 MB por datos móviles.
-    const { listos, rechazos } = await prepararArchivos(files);
+    // Un video pesado tarda en comprimirse: se enseña el avance (4-nov-2026).
+    setAvanceFotos('Procesando…');
+    let r: Awaited<ReturnType<typeof prepararArchivos>>;
+    try {
+      r = await prepararArchivos(files, { onProgreso: setAvanceFotos });
+    } finally {
+      setAvanceFotos('');
+    }
+    const { listos, rechazos } = r;
+    setNotaFotos(r.notas.join(' · '));
     if (rechazos.length) alert('No se agregaron:\n\n' + rechazos.join('\n'));
     const nuevas = listos.map((f) => ({
       file: f,
@@ -1390,8 +1403,20 @@ function FijacionExternaView({
                     multiple
                     style={{ display: 'none' }}
                     onChange={onFotos}
+                    disabled={!!avanceFotos}
                   />
                 </label>
+                {(avanceFotos || notaFotos) && (
+                  <div role="status" style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+                    {avanceFotos ? (
+                      <>
+                        <span className="spinner" /> {avanceFotos} No cierres esta ventana.
+                      </>
+                    ) : (
+                      notaFotos
+                    )}
+                  </div>
+                )}
                 {fotos.length > 0 && (
                   <div
                     style={{

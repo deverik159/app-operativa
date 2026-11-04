@@ -26,8 +26,15 @@ import {
   validarAdjunto,
   subirAdjunto,
   MAX_VIDEO_SEG,
+  MAX_VIDEO_BYTES,
 } from '../../lib/adjuntosChat';
-import { comprimirImagen } from '../../lib/comprimirImagen';
+import { comprimirImagen, textoRestante } from '../../lib/comprimirImagen';
+import {
+  COMPRIMIR_VIDEO_DESDE,
+  compresionInterrumpida,
+  comprimirVideo,
+  puedeComprimirVideo,
+} from '../../lib/comprimirVideo';
 import { enLineaAhora, pareceSinRed, useEnLinea } from '../../lib/enLinea';
 import { haySesionReal, motivoSinRed, redOLocal } from '../../lib/datosLocales';
 import { guardarChatLocal, leerChatLocal, type ChatLocal } from '../../lib/chatLocal';
@@ -246,7 +253,10 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   /** Archivo elegido y aún no enviado. */
   const [pendiente, setPendiente] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
-  const [errAdj, setErrAdj] = useState('');
+  // Si el teléfono recargó la página a media compresión, se dice al abrir.
+  const [errAdj, setErrAdj] = useState(() => compresionInterrumpida() || '');
+  /** Avance de un video que se está recomprimiendo (3-nov-2026). */
+  const [prepAdj, setPrepAdj] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Sin señal ───────────────────────────────────────────────────────
@@ -1007,9 +1017,24 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
     // 5 MB con frecuencia y el límite las rechazaba sin ofrecer salida.
     // Comprimida (~1600px JPEG) una foto normal queda muy por debajo del
     // tope, que ahora solo frena lo genuinamente incomprimible.
-    const f = original.type.startsWith('image/')
+    let f = original.type.startsWith('image/')
       ? await comprimirImagen(original)
       : original;
+    // Un video pesado se recomprime en el teléfono (3-nov-2026, ver
+    // comprimirVideo.ts); si no se puede, sigue el original y valida el tope.
+    if (f.type.startsWith('video/') && f.size > COMPRIMIR_VIDEO_DESDE && puedeComprimirVideo()) {
+      setPrepAdj('Comprimiendo video…');
+      try {
+        const r = await comprimirVideo(f, {
+          originalCabe: f.size <= MAX_VIDEO_BYTES,
+          onProgreso: (p, restante) =>
+            setPrepAdj(`Comprimiendo video… ${Math.round(p * 100)} %${textoRestante(restante)}`),
+        });
+        f = r.file;
+      } finally {
+        setPrepAdj('');
+      }
+    }
     const problema = await validarAdjunto(f);
     if (problema) {
       setErrAdj(problema);
@@ -1914,6 +1939,11 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
           </div>
         ) : (
           <>
+            {prepAdj && (
+              <div role="status" style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                <span className="spinner" /> {prepAdj} No cierres el chat.
+              </div>
+            )}
             {errAdj && (
               <div
                 className="err"

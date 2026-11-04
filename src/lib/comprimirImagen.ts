@@ -14,8 +14,21 @@
 // por un fallo del compresor.
 // ============================================================
 
+import { COMPRIMIR_VIDEO_DESDE, comprimirVideo, puedeComprimirVideo } from './comprimirVideo';
+
 /** Tope del bucket de Supabase por defecto. Un video más grande ni se intenta. */
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Qué hacer cuando un video pasa del tope (aun recomprimido, o en un
+ * teléfono que no puede recomprimir): casi siempre es la cámara grabando en
+ * 4K o a 60 fps (30 s en 4K ≈ 85 MB; en 1080p a 30 fps ≈ 30 MB). Lo usan las
+ * evidencias y el chat (Erik, 3-nov-2026).
+ */
+export const CONSEJO_VIDEO_PESADO =
+  'Seguramente tu cámara graba en 4K o a 60 fps. Cámbiala a 1080p a 30 fps ' +
+  '(iPhone: Ajustes › Cámara › Grabar video; Android: ajustes de la cámara) ' +
+  'y vuelve a grabarlo: 30 segundos así pesan unos 30 MB.';
 
 /** Solo aplica a imágenes que NO se pudieron comprimir. */
 export const MAX_IMG_BYTES = 20 * 1024 * 1024;
@@ -26,6 +39,13 @@ const CALIDAD_JPEG = 0.8;
 
 /** Por debajo de esto y sin necesidad de reescalar, no vale la pena tocarla. */
 const YA_LIGERA = 600 * 1024;
+
+/** " · faltan unos 2 min" / " · faltan unos 40 s" / "" si aún no se sabe. */
+export function textoRestante(seg: number | null): string {
+  if (seg == null || !isFinite(seg)) return '';
+  if (seg >= 90) return ` · faltan unos ${Math.round(seg / 60)} min`;
+  return ` · faltan unos ${Math.max(10, Math.round(seg / 10) * 10)} s`;
+}
 
 export function mb(bytes: number): string {
   return (bytes / 1024 / 1024).toFixed(1) + ' MB';
@@ -103,19 +123,42 @@ export async function comprimirImagen(file: File): Promise<File> {
  * ya redactados para enseñárselos al usuario.
  */
 export async function prepararArchivos(
-  files: File[]
-): Promise<{ listos: File[]; rechazos: string[] }> {
+  files: File[],
+  op: { onProgreso?: (texto: string) => void } = {}
+): Promise<{ listos: File[]; rechazos: string[]; notas: string[] }> {
   const listos: File[] = [];
   const rechazos: string[] = [];
+  /** Lo que se hizo con los videos, para enseñarlo (p. ej. "85 MB → 10 MB"). */
+  const notas: string[] = [];
   for (const f of files) {
     if (f.type.startsWith('video/')) {
-      if (f.size > MAX_VIDEO_BYTES) {
+      // Un video pesado se recomprime en el teléfono antes de medirlo contra
+      // el tope (3-nov-2026, ver comprimirVideo.ts). Si no se puede, sigue el
+      // original y el tope decide, como antes.
+      let v = f;
+      if (f.size > COMPRIMIR_VIDEO_DESDE && puedeComprimirVideo()) {
+        op.onProgreso?.('Comprimiendo video…');
+        const t0 = Date.now();
+        const r = await comprimirVideo(f, {
+          originalCabe: f.size <= MAX_VIDEO_BYTES,
+          onProgreso: (p, restante) =>
+            op.onProgreso?.(`Comprimiendo video… ${Math.round(p * 100)} %${textoRestante(restante)}`),
+        });
+        v = r.file;
+        console.info(`[video] ${f.name}: ${mb(f.size)} → ${mb(v.size)}`, r.comprimido ? '' : `(original: ${r.motivo})`);
+        if (r.comprimido) {
+          const seg = (Date.now() - t0) / 1000;
+          const tardo = seg >= 90 ? `${Math.round(seg / 60)} min` : `${Math.round(seg)} s`;
+          notas.push(`Video comprimido: ${mb(f.size)} → ${mb(v.size)} en ${tardo}${r.sinAudio ? ' (sin audio)' : ''}`);
+        }
+      }
+      if (v.size > MAX_VIDEO_BYTES) {
         rechazos.push(
-          `${f.name}: el video pesa ${mb(f.size)} y el máximo es ${mb(MAX_VIDEO_BYTES)}. Graba un clip más corto.`
+          `${f.name}: el video pesa ${mb(v.size)} y el máximo es ${mb(MAX_VIDEO_BYTES)}. ${CONSEJO_VIDEO_PESADO}`
         );
         continue;
       }
-      listos.push(f);
+      listos.push(v);
     } else if (f.type.startsWith('image/')) {
       const c = await comprimirImagen(f);
       if (c.size > MAX_IMG_BYTES) {
@@ -129,5 +172,5 @@ export async function prepararArchivos(
       listos.push(f);
     }
   }
-  return { listos, rechazos };
+  return { listos, rechazos, notas };
 }

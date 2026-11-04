@@ -216,6 +216,12 @@ export default defineConfig(async ({ command, mode }) => {
     define: {
       __APP_BUILD_ID__: JSON.stringify(buildId),
     },
+    // Mediabunny se pide con import() solo al comprimir un video: sin esto,
+    // en desarrollo Vite la "descubre" en ese momento, la prepara y RECARGA
+    // la página a mitad de la compresión (3-nov-2026). Solo afecta a dev.
+    optimizeDeps: {
+      include: ['mediabunny'],
+    },
     server: {
       // host:true expone el servidor en la red local para probar desde celular.
       host: true,

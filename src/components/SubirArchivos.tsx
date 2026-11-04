@@ -17,6 +17,11 @@
 import { Camera } from 'lucide-react';
 import { useRef, useState, useEffect } from 'react';
 import { prepararArchivos } from '../lib/comprimirImagen';
+import {
+  compresionInterrumpida,
+  hayVideoParaRecuperar,
+  recuperarVideoInterrumpido,
+} from '../lib/comprimirVideo';
 import { useFocoModal } from '../lib/useFocoModal';
 import Ic from './Ic';
 
@@ -259,6 +264,14 @@ function SubirArchivos({
   // Se calcula una vez: el tipo de puntero no cambia durante la sesión.
   const [tactil] = useState(usaTactil);
   const [procesando, setProcesando] = useState(false);
+  /** Avance de un video que se está recomprimiendo (3-nov-2026). */
+  const [avance, setAvance] = useState('');
+  /** Resultado de la compresión de videos ("85 MB → 10 MB"), hasta elegir otro. */
+  const [nota, setNota] = useState('');
+  /** La compresión anterior se cortó porque el teléfono recargó la página. */
+  const [interrumpida, setInterrumpida] = useState(() => compresionInterrumpida());
+  /** El original de esa compresión quedó guardado y se puede adjuntar. */
+  const [recuperable, setRecuperable] = useState(() => hayVideoParaRecuperar());
   const [eligeCamara, setEligeCamara] = useState(false);
 
   const aceptaFoto = accept.includes('image');
@@ -270,19 +283,39 @@ function SubirArchivos({
     // Permite volver a elegir el MISMO archivo (si no, onChange no dispara).
     e.target.value = '';
     if (!files.length) return;
+    await procesar(files, origen);
+  };
+
+  /** El video que se comprimía cuando el teléfono recargó la página. */
+  const recuperar = async () => {
+    setRecuperable(false);
+    const f = await recuperarVideoInterrumpido();
+    if (!f) {
+      alert('El video ya no está guardado en el teléfono. Vuelve a elegirlo.');
+      return;
+    }
+    // Ese mismo archivo ya no se comprime: sube como está (si cabe).
+    await procesar([f], 'galeria');
+  };
+
+  const procesar = async (files: File[], origen: 'camara' | 'galeria') => {
     // Comprimir/validar AQUÍ, al elegir — no al guardar. Antes una foto de
     // iPhone de 8 MB (o un video que rebasaba el bucket) se descubría hasta
     // el final de la revisión, y el error tumbaba TODO el guardado con un
     // mensaje de "mala señal" que invitaba a reintentar en vano.
     setProcesando(true);
+    setNota('');
+    setInterrumpida(null);
     let listos: File[] = [];
     try {
-      const r = await prepararArchivos(files);
+      const r = await prepararArchivos(files, { onProgreso: setAvance });
       listos = r.listos;
+      setNota(r.notas.join(' · '));
       if (r.rechazos.length) alert('No se agregaron:\n\n' + r.rechazos.join('\n'));
       if (esperarOnFiles && listos.length) await onFiles(listos, origen);
     } finally {
       setProcesando(false);
+      setAvance('');
     }
     if (!esperarOnFiles && listos.length) void onFiles(listos, origen);
   };
@@ -330,6 +363,29 @@ function SubirArchivos({
           {tactil ? 'Galería' : 'Elegir archivos'}
         </button>
       </div>
+      {/* Recomprimir un video tarda más o menos lo que dura: que se vea. */}
+      {procesando && avance && (
+        <div role="status" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+          <span className="spinner" /> {avance} No cierres esta ventana.
+        </div>
+      )}
+      {!procesando && interrumpida && (
+        <div role="status" style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
+          {interrumpida}
+          {recuperable && (
+            <div style={{ marginTop: 6 }}>
+              <button type="button" className="btn ghost sm" disabled={disabled} onClick={() => void recuperar()}>
+                Recuperar el video
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {!procesando && nota && (
+        <div role="status" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+          {nota}
+        </div>
+      )}
 
       {tactil && eligeCamara && aceptaFoto && aceptaVideo && (
         <div

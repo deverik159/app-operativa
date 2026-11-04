@@ -10,6 +10,7 @@
 // ============================================================
 import { sb } from './supabase';
 import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from './storage';
+import { CONSEJO_VIDEO_PESADO } from './comprimirImagen';
 
 /** Foto: 5 MB. Una foto de celular ronda 2-4 MB. */
 export const MAX_FOTO_BYTES = 5 * 1024 * 1024;
@@ -139,7 +140,7 @@ export async function validarAdjunto(file: File): Promise<string> {
 
   if (esVideo) {
     if (file.size > MAX_VIDEO_BYTES) {
-      return `El video pesa ${mb(file.size)} MB y el máximo son ${mb(MAX_VIDEO_BYTES)} MB. Graba uno más corto.`;
+      return `El video pesa ${mb(file.size)} MB y el máximo son ${mb(MAX_VIDEO_BYTES)} MB. ${CONSEJO_VIDEO_PESADO}`;
     }
     const seg = await duracionVideo(file);
     if (seg !== null && seg > MAX_VIDEO_SEG + 1) {

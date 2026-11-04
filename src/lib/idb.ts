@@ -66,7 +66,8 @@ const REARME_COLGADA_MS = 30000;
  *   archivos   → los Blobs (fotos/videos), aparte: el estado de un envío se
  *                reescribe tras cada paso y no debe arrastrar 50 MB cada vez.
  *                Prefijos de llave: 'e:' envíos, 'b:' borrador del alta,
- *                'r:' borrador de la reparación (lib/borradorReparacion.ts).
+ *                'r:' borrador de la reparación (lib/borradorReparacion.ts),
+ *                'v:' el video que se está comprimiendo (lib/comprimirVideo.ts).
  *   borradores → un borrador del alta por correo de usuario.
  * En 'gpo-acciones' (lib/acciones.ts; modo sin señal, 24-sep-2026):
  *   acciones          → validaciones y reparaciones en cola.

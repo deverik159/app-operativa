@@ -329,8 +329,10 @@ export default function CapturaSitio({ email, t, hoy, estado, incluidas, onLista
     setMensaje('');
     setProcesando(true);
     try {
-      const r = await prepararArchivos(files);
+      // Un video pesado se comprime aquí y tarda: el avance va en el mensaje.
+      const r = await prepararArchivos(files, { onProgreso: (t) => vivo.current && setMensaje(t) });
       if (!vivo.current) return;
+      setMensaje(r.notas.join(' · '));
       if (r.rechazos.length) setError('No se agregaron: ' + r.rechazos.join(' '));
       if (r.listos.length) setPendientes((p) => [...p, ...r.listos.map((file) => ({ file, origen, tomada_en: tomada }))]);
     } catch (err) {
