@@ -678,6 +678,26 @@ function IncidenciasView({
     );
   }, [misRoles, rolesDetalle]);
 
+  /**
+   * Unidades en las que puede CAPTURAR: la misma regla que la base
+   * (inc_valida_datos, 4-nov-2026). El manager o una fila de rol sin unidad
+   * abren todas; si no, solo las unidades de sus filas. Consulta (viewer)
+   * con unidad NO es «todas» aquí: en el filtro sí, pero un folio en una
+   * unidad sin rol lo rechaza la base ("No tienes rol en la unidad…").
+   */
+  const unidadesAlta = useMemo(() => {
+    if (
+      misRoles.includes('manager') ||
+      rolesDetalle.some((r) => !(r.unidad_negocio || '').trim())
+    )
+      return UNIDADES;
+    return UNIDADES.filter((u) =>
+      rolesDetalle.some(
+        (r) => (r.unidad_negocio || '').trim().toLowerCase() === u.toLowerCase()
+      )
+    );
+  }, [misRoles, rolesDetalle]);
+
   const fotoDe = (i: Incidencia): string | undefined => {
     if (i.reasignacion_pendiente && fotos.reasign[i.record_id])
       return fotos.reasign[i.record_id];
@@ -2749,7 +2769,7 @@ function IncidenciasView({
     <NuevaInc
       key="alta"
       preset={presetNew}
-      unidades={misUnidades}
+      unidades={unidadesAlta}
       esMKT={misDep.some((d) => d.trim().toUpperCase() === 'MKT')}
       onClose={() => {
         onCerrarNueva?.();

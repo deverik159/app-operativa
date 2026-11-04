@@ -98,12 +98,18 @@ export const ROLE_PRIORITY = [
   'viewer',
 ];
 
+/**
+ * Las unidades que operan. Son las mismas que acepta la base en
+ * incidencias.unidad_negocio (check de la migración 20261104214300): una
+ * unidad nueva va aquí Y en una migración. Verde Vertical salió el
+ * 4-nov-2026 (Erik): no opera y la base ya la rechaza. Sigue en
+ * UNIDADES_CON_LADO y en el prefijo de folio por si regresa.
+ */
 export const UNIDADES = [
   'Ecovallas',
   'Vía Verde',
   'Biobox',
   'Biobox Perú',
-  'Verde Vertical',
 ];
 
 /** Áreas que atienden y reparan incidencias. Solo aplican a Técnico/Coordinador. */
