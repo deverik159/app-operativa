@@ -15,6 +15,7 @@ const {
   esDigitalNuc, esTecnicoNuc, unidadesAvisoNuc, maquinasDeInventario, estadoNuc,
   contarEstados, ordenarTablero, haceCuanto, pendientesNuc, coincideMaquina,
   entraEnTablero, recibeNucOtra, contarPorUnidad, diasFueraDeLinea, diaSiguiente, duracionTexto, respuestasPara,
+  nombreSitioDeCaras,
 } = await import('data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64'));
 
 const rol = (r, unidad = null, dep = null) => ({ rol: r, unidad_negocio: unidad, departamento: dep });
@@ -253,4 +254,18 @@ test('Gráfico: lo de antes del apagado es fuera de línea; lo de después, apag
     { dia: '2026-11-03', minutos: 120, apagado: 840, caidas: 1 },
     { dia: '2026-11-04', minutos: 0, apagado: 720, caidas: 0 },
   ]);
+});
+
+test('Ecovallas: el nombre del sitio sale de sus pantallas, sin el «1/4» de la cara', () => {
+  assert.equal(nombreSitioDeCaras(['Andres Bello (Hotel Presidente) 218 1/4', 'Andres Bello (Hotel Presidente) 218 2/4']), 'Andres Bello (Hotel Presidente) 218');
+  assert.equal(nombreSitioDeCaras(['Río Magdalena', 'San Jeronimo', 'Río Magdalena']), 'Río Magdalena · San Jeronimo');
+  assert.equal(nombreSitioDeCaras(['Av. Juárez 95 1/2 Reforma', 'Av. Juárez 95 2/2 Juarez']), 'Av. Juárez 95 Reforma · Av. Juárez 95 Juarez');
+  assert.equal(nombreSitioDeCaras(['Reforma 350']), 'Reforma 350');
+  assert.equal(nombreSitioDeCaras([null, '']), '');
+  const cara = (id, sitio) => ({ site_id: sitio, site_legacy_id: '', vendor_face_id: id, unidad_negocio: 'Ecovallas', tipo_medio: 'Digital', tipo_mueble: 'Ecovallas Digital', direccion: null, municipio: null });
+  const maq = maquinasDeInventario(
+    [cara('F1', 'E1'), cara('F2', 'E1'), cara('F3', 'E2')],
+    new Map([['F1', 'Tecamachalco 1/2'], ['F2', 'Tecamachalco 2/2']])
+  );
+  assert.deepEqual(maq.map((m) => [m.site_id, m.nombre]), [['E1', 'Tecamachalco'], ['E2', 'E2']]);
 });

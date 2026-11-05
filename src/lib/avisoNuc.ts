@@ -317,19 +317,37 @@ export function duracionTexto(minutos: number): string {
 }
 
 /**
- * Una máquina por site_id. El nombre y el mueble salen de la cara digital si
- * la hay (como nuc_aviso_abrir), si no de la primera.
+ * Nombre de un sitio de Ecovallas a partir de los de sus caras
+ * (nombres_pantallas, Erik, 4-nov-2026): sin el «1/4» de la cara y, si las
+ * caras se llaman distinto, todos juntos con «·». '' si ninguna tiene nombre.
  */
-export function maquinasDeInventario(filas: FilaInventarioNuc[]): MaquinaNuc[] {
+export function nombreSitioDeCaras(nombres: (string | null | undefined)[]): string {
+  const vistos: string[] = [];
+  for (const n of nombres) {
+    const limpio = (n || '').replace(/\s+\d+\s*\/\s*\d+(?=\s|$)/g, '').replace(/\s+/g, ' ').trim();
+    if (limpio && !vistos.includes(limpio)) vistos.push(limpio);
+  }
+  return vistos.join(' · ');
+}
+
+/**
+ * Una máquina por site_id. El nombre y el mueble salen de la cara digital si
+ * la hay (como nuc_aviso_abrir), si no de la primera. Sin site_legacy_id
+ * (Ecovallas), el nombre sale de `nombresCara` (vendor_face_id → nombre).
+ */
+export function maquinasDeInventario(filas: FilaInventarioNuc[], nombresCara?: Map<string, string>): MaquinaNuc[] {
   const porSitio = new Map<string, FilaInventarioNuc>();
+  const caras = new Map<string, string[]>();
   for (const f of filas) {
     if (!f.site_id || !entraEnTablero(f)) continue;
     const previa = porSitio.get(f.site_id);
     if (!previa || (previa.tipo_medio !== 'Digital' && f.tipo_medio === 'Digital')) porSitio.set(f.site_id, f);
+    const n = f.vendor_face_id ? nombresCara?.get(f.vendor_face_id) : undefined;
+    if (n) caras.set(f.site_id, [...(caras.get(f.site_id) || []), n]);
   }
   return [...porSitio.values()].map((f) => ({
     site_id: f.site_id as string,
-    nombre: f.site_legacy_id || (f.site_id as string),
+    nombre: f.site_legacy_id || nombreSitioDeCaras(caras.get(f.site_id as string) || []) || (f.site_id as string),
     unidad_negocio: f.unidad_negocio || '',
     tipo_mueble: f.tipo_mueble,
     direccion: f.direccion,

@@ -177,10 +177,18 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
         .select('id,site_id,foto_cierre,nota_cierre,cerrado_por,cerrado_en')
         .in('unidad_negocio', lista).eq('estado', 'en_linea').not('foto_cierre', 'is', null)
         .order('cerrado_en', { ascending: false }).limit(1000);
+      // Nombres de las pantallas de Ecovallas (por cara). Si falla, solo se ve la clave.
+      const idsPantalla = filas.filter((f) => f.vendor_face_id && !f.site_legacy_id && sinAcentos(f.unidad_negocio || '') === 'ecovallas')
+        .map((f) => f.vendor_face_id as string);
+      const nombresCara = new Map<string, string>();
+      for (let i = 0; i < idsPantalla.length; i += 200) {
+        const { data: np } = await sb.from('nombres_pantallas').select('vendor_face_id,nombre').in('vendor_face_id', idsPantalla.slice(i, i + 200));
+        for (const r of (np || []) as { vendor_face_id: string; nombre: string | null }[]) if (r.nombre) nombresCara.set(r.vendor_face_id, r.nombre);
+      }
       if (t !== turno.current) return;
       const ultimos = new Map<string, Cierre>();
       for (const c of (cerrados || []) as Cierre[]) if (!ultimos.has(c.site_id)) ultimos.set(c.site_id, c);
-      setMaquinas(maquinasDeInventario(filas));
+      setMaquinas(maquinasDeInventario(filas, nombresCara));
       setAvisos(new Map(((abiertos || []) as AvisoNuc[]).map((a) => [a.site_id, a])));
       setCierres(ultimos);
       setActualizado(new Date());
