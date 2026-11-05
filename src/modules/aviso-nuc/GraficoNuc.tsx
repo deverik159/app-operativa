@@ -8,7 +8,7 @@
 // se cayó van como etiqueta «×N» en los días con más de una caída, en la
 // ventanita al tocar la barra y en la tabla de abajo. Nada de doble eje.
 // ============================================================
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { sb } from '../../lib/supabase';
 import { colorTono } from '../../lib/tonos';
 import { diaCdmx, inicioDiaCdmx } from '../../lib/fechasCdmx';
@@ -32,16 +32,19 @@ function diasAntes(dia: string, n: number): string {
   return new Date(Date.parse(dia + 'T00:00:00Z') - n * 86400000).toISOString().slice(0, 10);
 }
 
-// Medidas del dibujo (viewBox; se escala al ancho de la ventana).
-// Cerca del ancho real de la ventana (≈480 px), para que el texto del eje no
-// se encoja de más; en el celular baja a ≈0.7.
-const ANCHO = 480;
+// Medidas del dibujo en píxeles reales: el ancho del viewBox es el ancho
+// medido del gráfico (1 unidad = 1 px), así la letra mide lo mismo que el resto
+// del modal en la compu y en el celular (Erik, 4-nov-2026: con el viewBox fijo
+// de 480 el texto se veía más grande que el del modal).
+const ANCHO_INICIAL = 480;
 const ALTO = 170;
-const IZQ = 44;
+const IZQ = 34;
 const DER = 8;
 const ARRIBA = 18;
 const ABAJO = 24;
 const MARCAS_H = [0, 6, 12, 18, 24];
+const LETRA = 11; // como las notas pequeñas del modal
+const ANCHO_FECHA = 46; // lo que ocupa «30 nov» con aire, para que no se encimen
 
 function GraficoNuc({ siteId }: { siteId: string }) {
   const hoy = diaCdmx(new Date());
@@ -50,6 +53,18 @@ function GraficoNuc({ siteId }: { siteId: string }) {
   const [tramos, setTramos] = useState<Tramo[] | null>(null);
   const [err, setErr] = useState('');
   const [sel, setSel] = useState<number | null>(null);
+  const caja = useRef<HTMLDivElement>(null);
+  const [ANCHO, setAncho] = useState(ANCHO_INICIAL);
+
+  useEffect(() => {
+    const el = caja.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const medir = () => { const w = Math.round(el.clientWidth); if (w > 0) setAncho(w); };
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const ini = inicioDiaCdmx(desde);
   const fin = inicioDiaCdmx(hasta);
@@ -94,13 +109,13 @@ function GraficoNuc({ siteId }: { siteId: string }) {
   const anchoBarra = Math.max(1, paso - 2); // 2 px de aire entre barras
   const altoUtil = ALTO - ARRIBA - ABAJO;
   const y = (min: number) => ARRIBA + altoUtil * (1 - min / 1440);
-  // Fechas del eje: primera, última y unas cuantas en medio, sin enciman.
-  const cadaCuanto = Math.max(1, Math.ceil(n / 5));
+  // Fechas del eje: primera, última y las que quepan en medio, sin encimarse.
+  const cadaCuanto = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((ANCHO - IZQ - DER) / ANCHO_FECHA))));
 
   const rapido = (diasAtras: number) => { setHasta(hoy); setDesde(diasAntes(hoy, diasAtras - 1)); };
 
   return (
-    <div style={{ marginBottom: 14 }}>
+    <div ref={caja} style={{ marginBottom: 14 }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Días fuera de línea</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginBottom: 8 }}>
         <label style={{ fontSize: 12, color: 'var(--muted)' }}>Desde{' '}
@@ -140,7 +155,7 @@ function GraficoNuc({ siteId }: { siteId: string }) {
             {MARCAS_H.map((h) => (
               <g key={h}>
                 <line x1={IZQ} x2={ANCHO - DER} y1={y(h * 60)} y2={y(h * 60)} stroke="var(--line)" strokeWidth={1} strokeDasharray={h ? '2 3' : undefined} />
-                <text x={IZQ - 6} y={y(h * 60) + 4} textAnchor="end" fontSize={16} fill="var(--muted)">{h} h</text>
+                <text x={IZQ - 6} y={y(h * 60) + 4} textAnchor="end" fontSize={LETRA} fill="var(--muted)">{h} h</text>
               </g>
             ))}
             {dias.map((d, i) => {
@@ -161,9 +176,10 @@ function GraficoNuc({ siteId }: { siteId: string }) {
                       : puntaRedonda(x, ARRIBA + altoUtil - altoRojo, anchoBarra, altoRojo)}
                     fill={rojo} opacity={opacidad} />}
                   {altoGris > 0 && <path d={puntaRedonda(x, top, anchoBarra, altoGris)} fill={gris} opacity={opacidad} />}
-                  {d.caidas > 1 && <text x={x + anchoBarra / 2} y={top - 4} textAnchor="middle" fontSize={16} fill="var(--txt)">×{d.caidas}</text>}
-                  {(i % cadaCuanto === 0 || i === dias.length - 1) && (
-                    <text x={x + anchoBarra / 2} y={ALTO - 6} textAnchor="middle" fontSize={16} fill="var(--muted)">{corto(d.dia)}</text>
+                  {d.caidas > 1 && <text x={x + anchoBarra / 2} y={top - 4} textAnchor="middle" fontSize={LETRA} fill="var(--txt)">×{d.caidas}</text>}
+                  {/* La última siempre; la anterior se salta si quedaría encimada. */}
+                  {(i === dias.length - 1 || (i % cadaCuanto === 0 && dias.length - 1 - i >= cadaCuanto * 0.7)) && (
+                    <text x={x + anchoBarra / 2} y={ALTO - 6} textAnchor="middle" fontSize={LETRA} fill="var(--muted)">{corto(d.dia)}</text>
                   )}
                   {/* Zona de toque: toda la columna, más grande que la barra. */}
                   <rect x={IZQ + i * paso} y={ARRIBA} width={paso} height={altoUtil} fill="transparent"
