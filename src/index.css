@@ -240,8 +240,11 @@
   .mencion{font-weight:700;color:var(--accent2)}
   .mencion-mia{background:var(--tag-fondo);border-radius:4px;padding:0 3px}
   .sobre-acento-txt .mencion{color:inherit;text-decoration:underline}
+  /* overscroll-behavior: al llegar al final de la lista, el dedo no arrastra
+     el chat de atrás; touch-action: ahí el dedo desplaza en vertical (4-nov-2026). */
   .mencion-lista{margin-bottom:8px;max-height:220px;overflow-y:auto;background:var(--panel);
-    border:1px solid var(--line);border-radius:10px;padding:4px}
+    border:1px solid var(--line);border-radius:10px;padding:4px;
+    overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
   .mencion-opcion{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;
     text-align:left;padding:8px 10px;border:0;border-radius:8px;background:transparent;
     color:var(--txt);font-size:14px;cursor:pointer}

@@ -212,6 +212,16 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
     if (t) void pedirMencionables();
   };
 
+  /**
+   * Dónde empezó el dedo sobre una opción del @ (4-nov-2026). Con el dedo la
+   * opción se elige al LEVANTARLO y solo si casi no se movió: antes se elegía
+   * al apoyarlo, y en iPhone y Android desplazar la lista elegía la primera
+   * opción que se tocaba. Si el navegador toma el gesto como desplazamiento
+   * manda pointercancel y no se elige nada. Con mouse sigue siendo al
+   * presionar.
+   */
+  const toqueMencion = useRef<{ id: number; x: number; y: number } | null>(null);
+
   const elegirMencion = (m: Mencionable) => {
     if (!tokenAt) return;
     const cursor = inputRef.current?.selectionStart ?? texto.length;
@@ -2138,12 +2148,30 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                       role="option"
                       aria-selected={false}
                       className="mencion-opcion"
-                      // pointerdown y no click: en el celular, el click llega
-                      // después de que el campo pierde el foco y se cierra el
-                      // teclado; así el @ se completa sin parpadeo.
+                      // Eventos de puntero y no click: en el celular, el click
+                      // llega después de que el campo pierde el foco y se
+                      // cierra el teclado. El preventDefault del pointerdown
+                      // conserva el foco (y el teclado) sin impedir el
+                      // desplazamiento. Mouse: elige al presionar. Dedo: al
+                      // levantar, si no se desplazó (ver toqueMencion).
                       onPointerDown={(e) => {
                         e.preventDefault();
+                        if (e.pointerType === 'mouse') {
+                          elegirMencion(s);
+                          return;
+                        }
+                        toqueMencion.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+                      }}
+                      onPointerUp={(e) => {
+                        const t = toqueMencion.current;
+                        toqueMencion.current = null;
+                        if (!t || t.id !== e.pointerId) return;
+                        if (Math.hypot(e.clientX - t.x, e.clientY - t.y) > 10) return;
+                        e.preventDefault();
                         elegirMencion(s);
+                      }}
+                      onPointerCancel={() => {
+                        toqueMencion.current = null;
                       }}
                       onClick={(e) => e.preventDefault()}
                     >
