@@ -7,7 +7,7 @@ const source = await readFile(new URL('../src/lib/maquinasBiobox.ts', import.met
 const { outputText } = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 });
-const { fueraDeLinea, maquinasUnicas, indicadoresMaquinas, pendienteRevision } = await import(
+const { fueraDeLinea, maquinasUnicas, indicadoresMaquinas, pendienteRevision, abreMaquinasBiobox } = await import(
   'data:text/javascript;base64,' + Buffer.from(outputText).toString('base64')
 );
 
@@ -49,4 +49,43 @@ test('Los indicadores respetan la base filtrada y un cambio de estado al recarga
   assert.equal(indicadoresMaquinas([a], {}).find((k) => k.id === 'fuera').filas.length, 1);
   assert.equal(indicadoresMaquinas([{ ...a, face_status: 'Active' }], {}).find((k) => k.id === 'fuera').filas.length, 0);
   assert.ok(indicadoresMaquinas([], {}).every((k) => k.filas.length === 0));
+});
+
+// Quién abre Máquinas Biobox (Erik, 6-nov-2026): técnicos y coordinadores de
+// Op. Bio Box, coordinadores de Biobox sin área y el manager. Casos tomados de
+// las filas reales de producción de ese día.
+const fila = (rol, unidad_negocio, departamento = null) => ({ rol, unidad_negocio, departamento });
+
+test('Máquinas Biobox: entran el manager, Op. Bio Box y el coordinador de Biobox sin área', () => {
+  assert.equal(abreMaquinasBiobox([fila('manager', null)]), true);
+  // Técnico de ruta: reportante de Operaciones + técnico de Op. Bio Box.
+  assert.equal(abreMaquinasBiobox([fila('reportante', 'Biobox', 'Operaciones'), fila('reparacion', 'Biobox', 'Op. Bio Box')]), true);
+  assert.equal(abreMaquinasBiobox([fila('reparacion', 'Biobox Perú', 'Op. Bio Box')]), true);
+  assert.equal(abreMaquinasBiobox([fila('reparacion', null, ' op. bio box ')]), true);
+  assert.equal(abreMaquinasBiobox([fila('coordinador', 'Biobox', 'Op. Bio Box')]), true);
+  assert.equal(abreMaquinasBiobox([fila('coordinador', 'Biobox', null)]), true);
+});
+
+test('Máquinas Biobox: un técnico de Digital o TI de todas las unidades ya no entra', () => {
+  assert.equal(abreMaquinasBiobox([fila('reparacion', null, 'Digital')]), false);
+  assert.equal(abreMaquinasBiobox([fila('reparacion', null, 'TI')]), false);
+  assert.equal(abreMaquinasBiobox([fila('reportante', null, 'SRD'), fila('reparacion', null, 'Digital')]), false);
+  // Ni el técnico de Digital de la unidad Biobox, ni otras áreas técnicas de Biobox.
+  assert.equal(abreMaquinasBiobox([fila('reparacion', 'Biobox', 'Digital')]), false);
+  assert.equal(abreMaquinasBiobox([fila('reparacion', 'Biobox', 'Iluminación'), fila('validador', 'Biobox', 'Operaciones')]), false);
+});
+
+test('Máquinas Biobox: coordinadores de otra área, reportantes y Consulta no entran', () => {
+  assert.equal(abreMaquinasBiobox([fila('coordinador', 'Biobox', 'Digital'), fila('reparacion', null, 'Digital')]), false);
+  assert.equal(abreMaquinasBiobox([fila('coordinador', null, 'Digital')]), false);
+  assert.equal(abreMaquinasBiobox([fila('coordinador', null, null)]), false);
+  assert.equal(abreMaquinasBiobox([fila('reportante', 'Biobox', 'Monitoreo'), fila('analista', 'Biobox')]), false);
+  assert.equal(abreMaquinasBiobox([fila('reportante', 'Biobox', 'MKT')]), false);
+  assert.equal(abreMaquinasBiobox([fila('viewer', 'Biobox')]), false);
+  assert.equal(abreMaquinasBiobox([fila('fijador', 'Biobox')]), false);
+  // Op. Bio Box en una fila de otra unidad no cuenta.
+  assert.equal(abreMaquinasBiobox([fila('reparacion', 'Ecovallas', 'Op. Bio Box')]), false);
+  // Rol y área de filas distintas no se mezclan.
+  assert.equal(abreMaquinasBiobox([fila('reportante', 'Biobox', 'Op. Bio Box'), fila('reparacion', null, 'Digital')]), false);
+  assert.equal(abreMaquinasBiobox([]), false);
 });

@@ -6,6 +6,32 @@ export type MaquinaBiobox = UbicacionRevision & { face_status: string | null };
 
 export const DIAS_REVISION = 30;
 
+type FilaRol = { rol: string; unidad_negocio: string | null; departamento?: string | null };
+
+const esOpBiobox = (dep: string | null | undefined) => /^op\. bio box$/i.test((dep || '').trim());
+const unidadBiobox = (u: string | null | undefined) => /^biobox/i.test((u || '').trim());
+
+/**
+ * ¿Abre Máquinas Biobox? (Erik, 6-nov-2026). Lo operan los técnicos de
+ * Op. Bio Box y sus coordinadores; un técnico de Digital o TI «de todas las
+ * unidades» ya no entra (antes cualquier fila sin unidad contaba como Biobox).
+ * Rol, unidad y área se leen de la MISMA fila:
+ *  · manager;
+ *  · técnico (reparacion) o coordinador del área Op. Bio Box, de Biobox,
+ *    Biobox Perú o sin unidad (Op. Bio Box solo existe en Biobox);
+ *  · coordinador de Biobox o Biobox Perú sin área.
+ * Espejo de `opera_maquinas_biobox()` en la base.
+ */
+export function abreMaquinasBiobox(roles: readonly FilaRol[]): boolean {
+  return roles.some((r) => {
+    if (r.rol === 'manager') return true;
+    if (r.rol !== 'reparacion' && r.rol !== 'coordinador') return false;
+    const sinUnidad = !(r.unidad_negocio || '').trim();
+    if (esOpBiobox(r.departamento)) return sinUnidad || unidadBiobox(r.unidad_negocio);
+    return r.rol === 'coordinador' && !(r.departamento || '').trim() && unidadBiobox(r.unidad_negocio);
+  });
+}
+
 export function pendienteRevision(maquina: MaquinaBiobox): boolean {
   return maquina.dias_sin_revision == null || maquina.dias_sin_revision >= DIAS_REVISION;
 }

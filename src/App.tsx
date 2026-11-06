@@ -31,6 +31,7 @@ import { Lock, RefreshCw, WifiOff } from 'lucide-react';
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { unidadesAvisoNuc, pendientesNuc } from './lib/avisoNuc';
+import { abreMaquinasBiobox } from './lib/maquinasBiobox';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES, URL_BIOGUARD } from './lib/constants';
 import {
   abreComprobaciones,
@@ -1765,18 +1766,12 @@ function Main({
   }, [conAcceso, email, unidadesSync]);
 
   /**
-   * ¿Este usuario pertenece a la unidad Biobox? El módulo de máquinas es DE
-   * esa unidad: quien solo opera Ecovallas/Vía Verde no tiene nada que hacer
-   * ahí (Erik, ago-2026). Una fila sin unidad (= todas) o el manager pasan.
-   * Cubre "Biobox" y "Biobox Perú" con el mismo prefijo.
+   * Máquinas Biobox: técnicos y coordinadores de Op. Bio Box, coordinadores
+   * de Biobox sin área y el manager (Erik, 6-nov-2026). Antes bastaba una
+   * fila sin unidad y un técnico de Digital de todas las unidades lo veía.
+   * Rol, unidad y área de la MISMA fila (abreMaquinasBiobox).
    */
-  const enBiobox =
-    misRoles.includes('manager') ||
-    (roles || []).some(
-      (r) =>
-        (!r.unidad_negocio && r.rol !== 'supervisor') ||
-        /^biobox/i.test((r.unidad_negocio || '').trim())
-    );
+  const veMaquinasBiobox = abreMaquinasBiobox(rolesDetalle);
 
   /**
    * LA confirmación de salir vive AQUÍ, una sola vez, y los dos botones que
@@ -2013,16 +2008,8 @@ function Main({
       t: 'Mis rutas',
       grupo: 'campo',
     },
-    // Revisión de máquinas Biobox. La lista es a propósito más amplia que la
-    // de Pauta: además de quien administra y quien repara, revisa el
-    // monitorista (reportante) —es quien levanta la incidencia desde el
-    // checklist— y el fijador, que recorre las mismas rutas.
-    (has('manager') ||
-      has('coordinador') ||
-      has('reparacion') ||
-      has('reportante') ||
-      has('fijador')) &&
-      enBiobox && {
+    // Revisión de máquinas Biobox: solo Op. Bio Box (ver veMaquinasBiobox).
+    veMaquinasBiobox && {
         k: 'biobox',
         ic: '♻️',
         t: 'Máquinas Biobox',
