@@ -20,6 +20,16 @@ export function esIOS(): boolean {
 }
 
 /**
+ * ¿Teléfono o tableta? iOS (con el iPad que se anuncia como Mac), Android o
+ * cualquier navegador que se declare móvil. Sirve para lo que importa en
+ * campo, como insistir con los avisos push (9-nov-2026).
+ */
+export function esCelular(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return esIOS() || /Android|Mobi/i.test(navigator.userAgent);
+}
+
+/**
  * Traduce el error de geolocalización a instrucciones ACCIONABLES.
  *
  * El caso que lo motivó (Brayan, 11-sep-2026): el GPS del teléfono estaba

@@ -8,31 +8,32 @@
 // explicarlo el usuario cree que la app está rota.
 // ============================================================
 import { Bell, PhoneOff, Smartphone } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
-import {
-  estadoPush,
-  activarPush,
-  desactivarPush,
-  estaInstalada,
-} from '../lib/push';
-import type { EstadoPush } from '../lib/push';
+import { useState, useEffect } from 'react';
+import { activarPush, desactivarPush, estaInstalada } from '../lib/push';
+import { usePush, refrescarPush, alPedirPanelPush } from '../lib/usePush';
 import { esIOS as esIOSLib } from '../lib/plataforma';
 import CerrarModal from './CerrarModal';
 import Ic from './Ic';
 
 function BotonPush({ email }: { email: string }) {
-  const [estado, setEstado] = useState<EstadoPush | null>(null);
+  // El estado se compara con la base (ver revisarPush): el navegador puede
+  // decir "activo" cuando el servidor ya dejó de mandarle.
+  const estado = usePush(email)?.estado ?? null;
   const [abierto, setAbierto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
-  const refrescar = useCallback(async () => {
-    setEstado(await estadoPush());
-  }, []);
+  const refrescar = () => refrescarPush(email);
 
-  useEffect(() => {
-    refrescar();
-  }, [refrescar]);
+  // El aviso de abajo (AvisoPush) abre esta misma ventana.
+  useEffect(
+    () =>
+      alPedirPanelPush(() => {
+        setMsg('');
+        setAbierto(true);
+      }),
+    []
+  );
 
   // Mientras no se sepa el estado, o si el navegador no lo soporta, no se
   // dibuja nada: un botón muerto solo genera dudas.
@@ -43,7 +44,7 @@ function BotonPush({ email }: { email: string }) {
   const activar = async () => {
     setBusy(true);
     setMsg('');
-    const err = await activarPush(email);
+    const err = await activarPush(email, estado === 'caido');
     setBusy(false);
     if (err) setMsg(err);
     else {
@@ -155,6 +156,14 @@ function BotonPush({ email }: { email: string }) {
               </div>
             )}
 
+            {estado === 'caido' && (
+              <div className="banner" style={{ marginBottom: 14 }}>
+                Este dispositivo estaba activado, pero los avisos dejaron de
+                llegarle (el servicio de notificaciones lo dio de baja, o la
+                app se reinstaló). Vuelve a activarlo aquí.
+              </div>
+            )}
+
             {estado === 'sin-permiso' && (
               <p
                 style={{
@@ -192,9 +201,9 @@ function BotonPush({ email }: { email: string }) {
               <button className="btn ghost" onClick={() => setAbierto(false)}>
                 Cerrar
               </button>
-              {estado === 'sin-permiso' && (
+              {(estado === 'sin-permiso' || estado === 'caido') && (
                 <button className="btn" onClick={activar} disabled={busy}>
-                  {busy ? 'Activando…' : <><Ic i={Bell} />Activar</>}
+                  {busy ? 'Activando…' : <><Ic i={Bell} />{estado === 'caido' ? 'Reactivar' : 'Activar'}</>}
                 </button>
               )}
               {activo && (

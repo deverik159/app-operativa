@@ -19,7 +19,18 @@ export type EstadoPush =
   | 'requiere-instalar' // iPhone en Safari: hay que "Agregar a inicio"
   | 'sin-permiso'       // se puede pedir permiso
   | 'bloqueado'         // el usuario dijo no; hay que ir a ajustes del navegador
+  | 'caido'             // el navegador cree que está suscrito, pero la base no le manda
   | 'activo';           // suscrito y funcionando
+
+/**
+ * Lo que la app sabe de los avisos de esta persona: el estado de ESTE
+ * dispositivo y cuántos dispositivos suyos reciben push según la base
+ * (null si no se pudo consultar, por ejemplo sin señal).
+ */
+export type RevisionPush = {
+  estado: EstadoPush;
+  dispositivosActivos: number | null;
+};
 
 const VAPID = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
 
@@ -59,17 +70,67 @@ export async function registrarSW(): Promise<ServiceWorkerRegistration | null> {
   }
 }
 
-export async function estadoPush(): Promise<EstadoPush> {
+/** Estado según el navegador, más el endpoint si está suscrito. */
+async function estadoLocal(): Promise<{ estado: EstadoPush; endpoint: string | null }> {
   // En iPhone, dentro de Safari, PushManager no existe. Hay que instalar.
-  if (esIOS() && !estaInstalada()) return 'requiere-instalar';
+  if (esIOS() && !estaInstalada()) return { estado: 'requiere-instalar', endpoint: null };
   if (!('serviceWorker' in navigator) || !('PushManager' in window))
-    return 'no-soportado';
-  if (Notification.permission === 'denied') return 'bloqueado';
+    return { estado: 'no-soportado', endpoint: null };
+  if (Notification.permission === 'denied') return { estado: 'bloqueado', endpoint: null };
 
   const reg = await navigator.serviceWorker.getRegistration();
   const sus = await reg?.pushManager.getSubscription();
-  if (sus && Notification.permission === 'granted') return 'activo';
-  return 'sin-permiso';
+  if (sus && Notification.permission === 'granted')
+    return { estado: 'activo', endpoint: sus.endpoint };
+  return { estado: 'sin-permiso', endpoint: null };
+}
+
+/** Estado según el navegador solamente (no pregunta a la base). */
+export async function estadoPush(): Promise<EstadoPush> {
+  return (await estadoLocal()).estado;
+}
+
+/** Tope de la consulta a la base: sin señal no se espera de más. */
+const TOPE_CONSULTA_MS = 8000;
+
+/**
+ * Estado de este dispositivo comparado con la base, más cuántos dispositivos
+ * de la persona reciben push.
+ *
+ * El navegador solo sabe que se suscribió; no sabe si la base lo sigue
+ * teniendo. Cuando el servicio de push responde 404/410, `enviar-push` marca
+ * la suscripción como inválida y deja de mandarle, pero el teléfono sigue
+ * diciendo "activo". Así se quedó Irving sin avisos (revisión del 9-nov-2026:
+ * 14 de 33 personas con avisos no tenían ningún dispositivo activo). Aquí
+ * ese caso sale como 'caido'.
+ *
+ * La RLS de push_suscripciones solo deja ver las filas propias. Si la
+ * consulta falla o tarda (sin señal), se confía en el navegador y
+ * dispositivosActivos queda en null: nunca se acusa una caída sin saberlo.
+ */
+export async function revisarPush(): Promise<RevisionPush> {
+  const local = await estadoLocal();
+  let endpoints: string[] | null = null;
+  try {
+    const consulta = sb
+      .from('push_suscripciones')
+      .select('endpoint')
+      .eq('invalida', false)
+      .then(({ data, error }) =>
+        error ? null : (data || []).map((f) => (f as { endpoint: string }).endpoint)
+      );
+    const tope = new Promise<null>((r) => setTimeout(() => r(null), TOPE_CONSULTA_MS));
+    endpoints = await Promise.race([consulta, tope]);
+  } catch {
+    endpoints = null;
+  }
+  if (endpoints === null) return { estado: local.estado, dispositivosActivos: null };
+
+  const estado =
+    local.estado === 'activo' && local.endpoint && !endpoints.includes(local.endpoint)
+      ? 'caido'
+      : local.estado;
+  return { estado, dispositivosActivos: endpoints.length };
 }
 
 /**
@@ -78,9 +139,13 @@ export async function estadoPush(): Promise<EstadoPush> {
  * IMPORTANTE: hay que llamarla desde un gesto del usuario (un clic). Safari
  * ignora la petición de permiso si no viene de una interacción directa.
  *
+ * Con `renovar` (estado 'caido') se tira la suscripción que el navegador
+ * guarda y se crea otra: la vieja la rechazó el servicio de push o es de
+ * otra cuenta que usó este mismo teléfono, y volver a guardarla no serviría.
+ *
  * @returns null si todo salió bien, o un mensaje explicando qué faltó.
  */
-export async function activarPush(email: string): Promise<string | null> {
+export async function activarPush(email: string, renovar = false): Promise<string | null> {
   if (!VAPID)
     return 'Falta VITE_VAPID_PUBLIC_KEY en .env.local. Pídesela al administrador.';
 
@@ -97,6 +162,11 @@ export async function activarPush(email: string): Promise<string | null> {
   let sus: PushSubscription | null;
   try {
     sus = await reg.pushManager.getSubscription();
+
+    if (sus && renovar) {
+      await sus.unsubscribe();
+      sus = null;
+    }
 
     // Si la suscripción existente es de OTRA llave VAPID (se regeneraron las
     // llaves), reutilizarla guardaría un registro muerto: el push service

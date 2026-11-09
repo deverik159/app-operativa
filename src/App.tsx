@@ -47,6 +47,8 @@ import { useNotificaciones } from './lib/useNotificaciones';
 import { vigilarNuevaVersion, traerVersionNueva, revisarVersionAhora } from './lib/versionApp';
 import CampanaNotifs from './components/CampanaNotifs';
 import BotonPush from './components/BotonPush';
+import AvisoPush from './components/AvisoPush';
+import { refrescarPush } from './lib/usePush';
 import MenuUsuario from './components/MenuUsuario';
 import ErrorBoundary from './components/ErrorBoundary';
 import EnviosPendientes from './components/EnviosPendientes';
@@ -2283,6 +2285,8 @@ function Main({
     // nueva se ven al tocar ↻, sin recargar la página (Erik, 28-sep-2026).
     void refrescarRoles(true);
     revisarVersionAhora();
+    // Y si este dispositivo sigue recibiendo avisos (9-nov-2026).
+    void refrescarPush(email);
   };
 
   return (
@@ -2433,6 +2437,10 @@ function Main({
           </button>
         </div>
       )}
+
+      {/* Este dispositivo no recibe avisos push (9-nov-2026): sin esto,
+          un tercio de los avisos solo se veía al abrir la app. */}
+      <AvisoPush email={email} />
 
       {/* Aviso de envíos que no han salido (frente B, auditoría primer mes).
           Vive en el armazón, no en un módulo: debe verse desde cualquier
