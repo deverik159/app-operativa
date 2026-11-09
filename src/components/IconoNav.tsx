@@ -22,6 +22,7 @@ import {
   Router,
   ScanSearch,
   Signpost,
+  Smartphone,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -44,6 +45,9 @@ const ICONOS: Record<string, LucideIcon> = {
   equipos: Cpu,
   // Aviso NUC (29-oct-2026): el NUC es la computadora de la máquina.
   aviso_nuc: Router,
+  // Reportes App Biobox (9-nov-2026): lo que reportan los usuarios desde su
+  // teléfono; el mismo ícono que el título de la pantalla.
+  reportes_app: Smartphone,
   usuarios: Users,
 };
 
@@ -93,6 +97,7 @@ const CORTOS: Record<string, string> = {
   bitacora_vv: 'Pauta VV', // «Disponibilidad y Pauta VV» (19-oct-2026)
   fijacion_externa: 'Fijación',
   biobox: 'Biobox',
+  reportes_app: 'App Biobox', // «Reportes App Biobox» no cabe en la barra (9-nov-2026)
 };
 
 export function tituloCorto(k: string, t: string): string {
