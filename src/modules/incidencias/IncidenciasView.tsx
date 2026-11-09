@@ -959,9 +959,10 @@ function IncidenciasView({
   const esSoloViewer =
     misRoles.length > 0 && misRoles.every((r) => r === 'viewer');
   // La tabla reúne trazabilidad y permite exportar el conjunto filtrado; es
-  // una vista de consulta para coordinación y administración. La RLS sigue
-  // siendo el candado de las filas que llegan desde la base.
-  const puedeVerTabla = has('coordinador');
+  // una vista de consulta para coordinación y administración, y desde el
+  // 9-nov-2026 también para el validador (Erik). La RLS sigue siendo el
+  // candado: cada quien ve y exporta solo las filas que ya le llegan.
+  const puedeVerTabla = has('coordinador') || has('validador');
   // `asignarArea` ya no existe. Se quitó junto con AsignarAreaModal: hacía lo
   // mismo que Reasignar —el área dice "esto no es mío, va para allá"— pero
   // sin motivo y sin pasar por el validador, escribiendo `assigned_area` de
