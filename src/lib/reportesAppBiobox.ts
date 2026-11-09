@@ -204,6 +204,21 @@ export function leerErrorBandeja(mensaje: string): { texto: string; folioDuplica
   return { texto: (mensaje || 'No se pudo guardar.').replace(/^ERROR:\s*/, ''), folioDuplicado: null };
 }
 
+/**
+ * La fecha del reporte llega como texto de la base de Biobox
+ * ('2026-11-09 18:25:09'), y esa base trabaja en UTC: el monitor registra
+ * session_timezone y system_timezone = UTC (verificado el 9-nov-2026; Erik
+ * vio BBMAQ-00369 «a las 18:25» cuando se levantó a las 12:25 de CDMX).
+ * Devuelve el instante en ISO (UTC) para pintarlo en hora de CDMX, o null si
+ * el texto no tiene esa forma (entonces se enseña tal cual).
+ */
+export function fechaCoreAIso(texto: string | null | undefined): string | null {
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)(?:\.\d+)?$/.exec((texto || '').trim());
+  if (!m) return null;
+  const iso = `${m[1]}T${m[2].length === 5 ? m[2] + ':00' : m[2]}Z`;
+  return Number.isNaN(Date.parse(iso)) ? null : iso;
+}
+
 /** Minutos desde la última carga del sync (null si nunca ha cargado). */
 export function minutosDesde(iso: string | null | undefined, ahora: number = Date.now()): number | null {
   if (!iso) return null;

@@ -34,6 +34,7 @@ import {
   desfase,
   equivalenciaDe,
   estadoBandeja,
+  fechaCoreAIso,
   leerErrorBandeja,
   minutosDesde,
   textoEstatusCore,
@@ -74,6 +75,12 @@ const ESTATUS_INC: Record<string, string> = {
 const ABIERTOS = ['por_validar', 'en_proceso', 'reparado', 'rechazada'];
 const COLS_INC = 'record_id,folio,estatus,nombre_incidencia,area_responsable,assigned_area,repaired_by_email';
 const SIN_SENAL = 'Necesitas señal para esto.';
+
+/** La fecha de Biobox viene en UTC: se enseña en hora de CDMX, como toda la app. */
+const fechaReporte = (texto: string) => {
+  const iso = fechaCoreAIso(texto);
+  return iso ? fechaHoraCdmx(iso) : texto;
+};
 
 /** Acción abierta sobre un reporte. */
 type Accion =
@@ -179,7 +186,7 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'baseline', justifyContent: 'space-between' }}>
           <div style={{ fontSize: 13, color: 'var(--muted)' }}>
             <b style={{ color: 'var(--txt)' }}>App {r.folio_app || r.report_id}</b>
-            {' · '}{r.unidad_negocio}{r.fecha_reporte_core ? ' · ' + r.fecha_reporte_core : ''}
+            {' · '}{r.unidad_negocio}{r.fecha_reporte_core ? ' · ' + fechaReporte(r.fecha_reporte_core) : ''}
           </div>
           <span className="tag" title="Estatus que ve el usuario en la app Biobox">
             App Biobox: {textoEstatusCore(r)}

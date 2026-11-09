@@ -10,6 +10,7 @@ const { outputText } = ts.transpileModule(source, {
 const {
   abreReportesAppBiobox, unidadesBandeja, atiendeUnidad, pideMarcarAtendido, estadoBandeja,
   textoEstatusCore, desfase, equivalenciaDe, leerErrorBandeja, minutosDesde, coincideBusqueda,
+  fechaCoreAIso,
 } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const rep = (x = {}) => ({
@@ -94,6 +95,17 @@ test('Textos, equivalencias y errores', () => {
   assert.equal(d.folioDuplicado, 'BBMM00031');
   assert.match(d.texto, /BBMM00031/);
   assert.equal(leerErrorBandeja('Escribe el motivo del descarte.').folioDuplicado, null);
+});
+
+test('La fecha de Biobox se lee como UTC', () => {
+  // BBMAQ-00369: Biobox dice 18:25:09 y en CDMX fueron las 12:25 (UTC-6).
+  assert.equal(fechaCoreAIso('2026-11-09 18:25:09'), '2026-11-09T18:25:09Z');
+  // BBOTR-00366: 01:00 UTC del 9 fue el 8 a las 19:00 en CDMX.
+  assert.equal(new Date(fechaCoreAIso('2026-11-09 01:00:53')).getTime() - 6 * 3600e3,
+    Date.parse('2026-11-08T19:00:53Z'));
+  assert.equal(fechaCoreAIso('2026-11-09T07:05'), '2026-11-09T07:05:00Z');
+  assert.equal(fechaCoreAIso('2026-11-09 18:25:09.123'), '2026-11-09T18:25:09Z');
+  for (const raro of ['', null, '09/11/2026 18:25', 'ayer']) assert.equal(fechaCoreAIso(raro), null);
 });
 
 test('Minutos desde la última carga y búsqueda', () => {
