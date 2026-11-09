@@ -16,7 +16,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import { slaHoras } from '../../lib/helpers';
-import { SLA_VALIDACION_DEFAULT } from '../../lib/constants';
+import { SLA_VALIDACION_DEFAULT, HORARIO_VALIDADOR_TEXTO } from '../../lib/constants';
 import { cargarNombres } from '../../lib/nombres';
 import type { MapaNombres } from '../../lib/nombres';
 import KpiView from './KpiView';
@@ -463,7 +463,7 @@ function IndicadoresView({
         <section className="card" style={{ marginBottom: 20 }}>
           <h3 style={{ margin: '0 0 5px' }}>SLA de validación</h3>
           <p className="phint" style={{ marginTop: 0 }}>
-            Minutos hábiles de lunes a viernes, 9:30–18:30 CDMX, para validar un reporte nuevo y aprobar o rechazar una reparación.
+            Minutos hábiles de {HORARIO_VALIDADOR_TEXTO}, para validar un reporte nuevo y aprobar o rechazar una reparación.
           </p>
           <div className="row2">
             <div className="field">

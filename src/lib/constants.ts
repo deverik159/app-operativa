@@ -271,10 +271,18 @@ export const PORTICOS_LADO_FIJO: Record<string, string> = {
  */
 export const AREAS_AUTORUTEO = ['Digital', 'Op. Bio Box'];
 
-/** Horario del validador (America/Mexico_City): Lun–Vie 9:30–18:30. */
+/**
+ * Horario del validador (America/Mexico_City): Lun–Vie 8:15–17:00 (Erik,
+ * 9-nov-2026; antes 9:30–18:30). Es UNO solo para el reloj del SLA de
+ * validación (reporte y reparación) y para el auto-ruteo fuera de horario.
+ * La base no lo conoce: solo marca los inicios (set_sla).
+ */
 export const VAL_DIAS = [1, 2, 3, 4, 5];
-export const VAL_DESDE = 9 * 60 + 30;
-export const VAL_HASTA = 18 * 60 + 30;
+export const VAL_DESDE = 8 * 60 + 15;
+export const VAL_HASTA = 17 * 60;
+
+/** El mismo horario en texto, para la pantalla. */
+export const HORARIO_VALIDADOR_TEXTO = 'lunes a viernes, 8:15–17:00 CDMX';
 
 /** Estados de la bitácora de Bioboxes (los usa BitacoraView, aún sin migrar). */
 export const UNIDADES_BIOBOX = ['Biobox', 'Biobox Perú'];

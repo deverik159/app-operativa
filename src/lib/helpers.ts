@@ -316,18 +316,36 @@ function minutosLaborablesValidador(desdeCivil: number, hastaCivil: number): num
 }
 
 /**
- * SLA de validación que solo consume minutos L-V, 09:30-18:30 CDMX.
- * Fuera de ese horario el reloj queda pausado y el vencimiento avanza a la
- * siguiente jornada. Así la cuenta es idéntica aunque el celular esté en otra
- * zona horaria.
+ * Minutos hábiles del validador (L–V, VAL_DESDE–VAL_HASTA, CDMX) entre dos
+ * instantes reales. Es la misma cuenta que usa el reloj de las tarjetas.
+ */
+export function minutosHabilesValidador(
+  desde: string | number | Date,
+  hasta: string | number | Date
+): number | null {
+  const a = minutoCivilValidador(new Date(desde));
+  const b = minutoCivilValidador(new Date(hasta));
+  if (a == null || b == null) return null;
+  return minutosLaborablesValidador(a, b);
+}
+
+/**
+ * SLA de validación que solo consume minutos hábiles del validador (L–V,
+ * 8:15–17:00 CDMX desde el 9-nov-2026; ver VAL_DESDE/VAL_HASTA). Fuera de
+ * ese horario el reloj queda pausado, el vencimiento avanza a la siguiente
+ * jornada y la etiqueta lo dice («· en pausa»): sin eso, una reparación
+ * guardada el sábado se veía «en tiempo · 20 min» todo el fin de semana y
+ * parecía que el reloj no contaba (9-nov-2026). Así la cuenta es idéntica
+ * aunque el celular esté en otra zona horaria. `ahora` es para las pruebas.
  */
 export function slaInfoValidador(
   inicio: string | number | Date,
-  minutos: number
+  minutos: number,
+  ahora: string | number | Date = new Date()
 ): SlaInfo | null {
   if (!inicio || !Number.isFinite(minutos) || minutos <= 0) return null;
   const inicioCivil = minutoCivilValidador(new Date(inicio));
-  const ahoraCivil = minutoCivilValidador(new Date());
+  const ahoraCivil = minutoCivilValidador(new Date(ahora));
   if (inicioCivil == null || ahoraCivil == null) return null;
 
   const vencimiento = sumarMinutosLaborablesValidador(inicioCivil, minutos);
@@ -335,22 +353,24 @@ export function slaInfoValidador(
   const remMin = vencido
     ? minutosLaborablesValidador(vencimiento, ahoraCivil)
     : minutosLaborablesValidador(ahoraCivil, vencimiento);
+  const enPausa = inicioLaborableValidador(ahoraCivil) !== ahoraCivil ? ' · en pausa' : '';
   const formato = (m: number) => (m >= 60 ? `${Math.round(m / 60)} h` : `${Math.max(1, Math.round(m))} min`);
-  if (vencido) return { color: '#ef4444', label: `vencido +${formato(remMin)}` };
+  if (vencido) return { color: '#ef4444', label: `vencido +${formato(remMin)}${enPausa}` };
   if (remMin / minutos <= 0.25)
-    return { color: '#f59e0b', label: `por vencer · ${formato(remMin)}` };
-  return { color: '#22c55e', label: `en tiempo · ${formato(remMin)}` };
+    return { color: '#f59e0b', label: `por vencer · ${formato(remMin)}${enPausa}` };
+  return { color: '#22c55e', label: `en tiempo · ${formato(remMin)}${enPausa}` };
 }
 
 /**
- * ¿Estamos FUERA del horario del validador (Lun–Vie 9:30–18:30 CDMX)?
+ * ¿Estamos FUERA del horario del validador (Lun–Vie 8:15–17:00 CDMX)?
  *
  * Se evalúa en la zona horaria de la Ciudad de México a propósito: el
  * dispositivo del reportante puede estar en otra zona, y el horario que
  * importa es el del validador. Si algo falla al formatear, devuelve false
- * (= "estamos en horario") para no auto-rutear por error.
+ * (= "estamos en horario") para no auto-rutear por error. `ahora` es para
+ * las pruebas.
  */
-export function fueraHorarioValidador(): boolean {
+export function fueraHorarioValidador(ahora: Date = new Date()): boolean {
   try {
     const partes = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Mexico_City',
@@ -358,7 +378,7 @@ export function fueraHorarioValidador(): boolean {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
-    }).formatToParts(new Date());
+    }).formatToParts(ahora);
 
     const nombreDia = partes.find((x) => x.type === 'weekday')?.value || '';
     const dia = ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as
