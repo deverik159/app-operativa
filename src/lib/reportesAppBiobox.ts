@@ -69,7 +69,7 @@ export type Equivalencia = {
   activo: boolean;
 };
 
-type FilaRol = { rol: string; unidad_negocio: string | null };
+type FilaRol = { rol: string; unidad_negocio: string | null; departamento?: string | null };
 
 export const UNIDADES_APP_BIOBOX = ['Biobox', 'Biobox Perú'] as const;
 
@@ -78,13 +78,21 @@ const igual = (a: string | null | undefined, b: string | null | undefined) =>
 
 const sinUnidad = (u: string | null | undefined) => !(u || '').trim();
 
+/** Técnico de TI: ve la bandeja solo para consulta (Erik, 9-nov-2026). */
+const esTecnicoTi = (r: FilaRol) => r.rol === 'reparacion' && igual(r.departamento, 'TI');
+
+/** Roles que ven la bandeja de su unidad, o de todas si no tienen unidad. */
+const vePorUnidad = (r: FilaRol) => r.rol === 'coordinador' || r.rol === 'viewer' || esTecnicoTi(r);
+
 /**
- * ¿Abre la bandeja? Espejo de `biobox_app_ve_bandeja()` en la base, más el
- * viewer (Consulta), que lee todo:
- *  · manager o viewer;
+ * ¿Abre la bandeja? Espejo de `biobox_app_ve_bandeja()` en la base
+ * (migración 20261109201008, Erik, 9-nov-2026):
+ *  · manager;
  *  · validador DE Biobox o Biobox Perú (sin unidad no cuenta, como en
  *    inc_sel_validador);
- *  · coordinador de Biobox o Biobox Perú, o sin unidad (= todas).
+ *  · coordinador, Consulta (viewer) o técnico de TI de Biobox o Biobox Perú,
+ *    o sin unidad (= todas). Consulta de otra unidad (p. ej. Ecovallas) ya no.
+ * Solo la validadora y el manager actúan: ver `atiendeUnidad`.
  */
 export function abreReportesAppBiobox(roles: readonly FilaRol[]): boolean {
   return unidadesBandeja(roles).length > 0;
@@ -93,16 +101,13 @@ export function abreReportesAppBiobox(roles: readonly FilaRol[]): boolean {
 /** Unidades cuya bandeja puede VER (en el orden de UNIDADES_APP_BIOBOX). */
 export function unidadesBandeja(roles: readonly FilaRol[]): string[] {
   const todas = roles.some(
-    (r) =>
-      r.rol === 'manager' ||
-      r.rol === 'viewer' ||
-      (r.rol === 'coordinador' && sinUnidad(r.unidad_negocio))
+    (r) => r.rol === 'manager' || (vePorUnidad(r) && sinUnidad(r.unidad_negocio))
   );
   return UNIDADES_APP_BIOBOX.filter(
     (u) =>
       todas ||
       roles.some(
-        (r) => (r.rol === 'validador' || r.rol === 'coordinador') && igual(r.unidad_negocio, u)
+        (r) => (r.rol === 'validador' || vePorUnidad(r)) && igual(r.unidad_negocio, u)
       )
   );
 }

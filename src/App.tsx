@@ -1939,8 +1939,9 @@ function Main({
       t: 'Incidencias',
       grupo: 'incidencias',
     },
-    // Reportes de la app Biobox (9-nov-2026): validadora, coordinadores y
-    // Consulta de Biobox y Biobox Perú (ver abreReportesAppBiobox).
+    // Reportes de la app Biobox (9-nov-2026): validadora, coordinadores,
+    // Consulta y técnicos de TI (solo ven) de Biobox y Biobox Perú, por unidad
+    // (ver abreReportesAppBiobox).
     veReportesApp && {
       k: 'reportes_app',
       ic: '📲',

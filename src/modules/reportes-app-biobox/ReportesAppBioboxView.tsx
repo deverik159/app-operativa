@@ -372,17 +372,25 @@ function ClasificarModal({ r, mueble, sugerida, onCerrar, onListo, onLigar }: {
     <Modal titulo="Clasificar reporte" onCerrar={onCerrar} ocupado={busy}>
       <Encabezado r={r} />
       <div className="field">
-        <label>Máquina</label>
-        <div style={{ fontSize: 14 }}>
-          {r.clave_inventario && !sinMaquina ? r.clave_inventario : 'Sin máquina (el técnico la elige al reparar)'}
+        <span className="etiqueta">Máquina</span>
+        <div style={{ fontSize: 14, overflowWrap: 'anywhere' }}>
+          {r.clave_inventario && !sinMaquina
+            ? r.clave_inventario
+            : r.clave_inventario
+              ? 'Sin máquina: es de puntos, de la cuenta o de la app'
+              : 'Sin máquina (el técnico la elige al reparar)'}
         </div>
-        {r.clave_inventario && (
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, marginTop: 4 }}>
-            <input type="checkbox" checked={sinMaquina} onChange={(e) => setSinMaquina(e.target.checked)} />
-            No es falla de la máquina (puntos, cuenta, app)
-          </label>
-        )}
       </div>
+      {/* Fuera de .field: su regla `.field label` (bloque, 12 px, gris) le
+          ganaba a la píldora. Misma casilla que los filtros de Máquinas Biobox. */}
+      {r.clave_inventario && (
+        <div style={{ margin: '-4px 0 13px' }}>
+          <label className="pildora-check" style={{ maxWidth: '100%' }}>
+            <input type="checkbox" checked={sinMaquina} onChange={(e) => setSinMaquina(e.target.checked)} />
+            No es falla de la máquina
+          </label>
+        </div>
+      )}
       {sugerida && <div className="phint" style={{ margin: '0 0 6px' }}>Sugerida por la tabla de equivalencias: <b>{sugerida}</b></div>}
       <SelectorFalla unidad={r.unidad_negocio} mueble={sinMaquina ? null : mueble} actual={sugerida} onElegir={setSel} />
       <div className="row2">
@@ -473,9 +481,14 @@ function LigarModal({ r, folioInicial, onCerrar, onListo }: {
         : (
           <div role="radiogroup" aria-label="Incidencia" style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
             {candidatas.map((c) => (
-              <label key={c.record_id} className="card" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', textAlign: 'left' }}>
-                <input type="radio" name="ligar" checked={elegida === c.record_id} onChange={() => setElegida(c.record_id)} />
-                <span style={{ fontSize: 14 }}>
+              <label key={c.record_id} className="card"
+                style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', textAlign: 'left',
+                  borderColor: elegida === c.record_id ? 'var(--accent)' : undefined }}>
+                {/* width:auto — la regla general `input{width:100%}` estiraba el
+                    círculo y dejaba el texto en un pedazo de la fila. */}
+                <input type="radio" name="ligar" checked={elegida === c.record_id} onChange={() => setElegida(c.record_id)}
+                  style={{ width: 'auto', flex: 'none', margin: '3px 0 0', accentColor: 'var(--accent)' }} />
+                <span style={{ fontSize: 14, minWidth: 0, flex: 1, overflowWrap: 'anywhere' }}>
                   <b>{c.folio}</b> · {c.nombre_incidencia} · {ESTATUS_INC[c.estatus] || c.estatus}
                   <br /><span style={{ fontSize: 12, color: 'var(--muted)' }}>{c.clave_medio || 'Sin máquina'} · {fechaHoraCdmx(c.creado_en)}</span>
                 </span>

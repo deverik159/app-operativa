@@ -24,12 +24,22 @@ test('Quién ve la bandeja y de qué unidades', () => {
   assert.deepEqual(unidadesBandeja([{ rol: 'validador', unidad_negocio: 'Biobox' }]), ['Biobox']);
   assert.deepEqual(unidadesBandeja([{ rol: 'coordinador', unidad_negocio: 'biobox perú' }]), ['Biobox Perú']);
   assert.deepEqual(unidadesBandeja([{ rol: 'manager', unidad_negocio: null }]), ['Biobox', 'Biobox Perú']);
-  assert.deepEqual(unidadesBandeja([{ rol: 'viewer', unidad_negocio: 'Ecovallas' }]), ['Biobox', 'Biobox Perú']);
+  // Consulta por unidad (Erik, 9-nov-2026): la de Ecovallas ya no la ve; sin unidad, todas.
+  assert.deepEqual(unidadesBandeja([{ rol: 'viewer', unidad_negocio: 'Ecovallas' }]), []);
+  assert.deepEqual(unidadesBandeja([{ rol: 'viewer', unidad_negocio: 'Biobox' }]), ['Biobox']);
+  assert.deepEqual(unidadesBandeja([{ rol: 'viewer', unidad_negocio: null }]), ['Biobox', 'Biobox Perú']);
+  // Técnico de TI (Ricardo, sin unidad): ve las dos, pero no atiende.
+  const ti = [{ rol: 'reparacion', unidad_negocio: null, departamento: 'TI' }];
+  assert.deepEqual(unidadesBandeja(ti), ['Biobox', 'Biobox Perú']);
+  assert.equal(atiendeUnidad(ti, 'Biobox'), false);
+  assert.deepEqual(unidadesBandeja([{ rol: 'reparacion', unidad_negocio: 'Biobox', departamento: 'ti' }]), ['Biobox']);
   assert.deepEqual(unidadesBandeja([{ rol: 'coordinador', unidad_negocio: null }]), ['Biobox', 'Biobox Perú']);
   // El validador sin unidad no ve nada (como inc_sel_validador en la base).
   assert.deepEqual(unidadesBandeja([{ rol: 'validador', unidad_negocio: null }]), []);
-  // Técnicos (también Ricardo, TI sin unidad) y validadores de otra unidad: no.
+  // Técnicos de otras áreas (Digital, Op. Bio Box) y validadores de otra unidad: no.
   assert.equal(abreReportesAppBiobox([{ rol: 'reparacion', unidad_negocio: null }]), false);
+  assert.equal(abreReportesAppBiobox([{ rol: 'reparacion', unidad_negocio: 'Biobox', departamento: 'Digital' }]), false);
+  assert.equal(abreReportesAppBiobox([{ rol: 'reparacion', unidad_negocio: 'Biobox', departamento: 'Op. Bio Box' }]), false);
   assert.equal(abreReportesAppBiobox([{ rol: 'validador', unidad_negocio: 'Ecovallas' }]), false);
   assert.equal(abreReportesAppBiobox([{ rol: 'reportante', unidad_negocio: 'Biobox' }]), false);
 });
