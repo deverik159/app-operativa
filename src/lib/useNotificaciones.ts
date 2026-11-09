@@ -72,6 +72,9 @@ const INTERVALO_CON_REALTIME_MS = 5 * 60000;
 /** Los avisos que llegan juntos (una captura de varias caras) se leen en UNA consulta. */
 const PAUSA_REALTIME_MS = 400;
 
+/** Avisos que NO se retiran al actuar sobre el folio (ver marcarDeRegistro). */
+const SE_QUEDAN = new Set(['chat', 'webadmin_atendido']);
+
 /** Cuántas notificaciones pendientes se traen para la campana. */
 const LIMITE = 60;
 
@@ -334,14 +337,17 @@ export function useNotificaciones(): UseNotificaciones {
       // Optimista, igual que el chat: la campana se limpia de inmediato y la
       // recarga restituye la entrada si la base no aceptó el cambio. La RLS
       // acota el update a las notificaciones del propio usuario.
+      // «Marca Atendido en el Webadmin» (reportes de la app Biobox, 9-nov-2026)
+      // tampoco: nace justo con el cierre o la reparación y lo retira el sync
+      // cuando la app Biobox ya dice Atendido.
       setNotifs((prev) =>
-        prev.filter((n) => n.evento === 'chat' || n.record_id !== recordId)
+        prev.filter((n) => SE_QUEDAN.has(n.evento || '') || n.record_id !== recordId)
       );
       const { error: err } = await sb
         .from('notificaciones')
         .update({ leida: true })
         .eq('record_id', recordId)
-        .neq('evento', 'chat')
+        .not('evento', 'in', '(chat,webadmin_atendido)')
         .eq('leida', false);
       if (err) {
         console.error('[notificaciones] fallo al marcar registro:', err);

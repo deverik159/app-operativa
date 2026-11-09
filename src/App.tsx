@@ -31,6 +31,7 @@ import { Lock, RefreshCw, WifiOff } from 'lucide-react';
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { unidadesAvisoNuc, pendientesNuc } from './lib/avisoNuc';
+import { abreReportesAppBiobox } from './lib/reportesAppBiobox';
 import { abreMaquinasBiobox } from './lib/maquinasBiobox';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES, URL_BIOGUARD } from './lib/constants';
 import {
@@ -126,6 +127,12 @@ const AvisoNucView = lazyConReintento(
   () => import('./modules/aviso-nuc/AvisoNucView'),
   'AvisoNucView'
 );
+// Reportes App Biobox (9-nov-2026): lo que reportan los usuarios de la app de
+// Biobox, para que la validadora lo clasifique y entre al flujo.
+const ReportesAppBioboxView = lazyConReintento(
+  () => import('./modules/reportes-app-biobox/ReportesAppBioboxView'),
+  'ReportesAppBioboxView'
+);
 
 /**
  * Módulo diferido de cada pestaña. App le avisa a cargaDiferida cuál está
@@ -146,6 +153,7 @@ const DIFERIDO_DE_TAB: Record<string, ComponentType<any>> = {
   mis_rutas: MisRutasView,
   equipos: EquiposView,
   aviso_nuc: AvisoNucView,
+  reportes_app: ReportesAppBioboxView,
 };
 
 /** A los cuántos ms el "Cargando…" de un módulo diferido ofrece salidas. */
@@ -226,6 +234,7 @@ const RUTA_DE_TAB: Record<string, string> = {
   mis_rutas: '/mis-rutas',
   equipos: '/equipos',
   aviso_nuc: '/aviso-nuc',
+  reportes_app: '/reportes-app-biobox',
 };
 const TAB_DE_RUTA: Record<string, string> = Object.fromEntries(
   Object.entries(RUTA_DE_TAB).map(([tab, ruta]) => [ruta, tab])
@@ -1774,6 +1783,7 @@ function Main({
    * Rol, unidad y área de la MISMA fila (abreMaquinasBiobox).
    */
   const veMaquinasBiobox = abreMaquinasBiobox(rolesDetalle);
+  const veReportesApp = abreReportesAppBiobox(rolesDetalle);
 
   /**
    * LA confirmación de salir vive AQUÍ, una sola vez, y los dos botones que
@@ -1927,6 +1937,14 @@ function Main({
       k: 'todas',
       ic: '🗂️',
       t: 'Incidencias',
+      grupo: 'incidencias',
+    },
+    // Reportes de la app Biobox (9-nov-2026): validadora, coordinadores y
+    // Consulta de Biobox y Biobox Perú (ver abreReportesAppBiobox).
+    veReportesApp && {
+      k: 'reportes_app',
+      ic: '📲',
+      t: 'Reportes App Biobox',
       grupo: 'incidencias',
     },
     // Indicadores no es del monitorista puro ni de comercial/pautas puros:
@@ -2543,6 +2561,9 @@ function Main({
               )}
               {tab === 'disponibilidad' && <DisponibilidadView />}
               {tab === 'equipos' && <EquiposView recargarSignal={recargaManual} />}
+              {tab === 'reportes_app' && (
+                <ReportesAppBioboxView roles={rolesDetalle} recargarSignal={recargaManual} />
+              )}
               {tab === 'aviso_nuc' && (
                 <AvisoNucView
                   roles={rolesDetalle}

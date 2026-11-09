@@ -46,6 +46,9 @@ const TITULOS: Record<string, string> = {
   reasignacion: 'Reasignación aprobada',
   // Al técnico de Op. Bio Box que registraron como apoyo (29-oct-2026).
   apoyo_reparacion: 'Te registraron como apoyo',
+  // Reportes de la app Biobox (9-nov-2026): la incidencia ya se cerró (o se
+  // reparó, si lo marca el técnico) y falta marcarla en el Webadmin.
+  webadmin_atendido: 'Marca Atendido en el Webadmin',
   chat: 'Nuevo mensaje',
   ruta: 'Cambio en tu ruta',
   pauta_toma: 'Toma regresada',
