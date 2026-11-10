@@ -19,11 +19,15 @@
 // reporte_biobox_app) que vuelven a revisar quién llama. El coordinador y
 // Consulta solo ven. Nunca se escribe en la base de Biobox.
 // ============================================================
-import { Ban, ExternalLink, Image as IconoImagen, Link2, RefreshCw, Smartphone, Tags, TriangleAlert } from 'lucide-react';
+import { Ban, ClipboardPaste, ExternalLink, Image as IconoImagen, Link2, RefreshCw, Repeat, Smartphone, Tags, Trash, TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { sb } from '../../lib/supabase';
 import { haySenal } from '../../lib/datosLocales';
+import { codigoCara } from '../../lib/helpers';
+import { comprimirImagen } from '../../lib/comprimirImagen';
+import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE, subirMiniatura } from '../../lib/storage';
+import { reportarError } from '../../lib/reportarError';
 import { fechaHoraCdmx } from '../../lib/fechasCdmx';
 import { cargarNombres, nombreDe, type MapaNombres } from '../../lib/nombres';
 import {
@@ -32,16 +36,21 @@ import {
   atiendeUnidad,
   coincideBusqueda,
   desfase,
+  enlaceWebadmin,
   equivalenciaDe,
   estadoBandeja,
   fechaCoreAIso,
   leerErrorBandeja,
+  llaveReincidencia,
   minutosDesde,
+  reincidencias,
   textoEstatusCore,
   unidadesBandeja,
+  VENTANAS_REINCIDENCIA,
   type Equivalencia,
   type EstadoBandeja,
   type IncLigada,
+  type Reincidencia,
   type ReporteAppBiobox,
 } from '../../lib/reportesAppBiobox';
 import type { CatalogoIncidencia } from '../../types/db';
@@ -56,14 +65,18 @@ type Maquina = { vendor_face_id: string; tipo_mueble: string | null; site_legacy
 type SyncEstado = { ultima_carga: string | null; ultimo_resultado: Record<string, unknown> | null };
 
 const TODAS = 'Todas';
-const ESTADOS: EstadoBandeja[] = ['por_clasificar', 'en_proceso', 'marcar_atendido', 'terminado', 'descartado'];
+const ESTADOS: EstadoBandeja[] = ['por_clasificar', 'en_proceso', 'marcar_atendido', 'terminado', 'descartado', 'atendido_app'];
 const TONO: Record<EstadoBandeja, string> = {
   por_clasificar: 'var(--st-ambar)',
   en_proceso: 'var(--accent)',
   marcar_atendido: 'var(--warn)',
   terminado: 'var(--ok)',
   descartado: 'var(--muted)',
+  atendido_app: 'var(--muted)',
 };
+/** PostgREST entrega como máximo 1000 filas por consulta: se pide por páginas. */
+const PAGINA = 1000;
+const TOPE_REPORTES = 10000;
 const ESTATUS_INC: Record<string, string> = {
   por_validar: 'Por validar',
   rechazada: 'Devuelta',
@@ -111,14 +124,24 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
     setErr('');
     try {
       const lista = unidad === TODAS ? unidades : [unidad];
-      const [rr, re, rs] = await Promise.all([
-        sb.from('biobox_app_reportes').select('*').in('unidad_negocio', lista)
-          .order('report_id', { ascending: false }).limit(1000),
+      // Todos los reportes (con los Atendidos viejos ya pasan de 1000), por
+      // páginas: las reincidencias de 90 días necesitan el historial completo.
+      const leerReportes = async (): Promise<ReporteAppBiobox[]> => {
+        const todas: ReporteAppBiobox[] = [];
+        for (let desde = 0; desde < TOPE_REPORTES; desde += PAGINA) {
+          const { data, error } = await sb.from('biobox_app_reportes').select('*').in('unidad_negocio', lista)
+            .order('report_id', { ascending: false }).range(desde, desde + PAGINA - 1);
+          if (error) throw error;
+          todas.push(...((data || []) as ReporteAppBiobox[]));
+          if (!data || data.length < PAGINA) break;
+        }
+        return todas;
+      };
+      const [filas, re, rs] = await Promise.all([
+        leerReportes(),
         sb.from('biobox_app_equivalencias').select('unidad_negocio,caso_id,catalogo_detalle,etiqueta,directo_al_area,marca_atendido,activo'),
         sb.from('biobox_app_sync_estado').select('ultima_carga,ultimo_resultado').eq('id', 1).maybeSingle(),
       ]);
-      if (rr.error) throw rr.error;
-      const filas = (rr.data || []) as ReporteAppBiobox[];
       const ids = [...new Set(filas.map((f) => f.record_id).filter(Boolean))] as string[];
       const claves = [...new Set(filas.map((f) => f.clave_inventario).filter(Boolean))] as string[];
       const [ri, rm] = await Promise.all([
@@ -174,6 +197,12 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
     [conEstado, filtro, busca]
   );
 
+  const reinc = useMemo(() => reincidencias(reportes), [reportes]);
+  const reincDe = (r: ReporteAppBiobox) => {
+    const llave = llaveReincidencia(r);
+    return llave ? reinc.get(llave) : undefined;
+  };
+
   const minSync = minutosDesde(sync?.ultima_carga);
   const persona = (correo: string | null) => nombreDe(nombres, correo);
 
@@ -181,6 +210,7 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
     const m = r.clave_inventario ? maquinas.get(r.clave_inventario) : undefined;
     const puede = atiendeUnidad(roles, r.unidad_negocio);
     const aviso = desfase(r, inc);
+    const webadmin = enlaceWebadmin(r.report_id);
     return (
       <div key={r.report_id} className="card" style={{ textAlign: 'left', borderLeft: '4px solid ' + TONO[estado] }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'baseline', justifyContent: 'space-between' }}>
@@ -201,6 +231,7 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
             ? <>Máquina {r.clave_inventario}{m?.site_legacy_id || r.nombre_maquina ? ' · ' + (m?.site_legacy_id || r.nombre_maquina) : ''}</>
             : r.codigo_maquina ? <>Máquina {r.codigo_maquina} (no está en el inventario)</> : <>Sin máquina en el reporte</>}
         </div>
+        <AvisoReincidencia x={reincDe(r)} propio={r.report_id} />
         {inc && (
           <div style={{ fontSize: 13, marginTop: 6 }}>
             <b>{inc.folio || '—'}</b> · {ESTATUS_INC[inc.estatus] || inc.estatus} · {inc.assigned_area || inc.area_responsable || '—'}
@@ -224,9 +255,9 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
         )}
         {aviso && <div style={{ fontSize: 13, marginTop: 6, color: 'var(--warn)' }}><Ic i={TriangleAlert} />{aviso}</div>}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-          {r.evidencia_url && /^https:\/\//i.test(r.evidencia_url) && (
-            <a className="btn ghost sm" href={r.evidencia_url} target="_blank" rel="noopener noreferrer nofollow">
-              <Ic i={IconoImagen} />Foto del usuario<Ic i={ExternalLink} />
+          {webadmin && (
+            <a className="btn ghost sm" href={webadmin} target="_blank" rel="noopener noreferrer nofollow" style={{ textDecoration: 'none' }}>
+              <Ic i={r.evidencia_url ? IconoImagen : ExternalLink} />{r.evidencia_url ? 'Ver foto en Webadmin' : 'Ver en Webadmin'}
             </a>
           )}
           {puede && estado === 'por_clasificar' && <>
@@ -309,6 +340,7 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
           r={accion.r}
           mueble={(accion.r.clave_inventario && maquinas.get(accion.r.clave_inventario)?.tipo_mueble) || null}
           sugerida={equivalenciaDe(accion.r, equivalencias)?.catalogo_detalle || null}
+          reinc={reincDe(accion.r)}
           onCerrar={() => setAccion(null)}
           onListo={alTerminar}
           onLigar={(folio) => setAccion({ tipo: 'ligar', r: accion.r, folio })}
@@ -348,8 +380,72 @@ function Modal({ titulo, onCerrar, ocupado, children }: { titulo: string; onCerr
   );
 }
 
-function ClasificarModal({ r, mueble, sugerida, onCerrar, onListo, onLigar }: {
-  r: ReporteAppBiobox; mueble: string | null; sugerida: string | null;
+/** Tope de la foto pegada (una captura de pantalla pesa mucho menos). */
+const FOTO_MAX_BYTES = 15 * 1024 * 1024;
+
+/**
+ * Sube la foto que la validadora pegó como evidencia de REPORTE de la
+ * incidencia recién creada (10-nov-2026, Erik). La foto del usuario vive en
+ * un bucket privado de Biobox: Dulce la recorta del Webadmin con Recortes de
+ * Windows y la pega aquí. Mismo bucket, ruta y tabla que 📎 Evidencia.
+ * Devuelve null si quedó, o el texto del problema.
+ */
+async function subirFotoPegada(foto: File, reportId: number, folio: string, clave: string): Promise<string | null> {
+  const { data: rep, error: eRep } = await sb.from('biobox_app_reportes').select('record_id').eq('report_id', reportId).maybeSingle();
+  const recordId = (rep as { record_id: string | null } | null)?.record_id;
+  if (eRep || !recordId) return 'no se encontró la incidencia recién creada';
+  const { data: ses } = await sb.auth.getSession();
+  const email = ses.session?.user?.email || null;
+
+  const f = await comprimirImagen(foto);
+  const ext = f.type === 'image/jpeg' ? 'jpg' : (f.type.split('/')[1] || 'png').replace(/[^a-z0-9]/g, '') || 'png';
+  const cara = clave === 'SIN-MAQUINA' ? 'sin_maquina' : (codigoCara(clave) || 'maquina');
+  const fecha = new Date().toISOString().slice(0, 10);
+  const path = `${recordId}/${`${folio}_${cara}_${fecha}_reporte_webadmin_${Date.now()}.${ext}`.replace(/[^\w.\-]/g, '_')}`;
+
+  const { error: upErr } = await sb.storage.from(BUCKET_EVIDENCIAS)
+    .upload(path, f, { upsert: false, cacheControl: CACHE_INMUTABLE, contentType: f.type || 'image/png' });
+  if (upErr) {
+    reportarError('ReportesAppBiobox.foto', upErr, { path, bytes: f.size }, path);
+    return upErr.message;
+  }
+  await subirMiniatura(path, f);
+  const url = sb.storage.from(BUCKET_EVIDENCIAS).getPublicUrl(path).data.publicUrl;
+  const { error: insErr } = await sb.from('evidencias').insert({
+    record_id: recordId, etapa: 'reporte', tipo: 'foto', url, path,
+    subido_por: email, referencia: 'Foto del usuario (Webadmin)',
+  });
+  if (insErr) {
+    reportarError('ReportesAppBiobox.fotoFila', insErr, { path }, path);
+    return 'se subió pero no se pudo registrar: ' + insErr.message;
+  }
+  return null;
+}
+
+/**
+ * Reincidencia: la misma máquina reportada por el mismo motivo en 30, 60 y 90
+ * días, con todos los estatus (Erik, 10-nov-2026). Solo aparece si hay al
+ * menos otro reporte además del propio. La lista dice fecha y estatus.
+ */
+function AvisoReincidencia({ x, propio }: { x: Reincidencia | undefined; propio: number }) {
+  if (!x || x.porVentana[90] < 2) return null;
+  const otros = x.reportes.filter((o) => o.report_id !== propio);
+  return (
+    <details style={{ fontSize: 13, marginTop: 6 }}>
+      <summary style={{ cursor: 'pointer', color: 'var(--warn)' }}>
+        <Ic i={Repeat} />Reincide: {VENTANAS_REINCIDENCIA.map((v) => `${x.porVentana[v]} en ${v} días`).join(' · ')}
+      </summary>
+      <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+        {otros.map((o) => (
+          <li key={o.report_id}>App {o.folio_app || o.report_id} · {fechaHoraCdmx(o.fechaIso)} · {o.estatus}</li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function ClasificarModal({ r, mueble, sugerida, reinc, onCerrar, onListo, onLigar }: {
+  r: ReporteAppBiobox; mueble: string | null; sugerida: string | null; reinc: Reincidencia | undefined;
   onCerrar: () => void; onListo: () => void; onLigar: (folio: string) => void;
 }) {
   const [sel, setSel] = useState<CatalogoIncidencia | null>(null);
@@ -357,21 +453,81 @@ function ClasificarModal({ r, mueble, sugerida, onCerrar, onListo, onLigar }: {
   const [obs, setObs] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ texto: string; folioDuplicado: string | null } | null>(null);
+  const [foto, setFoto] = useState<File | null>(null);
+  const [vista, setVista] = useState<string | null>(null);
+  const [avisoFoto, setAvisoFoto] = useState('');
+
+  // La vista previa se libera al cambiar de foto o al cerrar.
+  useEffect(() => {
+    if (!foto) { setVista(null); return; }
+    const u = URL.createObjectURL(foto);
+    setVista(u);
+    return () => URL.revokeObjectURL(u);
+  }, [foto]);
+
+  const tomarImagen = useCallback((b: Blob) => {
+    if (!b.type.startsWith('image/')) { setAvisoFoto('Lo copiado no es una imagen.'); return; }
+    if (b.size > FOTO_MAX_BYTES) { setAvisoFoto('La imagen pesa demasiado (más de 15 MB).'); return; }
+    const ext = (b.type.split('/')[1] || 'png').replace(/[^a-z0-9]/g, '') || 'png';
+    setFoto(new File([b], `webadmin.${ext}`, { type: b.type }));
+    setAvisoFoto('');
+  }, []);
+
+  // Ctrl+V en cualquier parte del modal: si lo copiado es imagen, se toma
+  // como foto; si es texto, el pegado normal sigue (p. ej. en Observaciones).
+  useEffect(() => {
+    const alPegar = (ev: ClipboardEvent) => {
+      if (busy) return;
+      const item = Array.from(ev.clipboardData?.items || []).find((i) => i.kind === 'file' && i.type.startsWith('image/'));
+      const b = item?.getAsFile();
+      if (!b) return;
+      ev.preventDefault();
+      tomarImagen(b);
+    };
+    window.addEventListener('paste', alPegar);
+    return () => window.removeEventListener('paste', alPegar);
+  }, [busy, tomarImagen]);
+
+  // Botón «Pegar foto»: lee el portapapeles. Si el navegador no lo permite
+  // (Firefox viejo, permiso negado), Ctrl+V sigue funcionando.
+  const pegar = async () => {
+    setAvisoFoto('');
+    if (!navigator.clipboard?.read) { setAvisoFoto('Este navegador no deja leer el portapapeles con el botón: usa Ctrl+V.'); return; }
+    try {
+      const items = await navigator.clipboard.read();
+      for (const it of items) {
+        const tipo = it.types.find((t) => t.startsWith('image/'));
+        if (tipo) { tomarImagen(await it.getType(tipo)); return; }
+      }
+      setAvisoFoto('No hay una imagen copiada. Recórtala en el Webadmin con Win + Shift + S y vuelve a pegar.');
+    } catch {
+      setAvisoFoto('El navegador no dejó leer el portapapeles: usa Ctrl+V.');
+    }
+  };
 
   const guardar = async () => {
     if (!sel) return;
     if (!haySenal()) { setError({ texto: SIN_SENAL, folioDuplicado: null }); return; }
     setBusy(true);
     setError(null);
+    const clave = sinMaquina ? 'SIN-MAQUINA' : r.clave_inventario;
     const { data, error: e } = await sb.rpc('clasificar_reporte_biobox_app', {
       p_report_id: r.report_id,
       p_falla: { detalle: sel.detalle, area: sel.area, impacto: sel.impacto, origen: sel.origen, tipo: sel.tipo },
-      p_clave_medio: sinMaquina ? 'SIN-MAQUINA' : r.clave_inventario,
+      p_clave_medio: clave,
       p_observaciones: obs.trim() || null,
     });
+    if (e) { setBusy(false); setError(leerErrorBandeja(e.message)); return; }
+    const folio = String(data);
+    // La incidencia ya existe: si la foto falla, no se deshace; se dice
+    // cómo agregarla después desde 📎 Evidencia.
+    const problemaFoto = foto ? await subirFotoPegada(foto, r.report_id, folio, clave || 'SIN-MAQUINA') : null;
     setBusy(false);
-    if (e) { setError(leerErrorBandeja(e.message)); return; }
-    alert(`Listo: se creó la incidencia ${data} y se avisó al área ${sel.area}.`);
+    alert(
+      `Listo: se creó la incidencia ${folio} y se avisó al área ${sel.area}.` +
+      (foto && !problemaFoto ? ' La foto quedó como evidencia del reporte.' : '') +
+      (problemaFoto ? `\n\nLa foto NO se guardó (${problemaFoto}). Agrégala desde Incidencias → ${folio} → 📎 Evidencia.` : '')
+    );
     onListo();
   };
 
@@ -388,6 +544,7 @@ function ClasificarModal({ r, mueble, sugerida, onCerrar, onListo, onLigar }: {
               : 'Sin máquina (el técnico la elige al reparar)'}
         </div>
       </div>
+      <div style={{ margin: '-6px 0 10px' }}><AvisoReincidencia x={reinc} propio={r.report_id} /></div>
       {/* Fuera de .field: su regla `.field label` (bloque, 12 px, gris) le
           ganaba a la píldora. Misma casilla que los filtros de Máquinas Biobox. */}
       {r.clave_inventario && (
@@ -403,6 +560,32 @@ function ClasificarModal({ r, mueble, sugerida, onCerrar, onListo, onLigar }: {
       <div className="row2">
         <Derivado label="Nivel" valor={(sel?.impacto || '').trim()} />
         <Derivado label="Área responsable" valor={(sel?.area || '').trim()} />
+      </div>
+      <div className="field">
+        <span className="etiqueta">Foto del usuario (opcional)</span>
+        <div className="phint" style={{ margin: '0 0 6px' }}>
+          Ábrela en el Webadmin, recórtala con <b>Win + Shift + S</b> y pégala aquí (botón o Ctrl+V). Queda como evidencia del reporte.
+        </div>
+        {vista ? (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <img src={vista} alt="Foto pegada del Webadmin"
+              style={{ maxHeight: 160, maxWidth: '100%', borderRadius: 8, border: '1px solid var(--line)' }} />
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button type="button" className="btn ghost sm" onClick={() => void pegar()} disabled={busy}><Ic i={ClipboardPaste} />Pegar otra</button>
+              <button type="button" className="btn ghost sm" onClick={() => setFoto(null)} disabled={busy}><Ic i={Trash} />Quitar</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button type="button" className="btn ghost sm" onClick={() => void pegar()} disabled={busy}><Ic i={ClipboardPaste} />Pegar foto</button>
+            {enlaceWebadmin(r.report_id) && (
+              <a className="btn ghost sm" href={enlaceWebadmin(r.report_id)!} target="_blank" rel="noopener noreferrer nofollow" style={{ textDecoration: 'none' }}>
+                <Ic i={ExternalLink} />Abrir en Webadmin
+              </a>
+            )}
+          </div>
+        )}
+        {avisoFoto && <div style={{ fontSize: 13, marginTop: 6, color: 'var(--warn)' }}>{avisoFoto}</div>}
       </div>
       <div className="field">
         <label>Observaciones para el técnico (opcional)</label>

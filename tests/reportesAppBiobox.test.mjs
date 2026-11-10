@@ -10,7 +10,7 @@ const { outputText } = ts.transpileModule(source, {
 const {
   abreReportesAppBiobox, unidadesBandeja, atiendeUnidad, pideMarcarAtendido, estadoBandeja,
   textoEstatusCore, desfase, equivalenciaDe, leerErrorBandeja, minutosDesde, coincideBusqueda,
-  fechaCoreAIso,
+  fechaCoreAIso, llaveReincidencia, reincidencias, enlaceWebadmin,
 } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const rep = (x = {}) => ({
@@ -23,18 +23,19 @@ const inc = (estatus, x = {}) => ({ record_id: 'abc', folio: 'BBMM00031', estatu
 
 test('Quién ve la bandeja y de qué unidades', () => {
   assert.deepEqual(unidadesBandeja([{ rol: 'validador', unidad_negocio: 'Biobox' }]), ['Biobox']);
-  assert.deepEqual(unidadesBandeja([{ rol: 'coordinador', unidad_negocio: 'biobox perú' }]), ['Biobox Perú']);
-  assert.deepEqual(unidadesBandeja([{ rol: 'manager', unidad_negocio: null }]), ['Biobox', 'Biobox Perú']);
+  // Biobox Perú está en pausa (Erik, 10-nov-2026): su coordinador no ve bandeja.
+  assert.deepEqual(unidadesBandeja([{ rol: 'coordinador', unidad_negocio: 'biobox perú' }]), []);
+  assert.deepEqual(unidadesBandeja([{ rol: 'manager', unidad_negocio: null }]), ['Biobox']);
   // Consulta por unidad (Erik, 9-nov-2026): la de Ecovallas ya no la ve; sin unidad, todas.
   assert.deepEqual(unidadesBandeja([{ rol: 'viewer', unidad_negocio: 'Ecovallas' }]), []);
   assert.deepEqual(unidadesBandeja([{ rol: 'viewer', unidad_negocio: 'Biobox' }]), ['Biobox']);
-  assert.deepEqual(unidadesBandeja([{ rol: 'viewer', unidad_negocio: null }]), ['Biobox', 'Biobox Perú']);
+  assert.deepEqual(unidadesBandeja([{ rol: 'viewer', unidad_negocio: null }]), ['Biobox']);
   // Técnico de TI (Ricardo, sin unidad): ve las dos, pero no atiende.
   const ti = [{ rol: 'reparacion', unidad_negocio: null, departamento: 'TI' }];
-  assert.deepEqual(unidadesBandeja(ti), ['Biobox', 'Biobox Perú']);
+  assert.deepEqual(unidadesBandeja(ti), ['Biobox']);
   assert.equal(atiendeUnidad(ti, 'Biobox'), false);
   assert.deepEqual(unidadesBandeja([{ rol: 'reparacion', unidad_negocio: 'Biobox', departamento: 'ti' }]), ['Biobox']);
-  assert.deepEqual(unidadesBandeja([{ rol: 'coordinador', unidad_negocio: null }]), ['Biobox', 'Biobox Perú']);
+  assert.deepEqual(unidadesBandeja([{ rol: 'coordinador', unidad_negocio: null }]), ['Biobox']);
   // El validador sin unidad no ve nada (como inc_sel_validador en la base).
   assert.deepEqual(unidadesBandeja([{ rol: 'validador', unidad_negocio: null }]), []);
   // Técnicos de otras áreas (Digital, Op. Bio Box) y validadores de otra unidad: no.
@@ -69,7 +70,8 @@ test('Marcar Atendido: la validadora al cerrar, el técnico al reparar', () => {
 test('Cada reporte cae en una sola pestaña', () => {
   assert.equal(estadoBandeja(rep(), undefined), 'por_clasificar');
   assert.equal(estadoBandeja(rep({ decision: 'descartado' }), undefined), 'descartado');
-  assert.equal(estadoBandeja(rep({ decision: 'atendido_en_webadmin', estatus_core: 3 }), undefined), 'terminado');
+  // Lo atendido en el Webadmin sin pasar por nosotros va en su propio filtro (10-nov-2026).
+  assert.equal(estadoBandeja(rep({ decision: 'atendido_en_webadmin', estatus_core: 3 }), undefined), 'atendido_app');
   const v = rep({ decision: 'ligado', record_id: 'abc', marca_atendido: 'validador', estatus_core: 2 });
   assert.equal(estadoBandeja(v, inc('en_proceso')), 'en_proceso');
   assert.equal(estadoBandeja(v, inc('cerrada')), 'marcar_atendido');
@@ -116,4 +118,44 @@ test('Minutos desde la última carga y búsqueda', () => {
   assert.equal(coincideBusqueda(rep(), undefined, 'cómpuerta'), true);
   assert.equal(coincideBusqueda(rep(), inc('en_proceso'), 'BBMM00031'), true);
   assert.equal(coincideBusqueda(rep(), undefined, 'puntos'), false);
+});
+
+test('Llave de reincidencia: misma máquina y mismo motivo, sin importar el usuario', () => {
+  const a = llaveReincidencia(rep());
+  assert.ok(a);
+  assert.equal(llaveReincidencia(rep({ report_id: 99, descripcion: 'otro usuario' })), a);
+  // Otro motivo u otra máquina: otra llave.
+  assert.notEqual(llaveReincidencia(rep({ caso_id: 6 })), a);
+  assert.notEqual(llaveReincidencia(rep({ clave_inventario: 'MX_CM_BB_MED_0059' })), a);
+  // Sin máquina (puntos, cuenta, QR) o sin motivo: no hay reincidencia.
+  assert.equal(llaveReincidencia(rep({ clave_inventario: null, codigo_maquina: null })), null);
+  assert.equal(llaveReincidencia(rep({ clave_inventario: 'SIN-MAQUINA', codigo_maquina: null })), null);
+  assert.equal(llaveReincidencia(rep({ caso_id: null, motivo: null })), null);
+  // Sin clave de inventario usa el código de Biobox.
+  assert.ok(llaveReincidencia(rep({ clave_inventario: null, codigo_maquina: 'mx_cm_bb_mec_0076' })));
+});
+
+test('Reincidencias en 30, 60 y 90 días; los descartados no cuentan', () => {
+  const ahora = Date.parse('2026-11-10T18:00:00Z');
+  const hace = (d) => new Date(ahora - d * 86400000).toISOString().slice(0, 19).replace('T', ' ');
+  const lista = [
+    rep({ report_id: 1, fecha_reporte_core: hace(2) }),
+    rep({ report_id: 2, fecha_reporte_core: hace(20), estatus_core: 3, decision: 'atendido_en_webadmin' }),
+    rep({ report_id: 3, fecha_reporte_core: hace(45) }),
+    rep({ report_id: 4, fecha_reporte_core: hace(80) }),
+    rep({ report_id: 5, fecha_reporte_core: hace(120) }), // fuera de 90 días
+    rep({ report_id: 6, fecha_reporte_core: hace(5), decision: 'descartado' }), // prueba: no cuenta
+    rep({ report_id: 7, fecha_reporte_core: hace(3), caso_id: 6 }), // otro motivo
+  ];
+  const m = reincidencias(lista, ahora);
+  const x = m.get(llaveReincidencia(rep()));
+  assert.deepEqual(x.porVentana, { 30: 2, 60: 3, 90: 4 });
+  assert.deepEqual(x.reportes.map((r) => r.report_id), [1, 2, 3, 4]); // del más reciente al más viejo
+  assert.equal(x.reportes[1].estatus, 'Atendido');
+  assert.equal(m.get(llaveReincidencia(rep({ caso_id: 6 }))).porVentana[90], 1);
+});
+
+test('Enlace al Webadmin solo con un número de reporte válido', () => {
+  assert.match(enlaceWebadmin(369), /\/buzon\/detail\/369$/);
+  for (const malo of [0, -1, 1.5, null, undefined, NaN]) assert.equal(enlaceWebadmin(malo), null);
 });

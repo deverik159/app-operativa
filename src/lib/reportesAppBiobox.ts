@@ -71,7 +71,25 @@ export type Equivalencia = {
 
 type FilaRol = { rol: string; unidad_negocio: string | null; departamento?: string | null };
 
-export const UNIDADES_APP_BIOBOX = ['Biobox', 'Biobox Perú'] as const;
+/**
+ * Unidades cuya bandeja se enseña. Biobox Perú está EN PAUSA (Erik,
+ * 10-nov-2026): nadie la clasifica ni la repara todavía, así que no aparece.
+ * Sus reportes se siguen guardando en la base (sin crear incidencias: sus
+ * equivalencias están desactivadas) y vuelven a verse al agregarla aquí.
+ */
+export const UNIDADES_APP_BIOBOX = ['Biobox'] as const;
+
+/**
+ * Enlace al detalle del reporte en el Webadmin (10-nov-2026, Erik). La foto
+ * del usuario vive en un bucket PRIVADO de Biobox y el Webadmin la firma con
+ * credenciales temporales cada vez que se abre: un enlace guardado deja de
+ * abrir. Por eso la bandeja manda al Webadmin, donde se ve con la sesión de
+ * quien lo abre. Mismo enlace que usa `reportes-monitor` (México y Perú).
+ */
+export const enlaceWebadmin = (reportId: number | null | undefined): string | null =>
+  Number.isSafeInteger(reportId) && (reportId as number) > 0
+    ? `https://webadmin.biobox.com.mx/buzon/detail/${reportId}`
+    : null;
 
 const igual = (a: string | null | undefined, b: string | null | undefined) =>
   (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
@@ -143,13 +161,19 @@ export type EstadoBandeja =
   | 'en_proceso'
   | 'marcar_atendido'
   | 'terminado'
-  | 'descartado';
+  | 'descartado'
+  | 'atendido_app';
 
-/** En qué pestaña de la bandeja cae cada reporte. */
+/**
+ * En qué pestaña de la bandeja cae cada reporte. Lo que el Webadmin atendió
+ * sin pasar por nosotros (incluidos los Atendidos viejos que se cargaron el
+ * 10-nov-2026 para contar reincidencias) va en su propio filtro, para que no
+ * estorbe en Terminados (Erik, 10-nov-2026).
+ */
 export function estadoBandeja(r: ReporteAppBiobox, inc: IncLigada | undefined): EstadoBandeja {
   if (r.decision === 'descartado') return 'descartado';
   if (!r.decision) return 'por_clasificar';
-  if (r.decision === 'atendido_en_webadmin') return 'terminado';
+  if (r.decision === 'atendido_en_webadmin') return 'atendido_app';
   if (pideMarcarAtendido(r, inc)) return 'marcar_atendido';
   if (r.estatus_core === 3 && (!inc || !ABIERTA.has(inc.estatus))) return 'terminado';
   return 'en_proceso';
@@ -161,7 +185,76 @@ export const ETIQUETA_ESTADO: Record<EstadoBandeja, string> = {
   marcar_atendido: 'Marcar Atendido',
   terminado: 'Terminados',
   descartado: 'Descartados',
+  atendido_app: 'Atendidos en la app',
 };
+
+/** Ventanas de reincidencia, en días (Erik, 10-nov-2026). */
+export const VENTANAS_REINCIDENCIA = [30, 60, 90] as const;
+
+/** Un reporte dentro de la ventana más larga, para enseñar fecha y estatus. */
+export type ReporteReincidencia = {
+  report_id: number;
+  folio_app: string | null;
+  fechaIso: string;
+  estatus: string;
+};
+
+export type Reincidencia = {
+  /** Reportes por ventana: { 30: n, 60: n, 90: n }, contando el propio. */
+  porVentana: Record<(typeof VENTANAS_REINCIDENCIA)[number], number>;
+  /** Los de la ventana más larga, del más reciente al más viejo. */
+  reportes: ReporteReincidencia[];
+};
+
+/**
+ * Llave de reincidencia: MISMA máquina y MISMO motivo de la app (Erik,
+ * 10-nov-2026), sin distinguir usuarios. La máquina es la clave del
+ * inventario (o el código de Biobox si no empató); el motivo, el caseId (o
+ * su texto). Sin máquina no hay reincidencia (puntos, cuenta, QR).
+ */
+export function llaveReincidencia(
+  r: Pick<ReporteAppBiobox, 'unidad_negocio' | 'clave_inventario' | 'codigo_maquina' | 'caso_id' | 'motivo'>
+): string | null {
+  const maquina = (r.clave_inventario || r.codigo_maquina || '').trim().toUpperCase();
+  if (!maquina || maquina === 'SIN-MAQUINA') return null;
+  const motivo = r.caso_id != null ? 'c' + r.caso_id : (r.motivo || '').trim().toLowerCase();
+  if (!motivo) return null;
+  return `${(r.unidad_negocio || '').toLowerCase()}|${maquina}|${motivo}`;
+}
+
+/**
+ * Cuántas veces se reportó la misma máquina por el mismo motivo en los
+ * últimos 30, 60 y 90 días (por la fecha en que reportó el usuario), con
+ * todos los estatus, también los Atendidos en el Webadmin. Devuelve un mapa
+ * por llave; solo trae las llaves con al menos un reporte en 90 días.
+ * Los DESCARTADOS no cuentan: la validadora los marcó como prueba, repetido o
+ * no-falla, e inflarían la reincidencia (revisión de Claude, 10-nov-2026).
+ */
+export function reincidencias(
+  lista: readonly ReporteAppBiobox[],
+  ahora: number = Date.now()
+): Map<string, Reincidencia> {
+  const DIA = 86400000;
+  const mayor = VENTANAS_REINCIDENCIA[VENTANAS_REINCIDENCIA.length - 1];
+  const m = new Map<string, Reincidencia>();
+  for (const r of lista) {
+    if (r.decision === 'descartado') continue;
+    const llave = llaveReincidencia(r);
+    const iso = fechaCoreAIso(r.fecha_reporte_core);
+    if (!llave || !iso) continue;
+    const dias = (ahora - Date.parse(iso)) / DIA;
+    if (dias < 0 || dias > mayor) continue;
+    let x = m.get(llave);
+    if (!x) {
+      x = { porVentana: { 30: 0, 60: 0, 90: 0 }, reportes: [] };
+      m.set(llave, x);
+    }
+    for (const v of VENTANAS_REINCIDENCIA) if (dias <= v) x.porVentana[v]++;
+    x.reportes.push({ report_id: r.report_id, folio_app: r.folio_app, fechaIso: iso, estatus: textoEstatusCore(r) });
+  }
+  for (const x of m.values()) x.reportes.sort((a, b) => b.fechaIso.localeCompare(a.fechaIso));
+  return m;
+}
 
 /** Estatus de la app Biobox tal como lo ve el usuario final. */
 export function textoEstatusCore(r: Pick<ReporteAppBiobox, 'estatus_core' | 'estatus_core_nombre'>): string {
