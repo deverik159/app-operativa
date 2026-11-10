@@ -324,7 +324,7 @@ function UsuariosView({ email = '' }: { email?: string }) {
         </div>
         <div className="row2">
           <div className="field">
-            <label>Teléfono (WhatsApp)</label>
+            <label>Teléfono</label>
             <input
               value={nu.telefono}
               onChange={(e) => setNu({ ...nu, telefono: e.target.value })}

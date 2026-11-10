@@ -221,7 +221,7 @@ Select-String -Path supabase/.temp/esquema.sql -Pattern 'USER MAPPING','password
 | Si aparece… | Qué es | Qué hacer |
 |---|---|---|
 | `CREATE USER MAPPING … password` | La contraseña de la base de **Mario** (FDW) | Borra esa sentencia completa. Staging NO se conecta a Mario: Fijación Externa dará error ahí, y es lo correcto (marcar fijado escribe en SU sistema). |
-| `supabase_functions.http_request(…)` en un `CREATE TRIGGER` | El webhook a `dynamic-worker` (WhatsApp), con una llave en sus encabezados | Borra ese `CREATE TRIGGER` completo. En staging nadie debe recibir WhatsApp. |
+| `supabase_functions.http_request(…)` en un `CREATE TRIGGER` | El webhook a `dynamic-worker` (WhatsApp), con una llave en sus encabezados. Se quitó de producción el 10-nov-2026: solo sale en dumps anteriores | Borra ese `CREATE TRIGGER` completo. En staging nadie debe recibir WhatsApp. |
 | `eyJ…` o `sb_secret_…` sueltos | Una llave | Bórrala; averigua de qué es antes de seguir. |
 | `qztxpcfbbbmvgmtjnlxg` dentro de una función | URL de producción escrita en el código (`notificar_push` la trae) | Déjala en el archivo: se corrige en staging en §2.7. |
 

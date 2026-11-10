@@ -51,9 +51,10 @@ Para generar una:
 openssl rand -base64 32
 ```
 
-> Este SQL crea un trigger **nuevo** (`trg_notificar_push`). El que ya existe
-> para WhatsApp (`notificaciones` → `dynamic-worker`) sigue intacto: Postgres
-> dispara los dos.
+> Este SQL crea un trigger **nuevo** (`trg_notificar_push`). Hasta el
+> 10-nov-2026 había otro para WhatsApp (`notificaciones` → `dynamic-worker`);
+> se quitó con la migración `20261110215622_notificaciones_quitar_webhook_whatsapp`
+> porque no se usaba. Hoy el push es el único aviso fuera de la app.
 
 ---
 

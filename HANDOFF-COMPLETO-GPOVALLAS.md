@@ -286,9 +286,11 @@ Pauta y Monitoreo RECARGADA — el sw.js agrega `?ir=pauta` a la URL y
 `enviar-push` manda el `evento` en el payload. Sin la recarga, una lista ya
 abierta seguía enseñando la toma vieja y el monitorista no podía reponer.
 
-Hay además un trigger `notificaciones` → `supabase_functions.http_request`
-hacia una Edge Function (`dynamic-worker`), que es lo que alimenta
-`enviada_wa`. No lo toca la app.
+Hasta el 10-nov-2026 hubo además un trigger `notificaciones` →
+`supabase_functions.http_request` hacia la Edge Function `dynamic-worker`
+(WhatsApp por Twilio), que llenaba `enviada_wa`. Se quitó porque no se usaba
+(migración `20261110215622_notificaciones_quitar_webhook_whatsapp`); la
+columna queda solo como histórico.
 
 El push web se dispara después de insertar cada fila de `notificaciones`.
 `public/sw.js` navega a la incidencia tocada, aun si la app estaba cerrada.
