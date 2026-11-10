@@ -30,6 +30,7 @@ import {
 import { pintar } from '../../lib/tonos';
 import type { Incidencia } from '../../types/db';
 import { diaCdmx, fechaHoraCdmx } from '../../lib/fechasCdmx';
+import { sb } from '../../lib/supabase';
 import Ic from '../../components/Ic';
 
 type Props = {
@@ -64,7 +65,34 @@ function csv(v: unknown): string {
   return '"' + s.replace(/"/g, '""') + '"';
 }
 
-function exportar(items: Incidencia[]) {
+type ContactoApp = { correo: string | null; telefono: string | null; medio_contacto: string | null };
+
+/**
+ * Correo y teléfono del usuario de la app Biobox para las filas que tienen
+ * reportes de la app (las que nacieron de uno y las que solo se ligaron). No
+ * viven en la incidencia: la base solo se los da a manager, validador de la
+ * unidad y coordinador (contactos_app_biobox; Erik, 10-nov-2026), y solo
+ * regresa las incidencias que de verdad tienen reporte. `error` = no se pudo.
+ */
+async function contactosAppBiobox(
+  items: Incidencia[]
+): Promise<{ mapa: Map<string, ContactoApp>; error: boolean }> {
+  const mapa = new Map<string, ContactoApp>();
+  // Solo Biobox: las demás unidades no reciben reportes de la app.
+  const ids = items.filter((i) => /biobox/i.test(i.unidad_negocio || '')).map((i) => i.record_id);
+  for (let k = 0; k < ids.length; k += 1000) {
+    const { data, error } = await sb.rpc('contactos_app_biobox', {
+      p_record_ids: ids.slice(k, k + 1000),
+    });
+    if (error) return { mapa, error: true };
+    for (const c of (data || []) as (ContactoApp & { record_id: string })[]) {
+      mapa.set(c.record_id, c);
+    }
+  }
+  return { mapa, error: false };
+}
+
+function exportar(items: Incidencia[], contactosApp: Map<string, ContactoApp>) {
   const cab = [
     'folio', 'estatus', 'unidad_negocio', 'incidencia', 'incidencia_srd',
     'arbol_digital_id', 'nivel', 'tipo',
@@ -92,7 +120,14 @@ function exportar(items: Incidencia[]) {
       i.rechazos_reparacion || 0,
       horasValidacionReparacion(i)?.toFixed(1) ?? '',
       horasEnProceso(i)?.toFixed(1) ?? '',
-      i.area_reportante, i.contacto_correo, i.contacto_telefono, i.via_reporte,
+      i.area_reportante,
+      // MKT los captura en la incidencia; los de la app Biobox llegan aparte.
+      i.contacto_correo || contactosApp.get(i.record_id)?.correo,
+      i.contacto_telefono || contactosApp.get(i.record_id)?.telefono,
+      i.via_reporte ||
+        (contactosApp.get(i.record_id)?.medio_contacto
+          ? `App Biobox (contacto por ${contactosApp.get(i.record_id)?.medio_contacto})`
+          : null),
     ]
       .map(csv)
       .join(',')
@@ -193,6 +228,23 @@ const COLUMNAS: {
 function TablaIncidencias({ items, puedeExportar }: Props) {
   /** null = el orden en que llegan de IncidenciasView (más reciente arriba). */
   const [orden, setOrden] = useState<{ k: string; asc: boolean } | null>(null);
+  const [exportando, setExportando] = useState(false);
+
+  const alExportar = async () => {
+    setExportando(true);
+    try {
+      const { mapa, error } = await contactosAppBiobox(items);
+      if (error) {
+        alert(
+          'No se pudieron traer el correo y el teléfono de los reportes de la app Biobox ' +
+            '(¿sin señal?). El archivo sale sin ellos.'
+        );
+      }
+      exportar(items, mapa);
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const clickOrden = (k: string) =>
     setOrden((prev) =>
@@ -245,10 +297,12 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
         {puedeExportar && (
           <button
             className="btn ghost sm"
-            onClick={() => exportar(items)}
+            onClick={() => void alExportar()}
+            disabled={exportando}
             title="Descarga lo filtrado como CSV (abre en Excel)"
           >
-            <Ic i={Download} />Exportar ({items.length})
+            <Ic i={Download} />
+            {exportando ? 'Preparando…' : `Exportar (${items.length})`}
           </button>
         )}
       </div>
