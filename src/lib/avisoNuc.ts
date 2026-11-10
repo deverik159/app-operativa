@@ -155,9 +155,15 @@ type Rol = { rol: string; unidad_negocio: string | null; departamento: string | 
 const igual = (a: string | null | undefined, b: string) =>
   sinAcentos((a || '').trim()) === sinAcentos(b);
 
-/** Digital: técnico con área Digital de cualquier unidad, o el manager. */
+/**
+ * Digital: técnico o coordinador (desde el 10-nov-2026, Erik) con área
+ * Digital de cualquier unidad, o el manager. Como nuc_es_digital.
+ */
 export function esDigitalNuc(roles: Rol[]): boolean {
-  return roles.some((r) => r.rol === 'manager' || (r.rol === 'reparacion' && igual(r.departamento, 'digital')));
+  return roles.some(
+    (r) =>
+      r.rol === 'manager' || ((r.rol === 'reparacion' || r.rol === 'coordinador') && igual(r.departamento, 'digital'))
+  );
 }
 
 /**

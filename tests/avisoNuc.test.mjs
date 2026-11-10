@@ -26,6 +26,13 @@ test('Digital es el técnico con área Digital de cualquier unidad, o el manager
   assert.equal(esDigitalNuc([rol('manager')]), true);
   assert.equal(esDigitalNuc([rol('reportante', 'Biobox', 'Digital')]), false);
   assert.equal(esDigitalNuc([rol('reparacion', 'Biobox', 'Op. Bio Box')]), false);
+  // El coordinador de Digital también marca (Erik, 10-nov-2026); los demás coordinadores no.
+  assert.equal(esDigitalNuc([rol('coordinador', null, 'Digital')]), true);
+  assert.equal(esDigitalNuc([rol('coordinador', 'Biobox', 'digital')]), true);
+  assert.equal(esDigitalNuc([rol('coordinador', 'Biobox', 'Op. Bio Box')]), false);
+  assert.equal(esDigitalNuc([rol('coordinador', 'Ecovallas')]), false);
+  // Y, como el técnico de Digital, ve todas las unidades y cuenta todos los pendientes.
+  assert.deepEqual(unidadesAvisoNuc([rol('coordinador', 'Biobox', 'Digital')]), ['Biobox', 'Biobox Perú', 'Ecovallas', 'Vía Verde']);
 });
 
 test('Técnico de la máquina: Op. Bio Box o coordinador de esa unidad', () => {
