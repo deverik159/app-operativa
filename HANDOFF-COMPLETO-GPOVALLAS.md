@@ -1771,3 +1771,47 @@ Commits `66d9139` y `a92ea52`.
   en los registros de Auth de Supabase (Logs → Auth), no en lo que muestra
   la app.
 
+### 12.17. Menciones en el chat y limpieza de Supabase (4–11-nov-2026)
+
+Commits `83adcba`, `d081a4d`, `852ca89` y `843a04c`.
+
+- **Menciones con @ en el chat de incidencias** (pedido de los usuarios):
+  - Al escribir `@` en `ChatModal` sale una lista para elegir.
+    - La lista viene de la RPC `chat_mencionables(record_id)`: personas con
+      algún rol en la unidad del folio (menos Consulta) y áreas con técnicos.
+    - Es `security definer`, porque `usuario_roles` solo se deja leer a uno
+      mismo.
+    - Solo la pide quien tiene rol en esa unidad (o sin unidad), quien
+      capturó el folio o quien ya fue mencionado.
+  - La lógica del texto vive en `src/lib/menciones.ts`, con prueba en
+    `tests/menciones.test.mjs`: detectar el @, filtrar, insertar el nombre y
+    resaltarlo en la burbuja.
+  - La app manda `mensajes.menciones` (jsonb), solo cuando hay menciones.
+  - **La base decide quién queda mencionado** en `notificar_chat`:
+    - valida cada mención (misma unidad con `lower() = lower()`, área por
+      igualdad, máximo 20; un folio sin unidad no admite menciones);
+    - guarda a los mencionados en `chat_menciones`, uno por folio;
+    - les manda un aviso `chat` "📣 Te mencionaron" (o "Mencionaron a
+      <área>") en vez del aviso normal de ese mensaje.
+  - **El mencionado ve el folio y escribe hasta que se cierre:** se
+    ampliaron `inc_sel_participante_chat` y `msg_ins`. También recibe los
+    mensajes que sigan. Al editar un mensaje no cambian sus menciones
+    (`msg_marca_edicion`).
+  - Migraciones `20261104162839_chat_menciones` y
+    `20261104173854_chat_menciones_unidad_exacta`. La segunda cambió el
+    `ilike` por igualdad: con un folio de unidad "%" se podía mencionar a
+    cualquiera.
+  - `chat_menciones` la lee cualquier usuario con sesión, igual que
+    `mensajes`. Amarrarla a `incidencias` haría un ciclo de RLS con
+    `inc_sel_participante_chat`.
+- **Funciones de Supabase (10-nov-2026):** en producción solo quedan las dos
+  del repo, `enviar-push` y `limpiar-chat`.
+  - Se quitó WhatsApp: el webhook (ver §3.4), la Edge Function
+    `dynamic-worker` y los secretos `TWILIO_*`.
+  - Se borró `smart-handler`, la función de ejemplo de Supabase.
+  - Las funciones y los secretos se borran desde el Dashboard (función →
+    Settings → Delete edge function); el conector de Claude no puede.
+  - Borrar un secreto sube la versión de todas las funciones.
+- **`supabase/migrations/README.md`** ya no habla de una "línea base" (nunca
+  se hizo) ni de staging obligatorio. Hoy cada migración la revisa
+  `revisor-rls` y se aplica en producción con el sí de Erik.
