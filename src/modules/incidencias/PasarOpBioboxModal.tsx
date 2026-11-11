@@ -13,6 +13,8 @@
 import { useState } from 'react';
 import { sb } from '../../lib/supabase';
 import { haySenal, haySesionReal } from '../../lib/datosLocales';
+import { tope } from '../../lib/envios';
+import { pareceSinRed } from '../../lib/enLinea';
 import { areaEfectiva } from '../../lib/helpers';
 import { vigilarRender } from '../../lib/vigia';
 import type { Incidencia } from '../../types/db';
@@ -50,10 +52,18 @@ function PasarOpBioboxModal({ inc, onClose, onDone }: Props) {
       setErr(SIN_SENAL);
       return;
     }
-    const { error } = await sb.rpc('inc_pasar_a_op_biobox', { p_record_id: inc.record_id, p_motivo: m });
+    // Con tope (11-nov-2026): con la red colgada el modal quedaba en
+    // «Guardando» con ✕, fondo y Cancelar deshabilitados, sin salida.
+    const { error } = await sb
+      .rpc('inc_pasar_a_op_biobox', { p_record_id: inc.record_id, p_motivo: m })
+      .abortSignal(tope(30000));
     setBusy(false);
     if (error) {
-      setErr(error.message);
+      setErr(
+        pareceSinRed(error)
+          ? 'La red no respondió. Revisa la incidencia antes de volver a intentarlo: pudo haberse pasado.'
+          : error.message
+      );
       return;
     }
     onDone(inc.record_id, { area_responsable: 'Op. Bio Box', assigned_area: null, reasignada_de: area || null });

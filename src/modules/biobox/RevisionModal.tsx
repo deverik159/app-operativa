@@ -25,6 +25,8 @@
 import { MapPin } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { sb } from '../../lib/supabase';
+import { tope } from '../../lib/envios';
+import { pareceSinRed } from '../../lib/enLinea';
 import {
   BUCKET_EVIDENCIAS,
   CACHE_INMUTABLE,
@@ -104,6 +106,26 @@ type Marca = {
    */
   causa: ChecklistCausa | null;
 };
+
+/**
+ * Espera `p` como mucho `ms`; si no llega, rechaza con `msg` (11-nov-2026).
+ * Para lo que no acepta AbortSignal (subida a Storage, helpers): la promesa
+ * sigue por su cuenta, solo se deja de esperar y el modal no queda pasmado.
+ */
+function conTope<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  let t: number | undefined;
+  return Promise.race([
+    p,
+    new Promise<never>((_, rej) => {
+      t = window.setTimeout(() => rej(new Error(msg)), ms);
+    }),
+  ]).finally(() => window.clearTimeout(t));
+}
+
+/** Topes del guardado: lecturas cortas, cada archivo con margen para 3G. */
+const TOPE_LECTURA_MS = 20000;
+const TOPE_ESCRITURA_MS = 30000;
+const TOPE_ARCHIVO_MS = 90000;
 
 type Props = {
   ubic: UbicacionRevision;
@@ -424,13 +446,29 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     if (aLevantar.length > 0) {
       setGuardando(true);
       setPaso('Verificando duplicados…');
-      const dups = await duplicadasEnProcesoDeSitio(
-        ubic.site_id,
-        aLevantar.map((p) => ({
-          clave_medio: ubic.vendor_face_id,
-          nombre_incidencia: marcas[p.id].incidencia,
-        }))
-      );
+      let dups: Awaited<ReturnType<typeof duplicadasEnProcesoDeSitio>>;
+      try {
+        dups = await conTope(
+          duplicadasEnProcesoDeSitio(
+            ubic.site_id,
+            aLevantar.map((p) => ({
+              clave_medio: ubic.vendor_face_id,
+              nombre_incidencia: marcas[p.id].incidencia,
+            }))
+          ),
+          TOPE_LECTURA_MS,
+          'la red no respondió'
+        );
+      } catch (ex) {
+        setGuardando(false);
+        setPaso('');
+        setErr(
+          'No se pudo revisar si la incidencia ya está reportada (' +
+            (ex instanceof Error ? ex.message : String(ex)) +
+            '). No se guardó nada: revisa la señal e intenta de nuevo.'
+        );
+        return;
+      }
       setGuardando(false);
       setPaso('');
       if (dups.length > 0) {
@@ -461,7 +499,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     for (const p of anomalias) {
       for (const f of marcas[p.id].files) {
         try {
-          const r = await subirUno(f, 'anomalia');
+          const r = await conTope(subirUno(f, 'anomalia'), TOPE_ARCHIVO_MS, `${f.name}: la red no respondió`);
           subidos.push({ punto_id: p.id, ...r });
         } catch (ex: any) {
           setGuardando(false);
@@ -515,12 +553,19 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
         observaciones: obs || null,
       },
       p_respuestas: respuestas,
-    });
+    }).abortSignal(tope(TOPE_ESCRITURA_MS));
 
     if (error) {
       setGuardando(false);
       setPaso('');
-      setErr('No se pudo guardar la revisión: ' + error.message);
+      // Sin respuesta no se sabe si la base alcanzó a guardarla: volver a
+      // guardar a ciegas la duplicaría (11-nov-2026).
+      setErr(
+        pareceSinRed(error)
+          ? 'La red no respondió y no se sabe si la revisión alcanzó a guardarse. ' +
+              'Cierra, toca ↻ (Recargar) y revisa la última revisión de la máquina antes de volver a guardar, para no duplicarla.'
+          : 'No se pudo guardar la revisión: ' + error.message
+      );
       return;
     }
     const revisionId = (data as { revision_id: number }).revision_id;
@@ -529,10 +574,13 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     //    respuestas, así que se releen una sola vez: hay una respuesta por
     //    punto, y este índice lo necesitan tanto la evidencia como el sellado
     //    de las incidencias.
-    const { data: resp } = await sb
+    // Desde aquí la revisión YA existe: cada paso lleva tope y su falla va a
+    // `problemas` (el aviso de abajo), nunca a un «Guardando…» sin fin.
+    const { data: resp, error: eResp } = await sb
       .from('revision_respuestas')
       .select('id,punto_id')
-      .eq('revision_id', revisionId);
+      .eq('revision_id', revisionId)
+      .abortSignal(tope(TOPE_LECTURA_MS));
     const porPunto = new Map<number, number>();
     ((resp as { id: number; punto_id: number | null }[]) || []).forEach((r) => {
       if (r.punto_id != null) porPunto.set(r.punto_id, r.id);
@@ -542,6 +590,8 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     // puede deshacer, pero tampoco se puede callar: si el modal se cerrara
     // solo, el revisor se iría creyendo que subió la foto de la anomalía.
     const problemas: string[] = [];
+    if (eResp)
+      problemas.push('No se pudieron ligar las fotos e incidencias a cada punto: ' + eResp.message + '.');
 
     // 4) Evidencia de la revisión.
     if (subidos.length > 0) {
@@ -557,7 +607,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
             puntos.find((p) => p.id === s.punto_id)?.texto.slice(0, 120) || null,
           subido_por: email,
         }))
-      );
+      ).abortSignal(tope(TOPE_ESCRITURA_MS));
       if (eEv)
         problemas.push('La evidencia no se registró: ' + eEv.message);
     }
@@ -630,7 +680,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
         // `punto_id` no es columna de incidencias: solo sirve aquí para
         // volver a coser la respuesta con su incidencia.
         const rows = filas.map(({ punto_id: _p, ...resto }) => resto);
-        const { error: eInc } = await sb.from('incidencias').insert(rows);
+        const { error: eInc } = await sb.from('incidencias').insert(rows).abortSignal(tope(TOPE_ESCRITURA_MS));
         if (eInc) {
           problemas.push(
             'No se pudieron levantar las incidencias: ' + eInc.message
@@ -657,7 +707,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
               }))
           );
           if (evInc.length > 0) {
-            const { error: eEvInc } = await sb.from('evidencias').insert(evInc);
+            const { error: eEvInc } = await sb.from('evidencias').insert(evInc).abortSignal(tope(TOPE_ESCRITURA_MS));
             if (eEvInc)
               problemas.push(
                 'Las incidencias se crearon sin su foto: ' + eEvInc.message
@@ -665,14 +715,20 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
           }
 
           // Sellar cada respuesta con su incidencia.
+          let sinSello = 0;
           for (const f of filas) {
             const rid = porPunto.get(f.punto_id);
-            if (rid)
-              await sb
+            if (rid) {
+              const { error: eSello } = await sb
                 .from('revision_respuestas')
                 .update({ incidencia_record_id: f.record_id })
-                .eq('id', rid);
+                .eq('id', rid)
+                .abortSignal(tope(TOPE_LECTURA_MS));
+              if (eSello) sinSello++;
+            }
           }
+          if (sinSello)
+            problemas.push(`${sinSello} punto(s) de la revisión no quedaron ligados a su incidencia.`);
         }
       }
     }
@@ -702,8 +758,26 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     onClose();
   };
 
+  /**
+   * ✕ y Cancelar con salida aunque esté guardando (11-nov-2026), como
+   * EditModal.cerrarSeguro: antes quedaban deshabilitados y, con la red
+   * colgada, la única salida era matar la app. El guardado sigue por su
+   * cuenta; el fondo no cierra mientras guarda.
+   */
+  const cerrarSeguro = () => {
+    if (
+      guardando &&
+      !confirm(
+        'Se está guardando la revisión. Si cierras, el guardado sigue por su cuenta: ' +
+          'toca ↻ (Recargar) y revisa la máquina antes de volver a revisarla, para no duplicarla.\n\n¿Cerrar de todas formas?'
+      )
+    )
+      return;
+    onClose();
+  };
+
   // --- Render ---
-  const btnValor = (id: number, v: ValorRespuesta, texto: string, tono: Tono) => {
+  const btnValor =(id: number, v: ValorRespuesta, texto: string, tono: Tono) => {
     const activo = tocados.has(id) && marcas[id]?.valor === v;
     return (
       <button
@@ -737,7 +811,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
       }}
     >
       <div className="modal" style={{ maxWidth: 720 }}>
-        <CerrarModal onClick={onClose} disabled={guardando} />
+        <CerrarModal onClick={cerrarSeguro} />
         <h2 style={{ margin: '0 0 3px' }}>Revisión de máquina</h2>
         <p className="phint">
           {ubic.site_legacy_id ? `${ubic.site_legacy_id} · ` : ''}
@@ -1150,7 +1224,7 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
               </div>
             )}
             <div className="modal-actions pie-fijo">
-              <button className="btn ghost" onClick={onClose} disabled={guardando}>
+              <button className="btn ghost" onClick={cerrarSeguro}>
                 {guardado ? 'Cerrar' : 'Cancelar'}
               </button>
               {!guardado && (

@@ -375,7 +375,11 @@ export default function CapturaSitio({ email, t, hoy, estado, incluidas, onLista
       lng: u?.lng ?? null,
       precision_m: u?.precision_m ?? null,
     };
-    const r = await encolarFotosComp(email, v, [foto], h);
+    // Un rechazo inesperado (IndexedDB colgada en iOS) dejaba `guardando`
+    // prendido y ya no se podía guardar ninguna foto del sitio (11-nov-2026).
+    const r = await encolarFotosComp(email, v, [foto], h).catch(
+      (e: unknown) => ({ tipo: 'error' as const, mensaje: 'No se pudo guardar la foto: ' + (e instanceof Error ? e.message : String(e)) })
+    );
     if (!vivo.current) return;
     setGuardando(false);
     if (r.tipo === 'error') {
@@ -419,7 +423,7 @@ export default function CapturaSitio({ email, t, hoy, estado, incluidas, onLista
       v,
       { cliente_id: tambien.cliente_id, path: tambien.path, pos: tambien.pos, momento: tambien.momento, tipo: tambien.tipo, trabajo: tambien.trabajo, fid: tambien.fid },
       h.toma_ids
-    );
+    ).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
     if (!vivo.current) return;
     setGuardando(false);
     if (r !== 'ok') {
@@ -453,7 +457,7 @@ export default function CapturaSitio({ email, t, hoy, estado, incluidas, onLista
       visita,
       { cliente_id: f.cliente_id, path: f.path, pos: f.pos, momento: f.momento, tipo: f.tipo, trabajo: f.trabajo, fid: f.fid },
       tomaId
-    );
+    ).catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
     if (!vivo.current) return;
     setOcupadaFoto(null);
     if (typeof r === 'object') {

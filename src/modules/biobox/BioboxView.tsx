@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { sb } from '../../lib/supabase';
+import { tope } from '../../lib/envios';
 import IrAqui from '../../components/IrAqui';
 import { resumenMaquinas, HORAS_ALARMA } from '../../lib/estadoMaquina';
 import type { MapaResumen } from '../../lib/estadoMaquina';
@@ -177,7 +178,10 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloL
           .select('ubicacion_id,ruta_id,ruta_numero,ruta_nombre,ruta_color,unidad_negocio,tipo_medio,ruta_activa,site_id,secuencia,vendor_face_id,site_legacy_id,direccion,municipio,estado,tipo_mueble,medio,latitud,longitud,navegable,revision_id,ultima_revision,ultimo_revisor,estado_maquina,puntos_anomalia,dias_sin_revision')
           .eq('unidad_negocio', unidad)
           .order('ubicacion_id')
-          .range(inicio, inicio + 499);
+          .range(inicio, inicio + 499)
+          // Con tope (11-nov-2026): una red colgada nunca llegaba al catch,
+          // así que ni se usaba la copia del teléfono ni se soltaba «Actualizar».
+          .abortSignal(tope(20000));
         if (error) throw new Error('No se pudieron cargar las máquinas: ' + error.message);
         if (turno !== solicitud.current) return;
         filas.push(...(data || []).map((u) => ({ ...u, face_status: null })));
@@ -189,7 +193,8 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloL
       for (let inicio = 0; inicio < claves.length; inicio += 100) {
         const { data, error } = await sb.from('inventario')
           .select('vendor_face_id,face_status')
-          .in('vendor_face_id', claves.slice(inicio, inicio + 100));
+          .in('vendor_face_id', claves.slice(inicio, inicio + 100))
+          .abortSignal(tope(20000));
         if (error) throw new Error('No se pudo consultar el estado del inventario: ' + error.message);
         if (turno !== solicitud.current) return;
         for (const u of data || []) estadosInventario.set(u.vendor_face_id, u.face_status);
@@ -207,7 +212,8 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloL
       for (let inicio = 0; inicio < sitios.length; inicio += 100) {
         const { data, error } = await sb.from('vw_maquina_ultima_visita')
           .select('site_id,visitado_en,usuario_email,funciona,distancia_m,precision_m')
-          .in('site_id', sitios.slice(inicio, inicio + 100));
+          .in('site_id', sitios.slice(inicio, inicio + 100))
+          .abortSignal(tope(20000));
         if (turno !== solicitud.current) return;
         if (error) {
           visitasCompletas = false;

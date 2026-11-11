@@ -21,6 +21,7 @@ import { Check, ChevronDown, ChevronRight, Download, FolderOpen, RotateCcw, Undo
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { PautaRuta } from '../../types/db';
 import { sb } from '../../lib/supabase';
+import { tope } from '../../lib/envios';
 import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from '../../lib/storage';
 import { fechaHoraCdmx } from '../../lib/fechasCdmx';
 import { cargarNombres, nombreDe, type MapaNombres } from '../../lib/nombres';
@@ -214,6 +215,9 @@ function Carpeta({
   const [fotos, setFotos] = useState<FotoRevision[]>([]);
   const [cargando, setCargando] = useState(bandeja !== 'regresadas');
   const [err, setErr] = useState('');
+  /** La lectura de fotos falló: en vez de girar para siempre (o de pintar
+   *  las caras como si no tuvieran fotos) se ofrece Reintentar (11-nov-2026). */
+  const [falloCarga, setFalloCarga] = useState(false);
   const [aviso, setAviso] = useState('');
   /** Qué se está haciendo (id de foto, cara o 'zip'): una cosa a la vez. */
   const [trabajando, setTrabajando] = useState<string | null>(null);
@@ -245,9 +249,14 @@ function Carpeta({
         .is('regresada_en', null)
         // Solo fotos (los videos no se revisan); `neq` sola dejaría fuera tipo null.
         .or('tipo.is.null,tipo.neq.video')
-        .order('creado_en');
+        .order('creado_en')
+        .abortSignal(tope(20000));
       if (error) {
-        if (vivo.current) setErr('No se pudieron leer las fotos: ' + error.message);
+        if (vivo.current) {
+          setErr('No se pudieron leer las fotos: ' + error.message);
+          setFalloCarga(true);
+          setCargando(false);
+        }
         return;
       }
       evid.push(...((data as typeof evid) || []));
@@ -260,9 +269,14 @@ function Carpeta({
         .in(
           'evidencia_id',
           evid.slice(i, i + 150).map((e) => e.id)
-        );
+        )
+        .abortSignal(tope(20000));
       if (error) {
-        if (vivo.current) setErr('No se pudieron leer las revisiones: ' + error.message);
+        if (vivo.current) {
+          setErr('No se pudieron leer las revisiones: ' + error.message);
+          setFalloCarga(true);
+          setCargando(false);
+        }
         return;
       }
       for (const r of (data as { evidencia_id: number; estado: string; editada_url: string | null; editada_path: string | null }[]) ||
@@ -290,6 +304,7 @@ function Carpeta({
     );
     if (vivo.current) {
       setFotos(lista);
+      setFalloCarga(false);
       setCargando(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -496,6 +511,19 @@ function Carpeta({
         <div className="loading" role="status">
           Leyendo las fotos…
         </div>
+      ) : falloCarga ? (
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            setFalloCarga(false);
+            setCargando(true);
+            cargar();
+          }}
+        >
+          <Ic i={RotateCcw} />
+          Reintentar
+        </button>
       ) : (
         caras.map((c) => (
           <BloqueCara

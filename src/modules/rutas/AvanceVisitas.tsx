@@ -313,7 +313,10 @@ export default function AvanceVisitas({ ruta, paradas }: { ruta: Resumen; parada
           <select
             value={catSel ?? ''}
             onChange={(e) => setCatSel(e.target.value === '' ? null : e.target.value)}
-            style={{ width: 'auto', fontSize: 13, padding: '6px 8px' }}
+            // Sin fontSize en línea: le ganaba a la regla de 16 px del
+            // celular e iOS hacía zoom al tocarlo (11-nov-2026).
+            className="sel-compacto"
+            style={{ width: 'auto' }}
             aria-label="Catorcena"
           >
             {cats.map((c) => (

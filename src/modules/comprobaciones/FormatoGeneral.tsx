@@ -57,6 +57,7 @@ import {
   type VwToma,
 } from '../../lib/comprobacionesApi';
 import { subirYLuego } from '../../lib/subirAntes';
+import { armazonActivo } from '../../lib/armazon';
 import { vigilarRender } from '../../lib/vigia';
 import type { PropsPestanaComp } from './tiposComp';
 import FormatoEditarModal from './FormatoEditarModal';
@@ -774,14 +775,18 @@ export default function FormatoGeneral(props: PropsPestanaComp) {
           aria-label="Acciones con las tomas elegidas"
           style={{
             position: 'sticky',
-            bottom: 0,
+            // Teléfono sin armazón: el menú inferior es fijo (z 900, ~88 px) y
+            // tapaba la barra entera con sus botones (revisión de teléfono,
+            // 11-nov-2026). Mismo desplazamiento que CampanasSupervisor.
+            bottom: telefono && !armazonActivo() ? 'calc(88px + env(safe-area-inset-bottom, 0px))' : 0,
             zIndex: 5,
             marginTop: 12,
             background: 'var(--panel)',
             border: '1px solid var(--line)',
             borderRadius: 12,
             padding: '10px 12px',
-            paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
+            // Encima del menú el área segura ya la cubre el menú.
+            paddingBottom: telefono && !armazonActivo() ? 10 : 'calc(10px + env(safe-area-inset-bottom, 0px))',
             boxShadow: '0 -4px 14px var(--sombra)',
           }}
         >

@@ -44,6 +44,7 @@ import type { GrupoReporte } from '../incidencias/NuevaInc';
 import type { PautaRuta } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
 import { tope } from '../../lib/envios';
+import { pareceSinRed } from '../../lib/enLinea';
 import { subirYLuego, subirYRegresar } from '../../lib/subirAntes';
 import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib/catorcena';
 import IndicadoresPauta from './IndicadoresPauta';
@@ -629,13 +630,22 @@ function PautaView({
    * al bucle de antes, una consulta por catorcena.
    */
   async function leerCatorcenasPauta() {
-    const { data, error } = await sb.rpc('pauta_catorcenas_con_pauta');
+    // Con tope (11-nov-2026): sin él, una señal colgada dejaba «Cargando
+    // pauta…» para siempre y catsEnCurso prendido, así que ↻ no hacía nada.
+    const { data, error } = await sb.rpc('pauta_catorcenas_con_pauta').abortSignal(tope(20000));
     if (!error) {
       const cats = ((data as { anio: number; catorcena: number }[] | null) ?? []).map((r) => ({
         anio: Number(r.anio),
         numero: Number(r.catorcena),
       }));
       aplicarCatorcenas(cats);
+      return;
+    }
+    // El respaldo es solo para una base sin la función; una falla de red
+    // (o el tope) no lanza 120 consultas más: se avisa y ↻ reintenta.
+    if (error.code !== 'PGRST202' && error.code !== '42883') {
+      setErr(pareceSinRed(error) ? 'La red no respondió.' : 'catorcenas: ' + error.message);
+      setLoading(false);
       return;
     }
     await leerCatorcenasUnaPorUna();
@@ -659,7 +669,7 @@ function PautaView({
         .limit(1);
       if (ult)
         q = q.or(`anio.lt.${ult.anio},and(anio.eq.${ult.anio},catorcena.lt.${ult.numero})`);
-      const { data, error } = await q;
+      const { data, error } = await q.abortSignal(tope(15000));
       if (error) {
         setErr('catorcenas: ' + error.message);
         // Lo que ya llegó (la más reciente primero) sí sirve: una falla a
@@ -731,10 +741,11 @@ function PautaView({
         .eq('catorcena', leida.numero)
         .order('ruta_numero', { ascending: true, nullsFirst: false })
         .order('secuencia', { ascending: true })
-        .range(desde, desde + PAGINA - 1);
+        .range(desde, desde + PAGINA - 1)
+        .abortSignal(tope(20000));
       if (miCarga !== cargaSeq.current) return; // otra carga más nueva manda
       if (error) {
-        setErr('pauta: ' + error.message);
+        setErr(pareceSinRed(error) ? 'La red no respondió. Toca ↻ para reintentar.' : 'pauta: ' + error.message);
         // Lo que quedó en pantalla es de OTRA catorcena: no se deja debajo
         // del selector nuevo como si fuera de ésta.
         aplicarDeCatorcena(cat, miCarga, () => {
@@ -1074,25 +1085,30 @@ function PautaView({
       <>
         <h2 className="page">Pauta y monitoreo</h2>
         <p className="phint">Campañas por ruta y avance de campo.</p>
-        {err && (
+        {err ? (
+          // Falló la lectura: no es que no haya catorcenas (11-nov-2026).
           <div className="err" role="alert">
-            {err}
+            {err}{' '}
+            <button type="button" className="btn ghost sm" onClick={reintentarCatorcenas}>
+              Reintentar
+            </button>
+          </div>
+        ) : (
+          <div className="empty">
+            Todavía no hay ninguna catorcena cargada.
+            {puedeImportar ? (
+              <div style={{ marginTop: 14 }}>
+                <button className="btn" onClick={() => setImportar(true)}>
+                  <Ic i={Download} />Importar pauta
+                </button>
+              </div>
+            ) : (
+              <div style={{ marginTop: 8, fontSize: 12 }}>
+                Pide a un coordinador que importe el archivo de la catorcena.
+              </div>
+            )}
           </div>
         )}
-        <div className="empty">
-          Todavía no hay ninguna catorcena cargada.
-          {puedeImportar ? (
-            <div style={{ marginTop: 14 }}>
-              <button className="btn" onClick={() => setImportar(true)}>
-                <Ic i={Download} />Importar pauta
-              </button>
-            </div>
-          ) : (
-            <div style={{ marginTop: 8, fontSize: 12 }}>
-              Pide a un coordinador que importe el archivo de la catorcena.
-            </div>
-          )}
-        </div>
         {importar && (
           <ImportarPautaModal
             onClose={() => setImportar(false)}

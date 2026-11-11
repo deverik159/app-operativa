@@ -415,6 +415,9 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
    * esto, la respuesta tardía de un sitio viejo pisaba el vigente.
    */
   const pickSeqRef = useRef(0);
+  /** Consecutivo de «Sitios cerca de mí»: una respuesta tardía del GPS (ya
+   *  vencido el tope propio) no se aplica. */
+  const geoSeqRef = useRef(0);
 
   const esBiobox = un.toLowerCase().startsWith('biobox');
 
@@ -576,8 +579,20 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       return;
     }
     setGeoBusy(true);
+    // Tope propio además del de getCurrentPosition (11-nov-2026): hay iPhone
+    // donde ni contesta ni falla, y el botón se quedaba en «Ubicando…» hasta
+    // cerrar el alta. Igual que VisitaMaquinaModal y MarcarVisitaModal.
+    const seq = ++geoSeqRef.current;
+    const reloj = window.setTimeout(() => {
+      if (!montadoRef.current || seq !== geoSeqRef.current) return;
+      geoSeqRef.current++;
+      setGeoBusy(false);
+      alert('El GPS no respondió a tiempo.\n\nMientras tanto puedes buscar el sitio por su clave.');
+    }, 12000);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
+        window.clearTimeout(reloj);
+        if (!montadoRef.current || seq !== geoSeqRef.current) return;
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
         const d = DELTA_GRADOS;
@@ -652,6 +667,8 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           );
       },
       (err) => {
+        window.clearTimeout(reloj);
+        if (!montadoRef.current || seq !== geoSeqRef.current) return;
         setGeoBusy(false);
         // El mensaje crudo del navegador ("User denied Geolocation") no dice
         // qué hacer. explicarErrorGps distingue origen inseguro, bloqueo del

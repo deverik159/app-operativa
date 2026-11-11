@@ -364,6 +364,9 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
 .toolbar.filtros-pildora .btn{flex:0 0 auto;border-radius:17px}
 .toolbar.filtros-pildora .btn.on{background:var(--pildora-on);color:var(--pildora-on-txt);border-color:var(--pildora-on-borde)}
 .toolbar.filtros-pildora .segmento{flex:0 0 auto;width:auto}
+/* Select chico de escritorio (p. ej. catorcena de Avance de visitas); en
+   celular vuelve a 16 px abajo para que iOS no haga zoom. */
+.sel-compacto{font-size:13px;padding:6px 8px}
 @media(max-width:780px){
   /* Una fila que se desliza de lado (antes: un select por renglón). 16px de
      letra: con menos, iOS hace zoom al tocar el select. */
@@ -371,8 +374,23 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
     padding:0 12px 2px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
   .toolbar.filtros-pildora::-webkit-scrollbar{display:none}
   .toolbar.filtros-pildora select{width:auto;flex:0 0 auto;height:38px;border-radius:19px;font-size:16px}
-  .pildora-check{height:38px;border-radius:19px;font-size:14px}
+  /* Una casilla con texto largo («Comprobación diaria solo de lunes a
+     viernes», Excel de Comprobaciones) medía 342 px y se cortaba a 375 y
+     320: en celular nunca pasa del ancho y su texto baja de renglón. */
+  .pildora-check{height:auto;min-height:38px;max-width:100%;padding-top:6px;padding-bottom:6px;
+    border-radius:19px;font-size:14px;white-space:normal;line-height:1.25}
   .segmento{width:100%}
+  .sel-compacto{font-size:16px;min-height:40px}
+}
+@media(max-width:380px){
+  /* .main baja a 10 px de relleno (index.css): con -12 la fila se salía 2 px
+     por lado y se recortaba la primera y la última píldora. */
+  .toolbar.filtros-pildora{margin-left:-10px;margin-right:-10px;padding-left:10px;padding-right:10px}
+  /* Tres opciones con ícono (Pauta VV: Campañas · Hoy al aire ·
+     Disponibilidad) suman 338 px y a 320 la última quedaba cortada: sin
+     íconos y con menos relleno caben (278 px). */
+  .segmento button{padding:0 8px}
+  .segmento button .ic{display:none}
 }
 
 /* Ícono en línea con el texto (components/Ic.tsx): sustituye a los emojis. */
