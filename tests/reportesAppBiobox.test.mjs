@@ -10,7 +10,7 @@ const { outputText } = ts.transpileModule(source, {
 const {
   abreReportesAppBiobox, unidadesBandeja, atiendeUnidad, pideMarcarAtendido, estadoBandeja,
   textoEstatusCore, desfase, equivalenciaDe, leerErrorBandeja, minutosDesde, coincideBusqueda,
-  fechaCoreAIso, llaveReincidencia, reincidencias, enlaceWebadmin,
+  fechaCoreAIso, llaveReincidencia, reincidencias, enlaceWebadmin, maquinaOpcionalAlReparar,
 } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const rep = (x = {}) => ({
@@ -158,4 +158,20 @@ test('Reincidencias en 30, 60 y 90 días; los descartados no cuentan', () => {
 test('Enlace al Webadmin solo con un número de reporte válido', () => {
   assert.match(enlaceWebadmin(369), /\/buzon\/detail\/369$/);
   for (const malo of [0, -1, 1.5, null, undefined, NaN]) assert.equal(enlaceWebadmin(malo), null);
+});
+
+test('Máquina opcional al reparar: solo las de abono de puntos', () => {
+  const app = (obs) => ({ nombre_incidencia: 'Fallas con la aplicación', area_reportante: 'App Biobox', observaciones: obs });
+  // Motivo y etiqueta de la app en la primera línea.
+  assert.equal(maquinaOpcionalAlReparar(app('App Biobox · reporte BBAPP-00379 · Abono de puntos · «Error de abono de punto»')), true);
+  assert.equal(maquinaOpcionalAlReparar(app('App Biobox · reporte BBAPP-1 · Otro · «Error de abono de punto»\nnota')), true);
+  // Falla del catálogo, venga de donde venga.
+  assert.equal(maquinaOpcionalAlReparar({ nombre_incidencia: 'Error en el abono de puntos', area_reportante: 'MKT' }), true);
+  // Canjeo de puntos y demás motivos: la máquina sigue obligatoria.
+  assert.equal(maquinaOpcionalAlReparar(app('App Biobox · reporte BBAPP-2 · Detección del código de barras del producto · «Error en el canjeo de puntos»')), false);
+  // Lo que escribió la validadora (segunda línea) no cuenta.
+  assert.equal(maquinaOpcionalAlReparar(app('App Biobox · reporte BBAPP-3 · Compuerta atorada\nquizá abono de puntos')), false);
+  // Si no vino de la app, las Observaciones no cuentan.
+  assert.equal(maquinaOpcionalAlReparar({ nombre_incidencia: 'Fallas con la aplicación', area_reportante: 'MKT', observaciones: 'App Biobox · reporte X · Abono de puntos' }), false);
+  assert.equal(maquinaOpcionalAlReparar({}), false);
 });

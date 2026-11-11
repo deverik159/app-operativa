@@ -54,6 +54,7 @@ import {
 } from '../../lib/datosLocales';
 import type { SitioLocal } from '../../lib/datosLocales';
 import { CLAVE_SIN_MAQUINA } from '../../lib/constants';
+import { maquinaOpcionalAlReparar } from '../../lib/reportesAppBiobox';
 import { colorTono } from '../../lib/tonos';
 import {
   abrirReparacion,
@@ -435,6 +436,8 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
 
   // --- Biobox reportada sin máquina: la elige quien repara (Erik, 28-sep-2026) ---
   const sinMaquina = inc.clave_sitio === CLAVE_SIN_MAQUINA;
+  // De abono de puntos se puede reparar sin elegirla (Erik, 11-nov-2026).
+  const maqOpcional = sinMaquina && maquinaOpcionalAlReparar(inc);
   const [maqQuery, setMaqQuery] = useState('');
   const [maqOpts, setMaqOpts] = useState<SitioLocal[]>([]);
   const [maqBuscando, setMaqBuscando] = useState(false);
@@ -879,8 +882,18 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
     // arbol_digital_id del ciclo anterior en una re-reparación (revisión sin
     // señal, 24-sep-2026). El botón ya está apagado; esto es por si acaso.
     if (esDigital && !arbolListo) return;
-    if (sinMaquina && !maqCaras.some((c) => c.vendor_face_id === maqCara)) {
-      alert('Elige la máquina afectada (se reportó sin máquina).');
+    // Opcional: sin buscar ninguna, se guarda sin máquina; pero si ya eligió
+    // una, falta su cara (o que toque Cambiar y la quite).
+    if (
+      sinMaquina &&
+      (!maqOpcional || maqSitio) &&
+      !maqCaras.some((c) => c.vendor_face_id === maqCara)
+    ) {
+      alert(
+        maqOpcional
+          ? 'Termina de elegir la máquina (o toca Cambiar y déjala sin máquina).'
+          : 'Elige la máquina afectada (se reportó sin máquina).'
+      );
       return;
     }
     // Fuera del árbol de Digital los dos son obligatorios (Erik, 19-oct-2026;
@@ -1149,10 +1162,16 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
             <div className="field">
               <label>
                 Máquina afectada —{' '}
-                <span style={{ color: colorTono('acento') }}>obligatoria</span>
+                {maqOpcional ? (
+                  <span style={{ color: 'var(--muted)' }}>opcional</span>
+                ) : (
+                  <span style={{ color: colorTono('acento') }}>obligatoria</span>
+                )}
               </label>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-                Se reportó sin máquina: búscala por su clave o por su nombre.
+                {maqOpcional
+                  ? 'Es de abono de puntos: le pasa al usuario en la app, no a una máquina. Si sabes en cuál fue, búscala por su clave o por su nombre; si no, déjalo vacío.'
+                  : 'Se reportó sin máquina: búscala por su clave o por su nombre.'}
               </div>
               {!maqSitio ? (
                 <>

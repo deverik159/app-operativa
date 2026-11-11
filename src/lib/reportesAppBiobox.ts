@@ -256,6 +256,30 @@ export function reincidencias(
   return m;
 }
 
+const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * ¿La máquina es OPCIONAL al reparar una incidencia reportada sin máquina?
+ * Sí cuando es de abono de puntos (Erik, 11-nov-2026): le pega al usuario en
+ * la app, no a una máquina en particular, y TI la resuelve sin elegirla.
+ *
+ * Se reconoce por la falla del catálogo («Error en el abono de puntos») o,
+ * si vino de la app, por la PRIMERA línea de Observaciones, que arma la base
+ * (`App Biobox · reporte F · <motivo> · «<etiqueta>»`): ahí vienen el motivo
+ * «Abono de puntos» y la etiqueta «Error de abono de punto». Lo que escribió
+ * la validadora va en las líneas siguientes y no cuenta. Así funciona también
+ * sin señal (la incidencia no guarda el motivo en otra columna).
+ */
+export function maquinaOpcionalAlReparar(
+  inc: { nombre_incidencia?: string | null; area_reportante?: string | null; observaciones?: string | null }
+): boolean {
+  const abono = (s: string | null | undefined) => /\babono de puntos?\b/.test(sinAcentos(s || ''));
+  if (abono(inc.nombre_incidencia)) return true;
+  if ((inc.area_reportante || '').trim() !== 'App Biobox') return false;
+  const primera = (inc.observaciones || '').split('\n')[0];
+  return primera.startsWith('App Biobox · reporte') && abono(primera);
+}
+
 /** Estatus de la app Biobox tal como lo ve el usuario final. */
 export function textoEstatusCore(r: Pick<ReporteAppBiobox, 'estatus_core' | 'estatus_core_nombre'>): string {
   if (r.estatus_core === 1) return 'Abierto';
