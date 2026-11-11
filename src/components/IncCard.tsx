@@ -31,6 +31,7 @@ import { slaInfo, slaInfoValidador, caraIncidencia, areaEfectiva, tieneAreaRedir
 import { alFallarMiniatura, esUrlVideo, urlMiniatura } from '../lib/storage';
 import { etiquetaCatorcena } from '../lib/catorcena';
 import PreviaVideo from './PreviaVideo';
+import DatosUsuarioApp from './DatosUsuarioApp';
 import { colorTono, fondoTono, tonoDe, type Tono } from '../lib/tonos';
 import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
 import Ic from './Ic';
@@ -151,6 +152,13 @@ function IncCard({
   const puedeReparar =
     !!can.reparar && (can.reparaEn ? can.reparaEn(i) : true);
   const redirigida = tieneAreaRedirigida(i);
+  // Datos del usuario de la app Biobox (11-nov-2026): al técnico que la
+  // repara si está en TI y abierta, y a la validadora (manager incluido).
+  // El área se calcula como la base (espacios fuera), no con areaEfectiva.
+  const areaParaDatos = ((i.assigned_area || '').trim() || i.area_responsable || '').trim();
+  const verDatosApp =
+    i.area_reportante === 'App Biobox' &&
+    ((puedeReparar && activa && areaParaDatos.toLowerCase() === 'ti') || !!can.validar);
   const mio =
     (i.captured_by || '').toLowerCase() === (email || '').toLowerCase();
 
@@ -277,6 +285,10 @@ function IncCard({
           {[i.contacto_correo, i.contacto_telefono].filter(Boolean).join(' · ')}
         </div>
       )}
+      {/* Vino de la app Biobox: quien la atiende en TI (y la validadora)
+          puede ver al usuario (11-nov-2026). La base vuelve a revisar el
+          permiso: el botón solo evita ofrecerlo a quien no le toca. */}
+      {verDatosApp && <DatosUsuarioApp recordId={i.record_id} />}
       {/* La foto del reporte, abajo del encabezado (pliego petitorio,
           ago-2026): el validador decide viendo, no abriendo la galería.
           El tamaño lo gobierna .inc-foto en index.css — en celular toma el
