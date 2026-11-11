@@ -175,3 +175,16 @@ test('Máquina opcional al reparar: solo las de abono de puntos', () => {
   assert.equal(maquinaOpcionalAlReparar({ nombre_incidencia: 'Fallas con la aplicación', area_reportante: 'MKT', observaciones: 'App Biobox · reporte X · Abono de puntos' }), false);
   assert.equal(maquinaOpcionalAlReparar({}), false);
 });
+
+test('Máquina opcional al reparar: todo lo de TI que vino de la app (11-nov-2026)', () => {
+  const ti = (x = {}) => ({ nombre_incidencia: 'Fallas con la aplicación', area_reportante: 'App Biobox', area_responsable: 'TI', ...x });
+  assert.equal(maquinaOpcionalAlReparar(ti({ observaciones: 'App Biobox · reporte F1 · Problemas con mi cuenta · «Problemas con mi cuenta»' })), true);
+  assert.equal(maquinaOpcionalAlReparar(ti({ observaciones: 'App Biobox · reporte F2 · Canjeo de puntos · «Error en el canjeo de puntos»' })), true);
+  assert.equal(maquinaOpcionalAlReparar(ti({ observaciones: 'App Biobox · reporte F3 · «Puntos o aplicación»' })), true);
+  // Reasignada a TI desde otra área: cuenta la asignada.
+  assert.equal(maquinaOpcionalAlReparar(ti({ area_responsable: 'Digital', assigned_area: 'TI' })), true);
+  // Lo de Digital que vino de la app sigue pidiendo máquina.
+  assert.equal(maquinaOpcionalAlReparar(ti({ nombre_incidencia: 'Falla en el proceso de reciclaje', area_responsable: 'Digital' })), false);
+  // TI que NO vino de la app: sigue pidiendo máquina.
+  assert.equal(maquinaOpcionalAlReparar(ti({ area_reportante: 'Operaciones' })), false);
+});

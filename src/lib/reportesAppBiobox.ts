@@ -46,6 +46,11 @@ export type ReporteAppBiobox = {
   decidido_por: string | null;
   decidido_en: string | null;
   motivo_descarte: string | null;
+  /**
+   * Falla sugerida por la regla automática (equivalencia por motivo o, en
+   * «Otro», palabras clave; migración 20261111220635). Null si ninguna aplicó.
+   */
+  sugerencia_detalle?: string | null;
 };
 
 /** Lo que la bandeja necesita de la incidencia ligada. */
@@ -269,13 +274,27 @@ const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toL
  * «Abono de puntos» y la etiqueta «Error de abono de punto». Lo que escribió
  * la validadora va en las líneas siguientes y no cuenta. Así funciona también
  * sin señal (la incidencia no guarda el motivo en otra columna).
+ *
+ * Además (Erik, 11-nov-2026, con la clasificación automática): TODO lo que
+ * vino de la app Biobox y está en TI (cuenta, canje, código de barras, «Otro»
+ * de puntos o de la app…) también es opcional: son problemas del usuario en
+ * la app, no de una máquina. Lo de Digital la sigue pidiendo.
  */
 export function maquinaOpcionalAlReparar(
-  inc: { nombre_incidencia?: string | null; area_reportante?: string | null; observaciones?: string | null }
+  inc: {
+    nombre_incidencia?: string | null;
+    area_reportante?: string | null;
+    observaciones?: string | null;
+    area_responsable?: string | null;
+    assigned_area?: string | null;
+  }
 ): boolean {
   const abono = (s: string | null | undefined) => /\babono de puntos?\b/.test(sinAcentos(s || ''));
   if (abono(inc.nombre_incidencia)) return true;
   if ((inc.area_reportante || '').trim() !== 'App Biobox') return false;
+  // El área que la repara: la asignada (reasignación) o la del catálogo.
+  const area = sinAcentos((inc.assigned_area || inc.area_responsable || '').trim());
+  if (area === 'ti') return true;
   const primera = (inc.observaciones || '').split('\n')[0];
   return primera.startsWith('App Biobox · reporte') && abono(primera);
 }

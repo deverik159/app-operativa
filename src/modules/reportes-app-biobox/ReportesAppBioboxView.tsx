@@ -339,7 +339,8 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
         <ClasificarModal
           r={accion.r}
           mueble={(accion.r.clave_inventario && maquinas.get(accion.r.clave_inventario)?.tipo_mueble) || null}
-          sugerida={equivalenciaDe(accion.r, equivalencias)?.catalogo_detalle || null}
+          // La que dejó la regla automática (también en «Otro»); si no, la equivalencia.
+          sugerida={accion.r.sugerencia_detalle || equivalenciaDe(accion.r, equivalencias)?.catalogo_detalle || null}
           reinc={reincDe(accion.r)}
           onCerrar={() => setAccion(null)}
           onListo={alTerminar}
@@ -555,7 +556,7 @@ function ClasificarModal({ r, mueble, sugerida, reinc, onCerrar, onListo, onLiga
           </label>
         </div>
       )}
-      {sugerida && <div className="phint" style={{ margin: '0 0 6px' }}>Sugerida por la tabla de equivalencias: <b>{sugerida}</b></div>}
+      {sugerida && <div className="phint" style={{ margin: '0 0 6px' }}>Sugerida automáticamente (por el motivo o por las palabras del usuario): <b>{sugerida}</b></div>}
       <SelectorFalla unidad={r.unidad_negocio} mueble={sinMaquina ? null : mueble} actual={sugerida} onElegir={setSel} />
       <div className="row2">
         <Derivado label="Nivel" valor={(sel?.impacto || '').trim()} />

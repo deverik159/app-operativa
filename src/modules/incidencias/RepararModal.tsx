@@ -436,7 +436,8 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
 
   // --- Biobox reportada sin máquina: la elige quien repara (Erik, 28-sep-2026) ---
   const sinMaquina = inc.clave_sitio === CLAVE_SIN_MAQUINA;
-  // De abono de puntos se puede reparar sin elegirla (Erik, 11-nov-2026).
+  // De abono de puntos, o de TI que vino de la app Biobox, se puede reparar
+  // sin elegirla (Erik, 11-nov-2026; ver maquinaOpcionalAlReparar).
   const maqOpcional = sinMaquina && maquinaOpcionalAlReparar(inc);
   const [maqQuery, setMaqQuery] = useState('');
   const [maqOpts, setMaqOpts] = useState<SitioLocal[]>([]);
