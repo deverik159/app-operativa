@@ -22,6 +22,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { PautaRuta } from '../../types/db';
 import { sb } from '../../lib/supabase';
 import { tope } from '../../lib/envios';
+import { pareceSinRed } from '../../lib/enLinea';
 import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from '../../lib/storage';
 import { fechaHoraCdmx } from '../../lib/fechasCdmx';
 import { cargarNombres, nombreDe, type MapaNombres } from '../../lib/nombres';
@@ -67,8 +68,53 @@ const TXT_BANDEJA: Record<Bandeja, string> = {
   regresadas: 'Regresadas',
 };
 
-/** Una descarga o subida a la vez en toda la pestaña. */
+/**
+ * Una descarga o subida a la vez en toda la pestaña. Por eso cada espera de
+ * red lleva tope (11-nov-2026): con la red colgada una sola acción dejaba el
+ * candado puesto y ningún botón de ninguna carpeta respondía hasta recargar.
+ */
 let ocupadoModulo = false;
+
+const TOPE_ESCRITURA_MS = 30000;
+const TOPE_SUBIDA_MS = 90000;
+const TOPE_BORRADO_MS = 15000;
+/** Por foto al bajarla (sola o para el ZIP): margen para 3G. */
+const TOPE_FOTO_MS = 60000;
+
+/** Para lo que no se puede abortar (subidas y borrados de Storage). */
+function conTope<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  let t: number | undefined;
+  return Promise.race([
+    p,
+    new Promise<never>((_, rej) => {
+      t = window.setTimeout(() => rej(new Error(msg)), ms);
+    }),
+  ]).finally(() => window.clearTimeout(t));
+}
+
+/**
+ * Error de una escritura. Sin red (o al vencer el tope) no se sabe si la
+ * base alcanzó a guardarla: se pide revisar antes de repetir.
+ */
+function fallaEscritura(prefijo: string, error: { message: string }): Error {
+  return new Error(
+    pareceSinRed(error)
+      ? `${prefijo}: la red no respondió y pudo haber quedado hecho. Toca ↻ (arriba) y revisa la toma antes de repetirlo.`
+      : `${prefijo}: ${error.message}`
+  );
+}
+
+/** Baja una foto con tope; el tope también corta la lectura del cuerpo. */
+async function bajarFoto(url: string, nombre: string): Promise<{ bytes: Uint8Array; tipo: string }> {
+  try {
+    const resp = await fetch(url, { signal: tope(TOPE_FOTO_MS) });
+    if (!resp.ok) throw new Error(`No se pudo bajar ${nombre} (${resp.status}).`);
+    return { bytes: new Uint8Array(await resp.arrayBuffer()), tipo: resp.headers.get('content-type') || '' };
+  } catch (e) {
+    if (pareceSinRed(e)) throw new Error(`No se pudo bajar ${nombre}: la red no respondió.`);
+    throw e;
+  }
+}
 
 export default function AnalistaPauta({ filas, anio, numero, etiquetaCat, onCambio, soloVer }: Props) {
   const [bandeja, setBandeja] = useState<Bandeja>('por_revisar');
@@ -340,8 +386,8 @@ function Carpeta({
       p_evidencia_id: f.evidencia_id,
       p_estado: estado,
       p_path: path ?? null,
-    });
-    if (error) throw new Error('No se guardó: ' + error.message);
+    }).abortSignal(tope(TOPE_ESCRITURA_MS));
+    if (error) throw fallaEscritura('No se guardó', error);
     // Desde el 24-oct-2026 la RPC devuelve la ruta (path) y url va en null;
     // una base vieja todavía manda url.
     const res = data as { comprobada: boolean; url: string | null; path?: string | null } | null;
@@ -359,7 +405,7 @@ function Carpeta({
     // si no se puede, se queda y no se interrumpe la revisión.
     if (f.editada_path && f.editada_path !== nuevaRuta) {
       try {
-        await sb.storage.from(BUCKET_EVIDENCIAS).remove([f.editada_path]);
+        await conTope(sb.storage.from(BUCKET_EVIDENCIAS).remove([f.editada_path]), TOPE_BORRADO_MS, 'sin respuesta');
       } catch {
         /* se queda el archivo */
       }
@@ -390,23 +436,34 @@ function Carpeta({
         /[^\w.\-/]/g,
         '_'
       );
-      const { error: up } = await sb.storage
-        .from(BUCKET_EVIDENCIAS)
-        .upload(path, archivo, { upsert: false, cacheControl: CACHE_INMUTABLE });
+      const { error: up } = await conTope(
+        sb.storage.from(BUCKET_EVIDENCIAS).upload(path, archivo, { upsert: false, cacheControl: CACHE_INMUTABLE }),
+        TOPE_SUBIDA_MS,
+        'No se pudo subir la editada: la red no respondió. Vuelve a intentarlo.'
+      );
       if (up) throw new Error('No se pudo subir la editada: ' + up.message);
       try {
         tras(await marcar(f, 'editada', path), f.vendor_face_id);
       } catch (e) {
-        // Sin registro, el archivo quedaría huérfano en Storage.
-        await sb.storage.from(BUCKET_EVIDENCIAS).remove([path]);
+        // Sin registro, el archivo quedaría huérfano en Storage. Si la red no
+        // respondió, la marca pudo quedar y entonces el archivo NO se borra.
+        if (!/la red no respondió/.test((e as Error).message)) {
+          try {
+            await conTope(sb.storage.from(BUCKET_EVIDENCIAS).remove([path]), TOPE_BORRADO_MS, 'sin respuesta');
+          } catch {
+            /* se queda el archivo */
+          }
+        }
         throw e;
       }
     });
 
   const rechazar = (cara: string, idsFotos: number[], motivo: string) =>
     correr('c' + cara, async () => {
-      const { error } = await sb.rpc('rechazar_fotos_pauta', { p_evidencia_ids: idsFotos, p_motivo: motivo });
-      if (error) throw new Error('No se rechazó: ' + error.message);
+      const { error } = await sb
+        .rpc('rechazar_fotos_pauta', { p_evidencia_ids: idsFotos, p_motivo: motivo })
+        .abortSignal(tope(TOPE_ESCRITURA_MS));
+      if (error) throw fallaEscritura('No se rechazó', error);
       if (vivo.current) setAviso(`${cara}: se rechazaron ${idsFotos.length} y la toma regresó al monitorista.`);
       onCambio();
     });
@@ -418,8 +475,8 @@ function Carpeta({
         p_vendor_face_id: cara,
         p_motivo: motivo,
         p_anio: anio,
-      });
-      if (error) throw new Error('No se regresó: ' + error.message);
+      }).abortSignal(tope(TOPE_ESCRITURA_MS));
+      if (error) throw fallaEscritura('No se regresó', error);
       if (vivo.current) setAviso(`${cara}: la toma completa regresó al monitorista.`);
       onCambio();
     });
@@ -431,8 +488,8 @@ function Carpeta({
         p_catorcena: numero,
         p_vendor_face_id: cara,
         p_anio: anio,
-      });
-      if (error) throw new Error('No se comprobó: ' + error.message);
+      }).abortSignal(tope(TOPE_ESCRITURA_MS));
+      if (error) throw fallaEscritura('No se comprobó', error);
       tras(true, cara);
     });
 
@@ -447,37 +504,72 @@ function Carpeta({
         p_vendor_face_id: cara,
         p_motivo: motivo,
         p_anio: anio,
-      });
-      if (error) throw new Error('No se reabrió: ' + error.message);
+      }).abortSignal(tope(TOPE_ESCRITURA_MS));
+      if (error) throw fallaEscritura('No se reabrió', error);
       if (vivo.current) setAviso(`${cara}: la toma se reabrió y está en Por revisar.`);
       onCambio();
     });
 
   const bajarUna = (f: FotoRevision) =>
     correr('d' + f.evidencia_id, async () => {
-      const resp = await fetch(urlVigente(f));
-      if (!resp.ok) throw new Error('No se pudo bajar la foto (' + resp.status + ').');
-      bajarArchivo(await resp.blob(), nombreFoto(f));
+      const { bytes, tipo } = await bajarFoto(urlVigente(f), nombreFoto(f));
+      bajarArchivo(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: tipo }), nombreFoto(f));
     });
 
+  /**
+   * El ZIP se arma foto por foto (11-nov-2026). Antes se juntaban todas las
+   * fotos, luego el ZIP entero y luego su Blob: tres copias de la carpeta en
+   * memoria, que en iPhone podían tumbar la pestaña. Ahora cada foto pasa
+   * directo al ZIP (sin comprimir: ya viene comprimida) y cada ~32 MB los
+   * pedazos se juntan en un Blob, así que se suelta cada foto al terminarla.
+   */
   const bajarZip = () =>
     correr('zip', async () => {
-      const { zip } = await import('fflate');
+      const { Zip, ZipPassThrough } = await import('fflate');
       const lista = rutasZip(campana, version, fotos);
-      const archivos: Record<string, [Uint8Array, { level: 0 }]> = {};
-      let i = 0;
-      for (const { ruta, foto } of lista) {
-        i++;
-        if (vivo.current) setAviso(`Bajando fotos ${i} de ${lista.length}…`);
-        const resp = await fetch(urlVigente(foto));
-        if (!resp.ok) throw new Error(`No se pudo bajar ${nombreFoto(foto)} (${resp.status}).`);
-        // Las fotos ya vienen comprimidas: se guardan tal cual (nivel 0).
-        archivos[ruta] = [new Uint8Array(await resp.arrayBuffer()), { level: 0 }];
+      const blobs: Blob[] = [];
+      let pedazos: Uint8Array[] = [];
+      let enPedazos = 0;
+      const juntar = () => {
+        if (!pedazos.length) return;
+        blobs.push(new Blob(pedazos as Uint8Array<ArrayBuffer>[]));
+        pedazos = [];
+        enPedazos = 0;
+      };
+      let fallo: Error | null = null;
+      let listo = false;
+      const z = new Zip((e, d, final) => {
+        if (e) {
+          fallo = e;
+          return;
+        }
+        pedazos.push(d);
+        enPedazos += d.length;
+        if (enPedazos > 32 * 1024 * 1024) juntar();
+        if (final) listo = true;
+      });
+      try {
+        let i = 0;
+        for (const { ruta, foto } of lista) {
+          i++;
+          if (vivo.current) setAviso(`Bajando fotos ${i} de ${lista.length}…`);
+          const { bytes } = await bajarFoto(urlVigente(foto), nombreFoto(foto));
+          const archivo = new ZipPassThrough(ruta);
+          z.add(archivo);
+          archivo.push(bytes, true);
+          if (fallo) throw fallo;
+        }
+        z.end();
+      } catch (e) {
+        z.terminate();
+        throw e;
       }
-      if (vivo.current) setAviso('Armando el ZIP…');
-      const bytes = await new Promise<Uint8Array>((ok, mal) => zip(archivos, (e, d) => (e ? mal(e) : ok(d))));
+      if (fallo) throw fallo;
+      // Sin compresión fflate escribe en el momento: al terminar end() ya llegó el final.
+      if (!listo) throw new Error('No se pudo armar el ZIP.');
+      juntar();
       bajarArchivo(
-        new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' }),
+        new Blob(blobs, { type: 'application/zip' }),
         `${paraArchivo(campana)}_${paraArchivo(version)}_${anio}-${numero}.zip`
       );
       if (vivo.current) setAviso('');
