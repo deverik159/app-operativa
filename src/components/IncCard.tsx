@@ -57,6 +57,13 @@ const tonoVar = (hex: string | null | undefined) =>
 const IC = { size: 15, strokeWidth: 2, 'aria-hidden': true } as const;
 
 /** Modo del modal de reasignación: pedirla, o revisarla como coordinador. */
+/**
+ * «Pasar a Op. Bio Box» oculto (Erik, 11-nov-2026): confundía junto a las
+ * menciones del chat; Digital y TI usan Reasignar. El modal y la función de
+ * la base siguen, por si vuelve.
+ */
+const PASAR_A_OP_BIOBOX_VISIBLE = false;
+
 /** 'op_biobox' = «Pasar a Op. Bio Box» directo (Digital/TI, Biobox, 30-oct-2026). */
 export type ModoReasign = 'solicitar' | 'aprobar' | 'op_biobox';
 
@@ -605,8 +612,12 @@ function IncCard({
           )}
         {/* (30-oct-2026) Digital o TI no pudieron a distancia: directo a Op.
             Bio Box, sin validador; le llega al técnico de la ruta. La base
-            vuelve a revisar todo (inc_pasar_a_op_biobox). */}
-        {i.estatus === 'en_proceso' &&
+            vuelve a revisar todo (inc_pasar_a_op_biobox).
+            OCULTO desde el 11-nov-2026 (Erik): con las menciones del chat
+            (@usuario o @área) confundía; ahora eso va por Reasignar. Para
+            volver a enseñarlo, PASAR_A_OP_BIOBOX_VISIBLE = true. */}
+        {PASAR_A_OP_BIOBOX_VISIBLE &&
+          i.estatus === 'en_proceso' &&
           !i.reasignacion_pendiente &&
           can.reasignar &&
           puedeReparar &&
