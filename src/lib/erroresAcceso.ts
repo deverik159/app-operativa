@@ -6,7 +6,8 @@
 // texto; lo que no se reconozca sale como llegó, para no esconder la causa.
 // ============================================================
 
-type ErrorAuth = { code?: string; message?: string; status?: number };
+/** `reasons` lo trae AuthWeakPasswordError: 'length' | 'characters' | 'pwned'. */
+type ErrorAuth = { code?: string; message?: string; status?: number; reasons?: string[] };
 
 /**
  * auth-js ≥ 2.10x marca un 500/501 como AuthRetryableFetchError, igual que
@@ -49,6 +50,14 @@ export function errorAccesoEnEspanol(error: ErrorAuth): string {
     return 'Demasiados intentos seguidos. Espera unos minutos y vuelve a intentar.';
   if (code === 'same_password' || /different from the old password/i.test(msg))
     return 'La contraseña nueva debe ser distinta de la anterior.';
+  // Con la protección de contraseñas filtradas (Auth, 11-nov-2026), Supabase
+  // rechaza con el mismo code weak_password, pero con reasons ['pwned']: ahí
+  // decir "usa al menos 6 caracteres" confunde a quien escribió 12.
+  if (
+    error.reasons?.includes('pwned') ||
+    (code === 'weak_password' && /known to be weak|easy to guess|pwned|leaked/i.test(msg))
+  )
+    return 'Esa contraseña aparece en filtraciones públicas de internet y es fácil de adivinar. Elige otra que no uses en ningún otro lado.';
   if (code === 'weak_password' || /password should be at least/i.test(msg))
     return 'La contraseña es muy débil: usa al menos 6 caracteres.';
   if (code === 'email_address_invalid' || /invalid format|unable to validate email/i.test(msg))

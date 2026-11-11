@@ -31,6 +31,15 @@ test('contraseña nueva igual a la anterior', () => {
   assert.match(errorAccesoEnEspanol({ code: 'same_password', message: 'x' }), /distinta de la anterior/);
 });
 
+test('contraseña filtrada no se confunde con contraseña corta', () => {
+  // AuthWeakPasswordError con la protección de contraseñas filtradas encendida.
+  const filtrada = /aparece en filtraciones/;
+  assert.match(errorAccesoEnEspanol({ code: 'weak_password', reasons: ['pwned'], message: 'Password is known to be weak and easy to guess, please choose a different one.' }), filtrada);
+  assert.match(errorAccesoEnEspanol({ code: 'weak_password', message: 'Password is known to be weak and easy to guess, please choose a different one.' }), filtrada);
+  assert.match(errorAccesoEnEspanol({ code: 'weak_password', reasons: ['length'], message: 'Password should be at least 6 characters.' }), /al menos 6 caracteres/);
+  assert.match(errorAccesoEnEspanol({ message: 'Password should be at least 6 characters.' }), /al menos 6 caracteres/);
+});
+
 test('un 500 de Auth es respuesta del servidor, no falta de señal', () => {
   // Así llega cuando Gmail rechaza el SMTP (21-oct-2026).
   const e = { name: 'AuthRetryableFetchError', status: 500, message: 'Error sending recovery email' };
