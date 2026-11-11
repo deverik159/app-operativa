@@ -1,8 +1,11 @@
 # supabase/migrations
 
 Desde el 24-sep-2026 (auditoría primer mes), **todo cambio de base nuevo es
-un archivo aquí**, se aplica primero en staging y después en producción. El
-paso a paso completo está en [GUIA-STAGING-Y-CARGA.md](../../GUIA-STAGING-Y-CARGA.md) §3.
+un archivo aquí**. Hoy no hay staging en uso: cada migración la revisa el
+subagente `revisor-rls` contra la base actual y se aplica en producción solo
+con el sí de Erik, una por una; después el archivo se renombra a la versión
+que registró la base. Si algún día se usa staging, va primero ahí: el paso a
+paso está en [GUIA-STAGING-Y-CARGA.md](../../GUIA-STAGING-Y-CARGA.md) §3.
 
 **Esta carpeta es el único lugar del repo con SQL** (Erik, 31-oct-2026). Los
 62 `.sql` sueltos que había en la raíz (la historia de agosto y septiembre),
@@ -27,25 +30,18 @@ es uno de esos archivos.
   renombres una que ya se aplicó en algún lado: corrige con una nueva.
 - El CLI avisa `Skipping migration README.md...`: es este archivo, es normal.
 
-## La primera: la línea base
+## Sin foto del esquema
 
-Es una foto del esquema de producción (tablas, vistas, funciones, políticas,
-triggers y permisos; sin datos). No se ejecuta en producción: solo se
-**registra** como aplicada, para que el historial arranque desde lo que ya
-existe. Su versión es **`20260924000000`** aunque el dump se saque después:
-tiene que ordenar antes que cualquier otra migración de esta carpeta (ver la
-guía §3). Se saca UNA vez, antes de la primera migración nueva, con la guía:
-§2.3 (sacar el dump), §2.5 (limpiarlo) y §3 «Registrar la línea base»
-(copiarlo aquí y registrarlo en staging y en producción, cada paso con su
-candado). Staging también se registra como aplicada porque ya recibió ese
-mismo esquema por `psql` (guía §2.6).
+La carpeta empieza en `20260925065305`: lo anterior se creó a mano antes de
+usar migraciones. No se guarda una "línea base" (foto del esquema de
+producción) porque se vuelve vieja (Erik, 31-oct-2026): la base de
+producción dice cómo está todo hoy y aquí queda cómo se llegó. La carpeta
+coincide con lo registrado en `supabase_migrations.schema_migrations`.
 
-La receta vive solo en la guía (revisión primer mes, 24-sep-2026): la copia
-que había aquí volvía a sacar el dump **sin limpiar** encima del limpio y lo
-copiaba a esta carpeta en el mismo pegado. Esta carpeta **sí** se sube a
-GitHub: la contraseña del FDW de Mario o la llave del webhook que entren
-aquí ya no salen del historial (nunca se hace force-push); solo queda
-rotarlas, y la de Mario es de un tercero.
+Esta carpeta **sí** se sube a GitHub, y el repo es público: una contraseña
+(p. ej. la del FDW de Mario) o una llave que entre aquí ya no sale del
+historial (nunca se hace force-push); solo queda rotarla, y la de Mario es de
+un tercero.
 
 ## Reglas de contenido (las lecciones del proyecto)
 
@@ -60,4 +56,5 @@ rotarlas, y la de Mario es de un tercero.
   Antes de cada commit que toque esta carpeta, esto debe salir vacío:
   `git grep --untracked -nE 'USER MAPPING|eyJ|sb_secret_|http_request' -- 'supabase/migrations/*.sql'`.
 - Con RLS, un update que no pasa devuelve 0 filas sin error: la app siempre
-  cuenta con `.select()`; una política nueva se prueba igual en staging.
+  cuenta con `.select()`; una política nueva se prueba simulando al usuario
+  (solo lectura) o con su sesión en la app, no como administrador.
