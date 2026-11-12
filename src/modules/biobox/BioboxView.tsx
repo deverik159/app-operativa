@@ -1,6 +1,6 @@
 // Máquinas por ruta, estado del inventario e incidencias abiertas.
 import { CircleCheck, Compass, MapPinCheck, Router } from 'lucide-react';
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { sb } from '../../lib/supabase';
@@ -75,6 +75,8 @@ function pastillaNuc(e: EstadoNuc) {
 }
 
 const REFRESCO_NUC_MS = 60 * 1000;
+/** Tarjetas por tanda en la lista («Ver N más»). */
+const TANDA_MAQUINAS = 40;
 
 function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloLectura = false }: {
   email: string;
@@ -323,8 +325,11 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloL
     return [...m.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [ubics]);
 
+  // El filtro corre con la búsqueda diferida (12-nov-2026): al escribir, la
+  // caja responde al instante y la lista se rehace cuando React tiene tiempo.
+  const buscaDiferida = useDeferredValue(busca);
   const visibles = useMemo(() => {
-    const q = sinAcentos(busca.trim());
+    const q = sinAcentos(buscaDiferida.trim());
     const filas = maquinasUnicas(ubics
       .filter((u) => !soloMias || misRutas.has(u.ruta_id))
       .filter((u) => rutaFoco == null || nombreRuta(u) === rutaFoco)
@@ -339,7 +344,16 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloL
       : orden === 'secuencia'
       ? (a.secuencia ?? 9999) - (b.secuencia ?? 9999) || a.site_id.localeCompare(b.site_id)
       : (a.site_legacy_id || a.site_id).localeCompare(b.site_legacy_id || b.site_id, undefined, { numeric: true }));
-  }, [ubics, rutaFoco, medio, busca, orden, soloPendientes, diasVisita, filtroNuc, nuc, soloMias, misRutas, anteriores]);
+  }, [ubics, rutaFoco, medio, buscaDiferida, orden, soloPendientes, diasVisita, filtroNuc, nuc, soloMias, misRutas, anteriores]);
+
+  // Se pintan por tandas (12-nov-2026): las ~190 tarjetas juntas tardaban en
+  // el teléfono al abrir y al cambiar cualquier filtro. Los indicadores, los
+  // tramos y los conteos siguen usando la lista completa.
+  const [limite, setLimite] = useState(TANDA_MAQUINAS);
+  useEffect(() => {
+    setLimite(TANDA_MAQUINAS);
+  }, [unidad, rutaFoco, medio, buscaDiferida, orden, soloPendientes, filtroNuc, soloMias]);
+  const enLista = visibles.slice(0, limite);
 
   /** Leyenda del NUC: cuántas máquinas de la unidad hay en cada estado. */
   const conteoNuc = useMemo(() => {
@@ -537,7 +551,12 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloL
             {tramos.map((t, i) => <a key={i} className="btn sm ghost" href={t.url} target="_blank" rel="noopener noreferrer">Tramo {i + 1} ({t.paradas.length})</a>)}
           </div>
         </div>}
-        <div style={{ display: 'grid', gap: 9 }}>{visibles.map((u) => tarjetaMaquina(u))}</div>
+        <div style={{ display: 'grid', gap: 9 }}>{enLista.map((u) => tarjetaMaquina(u))}</div>
+        {visibles.length > enLista.length && <div style={{ textAlign: 'center', margin: '14px 0' }}>
+          <button type="button" className="btn ghost" onClick={() => setLimite((n) => n + TANDA_MAQUINAS)}>
+            Ver {Math.min(visibles.length - enLista.length, TANDA_MAQUINAS)} más (faltan {visibles.length - enLista.length})
+          </button>
+        </div>}
         {!visibles.length && <div className="banner">Nada coincide con el filtro.</div>}
       </>}
 

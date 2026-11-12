@@ -16,6 +16,8 @@
 // Ver el encabezado de estado_maquina.sql.
 // ============================================================
 import { sb } from './supabase';
+import { tope } from './envios';
+import { pareceSinRed } from './enLinea';
 
 /** Una incidencia abierta de la máquina, como la ve el operador. */
 export type IncidenciaAbierta = {
@@ -74,9 +76,10 @@ export async function resumenMaquinas(
   exigirRespuesta = false
 ): Promise<MapaResumen> {
   if (!siteIds.length) return {};
+  // Con tope (12-nov-2026): con la red colgada, «Actualizando…» no salía.
   const { data, error } = await sb.rpc('estado_maquinas', {
     p_site_ids: siteIds,
-  });
+  }).abortSignal(tope(20000));
   if (error) {
     if (exigirRespuesta) throw new Error('No se pudieron consultar las incidencias de máquinas: ' + error.message);
     return {};
@@ -99,9 +102,11 @@ export async function resumenMaquinas(
 export async function detalleMaquina(
   siteId: string
 ): Promise<{ filas: IncidenciaAbierta[]; error: string }> {
+  // Con tope (12-nov-2026): con la red colgada el panel se quedaba en
+  // «Consultando qué trae abierto…» toda la revisión.
   const { data, error } = await sb.rpc('estado_maquina', {
     p_site_id: siteId,
-  });
-  if (error) return { filas: [], error: error.message };
+  }).abortSignal(tope(15000));
+  if (error) return { filas: [], error: pareceSinRed(error) ? 'la red no respondió' : error.message };
   return { filas: (data as IncidenciaAbierta[]) || [], error: '' };
 }
