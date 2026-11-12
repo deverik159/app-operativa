@@ -3,8 +3,10 @@
 //
 // Dos trabajos:
 //   1. Recibir notificaciones push cuando la app está CERRADA (push y
-//      notificationclick, abajo; sin cambios). El navegador lo mantiene
-//      disponible aunque no haya pestaña abierta.
+//      notificationclick, abajo). El navegador lo mantiene disponible
+//      aunque no haya pestaña abierta. Con la app ABIERTA, tocar el aviso
+//      ya no recarga la página: se le pide a la app que abra el destino por
+//      dentro (pedirALaApp, 12-nov-2026).
 //   2. Guardar el ARMAZÓN de la app (index.html, el JS y CSS de entrada, los
 //      módulos y los íconos) para que abra SIN SEÑAL (modo sin señal,
 //      24-sep-2026). Antes no guardaba nada a propósito, y si iOS cerraba la
@@ -404,6 +406,36 @@ self.addEventListener('push', (event) => {
   event.waitUntil(self.registration.showNotification(titulo, opciones));
 });
 
+/**
+ * Manda el aviso a la ventana y espera su «listo» por un MessageChannel.
+ * true = la app lo atendió (abrió el destino sin recargar); false = no
+ * contestó a tiempo (versión vieja, pestaña congelada) o no se pudo enviar.
+ */
+function pedirALaApp(cliente, mensaje, ms) {
+  return new Promise((resolver) => {
+    let listo = false;
+    const terminar = (v) => {
+      if (listo) return;
+      listo = true;
+      resolver(v);
+    };
+    const reloj = setTimeout(() => terminar(false), ms);
+    try {
+      const canal = new MessageChannel();
+      canal.port1.onmessage = (e) => {
+        if (e.data && e.data.ok) {
+          clearTimeout(reloj);
+          terminar(true);
+        }
+      };
+      cliente.postMessage(mensaje, [canal.port2]);
+    } catch {
+      clearTimeout(reloj);
+      terminar(false);
+    }
+  });
+}
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const datos = event.notification.data || {};
@@ -475,22 +507,29 @@ self.addEventListener('notificationclick', (event) => {
       // Si la app ya está abierta, se enfoca esa ventana en vez de abrir otra.
       for (const v of ventanas) {
         if ('focus' in v) {
-          // `navigate` fuerza a leer el HTML y los assets actuales de Vercel.
-          // El postMessage anterior conservaba una SPA vieja en memoria.
           try {
-            if ('navigate' in v) await v.navigate(url);
-            else throw new Error('El cliente no permite navegar');
+            await v.focus();
           } catch {
-            // Respaldo para navegadores que no implementan WindowClient.navigate.
-            v.postMessage({
-              tipo: 'notificacion-abierta',
-              url: destino,
-              record_id: recordId,
-              evento,
-              unidad,
-            });
+            /* sin permiso de enfocar: igual se le avisa */
           }
-          await v.focus();
+          // Primero se le pide a la app que abra el destino POR DENTRO, sin
+          // recargar (12-nov-2026): recargar tiraba lo que hubiera en memoria
+          // (un reporte que se seguía enviando, una ventana a medio llenar).
+          // La app contesta por el canal; una versión vieja que no contesta
+          // —o una pestaña congelada— se recarga como antes con `navigate`,
+          // que además trae el HTML y los assets actuales.
+          const atendio = await pedirALaApp(
+            v,
+            { tipo: 'notificacion-abierta', url: destino, record_id: recordId, evento, unidad },
+            2500
+          );
+          if (!atendio) {
+            try {
+              if ('navigate' in v) await v.navigate(url);
+            } catch {
+              /* sin navigate: se queda con el aviso que ya se le mandó */
+            }
+          }
           return;
         }
       }

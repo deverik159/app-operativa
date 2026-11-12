@@ -1315,12 +1315,19 @@ function Main({
         irAComprobaciones(e.data.evento, e.data.unidad ?? null, periodoDeAviso(e.data.record_id));
       // «Toma devuelta» (29-oct-2026): record_id es la toma, no una incidencia.
       else if (esAvisoTomaDevueltaComp(e.data.evento)) irADevueltasComp();
-      else if (e.data.record_id) enfocarDesdePush(e.data.record_id);
-      else if (esEventoPauta(e.data.evento)) irAPauta(e.data.evento);
+      else if (e.data.record_id) {
+        enfocarDesdePush(e.data.record_id);
+        // La tarjeta pudo cambiar desde la última carga: la lista se pone
+        // al día (antes lo hacía la recarga completa del SW, 12-nov-2026).
+        setRecargarSignal((n) => n + 1);
+      } else if (esEventoPauta(e.data.evento)) irAPauta(e.data.evento);
       else if (esEventoBitacora(e.data.evento)) irABitacora();
       else if (esEventoNuc(e.data.evento)) irAAvisoNuc();
       else if (esEventoMaquina(e.data.evento)) irABiobox();
       else notifs.recargar();
+      // «Listo» al service worker: ya no recarga la página (sw.js,
+      // pedirALaApp). Sin respuesta, la recarga como antes.
+      e.ports?.[0]?.postMessage({ ok: true });
     };
     navigator.serviceWorker.addEventListener('message', onMsg);
     return () => navigator.serviceWorker.removeEventListener('message', onMsg);

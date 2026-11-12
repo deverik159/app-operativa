@@ -199,6 +199,15 @@ const ESPERAS_REINTENTO_MS = [1000, 2000];
 /** Con la copia en pantalla y el teléfono "con red", se reintenta cada tanto. */
 const INTERVALO_REINTENTO_MS = 45000;
 
+/**
+ * Con señal, la lista se pone al día sola si tiene más que esto al volver a
+ * la app (o al desbloquear el teléfono) y al pasar entre «Mis pendientes» e
+ * «Incidencias» (Erik, 12-nov-2026). Sin sondeo periódico: con ~300
+ * personas recargar la lista cada pocos minutos gastaría la transferencia
+ * del plan; lo que llega por aviso ya recarga solo (App.tsx).
+ */
+const VIEJA_AL_VOLVER_MS = 60000;
+
 /** Nombre de cada acción en los avisos de la vista. */
 const NOMBRE_ACCION: Record<ClaseAccion, string> = {
   validar: 'La validación',
@@ -1746,6 +1755,32 @@ function IncidenciasView({
       clearInterval(reloj);
     };
   }, [cargar]);
+
+  /**
+   * Cambios de OTRA persona que no traen aviso para ti (otro validador ya la
+   * tomó, el técnico la reparó, se aprobó una reasignación): antes solo se
+   * veían con ↻ (Erik, 12-nov-2026: «el cambio no se ejecuta solo»). Ahora,
+   * al volver a la app y al cambiar de pestaña dentro de Incidencias, si la
+   * lista tiene más de VIEJA_AL_VOLVER_MS se recarga en su lugar (como ↻:
+   * conserva filtros y no desmonta las ventanas abiertas).
+   */
+  const ponerAlDia = useCallback(() => {
+    if (document.visibilityState !== 'visible' || !haySenal() || !yaCargo.current) return;
+    const de = listaDe.current ? Date.parse(listaDe.current) : NaN;
+    if (Number.isFinite(de) && Date.now() - de < VIEJA_AL_VOLVER_MS) return;
+    if (cargandoRef.current) return;
+    void cargar();
+  }, [cargar]);
+  useEffect(() => {
+    document.addEventListener('visibilitychange', ponerAlDia);
+    return () => document.removeEventListener('visibilitychange', ponerAlDia);
+  }, [ponerAlDia]);
+  const modoPrev = useRef(modo);
+  useEffect(() => {
+    if (modoPrev.current === modo) return;
+    modoPrev.current = modo;
+    ponerAlDia();
+  }, [modo, ponerAlDia]);
 
   /**
    * Acciones en la cola del teléfono: al montar y cada vez que la cola
