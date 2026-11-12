@@ -242,9 +242,14 @@
   .sobre-acento-txt .mencion{color:inherit;text-decoration:underline}
   /* overscroll-behavior: al llegar al final de la lista, el dedo no arrastra
      el chat de atrás; touch-action: ahí el dedo desplaza en vertical (4-nov-2026). */
-  .mencion-lista{margin-bottom:8px;max-height:220px;overflow-y:auto;background:var(--panel);
-    border:1px solid var(--line);border-radius:10px;padding:4px;
+  /* flex-shrink:0: en la columna del chat la lista era lo único que se
+     encogía y en el celular quedaba de 1-2 opciones; ahora cede la caja de
+     mensajes. Tope de un tercio de la pantalla para que el campo de
+     escribir no se salga en pantallas bajas (11-nov-2026). */
+  .mencion-lista{margin-bottom:8px;max-height:min(220px,34vh);overflow-y:auto;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;padding:4px;flex-shrink:0;
     overscroll-behavior:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+  @supports (height: 1dvh){.mencion-lista{max-height:min(220px,34dvh)}}
   .mencion-opcion{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;
     text-align:left;padding:8px 10px;border:0;border-radius:8px;background:transparent;
     color:var(--txt);font-size:14px;cursor:pointer}

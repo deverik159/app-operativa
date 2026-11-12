@@ -1573,8 +1573,11 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                es lo único que puede ceder. Con 220, en horizontal o con el
                teclado abierto la suma de hijos superaba el tope y el campo
                de escribir quedaba fuera de pantalla, sin scroll que llegara
-               a él. El flex:1 lo hace crecer cuando sí hay espacio. */
-            minHeight: 100,
+               a él. El flex:1 lo hace crecer cuando sí hay espacio.
+               Con la lista del @ abierta cede hasta 48: en el celular la
+               lista era lo único que se encogía y quedaba de 1-2 opciones
+               (11-nov-2026). */
+            minHeight: tokenAt ? 48 : 100,
             marginBottom: 10,
             // El anclaje de scroll de Chrome/Android corregía la vista por
             // su cuenta al abrir mensajes anteriores; Safari no lo tiene.
@@ -2242,14 +2245,18 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
               </button>
             </form>
 
-            <p className="phint" style={{ marginTop: 6, fontSize: 11 }}>
-              {/* La regla vive en la base (purga del chat, 31-oct-2026):
-                  30 días desde el cierre (o No reparado); 60 desde la
-                  subida mientras siga abierta. */}
-              Los archivos del chat se borran 30 días después de cerrar la
-              incidencia (o a los 60 días de subidos, si sigue abierta). Para
-              evidencia que deba conservarse, usa <Ic i={Paperclip} />Evidencia.
-            </p>
+            {/* Se oculta con la lista del @ abierta: en el celular ese
+                espacio le hace falta a la lista (11-nov-2026). */}
+            {!tokenAt && (
+              <p className="phint" style={{ marginTop: 6, fontSize: 11 }}>
+                {/* La regla vive en la base (purga del chat, 31-oct-2026):
+                    30 días desde el cierre (o No reparado); 60 desde la
+                    subida mientras siga abierta. */}
+                Los archivos del chat se borran 30 días después de cerrar la
+                incidencia (o a los 60 días de subidos, si sigue abierta). Para
+                evidencia que deba conservarse, usa <Ic i={Paperclip} />Evidencia.
+              </p>
+            )}
           </>
         )}
 
