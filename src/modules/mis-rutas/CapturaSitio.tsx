@@ -26,7 +26,7 @@ import { Camera } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Ic from '../../components/Ic';
 import { sb } from '../../lib/supabase';
-import { BUCKET_EVIDENCIAS } from '../../lib/storage';
+import { alFallarMiniatura, BUCKET_EVIDENCIAS, urlMiniatura } from '../../lib/storage';
 import { prepararArchivos } from '../../lib/comprimirImagen';
 import { esAndroid, guardarEnFotos, puedeGuardarEnFotos } from '../../lib/guardarEnFotos';
 import { colorTono, fondoTono } from '../../lib/tonos';
@@ -187,7 +187,9 @@ function MiniFoto({ f }: { f: FotoEnVisita }) {
         {f.tipo === 'video' ? '🎥' : '🖼️'}
       </div>
     );
-  return <img src={src} alt="" style={caja} loading="lazy" />;
+  // Ya arriba se pide la miniatura (12-nov-2026) y cae al original si no la
+  // hay; con el File del teléfono (blob:) urlMiniatura la deja igual.
+  return <img src={urlMiniatura(src)} onError={alFallarMiniatura(src)} alt="" style={caja} loading="lazy" />;
 }
 
 /** «en el teléfono», «subiendo…», «✓ arriba»… */

@@ -18,7 +18,7 @@
 
 import { sb } from './supabase';
 import { tope } from './envios';
-import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from './storage';
+import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE, rutaMiniatura, subirMiniatura } from './storage';
 import { comprimirImagen } from './comprimirImagen';
 import { clasificarErrorComp, codigoFallaComp, textoFallaF3, type CodigoFallaComp } from './fallasComp';
 import { porTrozos, traerTodo, TOPE_ESCRITURA_COMP_MS } from './comprobacionesApi';
@@ -87,7 +87,8 @@ const txt = (v: unknown) => (typeof v === 'string' ? v : null);
 
 /** Borra objetos de Storage con tope; nunca lanza (lo que quede lo limpia la purga). */
 export async function borrarObjetos(paths: string[], ms = 15000): Promise<void> {
-  const lista = paths.filter(Boolean);
+  // Cada objeto con su miniatura (12-nov-2026); si no la tiene, Storage la ignora.
+  const lista = paths.filter(Boolean).flatMap((p) => [p, rutaMiniatura(p)]);
   if (!lista.length) return;
   try {
     await Promise.race([sb.storage.from(BUCKET_EVIDENCIAS).remove(lista), new Promise((r) => setTimeout(r, ms))]);
@@ -388,6 +389,7 @@ export async function subirEditada(args: {
   const path = rutaEditada(args.unidad, args.evidenciaId, args.hoy, Date.now(), extensionDe(archivo.name));
   const up = await subirArchivo(path, archivo);
   if (up) return up;
+  await subirMiniatura(path, archivo);
   const r = await revisarFotos(args.tomaId, [args.evidenciaId], 'editada', { editadaPath: path, enTodas: args.enTodas });
   // Sin red no se sabe si quedó: el archivo se deja (si quedó, se usa; si no, lo limpia la purga).
   if (!r.ok && !r.sinRed) void borrarObjetos([path]);

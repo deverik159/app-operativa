@@ -47,7 +47,7 @@
 // Safari no tiene sincronización en segundo plano.
 // ============================================================
 import { sb } from '../supabase';
-import { BUCKET_EVIDENCIAS } from '../storage';
+import { BUCKET_EVIDENCIAS, rutaMiniatura, subirMiniatura } from '../storage';
 import { reportarError } from '../reportarError';
 import { retenerRecargaAutomatica } from '../cargaDiferida';
 import {
@@ -1009,7 +1009,8 @@ export function crearColaFotos<T extends TrabajoCola<A>, A extends ArchivoCola, 
   // --- Pasos de la cola --------------------------------------------------
 
   async function quitarObjeto(path: string): Promise<void> {
-    const r = await conTope(sb.storage.from(BUCKET_EVIDENCIAS).remove([path]), ESPERA_LECTURA_MS);
+    // Con su miniatura, si la tuvo (borrar una ruta que no existe no falla).
+    const r = await conTope(sb.storage.from(BUCKET_EVIDENCIAS).remove([path, rutaMiniatura(path)]), ESPERA_LECTURA_MS);
     if (r.error && clasificarStorage(r.error) === 'red') throw new SinRed(mensajeDe(r.error));
   }
 
@@ -1128,6 +1129,10 @@ export function crearColaFotos<T extends TrabajoCola<A>, A extends ArchivoCola, 
         return;
       }
       a = y;
+      // Miniatura (12-nov-2026), como en pauta e incidencias: las tarjetas
+      // pintaban el original. De mejor esfuerzo y con tope (subirMiniatura);
+      // va DESPUÉS de anotar 'subido' para no volver a subir el original.
+      await subirMiniatura(a.path, f);
     }
     await exigirSesion(undefined, t.email);
     const fresco = (await leer(id)) ?? t;

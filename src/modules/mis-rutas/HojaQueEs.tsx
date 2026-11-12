@@ -30,6 +30,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import CerrarModal from '../../components/CerrarModal';
 import { useFocoModal } from '../../lib/useFocoModal';
+import { alFallarMiniatura, urlMiniatura } from '../../lib/storage';
 import { colorTono } from '../../lib/tonos';
 import { diaCorto } from '../../lib/misTomasComp';
 import type { MomentoPos } from '../../lib/plantillasComp';
@@ -97,7 +98,7 @@ function Vista({ archivo, url, tipo }: { archivo?: File | null; url?: string | n
   return tipo === 'video' ? (
     <video src={src} muted playsInline preload="metadata" style={estilo} aria-label="Video elegido" />
   ) : (
-    <img src={src} alt="Foto elegida" style={estilo} />
+    <img src={urlMiniatura(src)} onError={alFallarMiniatura(src)} alt="Foto elegida" style={estilo} />
   );
 }
 

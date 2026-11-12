@@ -183,6 +183,8 @@ function servidor() {
     subidas: 0,
     /** Rutas que la app pidió borrar de Storage (aunque la red o la política no lo dejen). */
     borrados: [],
+    /** Miniaturas (…/mini/…jpg) que se pidieron junto con su foto (12-nov-2026). */
+    borradosMini: [],
     evId: 0,
     llamadas: [],
     hechas: {},
@@ -342,7 +344,10 @@ function servidor() {
     return { error: null };
   };
   s.remove = async (ps) => {
-    s.borrados.push(...ps);
+    // La miniatura va en la misma llamada que su foto: se anota aparte para
+    // que las pruebas de antes sigan contando solo fotos.
+    s.borrados.push(...ps.filter((p) => !p.includes('/mini/')));
+    s.borradosMini.push(...ps.filter((p) => p.includes('/mini/')));
     if (s.frenoRemove) await s.frenoRemove;
     if (s.fallas.remove.shift() === 'red') return { data: null, error: { name: 'StorageUnknownError', message: 'Load failed' } };
     // Política ev_obj_del_comp: sin sesión no borra nada (sin error) y nunca un objeto que una fila usa.
@@ -1775,6 +1780,12 @@ test('«Descartar» una visita con una foto sin fila que no cuenta en ninguna to
   await calma();
   assert.ok(!s.objetos.has(path), 'el objeto suelto se borró');
   assert.deepEqual(s.borrados, [path]);
+  const i = path.lastIndexOf('/');
+  assert.deepEqual(
+    s.borradosMini,
+    [`${path.slice(0, i)}/mini/${path.slice(i + 1).replace(/\.[^.]+$/, '')}.jpg`],
+    'y su miniatura, en la misma llamada'
+  );
   assert.equal(s.evidencias.size, 0);
   assert.equal(await estado(v), null, 'la visita se fue');
   assert.equal(await Q.hayTomasCompPendientes(EMAIL), 0);

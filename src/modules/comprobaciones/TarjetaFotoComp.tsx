@@ -17,7 +17,7 @@ import { useRef } from 'react';
 import { Check, Trash2, Upload } from 'lucide-react';
 import Ic from '../../components/Ic';
 import { colorTono, fondoTono, type Tono } from '../../lib/tonos';
-import { esUrlVideo } from '../../lib/storage';
+import { alFallarMiniatura, esUrlVideo, urlMiniatura } from '../../lib/storage';
 import { urlPublica } from '../../lib/revisionApi';
 import { pathVigente, type FotoRev } from '../../lib/revisionTomas';
 import { etiquetaDePos } from '../../lib/plantillasComp';
@@ -89,7 +89,15 @@ export default function TarjetaFotoComp(p: Props) {
         {video ? (
           <video src={url} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         ) : (
-          <img src={url} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+          // Miniatura (12-nov-2026); las fotos de antes no la tienen y caen
+          // solas al original. La liga sigue abriendo el original.
+          <img
+            src={urlMiniatura(url)}
+            onError={alFallarMiniatura(url)}
+            alt=""
+            loading="lazy"
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          />
         )}
         {e.marca && (
           <svg viewBox="0 0 100 75" aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
