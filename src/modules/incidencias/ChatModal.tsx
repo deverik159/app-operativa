@@ -1315,11 +1315,16 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
     } catch (ex) {
       // "TypeError: Failed to fetch" no le dice nada a nadie en campo.
       const sinRed = pareceSinRed(ex);
+      const crudo = ex instanceof Error ? ex.message : String(ex);
+      // La regla de quién escribe vive en la base (msg_ins y las políticas
+      // del almacenamiento); cuando niega, Postgres contesta en inglés
+      // ("new row violates row-level security policy…"). En palabras de
+      // campo, y con la salida (11-nov-2026).
       const m = sinRed
         ? 'sin señal'
-        : ex instanceof Error
-          ? ex.message
-          : String(ex);
+        : /row-level security|permission denied|42501/i.test(crudo)
+          ? 'tu rol no permite escribir en el chat de esta incidencia (o ya se cerró). Si necesitas participar, pide que te mencionen con @ o el rol que te falta'
+          : crudo;
       setErrAdj(sinRed ? SIN_SENAL_ENVIO : 'No se pudo enviar: ' + m);
       // Un envío de solo texto no bloquea el campo, y ↩︎ sigue activo aun
       // subiendo un video: si mientras viajaba se escribió otra cosa o se
@@ -2238,7 +2243,11 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
             </form>
 
             <p className="phint" style={{ marginTop: 6, fontSize: 11 }}>
-              Los archivos del chat se borran al cerrar la incidencia. Para
+              {/* La regla vive en la base (purga del chat, 31-oct-2026):
+                  30 días desde el cierre (o No reparado); 60 desde la
+                  subida mientras siga abierta. */}
+              Los archivos del chat se borran 30 días después de cerrar la
+              incidencia (o a los 60 días de subidos, si sigue abierta). Para
               evidencia que deba conservarse, usa <Ic i={Paperclip} />Evidencia.
             </p>
           </>
