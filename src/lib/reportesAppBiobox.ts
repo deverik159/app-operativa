@@ -299,6 +299,32 @@ export function maquinaOpcionalAlReparar(
   return primera.startsWith('App Biobox · reporte') && abono(primera);
 }
 
+/** Lo que hace falta de una máquina del inventario para buscarla. */
+export type MaquinaBuscable = {
+  vendor_face_id: string;
+  site_legacy_id?: string | null;
+  direccion?: string | null;
+  municipio?: string | null;
+};
+
+/**
+ * Busca máquinas para Clasificar (Erik, 12-nov-2026: que la validadora pueda
+ * elegir la máquina al levantar la incidencia). Cada palabra debe aparecer en
+ * la clave, el nombre, la dirección o el municipio, sin acentos ni
+ * mayúsculas («0076», «ucl 7», «toluca»). Primero las que tienen la palabra
+ * en la clave; hasta `tope`.
+ */
+export function filtrarMaquinas<T extends MaquinaBuscable>(lista: readonly T[], q: string, tope = 12): T[] {
+  const palabras = sinAcentos(q.trim()).split(/\s+/).filter(Boolean);
+  if (!palabras.length) return [];
+  const texto = (m: T) => sinAcentos([m.vendor_face_id, m.site_legacy_id, m.direccion, m.municipio].filter(Boolean).join(' '));
+  const enClave = (m: T) => palabras.some((p) => sinAcentos(m.vendor_face_id).includes(p));
+  return lista
+    .filter((m) => { const t = texto(m); return palabras.every((p) => t.includes(p)); })
+    .sort((a, b) => Number(enClave(b)) - Number(enClave(a)) || a.vendor_face_id.localeCompare(b.vendor_face_id))
+    .slice(0, tope);
+}
+
 /** Estatus de la app Biobox tal como lo ve el usuario final. */
 export function textoEstatusCore(r: Pick<ReporteAppBiobox, 'estatus_core' | 'estatus_core_nombre'>): string {
   if (r.estatus_core === 1) return 'Abierto';

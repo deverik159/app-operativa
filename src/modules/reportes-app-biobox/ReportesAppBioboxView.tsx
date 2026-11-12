@@ -40,6 +40,7 @@ import {
   equivalenciaDe,
   estadoBandeja,
   fechaCoreAIso,
+  filtrarMaquinas,
   leerErrorBandeja,
   llaveReincidencia,
   minutosDesde,
@@ -61,7 +62,10 @@ import SelectorFalla, { Derivado } from '../incidencias/SelectorFalla';
 type FilaRol = { rol: string; unidad_negocio: string | null };
 type Props = { roles: readonly FilaRol[]; recargarSignal?: number };
 
-type Maquina = { vendor_face_id: string; tipo_mueble: string | null; site_legacy_id: string | null; direccion: string | null };
+type Maquina = {
+  vendor_face_id: string; tipo_mueble: string | null; site_legacy_id: string | null; direccion: string | null;
+  municipio?: string | null;
+};
 type SyncEstado = { ultima_carga: string | null; ultimo_resultado: Record<string, unknown> | null };
 
 const TODAS = 'Todas';
@@ -338,7 +342,7 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
       {accion?.tipo === 'clasificar' && (
         <ClasificarModal
           r={accion.r}
-          mueble={(accion.r.clave_inventario && maquinas.get(accion.r.clave_inventario)?.tipo_mueble) || null}
+          maquinaReporte={(accion.r.clave_inventario && maquinas.get(accion.r.clave_inventario)) || null}
           // La que dejó la regla automática (también en «Otro»); si no, la equivalencia.
           sugerida={accion.r.sugerencia_detalle || equivalenciaDe(accion.r, equivalencias)?.catalogo_detalle || null}
           reinc={reincDe(accion.r)}
@@ -445,18 +449,41 @@ function AvisoReincidencia({ x, propio }: { x: Reincidencia | undefined; propio:
   );
 }
 
-function ClasificarModal({ r, mueble, sugerida, reinc, onCerrar, onListo, onLigar }: {
-  r: ReporteAppBiobox; mueble: string | null; sugerida: string | null; reinc: Reincidencia | undefined;
+function ClasificarModal({ r, maquinaReporte, sugerida, reinc, onCerrar, onListo, onLigar }: {
+  r: ReporteAppBiobox; maquinaReporte: Maquina | null; sugerida: string | null; reinc: Reincidencia | undefined;
   onCerrar: () => void; onListo: () => void; onLigar: (folio: string) => void;
 }) {
   const [sel, setSel] = useState<CatalogoIncidencia | null>(null);
-  const [sinMaquina, setSinMaquina] = useState(!r.clave_inventario);
+  // La máquina de la incidencia (Erik, 12-nov-2026): la del reporte, otra que
+  // elija la validadora (por la foto o el Webadmin) o ninguna (SIN-MAQUINA;
+  // el técnico la elige al reparar). La base revisa que sea de la unidad.
+  const delReporte: Maquina | null = maquinaReporte
+    ?? (r.clave_inventario ? { vendor_face_id: r.clave_inventario, tipo_mueble: null, site_legacy_id: null, direccion: null } : null);
+  const [maq, setMaq] = useState<Maquina | null>(delReporte);
+  const [maqBusca, setMaqBusca] = useState('');
+  const [maqLista, setMaqLista] = useState<Maquina[] | null>(null);
+  const [maqError, setMaqError] = useState(false);
   const [obs, setObs] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ texto: string; folioDuplicado: string | null } | null>(null);
   const [foto, setFoto] = useState<File | null>(null);
   const [vista, setVista] = useState<string | null>(null);
   const [avisoFoto, setAvisoFoto] = useState('');
+
+  // Las máquinas de la unidad (Biobox ~200), una vez, para buscar aquí mismo.
+  useEffect(() => {
+    let vivo = true;
+    void (async () => {
+      const { data, error: e } = await sb.from('inventario')
+        .select('vendor_face_id,tipo_mueble,site_legacy_id,direccion,municipio')
+        .eq('unidad_negocio', r.unidad_negocio).order('vendor_face_id').limit(2000);
+      if (!vivo) return;
+      if (e) { setMaqError(true); return; }
+      setMaqLista((data || []) as Maquina[]);
+    })();
+    return () => { vivo = false; };
+  }, [r.unidad_negocio]);
+  const maqOpciones = useMemo(() => filtrarMaquinas(maqLista || [], maqBusca), [maqLista, maqBusca]);
 
   // La vista previa se libera al cambiar de foto o al cerrar.
   useEffect(() => {
@@ -511,7 +538,7 @@ function ClasificarModal({ r, mueble, sugerida, reinc, onCerrar, onListo, onLiga
     if (!haySenal()) { setError({ texto: SIN_SENAL, folioDuplicado: null }); return; }
     setBusy(true);
     setError(null);
-    const clave = sinMaquina ? 'SIN-MAQUINA' : r.clave_inventario;
+    const clave = maq?.vendor_face_id || 'SIN-MAQUINA';
     const { data, error: e } = await sb.rpc('clasificar_reporte_biobox_app', {
       p_report_id: r.report_id,
       p_falla: { detalle: sel.detalle, area: sel.area, impacto: sel.impacto, origen: sel.origen, tipo: sel.tipo },
@@ -522,7 +549,7 @@ function ClasificarModal({ r, mueble, sugerida, reinc, onCerrar, onListo, onLiga
     const folio = String(data);
     // La incidencia ya existe: si la foto falla, no se deshace; se dice
     // cómo agregarla después desde 📎 Evidencia.
-    const problemaFoto = foto ? await subirFotoPegada(foto, r.report_id, folio, clave || 'SIN-MAQUINA') : null;
+    const problemaFoto = foto ? await subirFotoPegada(foto, r.report_id, folio, clave) : null;
     setBusy(false);
     alert(
       `Listo: se creó la incidencia ${folio} y se avisó al área ${sel.area}.` +
@@ -537,27 +564,67 @@ function ClasificarModal({ r, mueble, sugerida, reinc, onCerrar, onListo, onLiga
       <Encabezado r={r} />
       <div className="field">
         <span className="etiqueta">Máquina</span>
-        <div style={{ fontSize: 14, overflowWrap: 'anywhere' }}>
-          {r.clave_inventario && !sinMaquina
-            ? r.clave_inventario
-            : r.clave_inventario
-              ? 'Sin máquina: es de puntos, de la cuenta o de la app'
-              : 'Sin máquina (el técnico la elige al reparar)'}
-        </div>
+        {maq ? (
+          <>
+            <div className="banner" style={{ marginBottom: 0, overflowWrap: 'anywhere' }}>
+              <b>{maq.vendor_face_id}</b>
+              {maq.site_legacy_id ? ` · ${maq.site_legacy_id}` : ''}
+              {maq.direccion ? ` · ${maq.direccion}` : ''}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+              <button type="button" className="btn ghost sm" onClick={() => { setMaq(null); setMaqBusca(''); }} disabled={busy}>
+                <Ic i={Repeat} />Cambiar o quitar
+              </button>
+            </div>
+            {r.clave_inventario && maq.vendor_face_id !== r.clave_inventario && (
+              <div className="phint" style={{ margin: '6px 0 0' }}>El usuario reportó la {r.clave_inventario}.</div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="phint" style={{ margin: '0 0 6px' }}>
+              {r.clave_inventario
+                ? <>Sin máquina: es de puntos, de la cuenta o de la app. Si sí es de una máquina, búscala.</>
+                : <>El usuario no dijo la máquina. Si la sabes (por la foto o el Webadmin), búscala por su clave, nombre o dirección; si no, déjala vacía y el técnico la elige al reparar.</>}
+            </div>
+            <input
+              value={maqBusca}
+              onChange={(e) => setMaqBusca(e.target.value)}
+              placeholder={maqLista ? 'Escribe para buscar la máquina…' : maqError ? 'No se pudo cargar la lista de máquinas' : 'Cargando máquinas…'}
+              disabled={busy || !maqLista}
+              aria-label="Buscar máquina"
+            />
+            {!!maqBusca.trim() && maqLista && maqOpciones.length === 0 && (
+              <div className="phint" style={{ margin: '4px 0 0' }}>Sin resultados.</div>
+            )}
+            {maqOpciones.length > 0 && (
+              <div className="lista-scroll" style={{ border: '1px solid var(--line)', borderRadius: 9, marginTop: 4, maxHeight: 220, overflow: 'auto' }}>
+                {maqOpciones.map((o) => (
+                  <button key={o.vendor_face_id} type="button" className="btn ghost"
+                    style={{ display: 'block', width: '100%', textAlign: 'left', borderRadius: 0, border: 'none', overflowWrap: 'anywhere' }}
+                    onClick={() => { setMaq(o); setMaqBusca(''); }}>
+                    <b>{o.vendor_face_id}</b>
+                    {o.site_legacy_id && <span style={{ color: 'var(--muted)' }}> · {o.site_legacy_id}</span>}
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {[o.direccion, o.municipio].filter(Boolean).join(' · ') || 'sin dirección'}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {delReporte && (
+              <div style={{ marginTop: 6 }}>
+                <button type="button" className="btn ghost sm" onClick={() => setMaq(delReporte)} disabled={busy}>
+                  Usar la del reporte ({delReporte.vendor_face_id})
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
       <div style={{ margin: '-6px 0 10px' }}><AvisoReincidencia x={reinc} propio={r.report_id} /></div>
-      {/* Fuera de .field: su regla `.field label` (bloque, 12 px, gris) le
-          ganaba a la píldora. Misma casilla que los filtros de Máquinas Biobox. */}
-      {r.clave_inventario && (
-        <div style={{ margin: '-4px 0 13px' }}>
-          <label className="pildora-check" style={{ maxWidth: '100%' }}>
-            <input type="checkbox" checked={sinMaquina} onChange={(e) => setSinMaquina(e.target.checked)} />
-            No es falla de la máquina
-          </label>
-        </div>
-      )}
       {sugerida && <div className="phint" style={{ margin: '0 0 6px' }}>Sugerida automáticamente (por el motivo o por las palabras del usuario): <b>{sugerida}</b></div>}
-      <SelectorFalla unidad={r.unidad_negocio} mueble={sinMaquina ? null : mueble} actual={sugerida} onElegir={setSel} />
+      <SelectorFalla unidad={r.unidad_negocio} mueble={maq?.tipo_mueble || null} actual={sugerida} onElegir={setSel} />
       <div className="row2">
         <Derivado label="Nivel" valor={(sel?.impacto || '').trim()} />
         <Derivado label="Área responsable" valor={(sel?.area || '').trim()} />

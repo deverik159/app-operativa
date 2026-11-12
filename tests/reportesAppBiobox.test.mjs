@@ -11,6 +11,7 @@ const {
   abreReportesAppBiobox, unidadesBandeja, atiendeUnidad, pideMarcarAtendido, estadoBandeja,
   textoEstatusCore, desfase, equivalenciaDe, leerErrorBandeja, minutosDesde, coincideBusqueda,
   fechaCoreAIso, llaveReincidencia, reincidencias, enlaceWebadmin, maquinaOpcionalAlReparar,
+  filtrarMaquinas,
 } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const rep = (x = {}) => ({
@@ -187,4 +188,23 @@ test('Máquina opcional al reparar: todo lo de TI que vino de la app (11-nov-202
   assert.equal(maquinaOpcionalAlReparar(ti({ nombre_incidencia: 'Falla en el proceso de reciclaje', area_responsable: 'Digital' })), false);
   // TI que NO vino de la app: sigue pidiendo máquina.
   assert.equal(maquinaOpcionalAlReparar(ti({ area_reportante: 'Operaciones' })), false);
+});
+
+test('Clasificar: buscar la máquina por clave, nombre, dirección o municipio (12-nov-2026)', () => {
+  const lista = [
+    { vendor_face_id: 'MX_CM_BB_MEC_0076', site_legacy_id: 'OBRERO ZEMPOALA', direccion: 'Av. Obrero Mundial', municipio: 'Benito Juárez' },
+    { vendor_face_id: 'MX_EM_BB_UCL_0007', site_legacy_id: 'UCL 7', direccion: 'Calle 0076 Norte', municipio: 'Toluca' },
+    { vendor_face_id: 'MX_CM_BB_IID_0001', site_legacy_id: null, direccion: null, municipio: 'Coyoacán' },
+  ];
+  const claves = (q) => filtrarMaquinas(lista, q).map((m) => m.vendor_face_id);
+  assert.deepEqual(claves(''), []);
+  assert.deepEqual(claves('   '), []);
+  // «0076» está en la clave de una y en la dirección de otra: primero la clave.
+  assert.deepEqual(claves('0076'), ['MX_CM_BB_MEC_0076', 'MX_EM_BB_UCL_0007']);
+  assert.deepEqual(claves('zempoala'), ['MX_CM_BB_MEC_0076']);
+  assert.deepEqual(claves('ucl 7'), ['MX_EM_BB_UCL_0007']);
+  assert.deepEqual(claves('JUAREZ'), ['MX_CM_BB_MEC_0076']); // sin acentos ni mayúsculas
+  assert.deepEqual(claves('coyoacán'), ['MX_CM_BB_IID_0001']);
+  assert.deepEqual(claves('toluca zempoala'), []); // todas las palabras deben aparecer
+  assert.equal(filtrarMaquinas(lista, 'mx', 2).length, 2);
 });
