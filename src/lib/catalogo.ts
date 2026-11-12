@@ -158,13 +158,24 @@ export function catalogoParaMuebles(
  * existe, van vacíos y el `detalle` conserva EXACTO el texto del árbol, que
  * es lo que amarra la reparación guiada.
  *
- * NO unir con catalogo_incidencias. Se intentó (sep-2026: árbol + catálogo
- * del mueble, todas las áreas, acotado por unidad) y se revirtió: el árbol
- * SÍ abarca todo lo capturable en el medio digital — SRD lo mantiene justo
- * para eso — y la unión solo metía ruido de otras áreas (MKT,
- * Implementaciones, Comprobaciones…) (Erik, 23-sep-2026). La única
- * excepción es Biobox, donde la máquina es un solo mueble para las dos
- * caras: ver catalogoBiobox (Erik, 27-sep-2026).
+ * MÁS las fallas de OTRAS áreas del catálogo del mueble (Erik, 12-nov-2026):
+ * en una pantalla también hay cosas que no repara Digital (brandeo e
+ * implementaciones, apagado y medidor de Iluminación, internet de TI, sellos
+ * de Urban, bitácora y QTM de Admin Comercial, comprobaciones…), y sin ellas
+ * no había cómo levantarlas en la cara digital. Las filas de DIGITAL del
+ * catálogo general NO salen: el árbol las sustituye (solo prestan su
+ * nivel/origen/tipo al nombre del árbol que empata), así lo que clasifica el
+ * técnico de Digital sigue saliendo solo del árbol.
+ *
+ * Historia: el 23-sep-2026 se había regresado al árbol solo, tras cuatro
+ * intentos de unión que metían ruido de otras áreas; el 12-nov-2026 Erik
+ * decidió volver a sumarlas TODAS, ya sin las de Digital del catálogo.
+ *
+ * Igual que en catalogoBiobox: si un nombre del árbol está en el catálogo
+ * del mueble con OTRA área y no con Digital, sale una sola vez, tal como lo
+ * trae el catálogo. Las otras áreas se toman SOLO de los muebles pedidos: un
+ * mueble sin catálogo (p. ej. "Otro") no trae la lista de toda la unidad,
+ * se queda con el árbol.
  */
 export function catalogoDesdeArbol(
   nombresArbol: string[],
@@ -176,28 +187,47 @@ export function catalogoDesdeArbol(
     (c.area || '').trim().toLowerCase() === 'digital';
   const delMueble = opciones.filter(esDigital);
   const deTodo = cat.filter(esDigital);
+  const pedidos = muebles.filter(Boolean) as string[];
+  const otras = colapsar(
+    cat.filter(
+      (c) => !esDigital(c) && pedidos.some((m) => igual(c.tipo_mueble, m))
+    )
+  );
+  const nombresOtras = new Set(otras.map((c) => llaveNombre(c.detalle)));
 
   const nombres = [
     ...new Set(nombresArbol.map((n) => (n || '').trim()).filter(Boolean)),
-  ].sort((a, b) => a.localeCompare(b));
+  ];
 
-  const lista = nombres.map((nombre) => {
-    const fila =
+  const lista: CatalogoIncidencia[] = [];
+  nombres.forEach((nombre) => {
+    const digital =
       delMueble.find((c) => igual(c.detalle, nombre)) ||
       deTodo.find((c) => igual(c.detalle, nombre));
+    // Está en otra área del mueble y no en Digital: sale abajo, como la
+    // trae el catálogo (decide a quién le toca).
+    if (!digital && nombresOtras.has(llaveNombre(nombre))) return;
     // El detalle SIEMPRE es el del árbol, aunque el catálogo lo escriba con
     // otra mayúscula o acento: es la llave de la reparación guiada.
-    return fila
-      ? { ...fila, detalle: nombre }
-      : ({
-          detalle: nombre,
-          area: 'Digital',
-          impacto: null,
-          origen: null,
-          tipo: null,
-          tipo_mueble: null,
-        } as CatalogoIncidencia);
+    lista.push(
+      digital
+        ? { ...digital, detalle: nombre }
+        : ({
+            detalle: nombre,
+            area: 'Digital',
+            impacto: null,
+            origen: null,
+            tipo: null,
+            tipo_mueble: null,
+          } as CatalogoIncidencia)
+    );
   });
+  lista.push(...otras);
+  lista.sort(
+    (a, b) =>
+      a.detalle.localeCompare(b.detalle, 'es') ||
+      (a.area || '').localeCompare(b.area || '', 'es')
+  );
 
   return { opciones: lista, restringido: true, sinCatalogo: [], desdeArbol: true };
 }
@@ -220,9 +250,9 @@ function llaveNombre(d?: string | null): string {
  * En Biobox la máquina es UN solo mueble con cara digital e impresa, y una
  * falla le puede pegar a cualquiera de las dos. Por eso la lista es la misma
  * sin importar qué cara se marque — antes cambiaba al marcar la digital
- * (solo árbol) o la impresa (solo catálogo). Es la excepción consciente a
- * la regla de catalogoDesdeArbol: fuera de Biobox, la cara digital sigue
- * siendo solo árbol.
+ * (solo árbol) o la impresa (solo catálogo). Desde el 12-nov-2026 la cara
+ * digital fuera de Biobox también suma las otras áreas (catalogoDesdeArbol);
+ * lo que sigue siendo propio de Biobox es que la lista no cambia con la cara.
  *
  * Reglas, para que cada falla salga UNA vez:
  *   1. El catálogo se acota al mueble de la máquina, como siempre.

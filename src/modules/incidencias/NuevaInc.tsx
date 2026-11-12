@@ -2392,11 +2392,9 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
             <div className="field">
               <label>
                 Incidencia (
-                {cat.biobox
+                {cat.biobox || cat.desdeArbol
                   ? 'árbol Digital + catálogo'
-                  : cat.desdeArbol
-                    ? 'catálogo Digital'
-                    : 'catálogo'}{' '}
+                  : 'catálogo'}{' '}
                 ·{' '}
                 {catVisibles.length} de {catOpts.length})
               </label>
@@ -2485,8 +2483,10 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               )}
               {cat.desdeArbol && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                  Cara digital: estas incidencias vienen del árbol de Digital,
-                  el mismo con el que el técnico clasifica la reparación.
+                  Cara digital: lo de Digital viene del árbol, el mismo con el
+                  que el técnico clasifica la reparación; lo de otras áreas
+                  (brandeo, iluminación, internet, QTM…) viene del catálogo,
+                  con su área entre paréntesis.
                 </div>
               )}
               {cat.biobox && (

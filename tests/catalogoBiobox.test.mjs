@@ -116,9 +116,27 @@ test('Biobox: el mismo nombre Digital y de otra área en el mueble sale con las 
   );
 });
 
-test('Fuera de Biobox la cara digital sigue siendo solo árbol', () => {
+test('Fuera de Biobox la cara digital: árbol + otras áreas del mueble (12-nov-2026)', () => {
   const r = catalogoDesdeArbol(ARBOL, CAT, ['M4']);
-  assert.ok(!nombres(r).includes('Chapa dañada (Op. Bio Box)'));
+  const n = nombres(r);
+  // Las otras áreas del mueble entran, una vez.
+  assert.ok(n.includes('Chapa dañada (Op. Bio Box)'));
+  assert.ok(n.includes('Teltonika dañado (TI)'));
+  assert.equal(n.filter((x) => x.startsWith('Chapa dañada')).length, 1);
+  // Las de Digital del catálogo general NO: solo las del árbol.
+  assert.ok(!n.includes('Falta arte (Digital)'));
+  assert.ok(n.includes('Apagado parcial (Digital)'));
+  assert.ok(n.includes('Sin video (Digital)'));
+  // Nombre del árbol que el catálogo del mueble tiene con otra área: una vez,
+  // como lo trae el catálogo.
+  assert.equal(n.filter((x) => /reciclaje/i.test(x)).length, 1);
+  assert.ok(n.includes('Falla en el proceso de reciclaje (Op. Bio Box)'));
+  // De otro mueble no entra nada.
+  assert.ok(!n.includes('Solo en M5 (Op. Bio Box)'));
+  assert.equal(r.desdeArbol, true);
+  // Un mueble sin catálogo se queda con el árbol (no trae toda la unidad).
+  const sinCat = nombres(catalogoDesdeArbol(ARBOL, CAT, ['Otro']));
+  assert.ok(sinCat.every((x) => x.endsWith('(Digital)')));
   assert.equal(esUnidadBiobox('Biobox'), true);
   assert.equal(esUnidadBiobox(' biobox perú '), true);
   assert.equal(esUnidadBiobox('Ecovallas'), false);
