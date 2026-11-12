@@ -414,7 +414,8 @@ export function fueraHorarioValidador(ahora: Date = new Date()): boolean {
  * atiende. No son lo mismo y no deben mezclarse.
  *
  * La RLS ya razona igual: inc_sel_reparacion e inc_upd_reparacion aceptan
- * `area_responsable IN mis_departamentos() OR assigned_area IN mis_departamentos()`.
+ * `mi_area_en_unidad(area_responsable, unidad) OR mi_area_en_unidad(assigned_area, unidad)`
+ * (el área vale solo en la unidad del rol que la trae, 12-nov-2026).
  */
 export function areaEfectiva(i: {
   area_responsable?: string | null;
