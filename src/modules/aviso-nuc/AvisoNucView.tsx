@@ -455,7 +455,7 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
           : filtro === 'todas' ? 'Todas las máquinas'
           : ETIQUETA_NUC[filtro as EstadoNuc]}
         {' · '}
-        <button type="button" className="btn ghost sm" style={{ padding: '2px 8px' }} onClick={() => { setFiltro(filtro === 'todas' ? 'abiertos' : 'todas'); setBusca(''); }}>
+        <button type="button" className="btn ghost sm" onClick={() => { setFiltro(filtro === 'todas' ? 'abiertos' : 'todas'); setBusca(''); }}>
           {filtro === 'todas' ? 'Ver solo con aviso' : 'Ver todas'}
         </button>
       </div>

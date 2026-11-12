@@ -23,7 +23,7 @@ import type { PautaRuta } from '../../types/db';
 import { sb } from '../../lib/supabase';
 import { tope } from '../../lib/envios';
 import { pareceSinRed } from '../../lib/enLinea';
-import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE } from '../../lib/storage';
+import { BUCKET_EVIDENCIAS, CACHE_INMUTABLE, alFallarMiniatura, rutaMiniatura, subirMiniatura, urlMiniatura } from '../../lib/storage';
 import { fechaHoraCdmx } from '../../lib/fechasCdmx';
 import { cargarNombres, nombreDe, type MapaNombres } from '../../lib/nombres';
 import { nombreRuta, paraArchivo } from '../../lib/indicadoresPauta';
@@ -405,7 +405,11 @@ function Carpeta({
     // si no se puede, se queda y no se interrumpe la revisión.
     if (f.editada_path && f.editada_path !== nuevaRuta) {
       try {
-        await conTope(sb.storage.from(BUCKET_EVIDENCIAS).remove([f.editada_path]), TOPE_BORRADO_MS, 'sin respuesta');
+        await conTope(
+          sb.storage.from(BUCKET_EVIDENCIAS).remove([f.editada_path, rutaMiniatura(f.editada_path)]),
+          TOPE_BORRADO_MS,
+          'sin respuesta'
+        );
       } catch {
         /* se queda el archivo */
       }
@@ -442,6 +446,7 @@ function Carpeta({
         'No se pudo subir la editada: la red no respondió. Vuelve a intentarlo.'
       );
       if (up) throw new Error('No se pudo subir la editada: ' + up.message);
+      await subirMiniatura(path, archivo);
       try {
         tras(await marcar(f, 'editada', path), f.vendor_face_id);
       } catch (e) {
@@ -449,7 +454,7 @@ function Carpeta({
         // respondió, la marca pudo quedar y entonces el archivo NO se borra.
         if (!/la red no respondió/.test((e as Error).message)) {
           try {
-            await conTope(sb.storage.from(BUCKET_EVIDENCIAS).remove([path]), TOPE_BORRADO_MS, 'sin respuesta');
+            await conTope(sb.storage.from(BUCKET_EVIDENCIAS).remove([path, rutaMiniatura(path)]), TOPE_BORRADO_MS, 'sin respuesta');
           } catch {
             /* se queda el archivo */
           }
@@ -895,7 +900,15 @@ function TarjetaFoto({
         aria-label={`${nombreFoto(f)} (abre en otra pestaña)`}
         style={{ display: 'block', background: 'var(--panel)' }}
       >
-        <img src={url} alt={nombreFoto(f)} loading="lazy" style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
+        {/* Miniatura (12-nov-2026); las fotos de antes no la tienen y caen
+            solas al original. La liga sigue abriendo el original. */}
+        <img
+          src={urlMiniatura(url)}
+          onError={alFallarMiniatura(url)}
+          alt={nombreFoto(f)}
+          loading="lazy"
+          style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }}
+        />
       </a>
       <div style={{ padding: '7px 8px', display: 'grid', gap: 6 }}>
         <div style={{ fontSize: 11, fontWeight: 700, overflowWrap: 'anywhere' }}>{nombreFoto(f)}</div>

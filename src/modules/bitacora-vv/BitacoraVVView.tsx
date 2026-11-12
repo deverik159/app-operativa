@@ -33,6 +33,8 @@ import {
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
 import { sb } from '../../lib/supabase';
+import { tope } from '../../lib/envios';
+import { pareceSinRed } from '../../lib/enLinea';
 import { prepararArchivos } from '../../lib/comprimirImagen';
 import {
   aFotosLocales,
@@ -48,6 +50,16 @@ import Ic from '../../components/Ic';
 import DisponibilidadVV from './DisponibilidadVV';
 import { etiquetaMes, planoDelDia, type PlanoDelDia } from './planoDelDia';
 import { franjasTexto, type LineaOcup } from '../../lib/ocupacionVV';
+
+/**
+ * Texto del error de una escritura (12-nov-2026). Cada consulta lleva tope:
+ * sin red no se sabe si alcanzó a guardarse, así que se pide revisar.
+ */
+function motivoRed(e: { message: string }): string {
+  return pareceSinRed(e)
+    ? 'la red no respondió y pudo haber quedado hecho. Recarga y revisa antes de repetirlo.'
+    : e.message;
+}
 
 type Espacio = {
   clave: string;
@@ -250,6 +262,8 @@ function FranjaHoras({
               type="button"
               onClick={() => toggle(h)}
               style={{
+                // 40 px de alto (12-nov-2026): medían ~29 en el teléfono.
+                minHeight: 40,
                 padding: '7px 0',
                 borderRadius: 8,
                 fontSize: 12,
@@ -630,16 +644,16 @@ function BitacoraVVView({
         .from('vv_campanas')
         .update(datos)
         .eq('id', editando)
-        .select('id');
-      if (error) alert('No se pudo guardar: ' + error.message);
+        .select('id').abortSignal(tope(30000));
+      if (error) alert('No se pudo guardar: ' + motivoRed(error));
       else ok = aplicoATodas('guardar la campaña', data, 1);
     } else {
       const { data, error } = await sb
         .from('vv_campanas')
         .insert({ ...datos, creada_por: email })
         .select()
-        .single();
-      if (error) alert('No se pudo crear la campaña: ' + error.message);
+        .abortSignal(tope(30000)).single();
+      if (error) alert('No se pudo crear la campaña: ' + motivoRed(error));
       else {
         ok = true;
         if (data) setCampSel(data as Campana);
@@ -664,8 +678,8 @@ function BitacoraVVView({
       .from('vv_campanas')
       .update({ estatus: 'cerrada' })
       .eq('id', c.id)
-      .select('id');
-    if (error) alert('No se pudo cerrar: ' + error.message);
+      .select('id').abortSignal(tope(30000));
+    if (error) alert('No se pudo cerrar: ' + motivoRed(error));
     else aplicoATodas('cerrar la campaña', data, 1);
     cargar();
   };
@@ -691,7 +705,7 @@ function BitacoraVVView({
       .neq('estatus', 'cerrada')
       .neq('campana_id', campanaId)
       .lte('inicio', fin)
-      .gte('fin', inicio);
+      .gte('fin', inicio).abortSignal(tope(30000));
     return ((data as unknown as (Pauta & { vv_campanas: { cliente: string; nombre: string } | null })[]) || [])
       .map(
         (p) =>
@@ -810,8 +824,8 @@ function BitacoraVVView({
       observaciones: nf.observaciones.trim() || null,
       creada_por: email,
     }));
-    const { error } = await sb.from('vv_pautas').insert(filas);
-    if (error) alert('No se pudo guardar la pauta: ' + error.message);
+    const { error } = await sb.from('vv_pautas').insert(filas).abortSignal(tope(30000));
+    if (error) alert('No se pudo guardar la pauta: ' + motivoRed(error));
     else setAddPauta(false);
     setGuardando(false);
     cargar();
@@ -1043,10 +1057,10 @@ function BitacoraVVView({
       observaciones: null,
       creada_por: email,
     }));
-    const { error } = await sb.from('vv_pautas').insert(filas);
+    const { error } = await sb.from('vv_pautas').insert(filas).abortSignal(tope(30000));
     setGuardando(false);
     if (error) {
-      alert('No se pudo guardar el FULL: ' + error.message);
+      alert('No se pudo guardar el FULL: ' + motivoRed(error));
       return;
     }
     setFull(null);
@@ -1127,10 +1141,10 @@ function BitacoraVVView({
       testigos: ppe.testigos,
       observaciones: null,
       creada_por: email,
-    });
+    }).abortSignal(tope(30000));
     setGuardando(false);
     if (error) {
-      alert('No se pudo guardar el periodo: ' + error.message);
+      alert('No se pudo guardar el periodo: ' + motivoRed(error));
       return;
     }
     // Listo para el periodo que sigue: mismo espacio, arrancando al día
@@ -1147,8 +1161,8 @@ function BitacoraVVView({
   const quitarPeriodo = async (p: Pauta) => {
     if (!confirm(`¿Quitar el periodo ${fechaCorta(p.inicio)} – ${fechaCorta(p.fin)} de ${p.espacio_clave}?`))
       return;
-    const { data, error } = await sb.from('vv_pautas').delete().eq('id', p.id).select('id');
-    if (error) alert('No se pudo quitar: ' + error.message);
+    const { data, error } = await sb.from('vv_pautas').delete().eq('id', p.id).select('id').abortSignal(tope(30000));
+    if (error) alert('No se pudo quitar: ' + motivoRed(error));
     else aplicoATodas('quitar el periodo', data, 1);
     cargar();
   };
@@ -1174,9 +1188,9 @@ function BitacoraVVView({
       .from('vv_pautas')
       .update({ fin: sumarDias(cv.desde, -1) })
       .in('id', ids)
-      .select('id');
+      .select('id').abortSignal(tope(30000));
     if (e1) {
-      alert('No se pudo cerrar la vigencia anterior: ' + e1.message);
+      alert('No se pudo cerrar la vigencia anterior: ' + motivoRed(e1));
       setGuardando(false);
       return;
     }
@@ -1203,8 +1217,8 @@ function BitacoraVVView({
       observaciones: f.observaciones,
       creada_por: email,
     }));
-    const { error: e2 } = await sb.from('vv_pautas').insert(filas);
-    if (e2) alert('La vigencia anterior se cerró pero la nueva no se pudo crear: ' + e2.message);
+    const { error: e2 } = await sb.from('vv_pautas').insert(filas).abortSignal(tope(30000));
+    if (e2) alert('La vigencia anterior se cerró pero la nueva no se pudo crear: ' + motivoRed(e2));
     else setCambioDe(null);
     setGuardando(false);
     cargar();
@@ -1217,8 +1231,8 @@ function BitacoraVVView({
       .from('vv_pautas')
       .update({ estatus: 'programada' })
       .in('id', ids)
-      .select('id');
-    if (error) alert('No se pudo marcar: ' + error.message);
+      .select('id').abortSignal(tope(30000));
+    if (error) alert('No se pudo marcar: ' + motivoRed(error));
     else aplicoATodas('marcar programada', data, ids.length);
     cargar();
   };
@@ -1234,8 +1248,8 @@ function BitacoraVVView({
       .from('vv_pautas')
       .delete()
       .in('id', g.filas.map((f) => f.id))
-      .select('id');
-    if (error) alert('No se pudo quitar: ' + error.message);
+      .select('id').abortSignal(tope(30000));
+    if (error) alert('No se pudo quitar: ' + motivoRed(error));
     else aplicoATodas(`quitar "${g.version}"`, data, g.filas.length);
     cargar();
   };
@@ -1252,7 +1266,7 @@ function BitacoraVVView({
       .select('id,accion,detalle,hecho_por,hecho_en')
       .eq('campana_id', campana.id)
       .order('hecho_en', { ascending: false })
-      .limit(120);
+      .limit(120).abortSignal(tope(30000));
     setHist((data as Hist[]) || []);
   };
 
@@ -1317,8 +1331,8 @@ function BitacoraVVView({
         url,
         subido_por: email,
       }));
-      const { error } = await sb.from('vv_artes').insert(filas);
-      if (error) alert('Las imágenes subieron pero no se pudieron registrar: ' + error.message);
+      const { error } = await sb.from('vv_artes').insert(filas).abortSignal(tope(30000));
+      if (error) alert('Las imágenes subieron pero no se pudieron registrar: ' + motivoRed(error));
       else cerrarSubirArtes();
       cargar();
     } catch (e) {
@@ -1330,8 +1344,8 @@ function BitacoraVVView({
 
   const quitarArte = async (a: Arte) => {
     if (!confirm(`¿Quitar el arte "${a.etiqueta || a.version}"?`)) return;
-    const { data, error } = await sb.from('vv_artes').delete().eq('id', a.id).select('id');
-    if (error) alert('No se pudo quitar: ' + error.message);
+    const { data, error } = await sb.from('vv_artes').delete().eq('id', a.id).select('id').abortSignal(tope(30000));
+    if (error) alert('No se pudo quitar: ' + motivoRed(error));
     else aplicoATodas('quitar el arte', data, 1);
     cargar();
   };
@@ -1364,7 +1378,10 @@ function BitacoraVVView({
         onClick={() => toggleClave(e.clave)}
         title={e.tipo_espacio === 'portico' ? `${e.sitio} ${e.nombre} · ${e.clave}` : `Tipo ${e.tipo}`}
         style={{
-          padding: '5px 9px',
+          // 40 px de alto como mínimo (12-nov-2026): medían ~27 y en el
+          // teléfono se atinaba al espacio de al lado.
+          minHeight: 40,
+          padding: '5px 10px',
           borderRadius: 8,
           fontSize: 12,
           fontWeight: 700,
@@ -1993,6 +2010,7 @@ function BitacoraVVView({
                       Rotación ({Object.keys(full.asignacion).length} espacios) — ajusta el que haga falta
                     </label>
                     <div
+                      className="lista-scroll"
                       style={{
                         border: '1px dashed var(--line)',
                         borderRadius: 10,
@@ -2023,7 +2041,9 @@ function BitacoraVVView({
                             </span>
                             <select
                               value={full.asignacion![clave]}
-                              style={{ flex: 1 }}
+                              // minWidth 0: con versiones de nombre largo el
+                              // select se salía de la caja a 320 px (12-nov-2026).
+                              style={{ flex: 1, minWidth: 0 }}
                               onChange={(ev) =>
                                 setFull({
                                   ...full,

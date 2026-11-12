@@ -50,7 +50,7 @@
 // tomarLogrosTomas, con los mismos disparadores que las otras colas.
 // ============================================================
 import { sb } from './supabase';
-import { BUCKET_EVIDENCIAS } from './storage';
+import { BUCKET_EVIDENCIAS, rutaMiniatura, subirMiniatura } from './storage';
 import { reportarError } from './reportarError';
 import { retenerRecargaAutomatica } from './cargaDiferida';
 import { diaCdmx } from './fechasCdmx';
@@ -1403,7 +1403,8 @@ async function limpiarQuitado(t: TrabajoToma, a: ArchivoToma): Promise<void> {
     if (a.limpiar !== 'objeto')
       reportarError('tomas.limpiar', new Error('fila que no se pudo borrar'), undefined, a.path);
   } else {
-    const r = await conTope(sb.storage.from(BUCKET_EVIDENCIAS).remove([a.path]), ESPERA_LECTURA_MS);
+    // Con su miniatura, si la tuvo (borrar una ruta que no existe no falla).
+    const r = await conTope(sb.storage.from(BUCKET_EVIDENCIAS).remove([a.path, rutaMiniatura(a.path)]), ESPERA_LECTURA_MS);
     if (r.error && clasificarStorage(r.error) === 'red') throw new SinRed(mensajeDe(r.error));
   }
   await conArchivo(t.id, a.fid, (x) => {
@@ -1465,6 +1466,11 @@ async function mandarArchivo(
       return;
     }
     a = y;
+    // Miniatura (12-nov-2026), igual que las incidencias: la tarjeta del
+    // analista pintaba el original a 120 px de alto, foto por foto. De mejor
+    // esfuerzo y con tope (subirMiniatura): se anota 'subido' ANTES, para que
+    // al retomar no se vuelva a subir el original por 4G.
+    await subirMiniatura(a.path, f);
   }
   // Ligar: la toma pudo comprobarse mientras subía.
   toma.v = await leerToma(t);

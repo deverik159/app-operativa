@@ -722,6 +722,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
           )}
           {siteOpts.length > 0 && (
             <div
+              className="lista-scroll"
               style={{
                 border: '1px solid var(--line)',
                 borderRadius: 10,

@@ -1190,6 +1190,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                   )}
                   {maqOpts.length > 0 && (
                     <div
+                      className="lista-scroll"
                       style={{
                         border: '1px solid var(--line)',
                         borderRadius: 9,

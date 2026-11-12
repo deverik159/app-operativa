@@ -314,9 +314,9 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
 @media(max-width:780px){
   /* El menú puede bajar hasta arriba de la barra de módulos (≈80px) en vez
      de cortarse al 70%: con todo a la vista casi nunca hace falta desplazar. */
-  .panel-flotante.angosto{max-height:calc(100vh - 58px - env(safe-area-inset-top,0px) - 96px)}
+  .panel-flotante.angosto{max-height:calc(100vh - 62px - env(safe-area-inset-top,0px) - 96px)}
   @supports (height: 1dvh){
-    .panel-flotante.angosto{max-height:calc(100dvh - 58px - env(safe-area-inset-top,0px) - 96px)}
+    .panel-flotante.angosto{max-height:calc(100dvh - 62px - env(safe-area-inset-top,0px) - 96px)}
   }
 }
 
@@ -381,6 +381,13 @@ h2.page{font-size:28px;font-weight:700;letter-spacing:-.03em;line-height:1.15}
     border-radius:19px;font-size:14px;white-space:normal;line-height:1.25}
   .segmento{width:100%}
   .sel-compacto{font-size:16px;min-height:40px}
+  /* Controles chicos a 40 px en celular (Erik, 12-nov-2026): medían 34–36 y
+     se atinaba al de al lado. En PC se quedan como estaban. La ✕ crece hacia
+     la esquina para no encimarse en el título (que reserva 44 px). */
+  .btn.sm{min-height:40px}
+  .segmento button{min-height:40px}
+  .rt-chip{min-height:40px}
+  .modal-cerrar{width:40px;height:40px;top:10px;right:10px}
 }
 @media(max-width:380px){
   /* .main baja a 10 px de relleno (index.css): con -12 la fila se salía 2 px

@@ -96,6 +96,7 @@ function ApoyoModal({ email, inicial, onCancelar, onElegir }: Props) {
             <div
               role="radiogroup"
               aria-label="Técnico que apoyó"
+              className="lista-scroll"
               style={{
                 border: '1px solid var(--line)',
                 borderRadius: 9,

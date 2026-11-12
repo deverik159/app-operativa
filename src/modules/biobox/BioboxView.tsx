@@ -354,6 +354,9 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloL
     setLimite(TANDA_MAQUINAS);
   }, [unidad, rutaFoco, medio, buscaDiferida, orden, soloPendientes, filtroNuc, soloMias]);
   const enLista = visibles.slice(0, limite);
+  // El detalle de un indicador también va por tandas: «Total» trae las 190.
+  // Vuelve a la primera tanda al abrirlo (en el onClick del indicador).
+  const [limiteDetalle, setLimiteDetalle] = useState(TANDA_MAQUINAS);
 
   /** Leyenda del NUC: cuántas máquinas de la unidad hay en cada estado. */
   const conteoNuc = useMemo(() => {
@@ -540,7 +543,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloL
           })}
         </div>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 9, margin: '14px 0' }}>
-          {indicadores.map((i) => <button key={i.id} type="button" disabled={cargando} onClick={() => { setDetalle(i.id); setMaquinaAbierta(null); }} className="card" style={{ minWidth: 0, textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
+          {indicadores.map((i) => <button key={i.id} type="button" disabled={cargando} onClick={() => { setDetalle(i.id); setMaquinaAbierta(null); setLimiteDetalle(TANDA_MAQUINAS); }} className="card" style={{ minWidth: 0, textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
             <div className="n" style={{ color: i.color }}>{i.filas.length}</div>
             <div className="l">{i.titulo}</div>
           </button>)}
@@ -566,8 +569,13 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloL
             <CerrarModal onClick={() => setDetalle(null)} />
             <h2 id="biobox-indicador-titulo">{indicadorAbierto.titulo}</h2>
             <p className="phint">{indicadorAbierto.filas.length} máquinas · {unidad}{rutaFoco ? ' · ' + rutaFoco : ''}{medio !== 'todos' ? ' · ' + medio : ''}{busca ? ' · ' + busca : ''}{soloPendientes ? ' · Pendientes de revisión' : ''}</p>
-            <div style={{ display: 'grid', gap: 9, maxHeight: '60dvh', overflowY: 'auto' }}>
-              {indicadorAbierto.filas.map((u) => tarjetaMaquina(u, true))}
+            <div className="lista-scroll" style={{ display: 'grid', gap: 9, maxHeight: '60dvh', overflowY: 'auto' }}>
+              {indicadorAbierto.filas.slice(0, limiteDetalle).map((u) => tarjetaMaquina(u, true))}
+              {indicadorAbierto.filas.length > limiteDetalle && <div style={{ textAlign: 'center', margin: '6px 0' }}>
+                <button type="button" className="btn ghost" onClick={() => setLimiteDetalle((n) => n + TANDA_MAQUINAS)}>
+                  Ver {Math.min(indicadorAbierto.filas.length - limiteDetalle, TANDA_MAQUINAS)} más (faltan {indicadorAbierto.filas.length - limiteDetalle})
+                </button>
+              </div>}
               {!indicadorAbierto.filas.length && <p>Sin máquinas para este indicador con los filtros seleccionados.</p>}
             </div>
             <div className="modal-actions pie-fijo" style={{ marginTop: 12 }}><button autoFocus className="btn ghost" onClick={() => setDetalle(null)}>Cerrar</button></div>

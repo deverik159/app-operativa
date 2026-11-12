@@ -2149,7 +2149,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         {nearOpts.length > 0 && !site && (
           <div className="field">
             <label><Ic i={MapPin} />Sitios cerca de ti ({nearOpts.length})</label>
-            <div style={{ display: 'grid', gap: 6, maxHeight: 220, overflow: 'auto' }}>
+            <div className="lista-scroll" style={{ display: 'grid', gap: 6, maxHeight: 220, overflow: 'auto' }}>
               {nearOpts.map((o) => (
                 <div
                   key={o.site_id}
@@ -2580,6 +2580,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                   </div>
                 )}
                 <div
+                  className="lista-scroll"
                   style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))',

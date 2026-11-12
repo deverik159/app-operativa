@@ -28,7 +28,7 @@ import { sb } from '../../lib/supabase';
 import { caraLabel } from '../../lib/helpers';
 import { reglaEspecToma } from '../../lib/especToma';
 import { pintar } from '../../lib/tonos';
-import { BUCKET_EVIDENCIAS } from '../../lib/storage';
+import { BUCKET_EVIDENCIAS, alFallarMiniatura, rutaMiniatura, urlMiniatura } from '../../lib/storage';
 import SubirArchivos, { VisorFile } from '../../components/SubirArchivos';
 import type { PautaRuta } from '../../types/db';
 import { vigilarRender } from '../../lib/vigia';
@@ -558,7 +558,13 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada, soloLectura }:
     // y no debe irse el archivo de una foto que sigue registrada. Después el
     // archivo; si eso fallara, queda un huérfano en Storage, que es lo menos
     // malo.
-    const { data, error, status } = await sb.from('pauta_evidencias').delete().eq('id', ev.id).select('id');
+    // Con tope (12-nov-2026): con la red colgada el borrado no terminaba.
+    const { data, error, status } = await sb
+      .from('pauta_evidencias')
+      .delete()
+      .eq('id', ev.id)
+      .select('id')
+      .abortSignal(tope(20000));
     // Sin señal y con la ruta en la cola: la cola la borra después, con
     // reintento. Solo por falla de red: si la base lo rechazó (comprobada),
     // la foto sigue a la vista con el mensaje de abajo.
@@ -570,14 +576,28 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada, soloLectura }:
       return;
     }
     if (error) {
-      setErr('No se pudo eliminar: ' + error.message);
+      setErr(
+        pareceSinRed(error, status)
+          ? 'No se pudo eliminar: la red no respondió y pudo haberse quitado. Cierra y vuelve a abrir la toma antes de repetirlo.'
+          : 'No se pudo eliminar: ' + error.message
+      );
       return;
     }
     if (!data || data.length === 0) {
       setErr('No se pudo eliminar: la toma ya está comprobada o no tienes permiso.');
       return;
     }
-    if (ev.path) await sb.storage.from(BUCKET_EVIDENCIAS).remove([ev.path]);
+    // El archivo y su miniatura, de mejor esfuerzo y con tope: Storage no
+    // acepta abortSignal y un remove colgado dejaba la foto a la vista.
+    if (ev.path) {
+      let t: number | undefined;
+      await Promise.race([
+        sb.storage.from(BUCKET_EVIDENCIAS).remove([ev.path, rutaMiniatura(ev.path)]).catch(() => null),
+        new Promise((res) => {
+          t = window.setTimeout(res, 15000);
+        }),
+      ]).finally(() => window.clearTimeout(t));
+    }
     setEvidencias((prev) => prev.filter((x) => x.id !== ev.id));
     if (ev.path) setDeCamara((prev) => prev.filter((d) => d.path !== ev.path));
   };
@@ -972,7 +992,8 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada, soloLectura }:
                         aria-label={`${ev.referencia || 'Evidencia de la toma'} (abre en otra pestaña)`}
                       >
                         <img
-                          src={ev.url}
+                          src={urlMiniatura(ev.url)}
+                          onError={alFallarMiniatura(ev.url)}
                           alt={ev.referencia || 'Evidencia de la toma'}
                           style={{
                             width: '100%',
@@ -1184,7 +1205,8 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada, soloLectura }:
                       <span aria-hidden="true" style={{ display: 'flex', height: 64, alignItems: 'center', justifyContent: 'center' }}>🎥</span>
                     ) : (
                       <img
-                        src={ev.url}
+                        src={urlMiniatura(ev.url)}
+                        onError={alFallarMiniatura(ev.url)}
                         alt={`Evidencia ${i + 1} de la toma regresada`}
                         style={{ width: '100%', height: 64, objectFit: 'cover', borderRadius: 8, display: 'block' }}
                       />

@@ -262,7 +262,7 @@ function VisitaMaquinaModal({
             </button>
             <button
               type="button"
-              className={funciona === false ? 'btn danger' : 'btn ghost'}
+              className={funciona === false ? 'btn hi' : 'btn ghost'}
               aria-pressed={funciona === false}
               onClick={() => setFunciona(false)}
               disabled={guardando}

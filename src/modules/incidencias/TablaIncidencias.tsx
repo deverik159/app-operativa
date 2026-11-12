@@ -38,7 +38,20 @@ type Props = {
   items: Incidencia[];
   /** true = coordinador o manager: se le ofrece el export. */
   puedeExportar: boolean;
+  /**
+   * Filtros con que se armó `items` (la misma clave del pintado de tarjetas):
+   * si cambia, la tabla vuelve a la primera tanda. Una recarga no la cambia.
+   */
+  clave?: string;
 };
+
+/**
+ * Filas que se pintan por tanda (12-nov-2026). La tabla pintaba todas: con
+ * 2,000 incidencias y 20 columnas, en el teléfono la pantalla se congelaba
+ * varios segundos al abrirla y al ordenar. El export y el orden siguen
+ * usando TODAS las filas; solo se corta lo que se pinta, y se dice.
+ */
+const PASO_TABLA = 300;
 
 function fecha(iso: string | null): string {
   if (!iso) return '—';
@@ -225,10 +238,15 @@ const COLUMNAS: {
   },
 ];
 
-function TablaIncidencias({ items, puedeExportar }: Props) {
+function TablaIncidencias({ items, puedeExportar, clave = '' }: Props) {
   /** null = el orden en que llegan de IncidenciasView (más reciente arriba). */
   const [orden, setOrden] = useState<{ k: string; asc: boolean } | null>(null);
   const [exportando, setExportando] = useState(false);
+  // Como en las tarjetas: el corte se guarda con la clave para la que se
+  // pidió, y al cambiar filtros u orden vuelve a la primera tanda sin efecto.
+  const claveTanda = clave + '|' + (orden ? orden.k + (orden.asc ? '+' : '-') : '');
+  const [tanda, setTanda] = useState({ clave: '', n: PASO_TABLA });
+  const nPintadas = tanda.clave === claveTanda ? tanda.n : PASO_TABLA;
 
   const alExportar = async () => {
     setExportando(true);
@@ -371,7 +389,7 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
             </tr>
           </thead>
           <tbody>
-            {filas.map((i) => {
+            {filas.slice(0, nPintadas).map((i) => {
               const enProc = horasEnProceso(i);
               const tiempoReparacion = horasValidacionReparacion(i);
               return (
@@ -458,6 +476,33 @@ function TablaIncidencias({ items, puedeExportar }: Props) {
           </tbody>
         </table>
       </div>
+      {/* Nunca cortar en silencio: se dice cuántas hay y cuántas se ven. */}
+      {filas.length > nPintadas && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexWrap: 'wrap',
+            margin: '12px 0',
+            color: 'var(--muted)',
+            fontSize: 13,
+          }}
+        >
+          <span>
+            Mostrando {nPintadas.toLocaleString('es-MX')} de {filas.length.toLocaleString('es-MX')} filas
+            {puedeExportar ? ' (el export lleva todas)' : ''}
+          </span>
+          <button
+            type="button"
+            className="btn ghost sm"
+            onClick={() => setTanda({ clave: claveTanda, n: nPintadas + PASO_TABLA })}
+          >
+            Mostrar {Math.min(PASO_TABLA, filas.length - nPintadas).toLocaleString('es-MX')} más
+          </button>
+        </div>
+      )}
     </div>
   );
 }

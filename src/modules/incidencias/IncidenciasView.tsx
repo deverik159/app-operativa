@@ -126,7 +126,8 @@ const FOTOS_EN_PARALELO = 3;
 /**
  * Tarjetas que se pintan de un jalón. Pintar 2,000 IncCard en un teléfono
  * congela la pantalla varios segundos; se pintan de 150 en 150 con un botón
- * "Mostrar más" (auditoría primer mes, 24-sep-2026). La tabla no se corta.
+ * "Mostrar más" (auditoría primer mes, 24-sep-2026). La tabla también va por
+ * tandas desde el 12-nov-2026 (PASO_TABLA en TablaIncidencias), con la misma clave.
  */
 const PASO_PINTADO = 150;
 
@@ -3103,6 +3104,7 @@ function IncidenciasView({
         <TablaIncidencias
           items={visibles}
           puedeExportar={puedeVerTabla}
+          clave={clavePintado}
         />
       ) : (
         <>

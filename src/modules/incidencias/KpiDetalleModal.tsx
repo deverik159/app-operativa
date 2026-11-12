@@ -194,6 +194,7 @@ function KpiDetalleModal({
           <div className="empty">No hay incidencias detrás de este número.</div>
         ) : (
           <div
+            className="lista-scroll"
             style={{
               maxHeight: '58vh',
               overflowY: 'auto',

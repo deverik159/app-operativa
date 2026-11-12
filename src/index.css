@@ -444,7 +444,9 @@
     .panel-flotante,
     .panel-flotante.angosto{
       position:fixed;left:8px;right:8px;
-      top:calc(58px + env(safe-area-inset-top,0px));width:auto;
+      /* 62 y no 58: la barra superior mide 61 px en celular y el panel la
+         tapaba 3 px (12-nov-2026). */
+      top:calc(62px + env(safe-area-inset-top,0px));width:auto;
       max-height:70vh;overflow:auto}
 
     /* Con un modal abierto se esconde el menú inferior. El usuario está en

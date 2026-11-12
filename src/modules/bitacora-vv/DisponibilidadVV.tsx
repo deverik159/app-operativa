@@ -23,6 +23,8 @@ import { ChevronDown, ChevronRight, LayoutGrid, Sheet, Upload } from 'lucide-rea
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { WorkBook } from 'xlsx';
 import { sb } from '../../lib/supabase';
+import { tope } from '../../lib/envios';
+import { pareceSinRed } from '../../lib/enLinea';
 import { cargarXlsx } from '../../lib/xlsxDiferido';
 import {
   BANDAS,
@@ -50,6 +52,16 @@ import {
   planoMasReciente,
   type LineasDelRango,
 } from './planoDelDia';
+
+/**
+ * Texto del error de una escritura (12-nov-2026). Cada consulta lleva tope:
+ * sin red no se sabe si alcanzó a guardarse, así que se pide revisar.
+ */
+function motivoRed(e: { message: string }): string {
+  return pareceSinRed(e)
+    ? 'la red no respondió y pudo haber quedado hecho. Recarga y revisa antes de repetirlo.'
+    : e.message;
+}
 
 export type EspacioVV = {
   clave: string;
@@ -526,10 +538,10 @@ export default function DisponibilidadVV({
     setAjustando(true);
     // La función truena si no aplica (sin permiso, slot ocupado más arriba,
     // espacio inactivo): un error aquí nunca se ve como éxito.
-    const { error } = await sb.rpc('ajustar_slots_vv', { p_clave: clave, p_slots: n });
+    const { error } = await sb.rpc('ajustar_slots_vv', { p_clave: clave, p_slots: n }).abortSignal(tope(30000));
     setAjustando(false);
     if (error) {
-      alert('No se pudo cambiar: ' + error.message);
+      alert('No se pudo cambiar: ' + motivoRed(error));
       return;
     }
     setSel(null);
@@ -1344,7 +1356,7 @@ function ImportarPlano({
       .from('vv_ocupacion')
       .select('id', { count: 'exact', head: true })
       .eq('origen', 'plano')
-      .eq('plano_mes', mes);
+      .eq('plano_mes', mes).abortSignal(tope(30000));
     const tocanMes = validas.filter((l) => l.inicio.slice(0, 7) <= mes && l.fin.slice(0, 7) >= mes).length;
     const avisos = [
       yaHabia ? `Reemplaza las ${yaHabia} líneas que ya tenía ${etiquetaMes(mes)}.` : `${etiquetaMes(mes)} no tenía plano.`,
@@ -1378,12 +1390,13 @@ function ImportarPlano({
         estatus: l.estatus,
       })),
       p_slots: slots,
-    });
+      // Reemplaza el mes completo: más margen que una escritura suelta.
+    }).abortSignal(tope(60000));
     setGuardando(false);
     if (error) {
       // Si se cayó la señal, la base pudo aplicarlo: decirlo. Reintentar es
       // seguro porque importar reemplaza el mes completo.
-      const red = /fetch|network|load failed|timeout/i.test(error.message);
+      const red = pareceSinRed(error) || /fetch|network|load failed|timeout/i.test(error.message);
       alert(
         red
           ? `No se pudo confirmar la importación (señal). Revisa si ya aparece el plano de ${etiquetaMes(mes)}; volver a importar es seguro.`

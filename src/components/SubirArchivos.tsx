@@ -193,7 +193,13 @@ export function VisorFile({ file, onClose }: { file: File; onClose: () => void }
         alignItems: 'center',
         justifyContent: 'center',
         padding: 14,
+        // Las cuatro orillas del área segura (12-nov-2026): abajo los
+        // controles del video quedaban bajo la barra de inicio del iPhone, y
+        // de lado (horizontal) la foto bajo la muesca.
         paddingTop: 'max(14px, env(safe-area-inset-top))',
+        paddingBottom: 'max(14px, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(14px, env(safe-area-inset-left))',
+        paddingRight: 'max(14px, env(safe-area-inset-right))',
       }}
     >
       {url &&
@@ -227,7 +233,7 @@ export function VisorFile({ file, onClose }: { file: File; onClose: () => void }
         style={{
           position: 'absolute',
           top: 'max(10px, env(safe-area-inset-top))',
-          right: 10,
+          right: 'max(10px, env(safe-area-inset-right))',
           width: 40,
           height: 40,
           borderRadius: '50%',

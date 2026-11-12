@@ -18,6 +18,7 @@
 import { Lock, Trash, WifiOff } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { sb } from '../../lib/supabase';
+import { tope } from '../../lib/envios';
 import { haySenal, redOLocal } from '../../lib/datosLocales';
 import { codigoCara } from '../../lib/helpers';
 import { ETAPA_LABEL } from '../../lib/constants';
@@ -72,6 +73,25 @@ function esRedStorage(err: unknown): boolean {
   const e = (err || {}) as { name?: string; status?: number };
   return !haySenal() || e.name === 'StorageUnknownError' || !e.status || e.status >= 500;
 }
+
+/**
+ * Storage no acepta abortSignal: el tope es una carrera (12-nov-2026). Si
+ * gana el reloj se responde como falla de red (StorageUnknownError, que
+ * esRedStorage reconoce); la llamada puede terminar sola después. Sin esto,
+ * con la red colgada «Subiendo…» o el borrado se quedaban para siempre.
+ */
+function storageConTope<T extends { error: unknown }>(p: Promise<T>, ms: number): Promise<T | { error: { name: string; message: string } }> {
+  let t: number | undefined;
+  return Promise.race([
+    p,
+    new Promise<{ error: { name: string; message: string } }>((res) => {
+      t = window.setTimeout(() => res({ error: { name: 'StorageUnknownError', message: 'La red no respondió.' } }), ms);
+    }),
+  ]).finally(() => window.clearTimeout(t));
+}
+/** Un minuto más lo que tarda el archivo a 40 KB/s (señal mala de verdad). */
+const topeSubida = (bytes: number) => 60000 + Math.ceil(bytes / 40);
+const TOPE_FILA_MS = 30000;
 
 /** ¿El error de postgrest-js es de red? status 0 = sin respuesta; 401/5xx = de paso. */
 function esRedPg(status: number | undefined): boolean {
@@ -263,9 +283,10 @@ function EvidenciaModal({
         );
       const path = `${inc.record_id}/${nombre}`;
 
-      const { error: upErr } = await sb.storage
-        .from(BUCKET_EVIDENCIAS)
-        .upload(path, f, { upsert: false, cacheControl: CACHE_INMUTABLE });
+      const { error: upErr } = await storageConTope(
+        sb.storage.from(BUCKET_EVIDENCIAS).upload(path, f, { upsert: false, cacheControl: CACHE_INMUTABLE }),
+        topeSubida(f.size)
+      );
       if (upErr) {
         // Sin red no tiene caso seguir con los demás ni reportarlo como
         // error de la app (modo sin señal, 24-sep-2026).
@@ -274,7 +295,7 @@ function EvidenciaModal({
           break;
         }
         reportarError('EvidenciaModal.subida', upErr, { path, tipo, bytes: f.size }, path);
-        alert('Error al subir ' + f.name + ': ' + upErr.message);
+        alert('Error al subir ' + f.name + ': ' + (upErr as { message?: string }).message);
         continue;
       }
       // Foto o video (de un video, un cuadro suyo para la tarjeta).
@@ -292,7 +313,7 @@ function EvidenciaModal({
         path,
         subido_por: email,
         referencia: ref || null,
-      });
+      }).abortSignal(tope(TOPE_FILA_MS));
       if (insErr) {
         if (esRedPg(insStatus)) {
           // Pudo haber llegado y perderse la respuesta: antes de resubir, que
@@ -329,9 +350,10 @@ function EvidenciaModal({
     // y se puede reintentar. Al revés quedaría un archivo sin referencia.
     // La miniatura va en la misma llamada; si no existe, Storage la ignora.
     if (item.path) {
-      const { error: rmErr } = await sb.storage
-        .from(BUCKET_EVIDENCIAS)
-        .remove([item.path, rutaMiniatura(item.path)]);
+      const { error: rmErr } = await storageConTope(
+        sb.storage.from(BUCKET_EVIDENCIAS).remove([item.path, rutaMiniatura(item.path)]),
+        TOPE_FILA_MS
+      );
       // Solo la falla de red detiene: otros errores siguen como antes (la
       // fila se borra igual).
       if (rmErr && esRedStorage(rmErr)) {
@@ -339,7 +361,7 @@ function EvidenciaModal({
         return;
       }
     }
-    const { error, status } = await sb.from('evidencias').delete().eq('id', item.id);
+    const { error, status } = await sb.from('evidencias').delete().eq('id', item.id).abortSignal(tope(TOPE_FILA_MS));
     if (error) {
       alert(esRedPg(status) ? SIN_SENAL : 'No se pudo eliminar: ' + error.message);
       return;
