@@ -54,6 +54,7 @@ import { vigilarRender } from '../../lib/vigia';
 import { colorTono, fondoTono, type Tono } from '../../lib/tonos';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
+import { useAtrasCierra } from '../../lib/atrasVentana';
 
 /** Subcarpeta en el bucket, para no mezclar con incidencias ni pauta. */
 const CARPETA = 'revisiones';
@@ -802,6 +803,9 @@ function RevisionModal({ ubic, email, misDep, onClose, onGuardada }: Props) {
     );
   };
 
+  // Atrás con la ventana abierta la cierra con este mismo cierre seguro, en vez
+  // de cambiar de pestaña y perder lo capturado (lib/atrasVentana.ts, 12-nov-2026).
+  useAtrasCierra(cerrarSeguro);
   return (
     <div
       className="overlay"

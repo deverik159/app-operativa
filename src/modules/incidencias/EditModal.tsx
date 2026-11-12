@@ -87,6 +87,7 @@ import type { CatalogoIncidencia, Incidencia, InventarioItem } from '../../types
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 import SelectorFalla, { Derivado } from './SelectorFalla';
+import { useAtrasCierra } from '../../lib/atrasVentana';
 
 type Sitio = { site_id: string; direccion: string | null; nombre?: string | null };
 
@@ -590,6 +591,9 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     onClose();
   };
 
+  // Atrás con la ventana abierta la cierra con este mismo cierre seguro, en vez
+  // de cambiar de pestaña y perder lo capturado (lib/atrasVentana.ts, 12-nov-2026).
+  useAtrasCierra(() => cerrarSeguro());
   return (
     <div
       className="overlay"

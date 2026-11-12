@@ -68,6 +68,7 @@ import { borrarChatsLocal } from './lib/chatLocal';
 import { useEnLinea, enLineaAhora, pareceSinRed } from './lib/enLinea';
 import { errorAccesoEnEspanol, errorEnlaceCorreo, respondioElServidor } from './lib/erroresAcceso';
 import { lazyConReintento, fijarModuloEnPantalla } from './lib/cargaDiferida';
+import { atrasEnVentana } from './lib/atrasVentana';
 // Incidencias se queda ESTÁTICO: es el núcleo (Mis pendientes y el alta
 // NuevaInc que abre el botón Nueva). Un alta nunca debe esperar —ni
 // fallar— por la descarga de un chunk.
@@ -2262,6 +2263,10 @@ function Main({
         ignorarPop.current = false;
         return;
       }
+      // Con una ventana de captura abierta (Reparar, Chat, revisión…), Atrás
+      // la cierra con su cierre seguro en vez de cambiar de pestaña
+      // (lib/atrasVentana.ts, 12-nov-2026).
+      if (atrasEnVentana(RUTA_DE_TAB[tabActual.current])) return;
       // Con el alta abierta, Atrás NO la tira: antes cerraba la app y ahora
       // cambiaría de pestaña, y en ambos casos se perdían fotos y GPS ya
       // capturados. Se devuelve la entrada y el alta sigue ahí; se sale

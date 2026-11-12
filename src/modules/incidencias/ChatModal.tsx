@@ -63,6 +63,7 @@ import PreviaVideo from '../../components/PreviaVideo';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 import { ROLE_LABEL } from '../../lib/constants';
+import { useAtrasCierra } from '../../lib/atrasVentana';
 
 type Props = {
   inc: Incidencia;
@@ -1469,6 +1470,12 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
     </div>
   );
 
+  // Atrás con la ventana abierta la cierra con este mismo cierre seguro, en vez
+  // de cambiar de pestaña y perder lo capturado (lib/atrasVentana.ts, 12-nov-2026).
+  useAtrasCierra(() => {
+    if (textoRef.current.trim() && !confirm('Tienes un mensaje sin enviar. ¿Cerrar el chat?')) return;
+    onClose();
+  });
   return (
     <div
       className="overlay"

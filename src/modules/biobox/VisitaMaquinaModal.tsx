@@ -26,6 +26,7 @@ import { distanciaAMaquina, estaLejos, LEJOS_M } from '../../lib/visitaMaquina';
 import type { MaquinaBiobox } from '../../lib/maquinasBiobox';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
+import { useAtrasCierra } from '../../lib/atrasVentana';
 
 type Gps =
   | { estado: 'buscando' }
@@ -177,6 +178,12 @@ function VisitaMaquinaModal({
     );
   };
 
+  // Atrás con la ventana abierta la cierra con este mismo cierre seguro, en vez
+  // de cambiar de pestaña y perder lo capturado (lib/atrasVentana.ts, 12-nov-2026).
+  // Mientras guarda no se cierra (igual que el ✕).
+  useAtrasCierra(() => {
+    if (!guardando) onClose();
+  });
   return (
     <div
       className="overlay"

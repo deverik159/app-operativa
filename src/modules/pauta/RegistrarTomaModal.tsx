@@ -55,6 +55,7 @@ import { esFinal, gruposParaCompartir, type ArchivoToma } from '../../lib/tomasP
 import { esAndroid, guardarEnFotos, puedeGuardarEnFotos } from '../../lib/guardarEnFotos';
 import { estaInstalada } from '../../lib/push';
 import { pareceSinRed, useEnLinea } from '../../lib/enLinea';
+import { useAtrasCierra } from '../../lib/atrasVentana';
 
 /** Fila de `pauta_evidencias`. */
 type EvidenciaPauta = {
@@ -732,6 +733,9 @@ function RegistrarTomaModal({ fila, email, onClose, onRegistrada, soloLectura }:
         }`
       : '';
 
+  // Atrás con la ventana abierta la cierra con este mismo cierre seguro, en vez
+  // de cambiar de pestaña y perder lo capturado (lib/atrasVentana.ts, 12-nov-2026).
+  useAtrasCierra(intentarCerrar);
   return (
     <div
       className="overlay"

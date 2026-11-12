@@ -40,6 +40,7 @@ import type {
   Incidencia,
   TipoEvidencia,
 } from '../../types/db';
+import { useAtrasCierra } from '../../lib/atrasVentana';
 
 type Props = {
   inc: Incidencia;
@@ -372,6 +373,12 @@ function EvidenciaModal({
   const fotos = items.filter((x) => x.tipo === 'foto');
   const videos = items.filter((x) => x.tipo === 'video');
 
+  // Atrás con la ventana abierta la cierra con este mismo cierre seguro, en vez
+  // de cambiar de pestaña y perder lo capturado (lib/atrasVentana.ts, 12-nov-2026).
+  // Mientras sube archivos no se cierra (igual que el fondo).
+  useAtrasCierra(() => {
+    if (!subiendo) onClose();
+  });
   return (
     <div
       className="overlay"
