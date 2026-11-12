@@ -92,6 +92,28 @@ export async function estadoPush(): Promise<EstadoPush> {
 
 /** Tope de la consulta a la base: sin señal no se espera de más. */
 const TOPE_CONSULTA_MS = 8000;
+/** Tope de cada paso de activar o desactivar (12-nov-2026): con mala señal el botón se quedaba en «Activando…» o «…». */
+const TOPE_PASO_MS = 15000;
+/** Al tocar «Salir» la baja no puede trabar la salida. */
+const TOPE_SALIR_MS = 3000;
+
+/** Una promesa con tope: si no termina a tiempo, rechaza con `msg`. */
+function conTope<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    p,
+    new Promise<never>((_, rej) => {
+      t = setTimeout(() => rej(new Error(msg)), ms);
+    }),
+  ]).finally(() => clearTimeout(t));
+}
+
+/** AbortSignal con tope (AbortSignal.timeout no existe en Safari < 16). */
+function senalConTope(ms: number): AbortSignal {
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
 
 /**
  * Estado de este dispositivo comparado con la base, más cuántos dispositivos
@@ -155,7 +177,10 @@ export async function activarPush(email: string, renovar = false): Promise<strin
   const reg = (await navigator.serviceWorker.getRegistration()) || (await registrarSW());
   if (!reg) return 'Tu navegador no soporta notificaciones push.';
 
-  const permiso = await Notification.requestPermission();
+  // Con el permiso ya dado no se vuelve a pedir: así también funciona sin un
+  // toque, al reactivar solo al volver a entrar (reactivarAlEntrar).
+  const permiso =
+    Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
   if (permiso !== 'granted')
     return 'No se concedió el permiso de notificaciones. Puedes activarlo desde los ajustes del navegador.';
 
@@ -190,11 +215,15 @@ export async function activarPush(email: string, renovar = false): Promise<strin
     }
 
     if (!sus)
-      sus = await reg.pushManager.subscribe({
-        // Obligatorio: el navegador no permite push silencioso.
-        userVisibleOnly: true,
-        applicationServerKey: base64UrlABytes(VAPID),
-      });
+      sus = await conTope(
+        reg.pushManager.subscribe({
+          // Obligatorio: el navegador no permite push silencioso.
+          userVisibleOnly: true,
+          applicationServerKey: base64UrlABytes(VAPID),
+        }),
+        TOPE_PASO_MS,
+        'el servicio de notificaciones no respondió. Intenta de nuevo con mejor señal.'
+      );
   } catch (e) {
     return 'No se pudo suscribir: ' + (e as Error).message;
   }
@@ -209,35 +238,129 @@ export async function activarPush(email: string, renovar = false): Promise<strin
   // upsert por endpoint: si el mismo dispositivo se vuelve a suscribir, se
   // actualiza en vez de duplicar. `invalida: false` la revive si estaba
   // marcada como muerta.
-  const { error } = await sb.from('push_suscripciones').upsert(
-    {
-      usuario_email: email.toLowerCase(),
-      endpoint: j.endpoint,
-      p256dh: j.keys.p256dh,
-      auth: j.keys.auth,
-      user_agent: navigator.userAgent.slice(0, 300),
-      invalida: false,
-    },
-    { onConflict: 'endpoint' }
-  );
-  if (error) return 'No se pudo guardar la suscripción: ' + error.message;
-
+  const { error } = await sb
+    .from('push_suscripciones')
+    .upsert(
+      {
+        usuario_email: email.toLowerCase(),
+        endpoint: j.endpoint,
+        p256dh: j.keys.p256dh,
+        auth: j.keys.auth,
+        user_agent: navigator.userAgent.slice(0, 300),
+        invalida: false,
+      },
+      { onConflict: 'endpoint' }
+    )
+    .abortSignal(senalConTope(TOPE_PASO_MS));
+  if (error) {
+    // Teléfono que usó otra cuenta (12-nov-2026): el endpoint ya es de ella y
+    // la RLS no deja tomarlo. Se tira la suscripción y se crea otra a nombre
+    // de quien está dentro (la de la otra cuenta deja de recibir aquí).
+    if (!renovar && /row-level security|violates/i.test(error.message)) return activarPush(email, true);
+    return 'No se pudo guardar la suscripción: ' + error.message;
+  }
+  olvidarReactivar();
   return null;
 }
 
-/** Da de baja este dispositivo. */
-export async function desactivarPush(): Promise<string | null> {
-  const reg = await navigator.serviceWorker.getRegistration();
-  const sus = await reg?.pushManager.getSubscription();
+/**
+ * Da de baja este dispositivo. Nunca se queda trabada ni lanza (12-nov-2026):
+ * cada paso lleva tope y los errores se regresan como texto.
+ *
+ * Primero se borra la fila (con la sesión todavía viva) y después se da de
+ * baja el navegador. Si la fila no se pudo borrar, la baja del navegador
+ * basta: el servicio de push responde 410 y enviar-push la marca inválida.
+ */
+export async function desactivarPush(ms = TOPE_PASO_MS): Promise<string | null> {
+  olvidarReactivar();
+  let sus: PushSubscription | null | undefined;
+  try {
+    const reg = await conTope(navigator.serviceWorker.getRegistration(), ms, 'sin respuesta');
+    sus = await conTope(Promise.resolve(reg?.pushManager.getSubscription() ?? null), ms, 'sin respuesta');
+  } catch {
+    return 'No se pudo leer la suscripción de este dispositivo.';
+  }
   if (!sus) return null;
 
   const endpoint = sus.endpoint;
-  await sus.unsubscribe();
-  // Se borra la fila: si el usuario se dio de baja, no hay por qué guardar
-  // sus llaves de cifrado.
-  const { error } = await sb
-    .from('push_suscripciones')
-    .delete()
-    .eq('endpoint', endpoint);
-  return error ? 'No se pudo borrar la suscripción: ' + error.message : null;
+  let errFila: string | null = null;
+  try {
+    // Se borra la fila: si el usuario se dio de baja, no hay por qué guardar
+    // sus llaves de cifrado.
+    const { error } = await sb
+      .from('push_suscripciones')
+      .delete()
+      .eq('endpoint', endpoint)
+      .abortSignal(senalConTope(ms));
+    if (error) errFila = error.message;
+  } catch (e) {
+    errFila = (e as Error).message;
+  }
+  try {
+    await conTope(sus.unsubscribe(), ms, 'sin respuesta');
+  } catch {
+    return 'No se pudo dar de baja este dispositivo. Intenta de nuevo con mejor señal.';
+  }
+  return errFila ? 'Se dio de baja aquí, pero no se pudo borrar de la base: ' + errFila : null;
+}
+
+// ------------------------------------------------------------
+// Baja al salir y reactivación al volver a entrar (Erik, 12-nov-2026)
+// ------------------------------------------------------------
+// Antes, «Salir» no daba de baja el teléfono: los avisos de esa cuenta
+// seguían llegando ahí aunque entrara otra persona. Ahora se da de baja al
+// salir y se anota en el teléfono a nombre de quién estaba activo; cuando
+// ESA cuenta vuelve a entrar y el permiso sigue dado, se reactiva sola.
+
+const CLAVE_REACTIVAR = 'gpo-push-reactivar';
+
+function olvidarReactivar() {
+  try {
+    localStorage.removeItem(CLAVE_REACTIVAR);
+  } catch {
+    /* sin almacenamiento: no hay nada que olvidar */
+  }
+}
+
+/**
+ * Al tocar «Salir», antes de cerrar la sesión. Como máximo TOPE_SALIR_MS por
+ * paso; nunca lanza ni detiene la salida.
+ */
+export async function bajaAlSalir(email: string): Promise<void> {
+  try {
+    if ((await conTope(estadoLocal(), TOPE_SALIR_MS, 'sin respuesta')).estado !== 'activo') return;
+    // Tope total además del de cada paso: si no termina, la baja sigue sola
+    // en segundo plano y la salida no espera.
+    await conTope(desactivarPush(TOPE_SALIR_MS), TOPE_SALIR_MS + 1000, 'sin respuesta').catch(() => null);
+    // Después de desactivar (que olvida la marca): se anota quién la tenía.
+    localStorage.setItem(CLAVE_REACTIVAR, email.toLowerCase());
+  } catch {
+    /* salir siempre sigue */
+  }
+}
+
+/** Ya se intentó en esta carga de la página para ese correo. */
+const reactivacionIntentada = new Set<string>();
+
+/**
+ * Al entrar: si este teléfono tenía los avisos activos para ESTA cuenta
+ * cuando salió y el permiso sigue dado, se vuelven a activar sin preguntar.
+ * true = se reactivaron. Si no se puede (por ejemplo, un iPhone que pide un
+ * toque), queda el aviso de siempre para activarlos a mano.
+ */
+export async function reactivarAlEntrar(email: string): Promise<boolean> {
+  const correo = email.toLowerCase();
+  if (reactivacionIntentada.has(correo)) return false;
+  reactivacionIntentada.add(correo);
+  try {
+    if (localStorage.getItem(CLAVE_REACTIVAR) !== correo) return false;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
+    if ((await estadoLocal()).estado === 'activo') {
+      olvidarReactivar();
+      return false;
+    }
+    return (await activarPush(correo)) === null;
+  } catch {
+    return false;
+  }
 }

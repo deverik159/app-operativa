@@ -44,7 +44,14 @@ function BotonPush({ email }: { email: string }) {
   const activar = async () => {
     setBusy(true);
     setMsg('');
-    const err = await activarPush(email, estado === 'caido');
+    // Nunca se queda en «Activando…» (12-nov-2026): activarPush tiene topes,
+    // y lo que llegara a lanzar se muestra como error.
+    let err: string | null;
+    try {
+      err = await activarPush(email, estado === 'caido');
+    } catch (e) {
+      err = 'No se pudo activar: ' + ((e as Error)?.message || 'error desconocido');
+    }
     setBusy(false);
     if (err) setMsg(err);
     else {
@@ -158,9 +165,10 @@ function BotonPush({ email }: { email: string }) {
 
             {estado === 'caido' && (
               <div className="banner" style={{ marginBottom: 14 }}>
-                Este dispositivo estaba activado, pero los avisos dejaron de
-                llegarle (el servicio de notificaciones lo dio de baja, o la
-                app se reinstaló). Vuelve a activarlo aquí.
+                Este dispositivo estaba activado, pero tus avisos no le están
+                llegando: el servicio de notificaciones lo dio de baja, la app
+                se reinstaló u otra persona usó la app en este teléfono. Toca
+                Reactivar para que lleguen a tu cuenta.
               </div>
             )}
 

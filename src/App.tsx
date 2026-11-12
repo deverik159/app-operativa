@@ -50,6 +50,7 @@ import CampanaNotifs from './components/CampanaNotifs';
 import BotonPush from './components/BotonPush';
 import AvisoPush from './components/AvisoPush';
 import { refrescarPush } from './lib/usePush';
+import { bajaAlSalir } from './lib/push';
 import MenuUsuario from './components/MenuUsuario';
 import ErrorBoundary from './components/ErrorBoundary';
 import EnviosPendientes from './components/EnviosPendientes';
@@ -1872,6 +1873,11 @@ function Main({
         '\n\n¿Salir de todos modos?';
     }
     if (!confirm(texto)) return;
+    // Los avisos de esta cuenta dejan de llegar a este teléfono (Erik,
+    // 12-nov-2026): antes seguían llegando aunque entrara otra persona. Con
+    // la sesión todavía viva y con tope: nunca traba la salida. Al volver a
+    // entrar con esta cuenta se reactivan solos (usePush).
+    await bajaAlSalir(email);
     borrarRolesGuardados(email);
     void borrarListaLocal(email);
     // Las copias de los chats también son de esta cuenta (teléfono compartido).

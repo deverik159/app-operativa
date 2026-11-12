@@ -9,7 +9,7 @@
 // servidor en cualquier momento.
 // ============================================================
 import { useEffect, useSyncExternalStore } from 'react';
-import { revisarPush } from './push';
+import { reactivarAlEntrar, revisarPush } from './push';
 import type { RevisionPush } from './push';
 
 // Con el correo: si en la misma pestaña entra otra cuenta, no hereda el
@@ -55,6 +55,11 @@ export function usePush(email: string): RevisionPush | null {
   const r = useSyncExternalStore(suscribir, () => actual);
   useEffect(() => {
     if (actual?.email !== email) void refrescarPush(email);
+    // Si este teléfono tenía los avisos activos para esta cuenta cuando
+    // salió, se reactivan solos (Erik, 12-nov-2026; ver bajaAlSalir).
+    void reactivarAlEntrar(email).then((si) => {
+      if (si) void refrescarPush(email);
+    });
     const alVolver = () => {
       if (document.visibilityState === 'visible' && Date.now() - ultima > ENTRE_REVISIONES_MS)
         void refrescarPush(email);
