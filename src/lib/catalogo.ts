@@ -366,6 +366,28 @@ export function elementoDeIncidencia(detalle?: string | null): ElementoSinCara |
   return null;
 }
 
+/** ¿La cara es digital (pantalla)? Por el tipo_medio del inventario. */
+export function esCaraDigital(c: { tipo_medio?: string | null }): boolean {
+  return (c.tipo_medio || '').trim().toLowerCase() === 'digital';
+}
+
+/**
+ * ¿Las caras marcadas mezclan impresas y digitales? Entonces NO pueden ir en
+ * una misma partida (Erik, 12-nov-2026, tras la capacitación de monitoreo):
+ * todas las filas de una partida llevan la misma falla y la misma área, así
+ * que la pantalla se iba al área de las impresas (o al revés), sin el árbol
+ * de Digital, y con las fotos de las otras caras. Biobox no aplica: su
+ * máquina es un solo mueble (lista combinada, catalogoBiobox).
+ */
+export function mezclaImpresoDigital(caras: readonly { tipo_medio?: string | null }[]): boolean {
+  return caras.some(esCaraDigital) && caras.some((c) => !esCaraDigital(c));
+}
+
+export const AVISO_MEZCLA_IMPRESO_DIGITAL =
+  'Marcaste caras impresas y pantallas digitales en la misma incidencia. Van por separado: ' +
+  'las impresas con su falla y sus fotos, y la pantalla con su falla de Digital y sus fotos. ' +
+  'Deja marcadas solo unas y agrega las otras como otra incidencia.';
+
 /**
  * Una incidencia del Adicional o de la Puerta no lleva cara: lo único que
  * dice qué tiene son las observaciones, así que ahí son obligatorias (Erik,

@@ -72,6 +72,9 @@ import {
   esUnidadBiobox,
   elementoDeIncidencia,
   faltaObsElemento,
+  esCaraDigital,
+  mezclaImpresoDigital,
+  AVISO_MEZCLA_IMPRESO_DIGITAL,
   ubicacionSinCara,
   llaveCatalogo,
   filtrarCatalogo,
@@ -1184,16 +1187,39 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     setCaras([]);
     setSelCaras([]);
     setNombresPantalla({});
+    setFallaQuitada('');
   };
-  const toggleCara = (vf: string) =>
+  const toggleCara = (vf: string) => {
+    carasTocadas.current = true;
     setSelCaras((s) => (s.includes(vf) ? s.filter((x) => x !== vf) : [...s, vf]));
-  const todas = () =>
+  };
+  const todas = () => {
+    carasTocadas.current = true;
     setSelCaras(
       selCaras.length === caras.length ? [] : caras.map((c) => c.vendor_face_id)
     );
+  };
+  /**
+   * Sitio con caras impresas y pantallas (fuera de Biobox): no van juntas en
+   * una partida (Erik, 12-nov-2026), así que en vez de «Todas» se ofrecen
+   * «Todas las impresas» y «Todas las digitales».
+   */
+  const sitioMixto = !esUnidadBiobox(un) && mezclaImpresoDigital(caras);
+  const soloMedio = (digital: boolean) => {
+    const del = caras.filter((c) => esCaraDigital(c) === digital).map((c) => c.vendor_face_id);
+    const yaEstan = del.length === selCaras.length && del.every((vf) => selCaras.includes(vf));
+    carasTocadas.current = true;
+    setSelCaras(yaEstan ? [] : del);
+  };
+  /** ¿Una partida (o las caras marcadas) mezcla impreso y digital? */
+  const partidaMezclada = (vfs: readonly string[], elemento: ElementoSinCara | null | undefined) =>
+    !esUnidadBiobox(un) &&
+    !elemento &&
+    mezclaImpresoDigital(caras.filter((c) => vfs.includes(c.vendor_face_id)));
 
   /** Deja el editor en blanco para capturar la siguiente falla del sitio. */
   const limpiarEditor = () => {
+    setFallaQuitada('');
     setCatSel(null);
     setSelCaras(caras.length === 1 ? [caras[0].vendor_face_id] : []);
     setCampania('');
@@ -1212,6 +1238,14 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     }
     if (!elementoSel && selCaras.length === 0) {
       alert('Marca al menos una cara para esta incidencia.');
+      return;
+    }
+    if (partidaMezclada(selCaras, elementoSel)) {
+      alert(AVISO_MEZCLA_IMPRESO_DIGITAL);
+      return;
+    }
+    if (fallaFueraDeLista) {
+      alert(`«${catSel.detalle}» no es una falla de las caras marcadas. Elige la falla otra vez.`);
       return;
     }
     const faltaObs = faltaObsElemento(elementoSel, obs);
@@ -1255,6 +1289,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
 
   /** Carga una partida ya agregada de vuelta al editor para corregirla. */
   const editarLinea = (l: Linea) => {
+    setFallaQuitada('');
     setCatSel(l.cat);
     // Las del catálogo de esa partida: con otras marcadas la lista cambia.
     setSelCaras([...(l.elemento ? l.carasCatalogo || [] : l.caras)]);
@@ -1440,6 +1475,29 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
 
   const catOpts = cat.opciones;
 
+  /**
+   * La falla elegida ya no está en la lista de las caras marcadas (Erik,
+   * 12-nov-2026): se eligió con las impresas y luego se cambió a las
+   * pantallas, o al revés. Con el catálogo aún vacío (cargando) no se juzga.
+   */
+  const fallaFueraDeLista =
+    !!catSel && catOpts.length > 0 && !catOpts.some((o) => llaveCatalogo(o) === llaveCatalogo(catSel));
+  /** Lo puso en true quien tocó las caras; un borrador o un ✏️ no cuentan. */
+  const carasTocadas = useRef(false);
+  const [fallaQuitada, setFallaQuitada] = useState('');
+  useEffect(() => {
+    if (!carasTocadas.current) return;
+    carasTocadas.current = false;
+    if (fallaFueraDeLista && catSel) {
+      setFallaQuitada(
+        `Quitamos «${catSel.detalle}»: no es una falla de las caras que marcaste. Elige la falla otra vez.`
+      );
+      setCatSel(null);
+    }
+    // Solo cuando cambian las caras marcadas (y con ellas la lista).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catOpts]);
+
   /** Lo que se ve en el desplegable tras aplicar el buscador. */
   const catVisibles = useMemo(() => {
     const base = filtrarCatalogo(catOpts, catBusca);
@@ -1579,6 +1637,15 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     const carasDelSitio = new Set(caras.map((c) => c.vendor_face_id));
     if (partidas.some((l) => l.caras.some((vf) => !carasDelSitio.has(vf)))) {
       alert('Las incidencias no corresponden al sitio elegido; revisa el sitio.');
+      return;
+    }
+    // Un borrador de antes de la regla (12-nov-2026) puede traer una partida
+    // con caras impresas y digitales juntas; cada partida nueva ya la frena.
+    if (partidas.some((l) => partidaMezclada(l.caras, l.elemento))) {
+      alert(
+        'Hay una incidencia que junta caras impresas y pantallas digitales.\n\n' +
+          'Edítala con el lápiz (✏️), deja solo unas y agrega las otras como otra incidencia.'
+      );
       return;
     }
 
@@ -2341,12 +2408,13 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               />
               <select
                 value={catSel ? llaveCatalogo(catSel) : ''}
-                onChange={(e) =>
+                onChange={(e) => {
+                  setFallaQuitada('');
                   setCatSel(
                     catOpts.find((o) => llaveCatalogo(o) === e.target.value) ||
                       null
-                  )
-                }
+                  );
+                }}
               >
                 <option value="">— Selecciona —</option>
                 {catVisibles.map((o) => (
@@ -2356,6 +2424,16 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                   </option>
                 ))}
               </select>
+              {fallaQuitada && !catSel && (
+                <div role="status" style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
+                  ⚠️ {fallaQuitada}
+                </div>
+              )}
+              {fallaFueraDeLista && catSel && (
+                <div role="alert" style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
+                  ⚠️ «{catSel.detalle}» no es una falla de las caras marcadas. Elige la falla otra vez.
+                </div>
+              )}
               {catBusca && catVisibles.length === 0 && (
                 <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
                   Nada coincide con “{catBusca}”.
@@ -2418,7 +2496,14 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                   más el catálogo de las demás áreas, cada falla una sola vez.
                 </div>
               )}
-              {mezclaMuebles && cat.restringido && !cat.desdeArbol && (
+              {/* En un sitio impreso + digital, sin caras marcadas, la lista
+                  junta los dos muebles; ahí manda la nota de abajo (no se
+                  pueden mezclar), no este aviso (12-nov-2026). */}
+              {mezclaMuebles &&
+                cat.restringido &&
+                !cat.desdeArbol &&
+                !partidaMezclada(selCaras, elementoSel) &&
+                !(sitioMixto && selCaras.length === 0) && (
                 <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
                   ⚠️ Marcaste caras de muebles distintos. Una misma falla puede
                   tocarle a áreas diferentes según el mueble — por eso hay
@@ -2456,14 +2541,35 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                   ) : (
                     <>
                       Medios afectados ({selCaras.length}/{caras.length}){' '}
-                      <button
-                        type="button"
-                        className="btn ghost sm"
-                        style={{ marginLeft: 8 }}
-                        onClick={todas}
-                      >
-                        {selCaras.length === caras.length ? 'Ninguna' : 'Todas'}
-                      </button>
+                      {sitioMixto ? (
+                        <>
+                          <button
+                            type="button"
+                            className="btn ghost sm"
+                            style={{ marginLeft: 8 }}
+                            onClick={() => soloMedio(false)}
+                          >
+                            Todas las impresas
+                          </button>
+                          <button
+                            type="button"
+                            className="btn ghost sm"
+                            style={{ marginLeft: 6 }}
+                            onClick={() => soloMedio(true)}
+                          >
+                            Todas las digitales
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          style={{ marginLeft: 8 }}
+                          onClick={todas}
+                        >
+                          {selCaras.length === caras.length ? 'Ninguna' : 'Todas'}
+                        </button>
+                      )}
                     </>
                   )}
                 </label>
@@ -2541,6 +2647,17 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                     </label>
                   ))}
                 </div>
+                {partidaMezclada(selCaras, elementoSel) && (
+                  <div role="alert" style={{ fontSize: 12, color: 'var(--warn)', marginTop: 6 }}>
+                    ⚠️ {AVISO_MEZCLA_IMPRESO_DIGITAL}
+                  </div>
+                )}
+                {sitioMixto && !elementoSel && !partidaMezclada(selCaras, elementoSel) && (
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    Este sitio tiene caras impresas y pantallas digitales: cada grupo va
+                    en su propia incidencia, con sus fotos.
+                  </div>
+                )}
               </div>
             )}
 

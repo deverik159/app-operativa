@@ -11,7 +11,7 @@ const { outputFiles } = await build({
   format: 'esm',
   platform: 'neutral',
 });
-const { catalogoBiobox, catalogoDesdeArbol, esUnidadBiobox, llaveCatalogo, elementoDeIncidencia, ubicacionSinCara, ladoAlReclasificar, faltaObsElemento } = await import(
+const { catalogoBiobox, catalogoDesdeArbol, esUnidadBiobox, llaveCatalogo, elementoDeIncidencia, ubicacionSinCara, ladoAlReclasificar, faltaObsElemento, mezclaImpresoDigital, esCaraDigital } = await import(
   'data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64')
 );
 
@@ -174,4 +174,16 @@ test('Al reclasificar, el lado entra o sale del Adicional y la Puerta', () => {
   assert.equal(ladoAlReclasificar('Adicional', 'Adicional roto'), undefined);
   assert.equal(ladoAlReclasificar('Sur', 'Pantalla apagada'), undefined);
   assert.equal(ladoAlReclasificar(null, 'Chapa dañada'), undefined);
+});
+
+test('Impreso y digital no van en la misma incidencia', () => {
+  const imp = { tipo_medio: 'Impreso' }, dig = { tipo_medio: ' digital ' };
+  assert.equal(esCaraDigital(dig), true);
+  assert.equal(esCaraDigital(imp), false);
+  assert.equal(mezclaImpresoDigital([imp, imp]), false);
+  assert.equal(mezclaImpresoDigital([dig, dig]), false);
+  assert.equal(mezclaImpresoDigital([imp, dig]), true);
+  // Sin tipo_medio cuenta como no digital.
+  assert.equal(mezclaImpresoDigital([{}, dig]), true);
+  assert.equal(mezclaImpresoDigital([]), false);
 });
