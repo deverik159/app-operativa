@@ -79,6 +79,7 @@ import {
   llaveCatalogo,
   filtrarCatalogo,
 } from '../../lib/catalogo';
+import { unaFotoPorCara } from '../../lib/fotoPorCara';
 import SubirArchivos from '../../components/SubirArchivos';
 import { vigilarRender } from '../../lib/vigia';
 // Colores de estatus y el naranja como TEXTO van con su tono, legibles en
@@ -179,6 +180,11 @@ export type GrupoReporte = {
   files: File[];
   /** Caras en formato legible, para nombrar el archivo y la referencia. */
   carasLabel: string;
+  /**
+   * La cara legible de cada fila, en el mismo orden: con tantos archivos
+   * como caras, el archivo k va solo a la fila k (lib/fotoPorCara.ts).
+   */
+  etiquetas?: string[];
   /**
    * Borrador del formulario del que salió el reporte (auditoría primer
    * mes, 24-sep-2026). La cola lo anota en el envío, reusa sus archivos y
@@ -1676,11 +1682,13 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       ? { email: emailBorrador, sesion: sesionRef.current }
       : undefined;
     // Un grupo por partida. Dentro de cada grupo, producto partida × cara →
-    // una fila de incidencias por cara, todas compartiendo las mismas fotos.
+    // una fila de incidencias por cara. Las fotos van a todas sus caras,
+    // salvo que haya una por cara: entonces cada una a la suya (12-nov-2026).
     const grupos: GrupoReporte[] = partidas.map((l) => ({
       files: l.files,
       borrador: origen,
       carasLabel: l.elemento || l.caras.map(caraLabel).join(', '),
+      etiquetas: l.elemento && !l.caras.length ? undefined : l.caras.map(caraLabel),
       // Del Adicional o de la Puerta en un sitio de varias caras: UNA fila
       // sin cara (vf null).
       filas: (l.elemento && !l.caras.length ? [null] : l.caras).map((vf) => {
@@ -2336,9 +2344,11 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                           ? 'la puerta'
                           : l.elemento === 'Adicional'
                             ? 'el adicional'
-                            : l.caras.length > 1
-                              ? 'estas caras'
-                              : 'esta cara'}
+                            : unaFotoPorCara(l.caras.length, l.files.length)
+                              ? 'estas caras, uno por cara'
+                              : l.caras.length > 1
+                                ? 'estas caras'
+                                : 'esta cara'}
                       </span>
                       {editandoId === l.id && (
                         <>
@@ -2886,17 +2896,31 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                   ) : (
                     `Estas fotos quedan ligadas ${elementoSel === 'Puerta' ? 'a la puerta' : 'al adicional'}.`
                   )
+                ) : filesLinea.length > 0 && unaFotoPorCara(selCaras.length, filesLinea.length) ? (
+                  // Una por cara (12-nov-2026): se dice cuál va a cuál.
+                  <span style={{ color: 'var(--ok)' }}>
+                    Una por cara, en orden:{' '}
+                    {selCaras.map((vf, k) => `${k + 1}ª → ${caraLabel(vf)}`).join(' · ')}
+                  </span>
                 ) : filesLinea.length > 0 ? (
                   <>
                     {filesLinea.length} archivo(s) ·{' '}
                     {selCaras.length > 0 ? (
                       <span style={{ color: 'var(--ok)' }}>
-                        se ligarán a {selCaras.map(caraLabel).join(', ')}
+                        {selCaras.length > 1 ? 'cada uno se ligará a ' : 'se ligarán a '}
+                        {selCaras.map(caraLabel).join(', ')}
                       </span>
                     ) : (
                       'marca las caras afectadas'
                     )}
+                    {selCaras.length > 1 && (
+                      <>
+                        {' '}· con {selCaras.length} fotos, una va a cada cara en el orden en que las marcaste
+                      </>
+                    )}
                   </>
+                ) : selCaras.length > 1 ? (
+                  `Sube ${selCaras.length} fotos (una por cara, en el orden en que marcaste las caras) o las que necesites para todas.`
                 ) : (
                   'Estas fotos quedan ligadas solo a las caras que marques arriba.'
                 )}

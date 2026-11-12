@@ -41,6 +41,7 @@ import {
   type GrupoEnvio,
 } from './envios';
 import { claveYaGuardada, sellarBorrador } from './borrador';
+import { unaFotoPorCara } from './fotoPorCara';
 import type { GrupoReporte } from '../modules/incidencias/NuevaInc';
 import type { EstatusInc, Incidencia, TipoEvidencia } from '../types/db';
 
@@ -55,7 +56,7 @@ import type { EstatusInc, Incidencia, TipoEvidencia } from '../types/db';
  * 24-sep-2026): la doble copia era la que llenaba el espacio en el Guardar.
  * La cola cierra ese borrador cuando el envío termina (lib/borrador.ts).
  */
-function armarEnvio(
+export function armarEnvio(
   grupos: GrupoReporte[],
   ctx: { email: string; misDep: string[] }
 ): { envio: Envio; archivos: Map<string, File> } {
@@ -95,7 +96,9 @@ function armarEnvio(
       };
     });
     const ge: GrupoEnvio = { filas, archivos: [], carasLabel: g.carasLabel };
-    ge.archivos = g.files.map((f): ArchivoEnvio => {
+    // Tantos archivos como caras: uno por cara, en orden (12-nov-2026).
+    const porCara = unaFotoPorCara(filas.length, g.files.length);
+    ge.archivos = g.files.map((f, k): ArchivoEnvio => {
       const tipo: TipoEvidencia = f.type.startsWith('video') ? 'video' : 'foto';
       const ext = (
         f.name.split('.').pop() || (tipo === 'video' ? 'mp4' : 'jpg')
@@ -103,10 +106,15 @@ function armarEnvio(
       const delBorrador = origen ? claveYaGuardada(origen.sesion, f) : null;
       const clave = delBorrador ?? claveArchivoEnvio(id, n);
       archivos.set(clave, f);
+      const cara = porCara ? g.etiquetas?.[k] || filas[k].clave_medio || '' : '';
       const a: ArchivoEnvio = {
         // La cara va en el NOMBRE del archivo (rutaArchivo): así se
-        // identifica en Storage sin abrir la app.
-        path: rutaArchivo(ge, marca, n, ext),
+        // identifica en Storage sin abrir la app. Con una foto por cara, la
+        // carpeta y el nombre son los de SU folio y SU cara.
+        path: porCara
+          ? rutaArchivo({ filas: [filas[k]], carasLabel: cara }, marca, n, ext)
+          : rutaArchivo(ge, marca, n, ext),
+        ...(porCara ? { para: [filas[k].record_id], cara } : {}),
         clave,
         n,
         ext,

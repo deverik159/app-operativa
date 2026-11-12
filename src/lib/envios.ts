@@ -47,6 +47,7 @@ import { idCorto } from './helpers';
 import { duplicadasEnProceso, ErrorConsultaDuplicados, type Duplicada } from './duplicados';
 import { retenerRecargaAutomatica } from './cargaDiferida';
 import { cerrarBorrador } from './borrador';
+import { filasDelArchivo } from './fotoPorCara';
 import {
   ErrorIdb,
   idbDelete,
@@ -110,6 +111,14 @@ export type ArchivoEnvio = {
   mime: string;
   bytes: number;
   tipo: TipoEvidencia;
+  /**
+   * Una foto por cara (12-nov-2026): la partida trae tantos archivos como
+   * caras y este va SOLO a esta fila (record_id). Sin `para`, el archivo se
+   * liga a todas las filas del grupo, como siempre (envíos viejos incluidos).
+   */
+  para?: string[];
+  /** La cara de `para`, legible: va en `evidencias.referencia`. */
+  cara?: string;
 };
 
 /** Una partida: sus filas (una por cara) y SUS archivos. */
@@ -1536,7 +1545,8 @@ async function ligar(
   a: ArchivoEnvio,
   verificar: boolean
 ): Promise<'ok' | { definitivo: string }> {
-  const ids = g.filas.map((f) => f.record_id);
+  const ids = filasDelArchivo(g, a);
+  if (!ids.length) return 'ok';
   let faltan = ids;
   if (verificar || e.estado.ligando.includes(a.path)) {
     const r = await sb
@@ -1571,7 +1581,7 @@ async function ligar(
     url,
     path: a.path,
     subido_por: e.email,
-    referencia: g.carasLabel || null,
+    referencia: a.cara || g.carasLabel || null,
   }));
   const r = await sb.from('evidencias').insert(evrows).abortSignal(tope(ESPERA_INSERT_MS));
   if (!r.error) return 'ok';
@@ -1597,6 +1607,12 @@ async function pasoArchivos(
   for (const g of e.grupos) {
     for (const a of g.archivos) {
       if (e.estado.ligados.includes(a.path) || e.estado.fallidos.includes(a.path)) continue;
+      // La foto de una cara que se omitió por duplicada: no se sube.
+      if (!filasDelArchivo(g, a).length) {
+        e.estado.ligados.push(a.path);
+        await persistir(e);
+        continue;
+      }
 
       if (!e.estado.subidos.includes(a.path)) {
         const f = await archivoDe(e, a);
