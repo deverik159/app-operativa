@@ -774,10 +774,11 @@ De la fase anterior (ya aplicados): `rutas_monitoreo_schema.sql`,
 `rutas_monitoreo_rls_fix.sql` es **OBSOLETO**; la versión final es
 `rutas_monitoreo_rls.sql`.
 
-Para notificaciones de chat, la versión vigente es la compuesta por
-`notificar_chat_participantes.sql` y `notificar_chat_validador.sql`: avisa a
-participantes del hilo, al área efectiva que atiende y al validador cuando le
-corresponde. No reejecutar scripts antiguos de chat sin comparar funciones.
+Para notificaciones de chat, la versión vigente de `notificar_chat` es la de
+la migración `20261112023045_chat_avisos_area_hasta_que_contesten` (ver
+§12.18). Los scripts viejos de chat (`notificar_chat_participantes.sql`,
+`notificar_chat_validador.sql`) ya no están en el repo y **no se vuelven a
+correr**: regresarían reglas que las migraciones cambiaron después.
 
 ---
 
@@ -1067,9 +1068,11 @@ está en 900px (donde `.fij-split` se colapsa a una columna).
 - La suscripción push se renueva si cambia VAPID. Si una activación aparentemente
   funciona pero no llegan avisos, revisar `push_suscripciones` y la Edge
   Function `enviar-push` antes de cambiar el frontend.
-- Chat notifica a participantes, al área que atiende y al validador cuando le
-  toca. Los managers reciben lo que sus triggers les inserten; no asumir que
-  un manager es destinatario de todo sin verificar las funciones vigentes.
+- Chat notifica a participantes, a los mencionados directamente, a los
+  técnicos del área que atiende (solo hasta que uno de ellos escribe, desde
+  el 11-nov-2026; ver §12.18) y al validador cuando le toca. Los managers
+  reciben lo que sus triggers les inserten; no asumir que un manager es
+  destinatario de todo sin verificar las funciones vigentes.
 
 ### 12.3. Incidencias y reparación
 
@@ -1795,7 +1798,9 @@ Commits `83adcba`, `d081a4d`, `852ca89` y `843a04c`.
       <área>") en vez del aviso normal de ese mensaje.
   - **El mencionado ve el folio y escribe hasta que se cierre:** se
     ampliaron `inc_sel_participante_chat` y `msg_ins`. También recibe los
-    mensajes que sigan. Al editar un mensaje no cambian sus menciones
+    mensajes que sigan (desde el 11-nov-2026, solo la mención directa; un
+    @área avisa en ese mensaje y ya no deja a sus técnicos en el hilo, ver
+    §12.18). Al editar un mensaje no cambian sus menciones
     (`msg_marca_edicion`).
   - Migraciones `20261104162839_chat_menciones` y
     `20261104173854_chat_menciones_unidad_exacta`. La segunda cambió el
@@ -1815,3 +1820,48 @@ Commits `83adcba`, `d081a4d`, `852ca89` y `843a04c`.
 - **`supabase/migrations/README.md`** ya no habla de una "línea base" (nunca
   se hizo) ni de staging obligatorio. Hoy cada migración la revisa
   `revisor-rls` y se aplica en producción con el sí de Erik.
+
+### 12.18. Chat: participantes, avisos por área y celular (30-oct → 11-nov-2026)
+
+Commits `d880a9f`, `0c73b5c`, `0f8c2c3`, `897f0c3` y `3ef506c`.
+
+- **Quien escribió en el chat de un folio lo sigue hasta el cierre**
+  (30-oct-2026, migración `20261030212308_chat_participantes_siguen`):
+  - Política `inc_sel_participante_chat` (SELECT en `incidencias`): quien
+    escribió un mensaje en el folio lo ve mientras no esté `cerrada` ni
+    `no_reparado` y conserve algún rol. Caso que lo motivó: al reasignarse,
+    el técnico del área anterior recibía el push del chat (`notificar_chat`
+    avisa a los autores) pero al tocarlo la app decía que ya no estaba
+    disponible.
+  - `msg_ins` (rehecha): escribe además quien ya escribió en el folio y el
+    técnico del área dirigida (`assigned_area`); **nadie escribe en un folio
+    cerrado**, tampoco por la API. Índice `idx_msg_record_autor`.
+  - `IncCard`: «Reasignar» solo para quien puede reparar esa incidencia
+    (`puedeReparar`, rol y área), igual que «Registrar reparación».
+- **Avisos del chat a los técnicos del área: "hasta que uno conteste"**
+  (11-nov-2026, migración `20261112023045_chat_avisos_area_hasta_que_contesten`):
+  - En `notificar_chat`, los técnicos del área efectiva reciben cada mensaje
+    solo mientras ningún técnico de esa área haya escrito en el folio (el
+    mensaje recién insertado cuenta). Después, solo los que escriben. Si la
+    incidencia cambia de área, el área nueva recibe hasta que uno de sus
+    técnicos escribe.
+  - Un @área avisa a sus técnicos en ese mensaje, pero en la lista de
+    destinatarios solo cuentan las menciones directas
+    (`chat_menciones.por_area is null`). Una mención directa posterior a un
+    @área pasa la fila a directa (`on conflict … do update`).
+  - Motivo: en 14 días, 684 mensajes generaron 7,486 avisos; 59% para
+    técnicos del área que nunca escribieron. Se estima −58%.
+  - Efecto a saber: el primer mensaje de un técnico del área ya calla al resto
+    del área; para volver a llamarla, @área.
+- **Chat en el celular:**
+  - La lista del @ elige con el dedo al levantarlo y solo si casi no se movió
+    (`pointerup` con 10 px de tolerancia; `pointercancel` si el navegador lo
+    toma como desplazamiento). Con mouse sigue al presionar. `overscroll-behavior:
+    contain` y `touch-action: pan-y` en `.mencion-lista`.
+  - La lista ya no se aplasta con el teclado abierto: `flex-shrink: 0` y tope
+    `min(220px, 34dvh)`; con la lista abierta la caja de mensajes cede hasta
+    48 px y se oculta la leyenda.
+- **Textos del chat:** la leyenda dice la regla real de borrado de archivos
+  (30 días tras cerrar o No reparado; 60 desde la subida si sigue abierta;
+  vista `vw_chat_adjuntos_purgables`), y un rechazo por permisos (RLS / 42501)
+  se muestra en palabras de campo en vez del error de Postgres.
