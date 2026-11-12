@@ -78,6 +78,7 @@ import CorreccionModal from './CorreccionModal';
 import TablaIncidencias from './TablaIncidencias';
 import MotivoModal from './MotivoModal';
 import { diaCdmx, inicioDiaCdmx } from '../../lib/fechasCdmx';
+import { validaEnIncidencia } from '../../lib/validaEn';
 import Ic from '../../components/Ic';
 import type {
   CanInc,
@@ -1009,6 +1010,12 @@ function IncidenciasView({
     [misRoles, rolesDetalle]
   );
 
+  /** ¿Puede validar ESTA incidencia? Unidad y medio, como la base (lib/validaEn.ts). */
+  const validaEn = useCallback(
+    (i: Incidencia) => validaEnIncidencia(rolesDetalle, i),
+    [rolesDetalle]
+  );
+
   // El coordinador ya NO trae llaves de reparar ni reasignar: ve las
   // incidencias (y conserva la tabla con export), pero no interactúa —
   // su trabajo vive en Pauta y Rutas (Erik, 21-sep-2026).
@@ -1020,10 +1027,11 @@ function IncidenciasView({
       validar: has('validador'),
       reparar: has('reparacion'),
       reparaEn,
+      validaEn,
       reasignar: has('reparacion'),
       aprobarReasign: has('validador'),
     }),
-    [has, reparaEn]
+    [has, reparaEn, validaEn]
   );
 
   // --- Carga ---
@@ -2000,7 +2008,11 @@ function IncidenciasView({
       // Al validador le toca también REVISAR las reasignaciones pendientes:
       // viven en 'en_proceso' y sin esta condición jamás caían en su
       // bandeja, aunque el botón "Revisar reasignación" es suyo.
+      // Solo las de SU unidad y medio (validaEn, 12-nov-2026): la lista trae
+      // también lo que ve por otros roles (p. ej. lo que reportó su área en
+      // otra unidad), y eso no es suyo para validar.
       (has('validador') &&
+        validaEn(i) &&
         (i.estatus === 'por_validar' ||
           i.estatus === 'reparado' ||
           !!i.reasignacion_pendiente)) ||
@@ -2008,7 +2020,7 @@ function IncidenciasView({
       (has('reportante') &&
         (i.captured_by || '').toLowerCase() === yo &&
         i.estatus === 'rechazada'),
-    [has, reparaEn, yo]
+    [has, reparaEn, validaEn, yo]
   );
 
   const bandeja = useMemo(
@@ -2041,6 +2053,8 @@ function IncidenciasView({
     const r = { vencidas: vacio(), porVencer: vacio() };
     if (!can.validar) return r;
     bandeja.forEach((i) => {
+      // En "Mi bandeja" van también sus propios reportes de otras unidades.
+      if (!validaEn(i)) return;
       const etapa = i.estatus === 'por_validar' ? 'reporte' : 'reparacion';
       const reloj =
         i.estatus === 'por_validar' && i.fecha_reporte
@@ -2053,7 +2067,7 @@ function IncidenciasView({
       else if (reloj.color === '#f59e0b') r.porVencer[etapa].add(i.record_id);
     });
     return r;
-  }, [bandeja, can.validar, slaValidacion]);
+  }, [bandeja, can.validar, validaEn, slaValidacion]);
   const nAlerta = (k: 'vencidas' | 'porVencer') =>
     alertasValidacion[k].reporte.size + alertasValidacion[k].reparacion.size;
 

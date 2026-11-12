@@ -778,6 +778,12 @@ export interface CanInc {
    * IncidenciasView con las filas reales de usuario_roles.
    */
   reparaEn?: (i: Incidencia) => boolean;
+  /**
+   * ¿Puede validar ESTA incidencia? Afina `validar` por unidad y medio, como
+   * la base (inc_upd_validador; lib/validaEn.ts). También manda en
+   * `aprobarReasign`.
+   */
+  validaEn?: (i: Incidencia) => boolean;
   reasignar?: boolean;
   aprobarReasign?: boolean;
 }

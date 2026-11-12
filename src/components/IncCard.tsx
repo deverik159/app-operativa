@@ -158,6 +158,10 @@ function IncCard({
   // comportamiento por rol de siempre.
   const puedeReparar =
     !!can.reparar && (can.reparaEn ? can.reparaEn(i) : true);
+  // Validar exige rol Y unidad/medio, como la base (12-nov-2026): la lista
+  // trae también lo que ve por otros roles. Sin `validaEn`, solo el rol.
+  const puedeValidar =
+    !!can.validar && (can.validaEn ? can.validaEn(i) : true);
   const redirigida = tieneAreaRedirigida(i);
   // Datos del usuario de la app Biobox (11-nov-2026): al técnico que la
   // repara si está en TI y abierta, y a la validadora (manager incluido).
@@ -165,7 +169,7 @@ function IncCard({
   const areaParaDatos = ((i.assigned_area || '').trim() || i.area_responsable || '').trim();
   const verDatosApp =
     i.area_reportante === 'App Biobox' &&
-    ((puedeReparar && activa && areaParaDatos.toLowerCase() === 'ti') || !!can.validar);
+    ((puedeReparar && activa && areaParaDatos.toLowerCase() === 'ti') || puedeValidar);
   const mio =
     (i.captured_by || '').toLowerCase() === (email || '').toLowerCase();
 
@@ -186,7 +190,7 @@ function IncCard({
   // desharía el contexto de lo que se reparó (Erik, sep-2026). Una cerrada
   // tampoco se reclasifica.
   const puedeCorregir =
-    !!can.validar && activa && i.estatus !== 'reparado';
+    puedeValidar && activa && i.estatus !== 'reparado';
 
   const slaRep =
     i.estatus === 'en_proceso' && i.sla_reparacion_inicio
@@ -464,7 +468,7 @@ function IncCard({
           </span>
         </div>
       )}
-      {can.validar && i.estatus === 'por_validar' && (
+      {puedeValidar && i.estatus === 'por_validar' && (
         <div className="inc-actions">
           {/* Validar es UN botón (estuvo partido en "Validar" y "Validar y
               asignar" mientras existió la asignación de técnico). Devolver
@@ -531,7 +535,7 @@ function IncCard({
           </button>
         </div>
       )}
-      {can.validar && i.estatus === 'reparado' && (
+      {puedeValidar && i.estatus === 'reparado' && (
         <div className="inc-actions">
           <button
             className="btn sm"
@@ -632,7 +636,9 @@ function IncCard({
               Pasar a Op. Bio Box
             </button>
           )}
-        {i.reasignacion_pendiente && can.aprobarReasign && (
+        {i.reasignacion_pendiente &&
+          can.aprobarReasign &&
+          (can.validaEn ? can.validaEn(i) : true) && (
           <button
             className="btn ghost sm"
             onClick={() => onReassign(i, 'aprobar')}
