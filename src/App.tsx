@@ -33,6 +33,7 @@ import { sb } from './lib/supabase';
 import { unidadesAvisoNuc, pendientesNuc } from './lib/avisoNuc';
 import { abreReportesAppBiobox } from './lib/reportesAppBiobox';
 import { abreMaquinasBiobox } from './lib/maquinasBiobox';
+import { iniciarMarcaActividad } from './lib/marcarActividad';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES, URL_BIOGUARD } from './lib/constants';
 import {
   abreComprobaciones,
@@ -109,6 +110,10 @@ const BitacoraVVView = lazyConReintento(
   () => import('./modules/bitacora-vv/BitacoraVVView'),
   'BitacoraVVView'
 );
+const ActividadView = lazyConReintento(
+  () => import('./modules/usuarios/ActividadView'),
+  'ActividadView'
+);
 const UsuariosView = lazyConReintento(
   () => import('./modules/usuarios/UsuariosView'),
   'UsuariosView'
@@ -152,6 +157,7 @@ const DIFERIDO_DE_TAB: Record<string, ComponentType<any>> = {
   comprobaciones: ComprobacionesView,
   biobox: BioboxView,
   usuarios: UsuariosView,
+  actividad: ActividadView,
   mis_rutas: MisRutasView,
   equipos: EquiposView,
   aviso_nuc: AvisoNucView,
@@ -233,6 +239,7 @@ const RUTA_DE_TAB: Record<string, string> = {
   comprobaciones: '/comprobaciones',
   biobox: '/biobox',
   usuarios: '/usuarios',
+  actividad: '/actividad',
   mis_rutas: '/mis-rutas',
   equipos: '/equipos',
   aviso_nuc: '/aviso-nuc',
@@ -1786,6 +1793,13 @@ function Main({
     };
   }, [conAcceso, email, unidadesSync]);
 
+  // Días de uso para la pestaña Actividad (13-nov-2026): marca al abrir y
+  // cada 15 minutos mientras la app está a la vista.
+  useEffect(() => {
+    if (!conAcceso) return;
+    return iniciarMarcaActividad();
+  }, [conAcceso, email]);
+
   /**
    * Máquinas Biobox: técnicos y coordinadores de Op. Bio Box, coordinadores
    * de Biobox sin área y el manager (Erik, 6-nov-2026). Antes bastaba una
@@ -2082,6 +2096,10 @@ function Main({
       grupo: 'campo',
     },
     misRoles.includes('manager') && { k: 'usuarios', ic: '👥', t: 'Usuarios', grupo: 'admin' },
+    // Actividad del equipo (13-nov-2026): el coordinador ve quién de su
+    // unidad y su área usa la app. El manager la tiene dentro de Usuarios.
+    !misRoles.includes('manager') &&
+      misRoles.includes('coordinador') && { k: 'actividad', ic: '📈', t: 'Actividad', grupo: 'admin' },
     // BioGuard es otra app (de Biobox): aquí solo es un enlace que se abre en
     // otra pestaña. Lo ven el manager y quien pertenece al área SRD (Erik,
     // 20-oct-2026). Sin ruta propia: es `action`, como "Nueva".
@@ -2667,6 +2685,7 @@ function Main({
                 />
               )}
               {tab === 'usuarios' && <UsuariosView email={email} />}
+              {tab === 'actividad' && <ActividadView conTitulo />}
               {tab === 'mis_rutas' && (
                 <MisRutasView
                   email={email}

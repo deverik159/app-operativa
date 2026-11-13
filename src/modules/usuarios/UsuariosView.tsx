@@ -22,6 +22,7 @@ import {
 import { colorTono, fondoTono } from '../../lib/tonos';
 import type { AppRole, Usuario, UsuarioRol } from '../../types/db';
 import Ic from '../../components/Ic';
+import ActividadView from './ActividadView';
 
 /** Borrador del alta de usuario. */
 type NuevoUsuario = { nombre: string; email: string; telefono: string };
@@ -88,6 +89,7 @@ function faltaFuncion(e: { code?: string; message?: string }): boolean {
 }
 
 function UsuariosView({ email = '' }: { email?: string }) {
+  const [vista, setVista] = useState<'roles' | 'actividad'>('roles');
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [roles, setRoles] = useState<UsuarioRol[]>([]);
   const [loading, setLoading] = useState(true);
@@ -293,9 +295,31 @@ function UsuariosView({ email = '' }: { email?: string }) {
       ? getAreasReparacionPorUnidad(nr.unidad, areasCat)
       : [];
 
+  const pestanas = (
+    <div className="segmento" role="group" aria-label="Vista" style={{ marginBottom: 14 }}>
+      <button type="button" aria-pressed={vista === 'roles'} onClick={() => setVista('roles')}>
+        Usuarios y roles
+      </button>
+      <button type="button" aria-pressed={vista === 'actividad'} onClick={() => setVista('actividad')}>
+        Actividad
+      </button>
+    </div>
+  );
+
+  if (vista === 'actividad') {
+    return (
+      <>
+        <h2 className="page">Usuarios</h2>
+        {pestanas}
+        <ActividadView />
+      </>
+    );
+  }
+
   return (
     <>
       <h2 className="page">Usuarios y roles</h2>
+      {pestanas}
       <p className="phint">
         Da de alta usuarios, edita sus datos y asigna roles por unidad de
         negocio y departamento.

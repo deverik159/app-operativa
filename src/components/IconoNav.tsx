@@ -8,6 +8,7 @@
 // Si llega un módulo nuevo sin ícono aquí, se sigue viendo su emoji.
 // ============================================================
 import {
+  Activity,
   BarChart3,
   ClipboardCheck,
   Compass,
@@ -49,6 +50,8 @@ const ICONOS: Record<string, LucideIcon> = {
   // teléfono; el mismo ícono que el título de la pantalla.
   reportes_app: Smartphone,
   usuarios: Users,
+  // Actividad del equipo (coordinadores, 13-nov-2026).
+  actividad: Activity,
 };
 
 /**
