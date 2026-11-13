@@ -234,6 +234,11 @@
      oscuro dejaba el ↩︎ (#151515) invisible mientras el toque "se pega" al
      hover en iOS/Android. */
   .btn-icono.sobre-acento:active,.btn-icono.sobre-acento:hover{background:rgba(0,0,0,.12)}
+  /* Botón de enviar del chat, redondo con el avión de papel como WhatsApp
+     (13-nov-2026). El ancho fijo evita que salte al cambiar a «Subiendo». */
+  .btn.chat-enviar{width:42px;height:42px;min-width:42px;padding:0;border-radius:50%;
+    display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+  .chat-campo::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* Menciones con @ en el chat (4-nov-2026). Solo tokens con pareja
      clara/oscura: --accent2 sobre --panel pasa 4.5 en los dos temas. En la
      burbuja propia (naranja) la mención hereda el color y va en negritas. */

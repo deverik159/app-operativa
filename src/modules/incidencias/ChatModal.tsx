@@ -17,6 +17,7 @@ import {
   Lock,
   Paperclip,
   Pencil,
+  SendHorizontal,
   WifiOff,
 } from 'lucide-react';
 import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
@@ -154,7 +155,8 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   /** El contenido de la caja: su alto cambia cuando llegan fotos o mensajes. */
   const contRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const esMio = (m: Mensaje) =>
     (m.autor_email || '').toLowerCase() === email.toLowerCase();
@@ -222,6 +224,18 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
    * presionar.
    */
   const toqueMencion = useRef<{ id: number; x: number; y: number } | null>(null);
+
+  // El campo crece con el texto, como WhatsApp, hasta ~5 renglones; de ahí
+  // en adelante se desplaza por dentro.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    // Vacío, un renglón: si no, el texto de ayuda partido en dos lo
+    // haría crecer sin que nadie haya escrito.
+    if (!texto) return;
+    el.style.height = Math.min(el.scrollHeight + 2, 124) + 'px';
+  }, [texto]);
 
   const elegirMencion = (m: Mencionable) => {
     if (!tokenAt) return;
@@ -1720,10 +1734,11 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                                   cancelarEdicion();
                                 } else if (
                                   e.key === 'Enter' &&
-                                  !e.shiftKey &&
+                                  (e.ctrlKey || e.metaKey) &&
                                   !e.nativeEvent.isComposing
                                 ) {
-                                  // Igual que el campo de abajo: Enter manda.
+                                  // Igual que el campo de abajo: Enter salta
+                                  // de renglón; Ctrl/⌘+Enter guarda.
                                   e.preventDefault();
                                   guardarEdicion();
                                 }
@@ -2205,7 +2220,14 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
               </div>
             )}
 
-            <form onSubmit={enviar} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {/* Como WhatsApp (13-nov-2026, pedido de Erik): Intro (o «Ir»
+                en Android) salta de renglón y solo el botón redondo envía.
+                En computadora, Ctrl/⌘+Intro también envía. */}
+            <form
+              ref={formRef}
+              onSubmit={enviar}
+              style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}
+            >
               <input
                 ref={fileRef}
                 type="file"
@@ -2223,14 +2245,24 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
               >
                 <Ic i={Paperclip} className="solo" />
               </button>
-              <input
+              <textarea
                 ref={inputRef}
+                className="chat-campo"
                 value={texto}
+                rows={1}
+                enterKeyHint="enter"
                 onChange={(e) => cambiarTexto(e.target.value, e.target.selectionStart)}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape' && tokenAt) {
                     e.stopPropagation();
                     setTokenAt(null);
+                  } else if (
+                    e.key === 'Enter' &&
+                    (e.ctrlKey || e.metaKey) &&
+                    !e.nativeEvent.isComposing
+                  ) {
+                    e.preventDefault();
+                    formRef.current?.requestSubmit();
                   }
                 }}
                 placeholder={
@@ -2238,17 +2270,30 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                     ? 'Comentario (opcional)…'
                     : respondiendo
                       ? 'Escribe tu respuesta…'
-                      : 'Escribe un mensaje… (@ para mencionar)'
+                      : 'Mensaje (@ mencionar)'
                 }
                 disabled={subiendo}
                 // 100 y no 140: en 320px (iPhone SE de 1a) con 140 el campo
                 // bajaba a otro renglón, y con la barra de "Respondiendo a…"
                 // el modal ya no cabía. Crece igual donde sobra espacio.
-                style={{ flex: '1 1 100px', minWidth: 0, width: 'auto' }}
+                style={{
+                  flex: '1 1 100px',
+                  minWidth: 0,
+                  width: 'auto',
+                  resize: 'none',
+                  overflowY: 'auto',
+                  borderRadius: 20,
+                  padding: '9px 14px',
+                }}
               />
-              <button className="btn" type="submit" disabled={subiendo}>
-                {subiendo && <span className="spinner" />}
-                {subiendo ? 'Subiendo…' : 'Enviar'}
+              <button
+                className="btn chat-enviar"
+                type="submit"
+                disabled={subiendo}
+                aria-label={subiendo ? 'Subiendo…' : 'Enviar'}
+                title={subiendo ? 'Subiendo…' : 'Enviar'}
+              >
+                {subiendo ? <span className="spinner" /> : <SendHorizontal size={20} />}
               </button>
             </form>
 
