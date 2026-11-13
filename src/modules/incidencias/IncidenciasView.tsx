@@ -896,6 +896,17 @@ function IncidenciasView({
    * "N vencidas" o "M por vencer", Mis pendientes enseña solo esas.
    */
   const [fSla, setFSla] = useState<'vencidas' | 'porVencer' | null>(null);
+  /**
+   * Filtros por persona (Erik, 13-nov-2026), solo en la pestaña Incidencias:
+   * «Mías» encuentra lo propio en un toque (los técnicos y validadores no
+   * tienen "Mi bandeja" y preguntaban dónde ver lo que reportaron) y
+   * «Persona» las de un compañero (reportó, validó, reparó o apoyó).
+   */
+  const [fMias, setFMias] = useState<'' | 'reporte' | 'valide' | 'repare' | 'chat'>('');
+  const [fPersona, setFPersona] = useState('');
+  /** Folios donde escribí en el chat; se lee solo al elegir esa opción. */
+  const [chatMios, setChatMios] = useState<Set<string> | null>(null);
+  const [errChatMios, setErrChatMios] = useState(false);
 
   /**
    * Cambiar de sección (Mis pendientes ↔ Incidencias) limpia el buscador:
@@ -1978,6 +1989,8 @@ function IncidenciasView({
     setFUN('Todas');
     setFArea('Todas');
     setFReporta('Todas');
+    setFMias('');
+    setFPersona('');
     setFEstado('Todos');
     setFDesde('');
     setFHasta('');
@@ -2029,6 +2042,30 @@ function IncidenciasView({
    * Con varios roles las condiciones se SUMAN: le toca lo de todos.
    */
   const yo = (email || '').toLowerCase();
+
+  // «Mías → Donde escribí en el chat»: los folios se piden a la base una vez
+  // (msg_sel deja leer los mensajes a quien tiene sesión). El correo va
+  // escapado: en ilike, "_" y "%" son comodines.
+  useEffect(() => {
+    if (fMias !== 'chat' || chatMios || !yo) return;
+    let cancelado = false;
+    (async () => {
+      const patron = yo.replace(/[\\%_]/g, (c) => '\\' + c);
+      const { data, error } = await sb
+        .from('mensajes')
+        .select('record_id')
+        .ilike('autor_email', patron)
+        .limit(5000);
+      if (cancelado) return;
+      // Con error no se guarda nada: al volver a elegir la opción se reintenta.
+      setErrChatMios(!!error);
+      if (error) return;
+      setChatMios(new Set(((data || []) as { record_id: string }[]).map((m) => m.record_id)));
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [fMias, chatMios, yo]);
   /**
    * ¿Le toca a ESTE usuario hacer algo con ESTA incidencia? Es lo que cuenta
    * el globito del menú y lo único que enseña "Mis pendientes".
@@ -2166,6 +2203,23 @@ function IncidenciasView({
       // Quién reporta = el área de pertenencia con la que nació el reporte.
       if (fReporta !== 'Todas' && (i.area_reportante || '') !== fReporta)
         return false;
+      if (modo === 'todas' && fMias) {
+        const es = (e: string | null | undefined) => (e || '').toLowerCase() === yo;
+        if (fMias === 'reporte' && !es(i.captured_by)) return false;
+        if (fMias === 'valide' && !es(i.validator_email)) return false;
+        if (fMias === 'repare' && !es(i.repaired_by_email)) return false;
+        if (fMias === 'chat' && !chatMios?.has(i.record_id)) return false;
+      }
+      if (modo === 'todas' && fPersona) {
+        const es = (e: string | null | undefined) => (e || '').toLowerCase() === fPersona;
+        if (
+          !es(i.captured_by) &&
+          !es(i.validator_email) &&
+          !es(i.repaired_by_email) &&
+          !es(i.apoyo_reparacion_email)
+        )
+          return false;
+      }
       // Rango de fechas de captura. `fecha_reporte` es un timestamp en UTC;
       // los inputs date dan 'YYYY-MM-DD'. Se compara el día de CDMX: con los
       // primeros 10 caracteres (día UTC) lo reportado después de las 18:00
@@ -2206,6 +2260,10 @@ function IncidenciasView({
     fHasta,
     fSla,
     alertasValidacion,
+    fMias,
+    fPersona,
+    chatMios,
+    yo,
   ]);
 
   /**
@@ -2222,6 +2280,7 @@ function IncidenciasView({
     !!fDesde ||
     !!fHasta ||
     (modo === 'bandeja' && fSla != null) ||
+    (modo === 'todas' && (!!fMias || !!fPersona)) ||
     !!q.trim();
 
   /**
@@ -2243,6 +2302,8 @@ function IncidenciasView({
     fEstado,
     fDesde,
     fHasta,
+    fMias,
+    fPersona,
   ].join('|');
   const [pintado, setPintado] = useState({ clave: '', n: PASO_PINTADO });
   const nBasePintado =
@@ -2266,6 +2327,21 @@ function IncidenciasView({
    * existen en lo cargado. Autoalimentado: si mañana reporta otra área,
    * aparece sola sin tocar código.
    */
+  /**
+   * Personas del filtro «Persona»: quien reportó, validó, reparó o apoyó en
+   * lo que está cargado. Se muestran como en la tarjeta (antes de la @).
+   */
+  const personas = useMemo(() => {
+    const set = new Set<string>();
+    itemsVista.forEach((i) => {
+      for (const e of [i.captured_by, i.validator_email, i.repaired_by_email, i.apoyo_reparacion_email])
+        if (e) set.add(e.toLowerCase());
+    });
+    return [...set]
+      .map((e) => ({ email: e, nombre: e.split('@')[0] }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  }, [itemsVista]);
+
   const areasReportantes = useMemo(
     () =>
       [...new Set(itemsVista.map((i) => i.area_reportante).filter(Boolean))].sort() as string[],
@@ -3063,7 +3139,43 @@ function IncidenciasView({
               </option>
             ))}
         </select>
+        {modo === 'todas' && (
+          <>
+            <select
+              aria-label="Mías"
+              className={fMias ? 'on' : undefined}
+              value={fMias}
+              onChange={(e) => setFMias(e.target.value as typeof fMias)}
+            >
+              <option value="">Mías: todas</option>
+              <option value="reporte">Las que reporté</option>
+              <option value="valide">Las que validé</option>
+              <option value="repare">Las que reparé</option>
+              <option value="chat">Donde escribí en el chat</option>
+            </select>
+            <select
+              aria-label="Persona"
+              className={fPersona ? 'on' : undefined}
+              value={fPersona}
+              onChange={(e) => setFPersona(e.target.value)}
+            >
+              <option value="">Persona: todas</option>
+              {personas.map((p) => (
+                <option key={p.email} value={p.email}>
+                  {p.nombre}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
       </div>
+      {modo === 'todas' && fMias === 'chat' && (!chatMios || errChatMios) && (
+        <p className="phint" role="status" style={{ marginTop: -6 }}>
+          {errChatMios
+            ? 'No se pudieron leer tus mensajes del chat (¿sin señal?). Vuelve a elegir la opción con señal.'
+            : 'Buscando los folios donde escribiste…'}
+        </p>
+      )}
       <div className="toolbar">
         {/* Rango de fechas de captura. Etiqueta VISIBLE y no solo `title`:
             los tooltips no existen en táctil, y en iOS un input date vacío
