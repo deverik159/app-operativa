@@ -6,10 +6,15 @@
 // Biobox (site_legacy_id) o el pórtico (claveSitio.ts), y se puede buscar
 // por él.
 //
-// LA PREGUNTA QUE RESPONDE, y es UNA sola: "¿puedo vender esta cara, en
-// estas fechas?". Deliberadamente NO es un tablero de indicadores. Un
-// panorama se ve una vez y se abandona; esto se abre cada que alguien arma
-// una propuesta, porque devuelve una respuesta que hace falta en ese momento.
+// LA PREGUNTA QUE RESPONDE: "¿puedo vender esta cara, en estas fechas?".
+// Esto se abre cada que alguien arma una propuesta, porque devuelve una
+// respuesta que hace falta en ese momento.
+//
+// Por unidad de negocio (Erik, 13-nov-2026): arriba, una tarjeta por unidad
+// con cuántas caras tiene, cuántas activas y cuántas fuera de servicio; se
+// filtra por unidad y por estatus, y los resultados salen agrupados por
+// unidad. El coordinador con unidad asignada ve solo la suya
+// (lib/inventarioUnidades.ts; candado solo de esta pantalla).
 //
 // El veredicto sale de tres datos que hasta esta semana no existían fuera de
 // QTM:
@@ -36,6 +41,22 @@ import {
   type IdAnterior,
   type IdsAnteriores,
 } from '../../lib/idsAnteriores';
+import {
+  GRUPOS_INVENTARIO,
+  caraEnGrupos,
+  grupoDe,
+  gruposVisibles,
+  unidadesDe,
+  type GrupoInventario,
+  type RolInventario,
+} from '../../lib/inventarioUnidades';
+
+type Estatus = '' | 'activas' | 'fuera';
+
+/** Conteo de una tarjeta; null mientras carga o si la base no contestó. */
+type Conteo = { total: number; activas: number } | null;
+
+const numero = (n: number) => n.toLocaleString('es-MX');
 
 /** Fila de `inventario` con las columnas de estatus. */
 type Cara = {
@@ -178,7 +199,26 @@ const COLOR: Record<Veredicto['nivel'], { bg: string; fg: string }> = {
   ocupada: { bg: fondoTono('azul'),  fg: 'var(--accent2)' },
 };
 
-function DisponibilidadView() {
+/** Cuenta caras de una tarjeta (solo el número: no baja filas). */
+async function contarGrupo(g: GrupoInventario, soloActivas: boolean): Promise<number | null> {
+  let qb = sb
+    .from('inventario')
+    .select('vendor_face_id', { count: 'exact', head: true })
+    .eq('unidad_negocio', g.unidad);
+  if (g.medio === 'Digital') qb = qb.eq('tipo_medio', 'Digital');
+  else if (g.medio) qb = qb.neq('tipo_medio', 'Digital');
+  if (soloActivas) qb = qb.eq('face_status', 'Active');
+  const { count, error } = await qb;
+  return error ? null : count ?? 0;
+}
+
+function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
+  /** Tarjetas que ve este usuario; el coordinador con unidad, solo la suya. */
+  const visibles = useMemo(() => gruposVisibles(roles), [roles]);
+  /** '' = todas las visibles. */
+  const [grupoSel, setGrupoSel] = useState('');
+  const [estatusSel, setEstatusSel] = useState<Estatus>('');
+  const [conteos, setConteos] = useState<Record<string, Conteo>>({});
   const [q, setQ] = useState('');
   const [caras, setCaras] = useState<Cara[]>([]);
   const [cats, setCats] = useState<Catorcena[]>([]);
@@ -202,6 +242,23 @@ function DisponibilidadView() {
       .limit(1000)
       .then(({ data }) => setIdsAnteriores(armarIdsAnteriores(data as IdAnterior[] | null)));
   }, []);
+
+  // Indicadores de cada tarjeta: dos conteos por unidad, sin bajar filas.
+  useEffect(() => {
+    let vivo = true;
+    setConteos({});
+    visibles.forEach(async (g) => {
+      const [total, activas] = await Promise.all([contarGrupo(g, false), contarGrupo(g, true)]);
+      if (!vivo) return;
+      setConteos((c) => ({
+        ...c,
+        [g.clave]: total === null || activas === null ? null : { total, activas },
+      }));
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [visibles]);
 
   // Catorcenas desde hoy en adelante: son las que se pueden vender.
   useEffect(() => {
@@ -231,42 +288,60 @@ function DisponibilidadView() {
     [cats, catSel]
   );
 
-  const buscar = useCallback(async () => {
+  /**
+   * Busca con el texto y los filtros. `cambio` trae el filtro que se acaba de
+   * tocar (el estado aún no se actualiza en ese render): tocar un filtro sin
+   * texto no regaña; solo «Fuera de servicio» lista sin texto, porque es la
+   * lista que sí sirve completa (lo que no se puede vender).
+   */
+  const buscar = useCallback(async (cambio?: { grupo?: string; estatus?: Estatus }) => {
+    const grupo = cambio?.grupo ?? grupoSel;
+    const estatus = cambio?.estatus ?? estatusSel;
     const t = q.trim();
-    if (t.length < 3) {
-      setErr('Escribe al menos 3 caracteres: una clave, parte de una dirección o el nombre del sitio.');
+    const sinTexto = t.length < 3;
+    if (!visibles.length) return;
+    if (sinTexto && estatus !== 'fuera') {
+      if (!cambio) {
+        setErr('Escribe al menos 3 caracteres: una clave, parte de una dirección o el nombre del sitio.');
+      } else if (buscado) {
+        // Se quitó «Fuera de servicio» sin texto: la lista anterior ya no aplica.
+        setCaras([]);
+        setBuscado(false);
+      }
       return;
     }
     setBuscando(true);
     setErr('');
     setAbierta('');
+    const enFiltro = grupo ? visibles.filter((g) => g.clave === grupo) : visibles;
 
     // Se busca por clave, por clave de sitio, por el nombre legacy (el de la
     // máquina en Biobox), por dirección y por el nombre con que se conoce
     // hoy la pantalla o el pórtico. Comercial no siempre tiene la clave a la
     // mano; muchas veces solo recuerda la calle o el nombre.
-    const patron = `%${t}%`;
-    const { data: np } = await sb
-      .from('nombres_pantallas')
-      .select('vendor_face_id')
-      .filter('nombre', 'imatch', patronNombreSinAcentos(t))
-      .limit(50);
-    const idsPorNombre = ((np as { vendor_face_id: string }[]) || []).map((x) =>
-      JSON.stringify(x.vendor_face_id)
-    );
-    const porNombre = idsPorNombre.length
-      ? [`vendor_face_id.in.(${idsPorNombre.join(',')})`]
-      : [];
-    const porPortico = porticosPorNombre(t).map((n) => `site_id.ilike.%_POR_${n}`);
-    // ID viejo de una máquina Biobox: «IID_0002» encuentra MX_EM_BB_UCL_0007.
-    const viejas = carasPorIdAnterior(idsAnteriores, t).map((v) => JSON.stringify(v));
-    const porIdAnterior = viejas.length ? [`vendor_face_id.in.(${viejas.join(',')})`] : [];
-    const { data, error } = await sb
+    let qb = sb
       .from('inventario')
       .select(
         'vendor_face_id,site_id,site_legacy_id,cara,direccion,municipio,estado,unidad_negocio,tipo_medio,tipo_mueble,face_status,fuera_servicio_motivo,fuera_servicio_notas,fecha_retiro'
-      )
-      .or(
+      );
+    if (!sinTexto) {
+      const patron = `%${t}%`;
+      const { data: np } = await sb
+        .from('nombres_pantallas')
+        .select('vendor_face_id')
+        .filter('nombre', 'imatch', patronNombreSinAcentos(t))
+        .limit(50);
+      const idsPorNombre = ((np as { vendor_face_id: string }[]) || []).map((x) =>
+        JSON.stringify(x.vendor_face_id)
+      );
+      const porNombre = idsPorNombre.length
+        ? [`vendor_face_id.in.(${idsPorNombre.join(',')})`]
+        : [];
+      const porPortico = porticosPorNombre(t).map((n) => `site_id.ilike.%_POR_${n}`);
+      // ID viejo de una máquina Biobox: «IID_0002» encuentra MX_EM_BB_UCL_0007.
+      const viejas = carasPorIdAnterior(idsAnteriores, t).map((v) => JSON.stringify(v));
+      const porIdAnterior = viejas.length ? [`vendor_face_id.in.(${viejas.join(',')})`] : [];
+      qb = qb.or(
         [
           `vendor_face_id.ilike.${patron}`,
           `site_id.ilike.${patron}`,
@@ -276,10 +351,17 @@ function DisponibilidadView() {
           ...porPortico,
           ...porIdAnterior,
         ].join(',')
-      )
-      .order('site_id')
-      .order('vendor_face_id')
-      .limit(LIMITE);
+      );
+    }
+    // Unidad: la base ya acota por unidad_negocio; el medio de Ecovallas
+    // (Impreso / Digital) solo cuando se eligió una de esas dos tarjetas. Lo
+    // demás lo termina de filtrar caraEnGrupos abajo.
+    qb = qb.in('unidad_negocio', unidadesDe(enFiltro));
+    if (enFiltro.length === 1 && enFiltro[0].medio === 'Digital') qb = qb.eq('tipo_medio', 'Digital');
+    else if (enFiltro.length === 1 && enFiltro[0].medio) qb = qb.neq('tipo_medio', 'Digital');
+    if (estatus === 'activas') qb = qb.eq('face_status', 'Active');
+    if (estatus === 'fuera') qb = qb.neq('face_status', 'Active');
+    const { data, error } = await qb.order('site_id').order('vendor_face_id').limit(LIMITE);
 
     if (error) {
       setErr('La búsqueda falló: ' + error.message);
@@ -287,7 +369,7 @@ function DisponibilidadView() {
       return;
     }
 
-    const filas = (data as Cara[]) || [];
+    const filas = ((data as Cara[]) || []).filter((c) => caraEnGrupos(c, enFiltro));
 
     // Nombres de pantalla de las caras encontradas. Si no contestan, se
     // enseña la cara como antes: el nombre es ayuda, no requisito.
@@ -321,7 +403,17 @@ function DisponibilidadView() {
       setPautas([]);
     }
     setBuscando(false);
-  }, [q, catSel, idsAnteriores]);
+  }, [q, catSel, idsAnteriores, grupoSel, estatusSel, visibles, buscado]);
+
+  const elegirGrupo = (clave: string) => {
+    const nuevo = grupoSel === clave ? '' : clave;
+    setGrupoSel(nuevo);
+    void buscar({ grupo: nuevo });
+  };
+  const elegirEstatus = (e: Estatus) => {
+    setEstatusSel(e);
+    void buscar({ estatus: e });
+  };
 
   /** Historial de una cara. Se pide al abrirla, no antes. */
   const abrir = async (vfid: string) => {
@@ -367,6 +459,23 @@ function DisponibilidadView() {
     return [...m.entries()];
   }, [caras]);
 
+  /** Los sitios, partidos por unidad, en el orden de las tarjetas. */
+  const porUnidad = useMemo(() => {
+    const m = new Map<string, { g: GrupoInventario; sitios: [string, Cara[]][]; caras: number }>();
+    sitios.forEach(([k, lista]) => {
+      const g = grupoDe(lista[0]);
+      const e = m.get(g.clave) || { g, sitios: [], caras: 0 };
+      e.sitios.push([k, lista]);
+      e.caras += lista.length;
+      m.set(g.clave, e);
+    });
+    const orden = (clave: string) => {
+      const i = visibles.findIndex((g) => g.clave === clave);
+      return i < 0 ? visibles.length : i;
+    };
+    return [...m.values()].sort((a, b) => orden(a.g.clave) - orden(b.g.clave));
+  }, [sitios, visibles]);
+
   const resumen = useMemo(() => {
     const r = { si: 0, parcial: 0, no: 0, ocupada: 0 };
     caras.forEach((c) => {
@@ -381,6 +490,9 @@ function DisponibilidadView() {
       <p className="phint">
         Busca una cara o sitio y comprueba si está activa. El estatus viene de
         QTM y se actualiza cada noche.
+        {visibles.length > 0 && visibles.length < GRUPOS_INVENTARIO.length && (
+          <> Ves el inventario de {visibles.map((g) => g.titulo).join(' y ')}.</>
+        )}
       </p>
 
       {err && (
@@ -388,6 +500,89 @@ function DisponibilidadView() {
           {err}
         </div>
       )}
+
+      {visibles.length === 0 && (
+        <div className="empty">
+          Tu rol de coordinador no tiene una unidad con inventario de QTM. Si
+          debería verla, pide que revisen la unidad de tu rol.
+        </div>
+      )}
+
+      {visibles.length > 0 && (
+      <>
+      {/* Una tarjeta por unidad: tocarla filtra por esa unidad. */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
+          gap: 9,
+          margin: '4px 0 12px',
+        }}
+      >
+        {visibles.map((g) => {
+          const c = conteos[g.clave];
+          const activo = grupoSel === g.clave;
+          return (
+            <button
+              key={g.clave}
+              type="button"
+              className="card"
+              aria-pressed={activo}
+              onClick={() => elegirGrupo(g.clave)}
+              title={activo ? 'Quitar el filtro de unidad' : `Ver solo ${g.titulo}`}
+              style={{
+                minWidth: 0,
+                textAlign: 'left',
+                cursor: 'pointer',
+                font: 'inherit',
+                color: 'inherit',
+                borderColor: activo ? 'var(--accent)' : undefined,
+              }}
+            >
+              <div className="l" style={{ fontWeight: 700 }}>{g.titulo}</div>
+              <div className="n">{c ? numero(c.total) : c === null ? '?' : '–'}</div>
+              <div className="l">caras</div>
+              {c && (
+                <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.4 }}>
+                  <span style={{ color: 'var(--ok)' }}>{numero(c.activas)} activas</span>
+                  {c.total - c.activas > 0 && (
+                    <>
+                      {' · '}
+                      <span style={{ color: 'var(--bad)' }}>
+                        {numero(c.total - c.activas)} fuera
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="chips" style={{ marginTop: 0, marginBottom: 10 }}>
+        {(
+          [
+            ['', 'Todas'],
+            ['activas', 'Activas'],
+            ['fuera', 'Fuera de servicio'],
+          ] as [Estatus, string][]
+        ).map(([e, t]) => (
+          <button
+            key={e || 'todas'}
+            type="button"
+            className="btn ghost sm"
+            aria-pressed={estatusSel === e}
+            onClick={() => elegirEstatus(e)}
+            style={{
+              borderColor: estatusSel === e ? 'var(--accent)' : undefined,
+              fontWeight: estatusSel === e ? 700 : undefined,
+            }}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
 
       <div className="toolbar">
         <input
@@ -411,14 +606,18 @@ function DisponibilidadView() {
             </option>
           ))}
         </select>
-        <button className="btn" onClick={buscar} disabled={buscando}>
+        <button className="btn" onClick={() => buscar()} disabled={buscando}>
           {buscando ? 'Buscando…' : 'Buscar'}
         </button>
       </div>
+      </>
+      )}
 
       {buscado && !buscando && caras.length === 0 && (
         <div className="empty">
-          Sin resultados para «{q}». Prueba con parte de la clave o de la calle.
+          {q.trim().length >= 3
+            ? `Sin resultados para «${q.trim()}» con estos filtros. Prueba con parte de la clave o de la calle, o quita un filtro.`
+            : 'No hay caras fuera de servicio con estos filtros.'}
         </div>
       )}
 
@@ -456,8 +655,17 @@ function DisponibilidadView() {
             )}
           </div>
 
+          {porUnidad.map(({ g, sitios: deUnidad, caras: nCaras }) => (
+          <section key={g.clave} style={{ marginBottom: 18 }}>
+          <h3 style={{ fontSize: 15, margin: '0 0 8px' }}>
+            {g.titulo}{' '}
+            <span style={{ fontWeight: 400, color: 'var(--muted)', fontSize: 13 }}>
+              · {numero(nCaras)} cara{nCaras === 1 ? '' : 's'} en {numero(deUnidad.length)} sitio
+              {deUnidad.length === 1 ? '' : 's'}
+            </span>
+          </h3>
           <div className="inc-list agrupada">
-            {sitios.map(([siteId, lista]) => {
+            {deUnidad.map(([siteId, lista]) => {
               const primera = lista[0];
               const nombre = nombreDelSitio(primera);
               const antes = [...new Set(lista.flatMap((c) => anterioresDe(idsAnteriores, c.vendor_face_id)))];
@@ -478,7 +686,6 @@ function DisponibilidadView() {
                         nombre ? primera.direccion : null,
                         primera.municipio,
                         primera.estado,
-                        primera.unidad_negocio,
                       ]
                         .filter(Boolean)
                         .join(' · ')}
@@ -617,13 +824,16 @@ function DisponibilidadView() {
               );
             })}
           </div>
+          </section>
+          ))}
         </>
       )}
 
-      {!buscado && (
+      {!buscado && visibles.length > 0 && (
         <div className="empty">
           Escribe una clave —<code>MX_CM_EV_3380</code>—, parte de una calle o
-          el nombre de una pantalla, máquina o pórtico para empezar.
+          el nombre de una pantalla, máquina o pórtico, o toca «Fuera de
+          servicio» para ver lo que no se puede vender.
         </div>
       )}
     </>

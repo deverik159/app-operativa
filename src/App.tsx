@@ -2614,7 +2614,7 @@ function Main({
                   recargarSignal={recargaManual}
                 />
               )}
-              {tab === 'disponibilidad' && <DisponibilidadView />}
+              {tab === 'disponibilidad' && <DisponibilidadView roles={rolesDetalle} />}
               {tab === 'equipos' && <EquiposView recargarSignal={recargaManual} />}
               {tab === 'reportes_app' && (
                 <ReportesAppBioboxView roles={rolesDetalle} recargarSignal={recargaManual} />
