@@ -26,7 +26,7 @@
 // permite decir "esta ubicación se ha caído tres veces este año" — riesgo
 // real para una propuesta larga, invisible en cualquier otro sistema.
 // ============================================================
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import { fondoTono } from '../../lib/tonos';
 import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib/catorcena';
@@ -232,6 +232,10 @@ function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
   const [buscando, setBuscando] = useState(false);
   const [err, setErr] = useState('');
   const [buscado, setBuscado] = useState(false);
+  /** Cuántas caras trae la búsqueda en total (para «Ver más»). */
+  const [total, setTotal] = useState<number | null>(null);
+  /** La búsqueda hecha y cuántas filas se han traído de ella. */
+  const ultimaRef = useRef<{ t: string; grupo: string; estatus: Estatus; leidas: number } | null>(null);
   /** IDs viejos de máquinas Biobox (3-nov-2026). Si no contestan, se busca sin ellos. */
   const [idsAnteriores, setIdsAnteriores] = useState<IdsAnteriores>(new Map());
 
@@ -291,28 +295,36 @@ function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
   /**
    * Busca con el texto y los filtros. `cambio` trae el filtro que se acaba de
    * tocar (el estado aún no se actualiza en ese render): tocar un filtro sin
-   * texto no regaña; solo «Fuera de servicio» lista sin texto, porque es la
-   * lista que sí sirve completa (lo que no se puede vender).
+   * texto no regaña.
    */
-  const buscar = useCallback(async (cambio?: { grupo?: string; estatus?: Estatus }) => {
-    const grupo = cambio?.grupo ?? grupoSel;
-    const estatus = cambio?.estatus ?? estatusSel;
-    const t = q.trim();
+  const buscar = useCallback(async (cambio?: { grupo?: string; estatus?: Estatus }, mas = false) => {
+    // «Ver más» (Erik, 13-nov-2026) sigue la búsqueda que se hizo, aunque el
+    // cuadro de texto ya diga otra cosa: trae la siguiente tanda y la suma.
+    const u = mas ? ultimaRef.current : null;
+    if (mas && !u) return;
+    const grupo = u ? u.grupo : cambio?.grupo ?? grupoSel;
+    const estatus = u ? u.estatus : cambio?.estatus ?? estatusSel;
+    const t = u ? u.t : q.trim();
+    const desde = u ? u.leidas : 0;
     const sinTexto = t.length < 3;
     if (!visibles.length) return;
-    if (sinTexto && estatus !== 'fuera') {
+    // Sin texto se lista si hay una tarjeta elegida (su inventario, con el
+    // estatus que esté marcado; Erik, 13-nov-2026) o «Fuera de servicio».
+    if (!mas && sinTexto && !grupo && estatus !== 'fuera') {
       if (!cambio) {
         setErr('Escribe al menos 3 caracteres: una clave, parte de una dirección o el nombre del sitio.');
       } else if (buscado) {
-        // Se quitó «Fuera de servicio» sin texto: la lista anterior ya no aplica.
+        // Se quitó la tarjeta o «Fuera de servicio» sin texto: la lista anterior ya no aplica.
         setCaras([]);
         setBuscado(false);
+        setTotal(null);
+        ultimaRef.current = null;
       }
       return;
     }
     setBuscando(true);
     setErr('');
-    setAbierta('');
+    if (!mas) setAbierta('');
     const enFiltro = grupo ? visibles.filter((g) => g.clave === grupo) : visibles;
 
     // Se busca por clave, por clave de sitio, por el nombre legacy (el de la
@@ -322,7 +334,8 @@ function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
     let qb = sb
       .from('inventario')
       .select(
-        'vendor_face_id,site_id,site_legacy_id,cara,direccion,municipio,estado,unidad_negocio,tipo_medio,tipo_mueble,face_status,fuera_servicio_motivo,fuera_servicio_notas,fecha_retiro'
+        'vendor_face_id,site_id,site_legacy_id,cara,direccion,municipio,estado,unidad_negocio,tipo_medio,tipo_mueble,face_status,fuera_servicio_motivo,fuera_servicio_notas,fecha_retiro',
+        { count: 'exact' }
       );
     if (!sinTexto) {
       const patron = `%${t}%`;
@@ -361,7 +374,10 @@ function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
     else if (enFiltro.length === 1 && enFiltro[0].medio) qb = qb.neq('tipo_medio', 'Digital');
     if (estatus === 'activas') qb = qb.eq('face_status', 'Active');
     if (estatus === 'fuera') qb = qb.neq('face_status', 'Active');
-    const { data, error } = await qb.order('site_id').order('vendor_face_id').limit(LIMITE);
+    const { data, error, count } = await qb
+      .order('site_id')
+      .order('vendor_face_id')
+      .range(desde, desde + LIMITE - 1);
 
     if (error) {
       setErr('La búsqueda falló: ' + error.message);
@@ -369,7 +385,10 @@ function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
       return;
     }
 
-    const filas = ((data as Cara[]) || []).filter((c) => caraEnGrupos(c, enFiltro));
+    const leidas = (data as Cara[]) || [];
+    ultimaRef.current = { t, grupo, estatus, leidas: desde + leidas.length };
+    setTotal(count ?? null);
+    const filas = leidas.filter((c) => caraEnGrupos(c, enFiltro));
 
     // Nombres de pantalla de las caras encontradas. Si no contestan, se
     // enseña la cara como antes: el nombre es ayuda, no requisito.
@@ -384,8 +403,12 @@ function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
         if (x.nombre?.trim()) nombres[x.vendor_face_id] = x.nombre.trim();
       });
     }
-    setNombrePantalla(nombres);
-    setCaras(filas);
+    setNombrePantalla((n) => (mas ? { ...n, ...nombres } : nombres));
+    setCaras((c) => {
+      if (!mas) return filas;
+      const ya = new Set(c.map((x) => x.vendor_face_id));
+      return [...c, ...filas.filter((f) => !ya.has(f.vendor_face_id))];
+    });
     setBuscado(true);
 
     // Pautas de esas caras, solo de la catorcena elegida.
@@ -398,12 +421,17 @@ function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
         .in('vendor_face_id', ids)
         .eq('anio', sel.anio)
         .eq('catorcena', sel.numero);
-      setPautas((pd as PautaLigera[]) || []);
-    } else {
+      const nuevas = (pd as PautaLigera[]) || [];
+      setPautas((p) => (mas ? [...p, ...nuevas] : nuevas));
+    } else if (!mas) {
       setPautas([]);
     }
     setBuscando(false);
   }, [q, catSel, idsAnteriores, grupoSel, estatusSel, visibles, buscado]);
+
+  /** Cuántas filas de la búsqueda faltan por traer (0 si no se sabe). */
+  const faltan =
+    total !== null && ultimaRef.current ? Math.max(0, total - ultimaRef.current.leidas) : 0;
 
   const elegirGrupo = (clave: string) => {
     const nuevo = grupoSel === clave ? '' : clave;
@@ -617,7 +645,7 @@ function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
         <div className="empty">
           {q.trim().length >= 3
             ? `Sin resultados para «${q.trim()}» con estos filtros. Prueba con parte de la clave o de la calle, o quita un filtro.`
-            : 'No hay caras fuera de servicio con estos filtros.'}
+            : 'No hay caras con estos filtros.'}
         </div>
       )}
 
@@ -648,9 +676,9 @@ function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
                 {resumen.no} no vendible{resumen.no === 1 ? '' : 's'}
               </span>
             )}
-            {caras.length === LIMITE && (
-              <span className="tag" title="Acota la búsqueda para verlas todas">
-                ⚠️ tope de {LIMITE}: puede haber más
+            {faltan > 0 && total !== null && (
+              <span className="tag" title="Abajo está «Ver más»">
+                viendo {numero(caras.length)} de {numero(total)}
               </span>
             )}
           </div>
@@ -826,14 +854,30 @@ function DisponibilidadView({ roles }: { roles: readonly RolInventario[] }) {
           </div>
           </section>
           ))}
+
+          {faltan > 0 && (
+            <div style={{ textAlign: 'center', margin: '4px 0 18px' }}>
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={buscando}
+                onClick={() => buscar(undefined, true)}
+              >
+                {buscando
+                  ? 'Cargando…'
+                  : `Ver ${numero(Math.min(faltan, LIMITE))} más (faltan ${numero(faltan)})`}
+              </button>
+            </div>
+          )}
         </>
       )}
 
       {!buscado && visibles.length > 0 && (
         <div className="empty">
           Escribe una clave —<code>MX_CM_EV_3380</code>—, parte de una calle o
-          el nombre de una pantalla, máquina o pórtico, o toca «Fuera de
-          servicio» para ver lo que no se puede vender.
+          el nombre de una pantalla, máquina o pórtico. O toca una tarjeta para
+          ver el inventario de esa unidad, o «Fuera de servicio» para ver lo
+          que no se puede vender.
         </div>
       )}
     </>
