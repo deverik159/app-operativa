@@ -17,9 +17,11 @@ import {
   Lock,
   Paperclip,
   Pencil,
+  PenLine,
   SendHorizontal,
   WifiOff,
 } from 'lucide-react';
+import MarcarFoto from '../../components/MarcarFoto';
 import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import { caraIncidencia, sinAcentos } from '../../lib/helpers';
@@ -346,6 +348,8 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   const [adjuntos, setAdjuntos] = useState<Record<number, ChatAdjunto[]>>({});
   /** Archivo elegido y aún no enviado. */
   const [pendiente, setPendiente] = useState<File | null>(null);
+  /** La foto por enviar está abierta para marcar la falla (17-nov-2026). */
+  const [marcandoAdj, setMarcandoAdj] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
   // Si el teléfono recargó la página a media compresión, se dice al abrir.
   const [errAdj, setErrAdj] = useState(() => compresionInterrumpida() || '');
@@ -2121,6 +2125,17 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                 <span style={{ color: 'var(--muted)' }}>
                   {(pendiente.size / 1024 / 1024).toFixed(1)} MB
                 </span>
+                {/* Encerrar la falla en la foto antes de mandarla (17-nov-2026). */}
+                {pendiente.type.startsWith('image/') && (
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    onClick={() => setMarcandoAdj(true)}
+                    disabled={subiendo}
+                  >
+                    <Ic i={PenLine} /> Marcar
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn ghost sm"
@@ -2130,6 +2145,16 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                   ✕
                 </button>
               </div>
+            )}
+            {marcandoAdj && pendiente && (
+              <MarcarFoto
+                file={pendiente}
+                onCancelar={() => setMarcandoAdj(false)}
+                onListo={(marcada) => {
+                  setPendiente(marcada);
+                  setMarcandoAdj(false);
+                }}
+              />
             )}
 
             {respondiendoVivo &&

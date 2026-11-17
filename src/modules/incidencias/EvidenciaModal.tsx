@@ -189,6 +189,25 @@ function EvidenciaModal({
   const [subiendo, setSubiendo] = useState(false);
   const [etapa, setEtapa] = useState<EtapaEvidencia>(etapaAuto || 'reporte');
   const [ref, setRef] = useState('');
+  /**
+   * Elegidas y aún sin subir (17-nov-2026): antes se subían al elegirlas;
+   * ahora se ven en miniatura para revisarlas o marcar la falla y se suben
+   * con «Subir».
+   */
+  const [porSubir, setPorSubir] = useState<File[]>([]);
+
+  /** Cerrar sin perder a ciegas lo que se eligió y no se subió. */
+  const cerrar = () => {
+    if (subiendo) return;
+    if (
+      porSubir.length &&
+      !confirm(
+        `Tienes ${porSubir.length} archivo${porSubir.length > 1 ? 's' : ''} sin subir. ¿Cerrar sin subir${porSubir.length > 1 ? 'los' : 'lo'}?`
+      )
+    )
+      return;
+    onClose();
+  };
 
   // El validador elige etapa a mano; el resto la tiene fijada por el estatus.
   const etapaUsar: EtapaEvidencia = esValidador ? etapa : etapaAuto || 'reporte';
@@ -262,6 +281,8 @@ function EvidenciaModal({
       return;
     }
 
+    /** Los que ya llegaron a Storage: salen de «por subir» (resubirlos los duplicaría). */
+    const subidos: File[] = [];
     for (const f of files) {
       const tipo: TipoEvidencia = f.type.startsWith('video') ? 'video' : 'foto';
       // Renombrado automático: folio + cara + fecha + etapa. Así el archivo
@@ -299,6 +320,7 @@ function EvidenciaModal({
         alert('Error al subir ' + f.name + ': ' + (upErr as { message?: string }).message);
         continue;
       }
+      subidos.push(f);
       // Foto o video (de un video, un cuadro suyo para la tarjeta).
       await subirMiniatura(path, f);
       const { data: pub } = sb.storage
@@ -331,6 +353,8 @@ function EvidenciaModal({
       }
     }
 
+    // Lo que no llegó (sin señal, error) se queda para reintentar con «Subir».
+    setPorSubir((prev) => prev.filter((f) => !subidos.includes(f)));
     setSubiendo(false);
     cargar();
   };
@@ -376,20 +400,18 @@ function EvidenciaModal({
   // Atrás con la ventana abierta la cierra con este mismo cierre seguro, en vez
   // de cambiar de pestaña y perder lo capturado (lib/atrasVentana.ts, 12-nov-2026).
   // Mientras sube archivos no se cierra (igual que el fondo).
-  useAtrasCierra(() => {
-    if (!subiendo) onClose();
-  });
+  // Con archivos sin subir pregunta antes (ver `cerrar`).
+  useAtrasCierra(cerrar);
   return (
     <div
       className="overlay"
       onClick={(e) => {
         // Mientras sube archivos, un roce en el fondo no debe cerrar.
-        if ((e.target as HTMLElement).className === 'overlay' && !subiendo)
-          onClose();
+        if ((e.target as HTMLElement).className === 'overlay') cerrar();
       }}
     >
       <div className="modal">
-        <CerrarModal onClick={onClose} />
+        <CerrarModal onClick={cerrar} />
         <h2 style={{ margin: '0 0 3px' }}>Evidencia</h2>
         <p className="phint">
           {inc.folio} · {inc.nombre_incidencia}
@@ -438,7 +460,31 @@ function EvidenciaModal({
               <label>
                 Agregar fotos o video (se etiquetan con la referencia de arriba)
               </label>
-              <SubirArchivos onFiles={subir} disabled={subiendo} />
+              <SubirArchivos
+                archivos={porSubir}
+                onFiles={(fs) => setPorSubir((prev) => [...prev, ...fs])}
+                onQuitar={(i) => setPorSubir((prev) => prev.filter((_, k) => k !== i))}
+                // Encerrar la falla en la foto antes de subirla (17-nov-2026).
+                onMarcar={(i, marcada) =>
+                  setPorSubir((prev) => prev.map((f, k) => (k === i ? marcada : f)))
+                }
+                disabled={subiendo}
+                ayuda={porSubir.length ? 'Toca una para revisarla, «Marcar» para encerrar la falla, y luego «Subir».' : undefined}
+              />
+              {porSubir.length > 0 && (
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ marginTop: 10, width: '100%' }}
+                  disabled={subiendo}
+                  onClick={() => void subir(porSubir)}
+                >
+                  {subiendo ? <span className="spinner" /> : null}
+                  {subiendo
+                    ? ' Subiendo…'
+                    : `Subir ${porSubir.length} archivo${porSubir.length > 1 ? 's' : ''}`}
+                </button>
+              )}
             </div>
             {subiendo && (
               <div className="banner" style={{ marginBottom: 12 }}>
@@ -545,7 +591,7 @@ function EvidenciaModal({
         )}
 
         <div className="modal-actions pie-fijo">
-          <button className="btn" onClick={onClose}>
+          <button className="btn" onClick={cerrar} disabled={subiendo}>
             Cerrar
           </button>
         </div>

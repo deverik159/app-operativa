@@ -793,6 +793,22 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
   };
 
   /**
+   * Marcar la falla en una foto (17-nov-2026): la marcada toma su lugar en
+   * la lista y en la copia del teléfono (se guarda la nueva y se borra la
+   * vieja; la cola del borrador las hace en ese orden).
+   */
+  const alMarcar = (i: number, marcada: File) => {
+    const vieja = archivos[i];
+    setArchivos((prev) => prev.map((f, k) => (k === i ? marcada : f)));
+    setSinCopia((prev) => prev.filter((f) => f !== vieja));
+    if (!sesion) return;
+    void guardarFotoReparacion(sesion, marcada).then((ok) => {
+      if (!ok && !sesion.cerrada && montado.current) setSinCopia((prev) => [...prev, marcada]);
+    });
+    if (vieja) void quitarFotoReparacion(sesion, vieja);
+  };
+
+  /**
    * El `change` del input de SubirArchivos, ANTES de que lo maneje: ahí
    * empieza a comprimir (ver `procesando`). Los videos que rebasan el tope
    * se rechazan al instante y no cuentan. El tope crece con la tanda.
@@ -1515,6 +1531,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                 archivos={archivos}
                 onFiles={alElegir}
                 onQuitar={alQuitar}
+                onMarcar={alMarcar}
                 disabled={ocupado}
                 ayuda="Se guardan en el teléfono en cuanto las eliges y se suben al guardar. Toca una para revisarla; quítala con × si salió mal."
               />
