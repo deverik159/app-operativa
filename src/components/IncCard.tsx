@@ -30,6 +30,7 @@ import {
 import { slaInfo, slaInfoValidador, caraIncidencia, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
 import { alFallarMiniatura, esUrlVideo, urlMiniatura } from '../lib/storage';
 import { etiquetaCatorcena } from '../lib/catorcena';
+import { lineasHistorial, type EventoHistorial } from '../lib/historialInc';
 import PreviaVideo from './PreviaVideo';
 import DatosUsuarioApp from './DatosUsuarioApp';
 import { colorTono, fondoTono, tonoDe, type Tono } from '../lib/tonos';
@@ -82,6 +83,12 @@ type IncCardProps = {
   onRechazarRep: (i: Incidencia) => void;
   /** Primera foto del reporte. La tarjeta la enseña sin abrir la galería. */
   foto?: string | null;
+  /**
+   * Lo que le ha pasado después de capturarse (validada, reparada,
+   * reasignada…), con fecha y quién (17-nov-2026). Va bajo «Capturada»;
+   * sin eventos no se pinta nada.
+   */
+  historial?: EventoHistorial[];
   onPrevalidar: (i: Incidencia) => void;
   onDescartar: (i: Incidencia) => void;
   /** ↩ Devolver al reportante un reporte mal hecho (abre el motivo). */
@@ -131,6 +138,7 @@ function IncCard({
   onEdit,
   onRechazarRep,
   foto,
+  historial,
   onPrevalidar,
   onDescartar,
   onDevolver,
@@ -412,6 +420,24 @@ function IncCard({
         {i.semana ? ` · Sem ${i.semana}` : ''}
         {i.captured_by ? ` · por ${String(i.captured_by).split('@')[0]}` : ''}
       </div>
+      {/* Cada cambio después de la captura, con fecha y quién (Erik,
+          17-nov-2026). Solo lo que sí pasó: una recién capturada no
+          enseña nada más. */}
+      {historial && historial.length > 0 &&
+        lineasHistorial(historial).map((l) => (
+          <div key={l.clave} className="inc-captura" title={l.detalle || undefined}>
+            {l.titulo}
+            {l.detalle && /→/.test(l.detalle) ? ` (${l.detalle})` : ''}:{' '}
+            {new Date(l.en).toLocaleString('es-MX', {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            })}
+            {l.por ? ` · por ${l.por}` : ''}
+            {/* El motivo de cada devolución o rechazo: la tarjeta solo
+                guardaba el último. */}
+            {l.detalle && !/→/.test(l.detalle) ? ` — «${l.detalle}»` : ''}
+          </div>
+        ))}
       {(i.detalle_reparacion || i.diagnostico || i.causa_raiz || i.solucion || i.apoyo_reparacion_email) && (
         <div className="obs inc-detalle">
           {i.diagnostico && (

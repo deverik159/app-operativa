@@ -79,6 +79,8 @@ import TablaIncidencias from './TablaIncidencias';
 import MotivoModal from './MotivoModal';
 import { diaCdmx, inicioDiaCdmx } from '../../lib/fechasCdmx';
 import { validaEnIncidencia } from '../../lib/validaEn';
+import type { EventoHistorial } from '../../lib/historialInc';
+import { traerHistorial } from '../../lib/historialIncApi';
 import Ic from '../../components/Ic';
 import type {
   CanInc,
@@ -462,6 +464,19 @@ type MapasFotos = {
 };
 
 /**
+ * Lo que, si cambia, significa que la tarjeta tiene un evento nuevo en su
+ * historial: estatus, área, reasignación pendiente y rechazos de reparación.
+ */
+function firmaHist(i: Incidencia): string {
+  return [
+    i.estatus,
+    i.area_responsable || '',
+    i.reasignacion_pendiente ? 1 : 0,
+    i.rechazos_reparacion || 0,
+  ].join('|');
+}
+
+/**
  * Fotos de tarjeta de una lista de record_id, con la RPC fotos_tarjetas
  * (primer_mes.sql). Devuelve null si falló (mala señal): quien llama
  * conserva las fotos que ya tenía.
@@ -662,6 +677,31 @@ function IncidenciasView({
   }>({ reporte: {}, reparacion: {}, reasign: {} });
   const fotosRef = useRef(fotos);
   fotosRef.current = fotos;
+  /**
+   * Historial de cada tarjeta (fecha y quién de cada cambio, 17-nov-2026),
+   * por record_id. `histFirma` guarda con qué estatus se trajo: si la
+   * tarjeta cambia (se repara, se reasigna…), se vuelve a pedir solo esa.
+   */
+  const [histTarjetas, setHistTarjetas] = useState<Record<string, EventoHistorial[]>>({});
+  const histFirma = useRef<Record<string, string>>({});
+  const histCargado = useRef(false);
+  // Una tarjeta cambió (se reparó, se validó, llegó por tiempo real…) o
+  // apareció una nueva: se pide el historial solo de esas, un momento
+  // después para juntar cambios seguidos.
+  useEffect(() => {
+    if (!histCargado.current) return;
+    const cambiadas = items.filter((i) => histFirma.current[i.record_id] !== firmaHist(i));
+    if (!cambiadas.length) return;
+    const t = setTimeout(() => {
+      const firmas = Object.fromEntries(cambiadas.map((i) => [i.record_id, firmaHist(i)]));
+      void traerHistorial(Object.keys(firmas)).then((m) => {
+        if (!m) return;
+        histFirma.current = { ...histFirma.current, ...firmas };
+        setHistTarjetas((prev) => ({ ...prev, ...m }));
+      });
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [items]);
 
   /**
    * La foto que le toca a la tarjeta según su momento:
@@ -1670,6 +1710,15 @@ function IncidenciasView({
       const ids = [
         ...new Set([...delServidor.map((i) => i.record_id), ...tocadas]),
       ];
+      // El historial de las tarjetas, en paralelo y sin frenar las fotos.
+      // Si falla (mala señal), se quedan con el que ya tenían.
+      const firmas = Object.fromEntries(delServidor.map((i) => [i.record_id, firmaHist(i)]));
+      void traerHistorial(ids).then((m) => {
+        if (!m || !vigente()) return;
+        setHistTarjetas(m);
+        histFirma.current = { ...histFirma.current, ...firmas };
+        histCargado.current = true;
+      });
       const [mapas, { data: reasEv, error: errReas }] = await Promise.all([
         traerFotosTarjetas(ids),
         sb
@@ -3280,6 +3329,7 @@ function IncidenciasView({
               can={can}
               email={email}
               foto={fotoDe(i)}
+              historial={histTarjetas[i.record_id]}
               onEstatus={alEstatus}
               onRepair={setRepairing}
               onEvidence={setEvidenceOf}
