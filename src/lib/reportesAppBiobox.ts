@@ -299,6 +299,16 @@ export function maquinaOpcionalAlReparar(
   return primera.startsWith('App Biobox · reporte') && abono(primera);
 }
 
+/**
+ * ¿La falla elegida en Clasificar necesita máquina? (Erik, 17-nov-2026): una
+ * «Falla en el proceso de reciclaje» no llega al técnico sin máquina, porque
+ * no tiene cómo saber cuál es. Lo de la aplicación (TI) sigue sin máquina.
+ * Espejo de la regla en clasificar_reporte_biobox_app y biobox_app_auto.
+ */
+export function pideMaquinaAlClasificar(detalle: string | null | undefined): boolean {
+  return sinAcentos((detalle || '').trim()) === 'falla en el proceso de reciclaje';
+}
+
 /** Lo que hace falta de una máquina del inventario para buscarla. */
 export type MaquinaBuscable = {
   vendor_face_id: string;

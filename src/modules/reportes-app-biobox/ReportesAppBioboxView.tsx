@@ -41,6 +41,7 @@ import {
   estadoBandeja,
   fechaCoreAIso,
   filtrarMaquinas,
+  pideMaquinaAlClasificar,
   leerErrorBandeja,
   llaveReincidencia,
   minutosDesde,
@@ -533,8 +534,11 @@ function ClasificarModal({ r, maquinaReporte, sugerida, reinc, onCerrar, onListo
     }
   };
 
+  // Reciclaje sin máquina no se crea: el técnico no sabría cuál es (17-nov-2026).
+  const faltaMaquina = !!sel && !maq && pideMaquinaAlClasificar(sel.detalle);
+
   const guardar = async () => {
-    if (!sel) return;
+    if (!sel || faltaMaquina) return;
     if (!haySenal()) { setError({ texto: SIN_SENAL, folioDuplicado: null }); return; }
     setBusy(true);
     setError(null);
@@ -662,6 +666,11 @@ function ClasificarModal({ r, maquinaReporte, sugerida, reinc, onCerrar, onListo
       <div className="phint" style={{ margin: '0 0 8px' }}>
         La incidencia nace <b>validada y En proceso</b>; el folio, el motivo y lo que escribió el usuario van en sus observaciones.
       </div>
+      {faltaMaquina && (
+        <div className="err" role="alert">
+          Elige la máquina arriba: una «{sel?.detalle}» no puede llegar al técnico sin máquina. Si no se sabe cuál es, búscala en el Webadmin (foto o datos del reporte) o descarta el reporte.
+        </div>
+      )}
       {error && (
         <div className="err" role="alert">
           {error.texto}
@@ -674,7 +683,7 @@ function ClasificarModal({ r, maquinaReporte, sugerida, reinc, onCerrar, onListo
       )}
       <div className="modal-actions pie-fijo">
         <button className="btn ghost" onClick={onCerrar} disabled={busy}>Cancelar</button>
-        <button className="btn" onClick={() => void guardar()} disabled={busy || !sel}>
+        <button className="btn" onClick={() => void guardar()} disabled={busy || !sel || faltaMaquina}>
           {busy ? 'Guardando…' : 'Crear incidencia'}
         </button>
       </div>

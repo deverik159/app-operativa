@@ -11,7 +11,7 @@ const {
   abreReportesAppBiobox, unidadesBandeja, atiendeUnidad, pideMarcarAtendido, estadoBandeja,
   textoEstatusCore, desfase, equivalenciaDe, leerErrorBandeja, minutosDesde, coincideBusqueda,
   fechaCoreAIso, llaveReincidencia, reincidencias, enlaceWebadmin, maquinaOpcionalAlReparar,
-  filtrarMaquinas,
+  filtrarMaquinas, pideMaquinaAlClasificar,
 } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const rep = (x = {}) => ({
@@ -207,4 +207,12 @@ test('Clasificar: buscar la máquina por clave, nombre, dirección o municipio (
   assert.deepEqual(claves('coyoacán'), ['MX_CM_BB_IID_0001']);
   assert.deepEqual(claves('toluca zempoala'), []); // todas las palabras deben aparecer
   assert.equal(filtrarMaquinas(lista, 'mx', 2).length, 2);
+});
+
+test('Clasificar: reciclaje pide máquina; lo de la aplicación no (17-nov-2026)', () => {
+  assert.equal(pideMaquinaAlClasificar('Falla en el proceso de reciclaje'), true);
+  assert.equal(pideMaquinaAlClasificar('  falla en el PROCESO de reciclaje '), true);
+  assert.equal(pideMaquinaAlClasificar('Fallas con la aplicación'), false);
+  assert.equal(pideMaquinaAlClasificar('Recolección de reciclaje'), false);
+  assert.equal(pideMaquinaAlClasificar(null), false);
 });
