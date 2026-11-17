@@ -78,6 +78,7 @@ import PasarOpBioboxModal from './PasarOpBioboxModal';
 import type { ModoReasign } from './ReasignModal';
 import EditModal from './EditModal';
 import CorreccionModal from './CorreccionModal';
+import AsignarMaquinaModal from './AsignarMaquinaModal';
 import TablaIncidencias from './TablaIncidencias';
 import MotivoModal from './MotivoModal';
 import { diaCdmx, inicioDiaCdmx } from '../../lib/fechasCdmx';
@@ -987,6 +988,8 @@ function IncidenciasView({
   } | null>(null);
   const [editOf, setEditOf] = useState<Incidencia | null>(null);
   const [corrigiendo, setCorrigiendo] = useState<Incidencia | null>(null);
+  /** Reportada sin máquina a la que el validador o el manager le ponen máquina. */
+  const [asignandoMaq, setAsignandoMaq] = useState<Incidencia | null>(null);
   const [motivoOf, setMotivoOf] = useState<MotivoPend | null>(null);
 
   /**
@@ -3402,6 +3405,7 @@ function IncidenciasView({
               onChat={alChat}
               onReassign={alReasignar}
               onCorregir={setCorrigiendo}
+              onAsignarMaquina={setAsignandoMaq}
               onEdit={setEditOf}
               onRechazarRep={alRechazarRep}
               onPrevalidar={alPrevalidar}
@@ -3493,6 +3497,16 @@ function IncidenciasView({
             setReassignOf(null);
             onNotifAtendida(rid);
             setTimeout(onRecargarNotifs, 400);
+          }}
+        />
+      )}
+      {asignandoMaq && (
+        <AsignarMaquinaModal
+          inc={asignandoMaq}
+          onClose={() => setAsignandoMaq(null)}
+          onDone={(rid, patch) => {
+            patchInc(rid, patch);
+            setAsignandoMaq(null);
           }}
         />
       )}

@@ -32,7 +32,7 @@ import { slaInfo, slaInfoValidador, caraIncidencia, areaEfectiva, tieneAreaRedir
 import { alFallarMiniatura, esUrlVideo, urlMiniatura } from '../lib/storage';
 import { etiquetaCatorcena } from '../lib/catorcena';
 import { lineasHistorial, type EventoHistorial } from '../lib/historialInc';
-import { ORIGEN_LABEL, origenInc } from '../lib/origenInc';
+import { esSinMaquina, ORIGEN_LABEL, origenInc } from '../lib/origenInc';
 import PreviaVideo from './PreviaVideo';
 import DatosUsuarioApp from './DatosUsuarioApp';
 import { colorTono, fondoTono, tonoDe, type Tono } from '../lib/tonos';
@@ -81,6 +81,11 @@ type IncCardProps = {
   onReassign: (i: Incidencia, mode: ModoReasign) => void;
   /** Corrección del validador: cambia qué incidencia es, según el catálogo. */
   onCorregir: (i: Incidencia) => void;
+  /**
+   * Ponerle la máquina a una reportada sin máquina antes de que la reparen
+   * (validador de la unidad o manager, 17-nov-2026).
+   */
+  onAsignarMaquina?: (i: Incidencia) => void;
   onEdit: (i: Incidencia) => void;
   onRechazarRep: (i: Incidencia) => void;
   /** Primera foto del reporte. La tarjeta la enseña sin abrir la galería. */
@@ -137,6 +142,7 @@ function IncCard({
   onChat,
   onReassign,
   onCorregir,
+  onAsignarMaquina,
   onEdit,
   onRechazarRep,
   foto,
@@ -692,6 +698,18 @@ function IncCard({
           >
             <Compass {...IC} />
             Corrección
+          </button>
+        )}
+        {/* Reportada sin máquina: el validador de la unidad o el manager se
+            la ponen antes de que la reparen (Erik, 17-nov-2026). */}
+        {onAsignarMaquina && puedeValidar && activa && esSinMaquina(i) && (
+          <button
+            className="btn ghost sm"
+            onClick={() => onAsignarMaquina(i)}
+            disabled={bloqueadaRed}
+          >
+            <MapPin {...IC} />
+            Asignar máquina
           </button>
         )}
       </div>

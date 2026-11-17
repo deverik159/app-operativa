@@ -45,14 +45,12 @@ import {
 } from '../../lib/storage';
 import {
   arbolDigitalLocal,
-  buscarSitiosEnRed,
-  buscarSitiosLocal,
-  carasDeSitioLocal,
   fechaCopia,
   haySenal,
   redOLocal,
 } from '../../lib/datosLocales';
-import type { SitioLocal } from '../../lib/datosLocales';
+import ElegirMaquina, { type MaquinaElegida } from '../../components/ElegirMaquina';
+import { ubicacionDeMaquina } from '../../lib/ubicacionMaquina';
 import { CLAVE_SIN_MAQUINA } from '../../lib/constants';
 import { maquinaOpcionalAlReparar } from '../../lib/reportesAppBiobox';
 import { colorTono } from '../../lib/tonos';
@@ -80,7 +78,7 @@ import SubirArchivos from '../../components/SubirArchivos';
 import ApoyoModal from './ApoyoModal';
 import { pideApoyo } from '../../lib/apoyoReparacion';
 import PreviaVideo from '../../components/PreviaVideo';
-import type { ArbolDigital, Evidencia, Incidencia, InventarioItem } from '../../types/db';
+import type { ArbolDigital, Evidencia, Incidencia } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 import { useAtrasCierra } from '../../lib/atrasVentana';
@@ -440,76 +438,9 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
   // De abono de puntos, o de TI que vino de la app Biobox, se puede reparar
   // sin elegirla (Erik, 11-nov-2026; ver maquinaOpcionalAlReparar).
   const maqOpcional = sinMaquina && maquinaOpcionalAlReparar(inc);
-  const [maqQuery, setMaqQuery] = useState('');
-  const [maqOpts, setMaqOpts] = useState<SitioLocal[]>([]);
-  const [maqBuscando, setMaqBuscando] = useState(false);
-  const [maqSitio, setMaqSitio] = useState<SitioLocal | null>(null);
-  const [maqCaras, setMaqCaras] = useState<InventarioItem[]>([]);
-  const [maqCara, setMaqCara] = useState('');
-  const [maqCargando, setMaqCargando] = useState(false);
-  const maqSeq = useRef(0);
-
-  useEffect(() => {
-    const q = maqQuery.trim();
-    if (!sinMaquina || maqSitio || !q) {
-      setMaqOpts([]);
-      setMaqBuscando(false);
-      return;
-    }
-    let vivo = true;
-    setMaqBuscando(true);
-    const unidad = inc.unidad_negocio || '';
-    const t = setTimeout(async () => {
-      try {
-        const locales = await buscarSitiosLocal(unidad, q, 12).catch(() => [] as SitioLocal[]);
-        if (!vivo) return;
-        setMaqOpts(locales);
-        const hayCopia = !!(await fechaCopia('inventario').catch(() => null));
-        const r = await redOLocal<SitioLocal[]>(
-          (senal) => buscarSitiosEnRed(unidad, q, senal, { topeNombresMs: hayCopia ? 3000 : 15000 }),
-          async () => locales,
-          hayCopia ? { topeSinCopiaMs: 0 } : undefined
-        );
-        if (!vivo) return;
-        const opts: SitioLocal[] = [...locales];
-        if (r.origen === 'red')
-          (r.datos || []).forEach((x) => {
-            if (!opts.some((o) => o.site_id === x.site_id)) opts.push(x);
-          });
-        setMaqOpts(opts.slice(0, 12));
-      } finally {
-        if (vivo) setMaqBuscando(false);
-      }
-    }, 250);
-    return () => {
-      vivo = false;
-      clearTimeout(t);
-    };
-  }, [maqQuery, maqSitio, sinMaquina, inc.unidad_negocio]);
-
-  const elegirMaquina = async (o: SitioLocal) => {
-    const seq = ++maqSeq.current;
-    setMaqSitio(o);
-    setMaqCaras([]);
-    setMaqCara('');
-    setMaqCargando(true);
-    const r = await redOLocal<InventarioItem[]>(
-      (senal) =>
-        sb
-          .from('inventario')
-          .select(
-            'vendor_face_id,site_id,site_legacy_id,cara,categoria,unidad_negocio,tipo_medio,tipo_mueble,latitud,longitud,direccion,municipio,estado'
-          )
-          .eq('site_id', o.site_id)
-          .retry(false)
-          .abortSignal(senal),
-      () => carasDeSitioLocal(o.site_id)
-    ).catch(() => ({ datos: [] as InventarioItem[], origen: 'local' as const }));
-    if (seq !== maqSeq.current) return;
-    setMaqCargando(false);
-    setMaqCaras(r.datos);
-    if (r.datos.length === 1) setMaqCara(r.datos[0].vendor_face_id);
-  };
+  // El buscador vive en components/ElegirMaquina (17-nov-2026: lo usa
+  // también AsignarMaquinaModal); aquí solo lo elegido.
+  const [maq, setMaq] = useState<MaquinaElegida>({ sitio: null, cara: null });
   const tecnicasDig = [
     ...new Set(arbol.map((a) => a.incidencia_srd).filter(Boolean)),
   ] as string[];
@@ -902,11 +833,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
     if (esDigital && !arbolListo) return;
     // Opcional: sin buscar ninguna, se guarda sin máquina; pero si ya eligió
     // una, falta su cara (o que toque Cambiar y la quite).
-    if (
-      sinMaquina &&
-      (!maqOpcional || maqSitio) &&
-      !maqCaras.some((c) => c.vendor_face_id === maqCara)
-    ) {
+    if (sinMaquina && (!maqOpcional || maq.sitio) && !maq.cara) {
       alert(
         maqOpcional
           ? 'Termina de elegir la máquina (o toca Cambiar y déjala sin máquina).'
@@ -984,19 +911,8 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
 
     // La máquina que eligió quien repara, con los mismos datos que el alta
     // toma de la cara (NuevaInc).
-    const cm = sinMaquina ? maqCaras.find((c) => c.vendor_face_id === maqCara) : null;
-    const ubicacion: Partial<Incidencia> | null = cm
-      ? {
-          clave_sitio: cm.site_id,
-          clave_medio: cm.vendor_face_id,
-          direccion: cm.direccion ?? maqSitio?.direccion ?? null,
-          municipio: cm.municipio ?? null,
-          plaza: cm.estado ?? null,
-          medio: cm.tipo_medio ?? null,
-          tipo_mueble: cm.tipo_mueble ?? null,
-          nombre_biobox: cm.site_legacy_id || null,
-        }
-      : null;
+    const ubicacion: Partial<Incidencia> | null =
+      sinMaquina && maq.cara ? ubicacionDeMaquina(maq.cara, maq.sitio?.direccion) : null;
 
     // Se pregunta al final, con todo lo demás ya en regla: así la ventana
     // es el último paso antes de guardar (Erik, 29-oct-2026).
@@ -1194,89 +1110,7 @@ function RepararModal({ inc, email, onClose, onSave }: Props) {
                   ? 'Es de abono de puntos: le pasa al usuario en la app, no a una máquina. Si sabes en cuál fue, búscala por su clave o por su nombre; si no, déjalo vacío.'
                   : 'Se reportó sin máquina: búscala por su clave o por su nombre.'}
               </div>
-              {!maqSitio ? (
-                <>
-                  <input
-                    value={maqQuery}
-                    onChange={(e) => setMaqQuery(e.target.value)}
-                    placeholder="Escribe para buscar…"
-                    disabled={ocupado}
-                  />
-                  {maqBuscando && maqOpts.length === 0 && (
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Buscando…</div>
-                  )}
-                  {!maqBuscando && !!maqQuery.trim() && maqOpts.length === 0 && (
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Sin resultados</div>
-                  )}
-                  {maqOpts.length > 0 && (
-                    <div
-                      className="lista-scroll"
-                      style={{
-                        border: '1px solid var(--line)',
-                        borderRadius: 9,
-                        marginTop: 4,
-                        maxHeight: 220,
-                        overflow: 'auto',
-                      }}
-                    >
-                      {maqOpts.map((o) => (
-                        <button
-                          key={o.site_id}
-                          type="button"
-                          className="btn ghost"
-                          style={{ display: 'block', width: '100%', textAlign: 'left', borderRadius: 0, border: 'none' }}
-                          onClick={() => elegirMaquina(o)}
-                        >
-                          <b>{o.site_id}</b>
-                          {o.nombre && <span style={{ color: 'var(--muted)' }}> · {o.nombre}</span>}
-                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>{o.direccion || 'sin dirección'}</div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="banner" style={{ marginBottom: 0 }}>
-                  <b>{maqSitio.site_id}</b>
-                  {maqSitio.nombre ? ` · ${maqSitio.nombre}` : ''}
-                  {maqSitio.direccion ? ` · ${maqSitio.direccion}` : ''}{' '}
-                  <button
-                    type="button"
-                    className="btn ghost sm"
-                    onClick={() => {
-                      maqSeq.current++;
-                      setMaqSitio(null);
-                      setMaqCaras([]);
-                      setMaqCara('');
-                      setMaqCargando(false);
-                    }}
-                    disabled={ocupado}
-                  >
-                    Cambiar
-                  </button>
-                  {maqCargando && <div style={{ marginTop: 6 }}>Cargando sus caras…</div>}
-                  {!maqCargando && maqCaras.length === 0 && (
-                    <div style={{ marginTop: 6, color: 'var(--warn)' }}>
-                      No se pudieron cargar sus caras. Toca Cambiar y vuelve a elegirla.
-                    </div>
-                  )}
-                  {maqCaras.length > 1 && (
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-                      {maqCaras.map((c) => (
-                        <button
-                          key={c.vendor_face_id}
-                          type="button"
-                          className={'btn sm' + (maqCara === c.vendor_face_id ? '' : ' ghost')}
-                          onClick={() => setMaqCara(c.vendor_face_id)}
-                          disabled={ocupado}
-                        >
-                          {c.tipo_medio || c.cara || c.vendor_face_id}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+              <ElegirMaquina unidad={inc.unidad_negocio || ''} disabled={ocupado} onCambio={setMaq} />
             </div>
           )}
 
