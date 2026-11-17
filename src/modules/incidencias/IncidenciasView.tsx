@@ -81,6 +81,7 @@ import { diaCdmx, inicioDiaCdmx } from '../../lib/fechasCdmx';
 import { validaEnIncidencia } from '../../lib/validaEn';
 import type { EventoHistorial } from '../../lib/historialInc';
 import { traerHistorial } from '../../lib/historialIncApi';
+import { foliosApp } from '../../lib/folioApp';
 import Ic from '../../components/Ic';
 import type {
   CanInc,
@@ -2286,9 +2287,12 @@ function IncidenciasView({
         // sin obligar a escribir el acento en el teclado del celular.
         // También por clave de sitio/medio y por el nombre de la máquina o
         // la pantalla (nombre_biobox): MKT los conoce así (Erik, 27-sep-2026).
+        // Y por el folio del reporte de la app Biobox (BBOTR-00437), el que
+        // la creó o los que se le ligaron después (Erik, 17-nov-2026).
         const s = sinAcentos(
           `${i.folio} ${i.nombre_incidencia} ${i.direccion} ${i.campania} ` +
-            `${i.clave_sitio || ''} ${i.clave_medio || ''} ${i.nombre_biobox || ''}`
+            `${i.clave_sitio || ''} ${i.clave_medio || ''} ${i.nombre_biobox || ''} ` +
+            foliosApp(i.observaciones, histTarjetas[i.record_id]).join(' ')
         );
         // Cada fragmento por separado, como el buscador de clave del alta:
         // "eva 03" encuentra MX_EM_EV_EVA_03_0009.
@@ -2301,6 +2305,7 @@ function IncidenciasView({
     bandeja,
     modo,
     q,
+    histTarjetas,
     fUN,
     fArea,
     fReporta,
@@ -3136,7 +3141,7 @@ function IncidenciasView({
       <div className="toolbar">
         <input
           className="search"
-          placeholder="Buscar folio, sitio, campaña…"
+          placeholder="Buscar folio (o de la app), sitio, campaña…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />

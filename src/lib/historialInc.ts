@@ -33,6 +33,7 @@ const ETIQUETA: Record<string, string> = {
   reasignacion_solicitada: 'Reasignación solicitada',
   reasignacion_aprobada: 'Reasignación aprobada',
   reasignacion_rechazada: 'Reasignación rechazada',
+  reporte_app_ligado: 'Reporte de la app ligado',
 };
 
 const ESTATUS_LEGIBLE: Record<string, string> = {
@@ -65,10 +66,14 @@ export function lineasHistorial(eventos: readonly EventoHistorial[]): LineaHisto
     .sort((a, b) => Date.parse(a.en) - Date.parse(b.en))
     .map((e, k) => ({
       clave: `${e.evento}-${e.en}-${k}`,
+      // El reporte ligado lleva su folio en el título: «Reporte de la app
+      // BBOTR-00437 ligado» (17-nov-2026).
       titulo:
-        ETIQUETA[e.evento] ||
-        `Cambió a ${ESTATUS_LEGIBLE[e.estatus_nuevo || ''] || e.estatus_nuevo || 'otro estatus'}`,
-      detalle: e.detalle?.trim() || null,
+        e.evento === 'reporte_app_ligado' && e.detalle?.trim()
+          ? `Reporte de la app ${e.detalle.trim()} ligado`
+          : ETIQUETA[e.evento] ||
+            `Cambió a ${ESTATUS_LEGIBLE[e.estatus_nuevo || ''] || e.estatus_nuevo || 'otro estatus'}`,
+      detalle: e.evento === 'reporte_app_ligado' ? null : e.detalle?.trim() || null,
       en: e.en,
       por: e.por_email ? e.por_email.split('@')[0] : null,
     }));
