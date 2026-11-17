@@ -22,6 +22,7 @@
 //     para que la tarjeta no regrese a su estatus viejo tras un ↻.
 // ============================================================
 import {
+  CircleHelp,
   Clock,
   HardHat,
   List,
@@ -84,7 +85,7 @@ import { validaEnIncidencia } from '../../lib/validaEn';
 import type { EventoHistorial } from '../../lib/historialInc';
 import { traerHistorial } from '../../lib/historialIncApi';
 import { foliosApp } from '../../lib/folioApp';
-import { contarOrigen, ORIGEN_LABEL, origenInc, type Origen } from '../../lib/origenInc';
+import { contarOrigen, esSinMaquina, ORIGEN_LABEL, origenInc, type Origen } from '../../lib/origenInc';
 import Ic from '../../components/Ic';
 import type {
   CanInc,
@@ -937,6 +938,8 @@ function IncidenciasView({
    * Biobox (Erik, 17-nov-2026). '' = las dos.
    */
   const [fOrigen, setFOrigen] = useState<Origen | ''>('');
+  /** Mis pendientes: solo las reportadas sin máquina (se suma al origen). */
+  const [fSinMaquina, setFSinMaquina] = useState(false);
   /** Rango de fechas de captura. Vacío = sin límite por ese lado. */
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
@@ -2265,6 +2268,7 @@ function IncidenciasView({
       if (fReporta !== 'Todas' && (i.area_reportante || '') !== fReporta)
         return false;
       if (modo === 'bandeja' && fOrigen && origenInc(i) !== fOrigen) return false;
+      if (modo === 'bandeja' && fSinMaquina && !esSinMaquina(i)) return false;
       if (modo === 'todas' && fMias) {
         const es = (e: string | null | undefined) => (e || '').toLowerCase() === yo;
         if (fMias === 'reporte' && !es(i.captured_by)) return false;
@@ -2322,6 +2326,7 @@ function IncidenciasView({
     fArea,
     fReporta,
     fOrigen,
+    fSinMaquina,
     fEstado,
     fDesde,
     fHasta,
@@ -2347,7 +2352,7 @@ function IncidenciasView({
     !!fDesde ||
     !!fHasta ||
     (modo === 'bandeja' && fSla != null) ||
-    (modo === 'bandeja' && !!fOrigen) ||
+    (modo === 'bandeja' && (!!fOrigen || fSinMaquina)) ||
     (modo === 'todas' && (!!fMias || !!fPersona)) ||
     !!q.trim();
 
@@ -2368,6 +2373,7 @@ function IncidenciasView({
     fArea,
     fReporta,
     fOrigen,
+    fSinMaquina,
     fEstado,
     fDesde,
     fHasta,
@@ -3157,7 +3163,7 @@ function IncidenciasView({
           técnico de Op. Bio Box no las distinguía. Solo si en su bandeja hay
           de la app; a la vista y con conteo, no escondido en la fila de
           filtros que se desliza. */}
-      {modo === 'bandeja' && conteoOrigen.app > 0 && (
+      {modo === 'bandeja' && (conteoOrigen.app > 0 || conteoOrigen.sinMaquina > 0) && (
         <div className="toolbar filtro-origen" role="group" aria-label="Origen">
           <span className="filtro-origen-titulo">Origen:</span>
           {([['', 'Todas'], ['campo', ORIGEN_LABEL.campo], ['app', ORIGEN_LABEL.app]] as const).map(
@@ -3176,6 +3182,19 @@ function IncidenciasView({
                 </button>
               );
             }
+          )}
+          {/* Aparte y se suma al origen (Erik, 17-nov-2026): las que se
+              reportaron sin máquina y la espera quien repara. */}
+          {conteoOrigen.sinMaquina > 0 && (
+            <button
+              type="button"
+              className={'btn ghost sm' + (fSinMaquina ? ' on' : '')}
+              aria-pressed={fSinMaquina}
+              onClick={() => setFSinMaquina((v) => !v)}
+              title={fSinMaquina ? 'Quitar este filtro' : 'Ver solo las que no tienen máquina'}
+            >
+              <Ic i={CircleHelp} />Sin máquina ({conteoOrigen.sinMaquina})
+            </button>
           )}
         </div>
       )}

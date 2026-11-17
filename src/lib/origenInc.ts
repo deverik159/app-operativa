@@ -11,6 +11,8 @@
 //               GPO Vallas).
 // Sin supabase: se prueba en tests/origenInc.test.mjs.
 // ============================================================
+import { CLAVE_SIN_MAQUINA } from './constants';
+
 export type Origen = 'campo' | 'app';
 
 export const AREA_APP_BIOBOX = 'App Biobox';
@@ -24,9 +26,25 @@ export function origenInc(i: { area_reportante?: string | null }): Origen {
   return (i.area_reportante || '').trim() === AREA_APP_BIOBOX ? 'app' : 'campo';
 }
 
-/** Cuántas hay de cada origen (para los botones del filtro). */
-export function contarOrigen(lista: readonly { area_reportante?: string | null }[]): Record<Origen, number> {
-  const n: Record<Origen, number> = { campo: 0, app: 0 };
-  for (const i of lista) n[origenInc(i)]++;
+/**
+ * Reportada sin máquina (clave de sitio SIN-MAQUINA): quien la repara elige
+ * la máquina (Erik, 17-nov-2026: filtro aparte en Mis pendientes). Al
+ * elegirla deja de contar.
+ */
+export function esSinMaquina(i: { clave_sitio?: string | null }): boolean {
+  return (i.clave_sitio || '').trim() === CLAVE_SIN_MAQUINA;
+}
+
+type ParaContar = { area_reportante?: string | null; clave_sitio?: string | null };
+
+/** Cuántas hay de cada origen y sin máquina (para los botones del filtro). */
+export function contarOrigen(
+  lista: readonly ParaContar[]
+): Record<Origen, number> & { sinMaquina: number } {
+  const n = { campo: 0, app: 0, sinMaquina: 0 };
+  for (const i of lista) {
+    n[origenInc(i)]++;
+    if (esSinMaquina(i)) n.sinMaquina++;
+  }
   return n;
 }

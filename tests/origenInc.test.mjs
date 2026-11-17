@@ -10,7 +10,7 @@ const { outputFiles } = await build({
   format: 'esm',
   platform: 'neutral',
 });
-const { origenInc, contarOrigen } = await import(
+const { origenInc, contarOrigen, esSinMaquina } = await import(
   'data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64')
 );
 
@@ -21,11 +21,19 @@ test('Origen: usuario de la app contra operación/campo (17-nov-2026)', () => {
     assert.equal(origenInc({ area_reportante: a }), 'campo', String(a));
   assert.deepEqual(
     contarOrigen([
-      { area_reportante: 'App Biobox' },
-      { area_reportante: 'Operaciones' },
-      { area_reportante: 'App Biobox' },
-      { area_reportante: 'MKT' },
+      { area_reportante: 'App Biobox', clave_sitio: 'SIN-MAQUINA' },
+      { area_reportante: 'Operaciones', clave_sitio: 'MX_CM_BB_0058' },
+      { area_reportante: 'App Biobox', clave_sitio: 'MX_CM_BB_0012' },
+      { area_reportante: 'MKT', clave_sitio: 'SIN-MAQUINA' },
     ]),
-    { campo: 2, app: 2 }
+    { campo: 2, app: 2, sinMaquina: 2 }
   );
+});
+
+test('Sin máquina: solo la clave SIN-MAQUINA (17-nov-2026)', () => {
+  assert.equal(esSinMaquina({ clave_sitio: 'SIN-MAQUINA' }), true);
+  assert.equal(esSinMaquina({ clave_sitio: ' SIN-MAQUINA ' }), true);
+  assert.equal(esSinMaquina({ clave_sitio: 'MX_CM_BB_0058' }), false);
+  assert.equal(esSinMaquina({ clave_sitio: null }), false);
+  assert.equal(esSinMaquina({}), false);
 });
