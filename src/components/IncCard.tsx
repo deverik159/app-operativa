@@ -15,6 +15,7 @@ import {
   Pencil,
   Repeat,
   Shuffle,
+  Smartphone,
   Target,
   Undo2,
   User,
@@ -31,6 +32,7 @@ import { slaInfo, slaInfoValidador, caraIncidencia, areaEfectiva, tieneAreaRedir
 import { alFallarMiniatura, esUrlVideo, urlMiniatura } from '../lib/storage';
 import { etiquetaCatorcena } from '../lib/catorcena';
 import { lineasHistorial, type EventoHistorial } from '../lib/historialInc';
+import { ORIGEN_LABEL, origenInc } from '../lib/origenInc';
 import PreviaVideo from './PreviaVideo';
 import DatosUsuarioApp from './DatosUsuarioApp';
 import { colorTono, fondoTono, tonoDe, type Tono } from '../lib/tonos';
@@ -358,6 +360,14 @@ function IncCard({
             title="Lado de la cara reportada"
           >
             <Ic i={Compass} />Cara {i.lado}
+          </span>
+        )}
+        {/* Reportada por un usuario final desde la app, no por la operación
+            (Erik, 17-nov-2026): el técnico de Op. Bio Box no las distinguía.
+            Las de campo no llevan etiqueta: son la mayoría. */}
+        {origenInc(i) === 'app' && (
+          <span className="tag" style={chip('azul')} title="La reportó un usuario desde la app Biobox">
+            <Ic i={Smartphone} />{ORIGEN_LABEL.app}
           </span>
         )}
         {/* tipo (Imponderable…) y origen ya no se muestran en la tarjeta:

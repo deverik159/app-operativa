@@ -23,7 +23,9 @@
 // ============================================================
 import {
   Clock,
+  HardHat,
   List,
+  Smartphone,
   Table,
   X,
 } from 'lucide-react';
@@ -82,6 +84,7 @@ import { validaEnIncidencia } from '../../lib/validaEn';
 import type { EventoHistorial } from '../../lib/historialInc';
 import { traerHistorial } from '../../lib/historialIncApi';
 import { foliosApp } from '../../lib/folioApp';
+import { contarOrigen, ORIGEN_LABEL, origenInc, type Origen } from '../../lib/origenInc';
 import Ic from '../../components/Ic';
 import type {
   CanInc,
@@ -929,6 +932,11 @@ function IncidenciasView({
   const [fArea, setFArea] = useState('Todas');
   /** Filtra por el ÁREA QUE REPORTÓ (area_reportante): MKT, Monitoreo… */
   const [fReporta, setFReporta] = useState('Todas');
+  /**
+   * Mis pendientes: de la operación en campo o de un usuario de la app
+   * Biobox (Erik, 17-nov-2026). '' = las dos.
+   */
+  const [fOrigen, setFOrigen] = useState<Origen | ''>('');
   /** Rango de fechas de captura. Vacío = sin límite por ese lado. */
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
@@ -2227,6 +2235,9 @@ function IncidenciasView({
     return [...set].sort();
   }, [itemsVista]);
 
+  /** Cuántas de la bandeja son de campo y cuántas de la app (filtro Origen). */
+  const conteoOrigen = useMemo(() => contarOrigen(bandeja), [bandeja]);
+
   const visibles = useMemo(() => {
     const base = modo === 'bandeja' ? bandeja : itemsVista;
     // Filtro del aviso de validaciones: primero los reportes por validar y
@@ -2253,6 +2264,7 @@ function IncidenciasView({
       // Quién reporta = el área de pertenencia con la que nació el reporte.
       if (fReporta !== 'Todas' && (i.area_reportante || '') !== fReporta)
         return false;
+      if (modo === 'bandeja' && fOrigen && origenInc(i) !== fOrigen) return false;
       if (modo === 'todas' && fMias) {
         const es = (e: string | null | undefined) => (e || '').toLowerCase() === yo;
         if (fMias === 'reporte' && !es(i.captured_by)) return false;
@@ -2309,6 +2321,7 @@ function IncidenciasView({
     fUN,
     fArea,
     fReporta,
+    fOrigen,
     fEstado,
     fDesde,
     fHasta,
@@ -2334,6 +2347,7 @@ function IncidenciasView({
     !!fDesde ||
     !!fHasta ||
     (modo === 'bandeja' && fSla != null) ||
+    (modo === 'bandeja' && !!fOrigen) ||
     (modo === 'todas' && (!!fMias || !!fPersona)) ||
     !!q.trim();
 
@@ -2353,6 +2367,7 @@ function IncidenciasView({
     fUN,
     fArea,
     fReporta,
+    fOrigen,
     fEstado,
     fDesde,
     fHasta,
@@ -3134,6 +3149,33 @@ function IncidenciasView({
             <button type="button" className="btn ghost sm" onClick={() => setFSla(null)}>
               <Ic i={X} />Ver todas
             </button>
+          )}
+        </div>
+      )}
+
+      {/* De la operación o de un usuario de la app (Erik, 17-nov-2026): el
+          técnico de Op. Bio Box no las distinguía. Solo si en su bandeja hay
+          de la app; a la vista y con conteo, no escondido en la fila de
+          filtros que se desliza. */}
+      {modo === 'bandeja' && conteoOrigen.app > 0 && (
+        <div className="toolbar filtro-origen" role="group" aria-label="Origen">
+          <span className="filtro-origen-titulo">Origen:</span>
+          {([['', 'Todas'], ['campo', ORIGEN_LABEL.campo], ['app', ORIGEN_LABEL.app]] as const).map(
+            ([v, txt]) => {
+              const n = v ? conteoOrigen[v] : conteoOrigen.campo + conteoOrigen.app;
+              return (
+                <button
+                  key={v || 'todas'}
+                  type="button"
+                  className={'btn ghost sm' + (fOrigen === v ? ' on' : '')}
+                  aria-pressed={fOrigen === v}
+                  onClick={() => setFOrigen(v)}
+                >
+                  {v === 'app' ? <Ic i={Smartphone} /> : v === 'campo' ? <Ic i={HardHat} /> : null}
+                  {txt} ({n})
+                </button>
+              );
+            }
           )}
         </div>
       )}

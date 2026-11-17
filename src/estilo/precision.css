@@ -141,6 +141,13 @@ input[type="checkbox"]:focus-visible,input[type="radio"]:focus-visible{outline:2
 .aviso-sla .btn{border-radius:17px;color:inherit;border-color:currentColor;gap:6px}
 .aviso-sla .btn.on{background:var(--pildora-on);color:var(--pildora-on-txt);border-color:var(--pildora-on-borde)}
 .aviso-sla-desglose{font-weight:400;opacity:.85}
+/* Origen en Mis pendientes: operación/campo o usuario de la app Biobox
+   (IncidenciasView, 17-nov-2026). Botones que se acomodan en dos renglones
+   en celular, la activa como las píldoras de filtros. */
+.filtro-origen{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.filtro-origen-titulo{font-size:12px;color:var(--muted)}
+.filtro-origen .btn{border-radius:17px;gap:6px}
+.filtro-origen .btn.on{background:var(--pildora-on);color:var(--pildora-on-txt);border-color:var(--pildora-on-borde)}
 /* Tarjetas de número de Indicadores: 10 en dos filas de 5 (KpiView). */
 @media(min-width:781px){.cards.cinco{grid-template-columns:repeat(5,minmax(0,1fr))}}
 /* Pantalla intermedia: con 5 columnas angostas "21 d 13 h" se partía; el
