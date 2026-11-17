@@ -2881,6 +2881,12 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                 onQuitar={(i) =>
                   setFilesLinea((f) => f.filter((_, idx) => idx !== i))
                 }
+                // Encerrar la falla en la foto (17-nov-2026): la marcada
+                // reemplaza a la original en su mismo lugar (el orden decide
+                // a qué cara va con «una por cara»).
+                onMarcar={(i, marcada) =>
+                  setFilesLinea((f) => f.map((x, idx) => (idx === i ? marcada : x)))
+                }
               />
               <div
                 style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}

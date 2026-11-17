@@ -14,8 +14,9 @@
 // `capture` se ignora y el usuario acabaría con dos botones que hacen lo
 // mismo.
 // ============================================================
-import { Camera } from 'lucide-react';
+import { Camera, PenLine } from 'lucide-react';
 import { useRef, useState, useEffect } from 'react';
+import MarcarFoto from './MarcarFoto';
 import { prepararArchivos } from '../lib/comprimirImagen';
 import {
   compresionInterrumpida,
@@ -43,6 +44,11 @@ type Props = {
   archivos?: File[];
   /** Quitar uno de la lista de arriba. */
   onQuitar?: (indice: number) => void;
+  /**
+   * Con esto, cada foto lleva el botón «Marcar» para encerrar la falla
+   * (17-nov-2026). Recibe la foto marcada, que reemplaza a la de ese lugar.
+   */
+  onMarcar?: (indice: number, marcada: File) => void;
   multiple?: boolean;
   disabled?: boolean;
   /** Por defecto acepta foto y video. */
@@ -62,12 +68,15 @@ function MiniFile({
   file,
   onQuitar,
   onVer,
+  onMarcar,
   disabled,
 }: {
   file: File;
   onQuitar?: () => void;
   /** Abre la foto/video en grande, para revisarla antes de mandar. */
   onVer?: () => void;
+  /** Abre el editor para marcar la falla (solo fotos). */
+  onMarcar?: () => void;
   disabled?: boolean;
 }) {
   const [url, setUrl] = useState('');
@@ -148,6 +157,36 @@ function MiniFile({
           }}
         >
           ×
+        </button>
+      )}
+      {onMarcar && !esVideo && (
+        <button
+          type="button"
+          onClick={onMarcar}
+          disabled={disabled}
+          aria-label={`Marcar la falla en ${file.name}`}
+          style={{
+            position: 'absolute',
+            left: 3,
+            right: 3,
+            bottom: 3,
+            height: 28,
+            borderRadius: 14,
+            border: 'none',
+            // Va sobre la foto, no sobre la interfaz: igual en los dos temas.
+            background: 'rgba(0,0,0,.75)',
+            color: '#fff',
+            cursor: 'pointer',
+            fontSize: 11,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+            padding: 0,
+          }}
+        >
+          <Ic i={PenLine} /> Marcar
         </button>
       )}
     </div>
@@ -261,9 +300,12 @@ function SubirArchivos({
   accept = 'image/*,video/*',
   ayuda,
   esperarOnFiles = false,
+  onMarcar,
 }: Props) {
   /** Archivo abierto en el visor a pantalla completa. */
   const [ver, setVer] = useState<File | null>(null);
+  /** Foto abierta para marcar: su lugar en `archivos` y el archivo. */
+  const [marcando, setMarcando] = useState<{ indice: number; file: File } | null>(null);
   const camFotoRef = useRef<HTMLInputElement>(null);
   const camVideoRef = useRef<HTMLInputElement>(null);
   const galRef = useRef<HTMLInputElement>(null);
@@ -467,6 +509,7 @@ function SubirArchivos({
               disabled={disabled}
               onQuitar={onQuitar ? () => onQuitar(i) : undefined}
               onVer={() => setVer(f)}
+              onMarcar={onMarcar ? () => setMarcando({ indice: i, file: f }) : undefined}
             />
           ))}
         </div>
@@ -479,6 +522,18 @@ function SubirArchivos({
       )}
 
       {ver && <VisorFile file={ver} onClose={() => setVer(null)} />}
+      {marcando && onMarcar && (
+        <MarcarFoto
+          file={marcando.file}
+          onCancelar={() => setMarcando(null)}
+          onListo={(marcada) => {
+            // Solo si en ese lugar sigue la misma foto (no se quitó otra
+            // mientras se marcaba).
+            if (archivos?.[marcando.indice] === marcando.file) onMarcar(marcando.indice, marcada);
+            setMarcando(null);
+          }}
+        />
+      )}
     </div>
   );
 }
