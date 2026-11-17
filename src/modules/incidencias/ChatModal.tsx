@@ -154,6 +154,29 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   const [msgs, setMsgs] = useState<Mensaje[]>([]);
   const [texto, setTexto] = useState('');
   const [loading, setLoading] = useState(true);
+  /**
+   * ¿La base te deja escribir aquí? (17-nov-2026). La regla vive en
+   * puede_escribir_chat, la misma que usa la política msg_ins: así quien
+   * solo puede leer (p. ej. con rol de consulta) lo sabe ANTES de escribir.
+   * null = aún no se sabe o no hubo señal: se deja escribir y la base decide.
+   */
+  const [puedeEscribir, setPuedeEscribir] = useState<boolean | null>(null);
+  const nMsgs = msgs.length;
+  useEffect(() => {
+    // Ya puede: no se vuelve a preguntar. Si no podía, se pregunta otra vez
+    // cuando llega un mensaje (pudieron mencionarlo).
+    if (puedeEscribir === true || inc.estatus === 'cerrada') return;
+    let vivo = true;
+    void sb
+      .rpc('puede_escribir_chat', { p_record_id: inc.record_id })
+      .then(({ data, error }) => {
+        if (vivo && !error && typeof data === 'boolean') setPuedeEscribir(data);
+      });
+    return () => {
+      vivo = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inc.record_id, inc.estatus, nMsgs]);
   const boxRef = useRef<HTMLDivElement>(null);
   /** El contenido de la caja: su alto cambia cuando llegan fotos o mensajes. */
   const contRef = useRef<HTMLDivElement>(null);
@@ -2073,6 +2096,13 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
         {inc.estatus === 'cerrada' ? (
           <div className="banner">
             <Ic i={Lock} />Incidencia cerrada — el chat es de solo lectura.
+          </div>
+        ) : puedeEscribir === false ? (
+          // Antes de escribir, no al enviar (17-nov-2026).
+          <div className="banner" role="status">
+            <Ic i={Lock} />Solo lectura: puedes leer este chat, pero tu rol no permite
+            escribir en esta incidencia. Para participar, pide al área que la repara que te
+            mencione con @.
           </div>
         ) : (
           <>
