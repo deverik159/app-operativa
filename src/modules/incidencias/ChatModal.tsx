@@ -13,6 +13,7 @@
 // ============================================================
 import {
   Camera,
+  ClipboardPaste,
   Film,
   Lock,
   Paperclip,
@@ -32,6 +33,7 @@ import {
   MAX_VIDEO_BYTES,
 } from '../../lib/adjuntosChat';
 import { comprimirImagen, textoRestante } from '../../lib/comprimirImagen';
+import { imagenDePegado, leerImagenDelPortapapeles, puedePegarConBoton } from '../../lib/portapapeles';
 import {
   COMPRIMIR_VIDEO_DESDE,
   compresionInterrumpida,
@@ -1133,6 +1135,34 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
     const original = e.target.files?.[0];
     e.target.value = '';
     if (!original) return;
+    await tomarArchivo(original);
+  };
+
+  /**
+   * Pegar una imagen (Erik, 18-nov-2026): un recorte de Win + Shift + S entra
+   * como si se hubiera elegido con 📎 (comprimir, validar, «Marcar»). Ctrl+V
+   * en la caja del mensaje; el texto copiado se pega normal.
+   */
+  const alPegar = (e: React.ClipboardEvent) => {
+    if (subiendo) return;
+    const img = imagenDePegado(e.clipboardData);
+    if (!img) return;
+    e.preventDefault();
+    void tomarArchivo(img);
+  };
+  // Botón «Pegar imagen»: solo en computadora (ver portapapeles.ts).
+  const conBotonPegar = puedePegarConBoton();
+  const pegarConBoton = async () => {
+    setErrAdj('');
+    const r = await leerImagenDelPortapapeles();
+    if ('aviso' in r) {
+      setErrAdj(r.aviso);
+      return;
+    }
+    await tomarArchivo(r.file);
+  };
+
+  const tomarArchivo = async (original: File) => {
     setErrAdj('');
     // Comprimir ANTES de validar: las fotos de un iPhone reciente pasan de
     // 5 MB con frecuencia y el límite las rechazaba sin ofrecer salida.
@@ -2300,12 +2330,26 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
               >
                 <Ic i={Paperclip} className="solo" />
               </button>
+              {conBotonPegar && (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => void pegarConBoton()}
+                  disabled={subiendo}
+                  style={{ flexShrink: 0 }}
+                  title="Pegar imagen (un recorte de Win + Shift + S). También con Ctrl+V en el mensaje."
+                  aria-label="Pegar imagen"
+                >
+                  <Ic i={ClipboardPaste} className="solo" />
+                </button>
+              )}
               <textarea
                 ref={inputRef}
                 className="chat-campo"
                 value={texto}
                 rows={1}
                 enterKeyHint="enter"
+                onPaste={alPegar}
                 onChange={(e) => cambiarTexto(e.target.value, e.target.selectionStart)}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape' && tokenAt) {
