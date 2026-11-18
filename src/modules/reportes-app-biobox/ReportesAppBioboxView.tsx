@@ -32,6 +32,7 @@ import { fechaHoraCdmx } from '../../lib/fechasCdmx';
 import { cargarNombres, nombreDe, type MapaNombres } from '../../lib/nombres';
 import {
   ETIQUETA_ESTADO,
+  abiertasPorMaquina,
   MINUTOS_SYNC_ATRASADO,
   atiendeUnidad,
   coincideBusqueda,
@@ -111,6 +112,8 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
   const [unidad, setUnidad] = useState<string>(TODAS);
   const [reportes, setReportes] = useState<ReporteAppBiobox[]>([]);
   const [incs, setIncs] = useState<Map<string, IncLigada>>(new Map());
+  // Abiertas de las máquinas de los reportes por clasificar (aviso de duplicado).
+  const [abiertas, setAbiertas] = useState<Map<string, Candidata[]>>(new Map());
   const [maquinas, setMaquinas] = useState<Map<string, Maquina>>(new Map());
   const [equivalencias, setEquivalencias] = useState<Equivalencia[]>([]);
   const [sync, setSync] = useState<SyncEstado | null>(null);
@@ -149,16 +152,23 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
       ]);
       const ids = [...new Set(filas.map((f) => f.record_id).filter(Boolean))] as string[];
       const claves = [...new Set(filas.map((f) => f.clave_inventario).filter(Boolean))] as string[];
-      const [ri, rm] = await Promise.all([
+      const clavesPend = [...new Set(filas.filter((f) => !f.decision).map((f) => f.clave_inventario).filter(Boolean))] as string[];
+      const [ri, rm, ra] = await Promise.all([
         ids.length ? sb.from('incidencias').select(COLS_INC).in('record_id', ids) : Promise.resolve({ data: [], error: null }),
         claves.length
           ? sb.from('inventario').select('vendor_face_id,tipo_mueble,site_legacy_id,direccion').in('vendor_face_id', claves)
+          : Promise.resolve({ data: [], error: null }),
+        clavesPend.length
+          ? sb.from('incidencias').select(COLS_INC + ',clave_medio,creado_en').in('unidad_negocio', lista)
+              .in('clave_medio', clavesPend).in('estatus', ABIERTOS)
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (ri.error) throw ri.error;
       if (mio !== turno.current) return;
       setReportes(filas);
       setIncs(new Map(((ri.data || []) as IncLigada[]).map((i) => [i.record_id, i])));
+      // Si esta lectura falla, solo falta el aviso: la bandeja sigue.
+      setAbiertas(abiertasPorMaquina(((ra.error ? [] : ra.data) || []) as unknown as Candidata[]));
       setMaquinas(new Map(((rm.data || []) as Maquina[]).map((m) => [m.vendor_face_id, m])));
       setEquivalencias((re.data || []) as Equivalencia[]);
       setSync((rs.data as SyncEstado | null) ?? null);
@@ -237,6 +247,10 @@ export default function ReportesAppBioboxView({ roles, recargarSignal }: Props) 
             : r.codigo_maquina ? <>Máquina {r.codigo_maquina} (no está en el inventario)</> : <>Sin máquina en el reporte</>}
         </div>
         <AvisoReincidencia x={reincDe(r)} propio={r.report_id} />
+        {estado === 'por_clasificar' && r.clave_inventario && (
+          <AvisoAbiertas lista={abiertas.get(r.clave_inventario)}
+            onLigar={puede ? (folio) => setAccion({ tipo: 'ligar', r, folio }) : undefined} />
+        )}
         {inc && (
           <div style={{ fontSize: 13, marginTop: 6 }}>
             <b>{inc.folio || '—'}</b> · {ESTATUS_INC[inc.estatus] || inc.estatus} · {inc.assigned_area || inc.area_responsable || '—'}
@@ -486,6 +500,22 @@ function ClasificarModal({ r, maquinaReporte, sugerida, reinc, onCerrar, onListo
   }, [r.unidad_negocio]);
   const maqOpciones = useMemo(() => filtrarMaquinas(maqLista || [], maqBusca), [maqLista, maqBusca]);
 
+  // ¿La máquina elegida ya tiene una incidencia abierta? (aviso, 18-nov-2026)
+  const [abiertasMaq, setAbiertasMaq] = useState<Candidata[] | undefined>(undefined);
+  const claveElegida = maq?.vendor_face_id || '';
+  useEffect(() => {
+    setAbiertasMaq(undefined);
+    if (!claveElegida) return;
+    let vivo = true;
+    void (async () => {
+      const { data, error: e } = await sb.from('incidencias').select(COLS_INC + ',clave_medio,creado_en')
+        .eq('unidad_negocio', r.unidad_negocio).eq('clave_medio', claveElegida).in('estatus', ABIERTOS)
+        .order('creado_en', { ascending: false }).limit(10);
+      if (vivo && !e) setAbiertasMaq((data || []) as unknown as Candidata[]);
+    })();
+    return () => { vivo = false; };
+  }, [claveElegida, r.unidad_negocio]);
+
   // La vista previa se libera al cambiar de foto o al cerrar.
   useEffect(() => {
     if (!foto) { setVista(null); return; }
@@ -627,6 +657,7 @@ function ClasificarModal({ r, maquinaReporte, sugerida, reinc, onCerrar, onListo
         )}
       </div>
       <div style={{ margin: '-6px 0 10px' }}><AvisoReincidencia x={reinc} propio={r.report_id} /></div>
+      {maq && <div style={{ margin: '-4px 0 10px' }}><AvisoAbiertas lista={abiertasMaq} onLigar={busy ? undefined : onLigar} /></div>}
       {sugerida && <div className="phint" style={{ margin: '0 0 6px' }}>Sugerida automáticamente (por el motivo o por las palabras del usuario): <b>{sugerida}</b></div>}
       <SelectorFalla unidad={r.unidad_negocio} mueble={maq?.tipo_mueble || null} actual={sugerida} onElegir={setSel} />
       <div className="row2">
@@ -692,6 +723,34 @@ function ClasificarModal({ r, maquinaReporte, sugerida, reinc, onCerrar, onListo
 }
 
 type Candidata = IncLigada & { clave_medio: string | null; creado_en: string | null };
+
+/**
+ * Aviso de posible duplicado (Erik, 18-nov-2026): la máquina ya tiene una
+ * incidencia abierta, de cualquier falla. Solo avisa; la validadora decide si
+ * liga el reporte o crea otra incidencia (la regla automática no cambia).
+ */
+function AvisoAbiertas({ lista, onLigar }: { lista: Candidata[] | undefined; onLigar?: (folio: string) => void }) {
+  if (!lista?.length) return null;
+  return (
+    <div className="banner" role="note" style={{ marginTop: 8, marginBottom: 0 }}>
+      <div style={{ fontSize: 13, fontWeight: 600 }}>
+        <Ic i={TriangleAlert} />
+        {lista.length === 1 ? 'Esta máquina ya tiene una incidencia abierta:' : `Esta máquina ya tiene ${lista.length} incidencias abiertas:`}
+      </div>
+      {lista.map((c) => (
+        <div key={c.record_id} style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginTop: 6, fontSize: 13, overflowWrap: 'anywhere' }}>
+          <span>
+            <b>{c.folio || '—'}</b> · {c.nombre_incidencia || '—'} · {ESTATUS_INC[c.estatus] || c.estatus} · {c.assigned_area || c.area_responsable || '—'}
+          </span>
+          {onLigar && c.folio && (
+            <button type="button" className="btn ghost sm" onClick={() => onLigar(c.folio!)}><Ic i={Link2} />Ligar a {c.folio}</button>
+          )}
+        </div>
+      ))}
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Si es la misma falla, lígalo para que el técnico no la atienda dos veces.</div>
+    </div>
+  );
+}
 
 function LigarModal({ r, folioInicial, onCerrar, onListo }: {
   r: ReporteAppBiobox; folioInicial?: string; onCerrar: () => void; onListo: () => void;

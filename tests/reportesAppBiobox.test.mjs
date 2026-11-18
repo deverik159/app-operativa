@@ -11,7 +11,7 @@ const {
   abreReportesAppBiobox, unidadesBandeja, atiendeUnidad, pideMarcarAtendido, estadoBandeja,
   textoEstatusCore, desfase, equivalenciaDe, leerErrorBandeja, minutosDesde, coincideBusqueda,
   fechaCoreAIso, llaveReincidencia, reincidencias, enlaceWebadmin, maquinaOpcionalAlReparar,
-  filtrarMaquinas, pideMaquinaAlClasificar,
+  filtrarMaquinas, pideMaquinaAlClasificar, abiertasPorMaquina,
 } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const rep = (x = {}) => ({
@@ -215,4 +215,17 @@ test('Clasificar: reciclaje pide máquina; lo de la aplicación no (17-nov-2026)
   assert.equal(pideMaquinaAlClasificar('Fallas con la aplicación'), false);
   assert.equal(pideMaquinaAlClasificar('Recolección de reciclaje'), false);
   assert.equal(pideMaquinaAlClasificar(null), false);
+});
+
+test('Bandeja: incidencias abiertas agrupadas por máquina, la más reciente primero (18-nov-2026)', () => {
+  const m = abiertasPorMaquina([
+    { folio: 'A', clave_medio: 'MX_1', creado_en: '2026-11-10T10:00:00Z' },
+    { folio: 'B', clave_medio: 'MX_1', creado_en: '2026-11-12T10:00:00Z' },
+    { folio: 'C', clave_medio: 'MX_2', creado_en: '2026-11-11T10:00:00Z' },
+    { folio: 'D', clave_medio: null, creado_en: '2026-11-11T10:00:00Z' },
+    { folio: 'E', clave_medio: '  ', creado_en: null },
+  ]);
+  assert.deepEqual([...m.keys()].sort(), ['MX_1', 'MX_2']);
+  assert.deepEqual(m.get('MX_1').map((x) => x.folio), ['B', 'A']);
+  assert.equal(m.get('MX_3'), undefined);
 });

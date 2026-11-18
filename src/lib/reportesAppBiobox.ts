@@ -309,6 +309,28 @@ export function pideMaquinaAlClasificar(detalle: string | null | undefined): boo
   return sinAcentos((detalle || '').trim()) === 'falla en el proceso de reciclaje';
 }
 
+/**
+ * Incidencias abiertas agrupadas por máquina (Erik, 18-nov-2026): la bandeja
+ * avisa a la validadora cuando la máquina de un reporte por clasificar ya
+ * tiene una incidencia abierta, de cualquier falla, para que decida si lo liga
+ * en vez de crear otra. Sin máquina no se agrupa. Cada lista, la más reciente
+ * primero.
+ */
+export function abiertasPorMaquina<T extends { clave_medio: string | null; creado_en: string | null }>(
+  incs: readonly T[]
+): Map<string, T[]> {
+  const m = new Map<string, T[]>();
+  for (const i of incs) {
+    const clave = (i.clave_medio || '').trim();
+    if (!clave) continue;
+    const lista = m.get(clave) || [];
+    lista.push(i);
+    m.set(clave, lista);
+  }
+  for (const lista of m.values()) lista.sort((a, b) => (b.creado_en || '').localeCompare(a.creado_en || ''));
+  return m;
+}
+
 /** Lo que hace falta de una máquina del inventario para buscarla. */
 export type MaquinaBuscable = {
   vendor_face_id: string;
