@@ -87,6 +87,12 @@ import type { EventoHistorial } from '../../lib/historialInc';
 import { traerHistorial } from '../../lib/historialIncApi';
 import { foliosApp } from '../../lib/folioApp';
 import { contarOrigen, esSinMaquina, ORIGEN_LABEL, origenInc, type Origen } from '../../lib/origenInc';
+import {
+  contarFueraHorario,
+  estadoFueraHorario,
+  FUERA_HORARIO_LABEL,
+  type EstadoFueraHorario,
+} from '../../lib/fueraHorario';
 import Ic from '../../components/Ic';
 import type {
   CanInc,
@@ -471,7 +477,8 @@ type MapasFotos = {
 
 /**
  * Lo que, si cambia, significa que la tarjeta tiene un evento nuevo en su
- * historial: estatus, área, reasignación pendiente y rechazos de reparación.
+ * historial: estatus, área, reasignación pendiente, rechazos de reparación
+ * y prevalidación (18-nov-2026).
  */
 function firmaHist(i: Incidencia): string {
   return [
@@ -479,6 +486,7 @@ function firmaHist(i: Incidencia): string {
     i.area_responsable || '',
     i.reasignacion_pendiente ? 1 : 0,
     i.rechazos_reparacion || 0,
+    i.prevalidada ? 1 : 0,
   ].join('|');
 }
 
@@ -941,6 +949,12 @@ function IncidenciasView({
   const [fOrigen, setFOrigen] = useState<Origen | ''>('');
   /** Mis pendientes: solo las reportadas sin máquina (se suma al origen). */
   const [fSinMaquina, setFSinMaquina] = useState(false);
+  /**
+   * Incidencias, para el validador y el manager (Erik, 18-nov-2026): lo que
+   * entró directo al área fuera de su horario y en qué quedó la
+   * prevalidación. '' = sin filtro; 'todas' = todas las que entraron así.
+   */
+  const [fFueraHorario, setFFueraHorario] = useState<'' | 'todas' | EstadoFueraHorario>('');
   /** Rango de fechas de captura. Vacío = sin límite por ese lado. */
   const [fDesde, setFDesde] = useState('');
   const [fHasta, setFHasta] = useState('');
@@ -2243,6 +2257,8 @@ function IncidenciasView({
 
   /** Cuántas de la bandeja son de campo y cuántas de la app (filtro Origen). */
   const conteoOrigen = useMemo(() => contarOrigen(bandeja), [bandeja]);
+  /** Cuántas entraron fuera de horario y en qué quedaron (filtro de Incidencias). */
+  const conteoFH = useMemo(() => contarFueraHorario(itemsVista), [itemsVista]);
 
   const visibles = useMemo(() => {
     const base = modo === 'bandeja' ? bandeja : itemsVista;
@@ -2272,6 +2288,10 @@ function IncidenciasView({
         return false;
       if (modo === 'bandeja' && fOrigen && origenInc(i) !== fOrigen) return false;
       if (modo === 'bandeja' && fSinMaquina && !esSinMaquina(i)) return false;
+      if (modo === 'todas' && fFueraHorario) {
+        const e = estadoFueraHorario(i);
+        if (!e || (fFueraHorario !== 'todas' && e !== fFueraHorario)) return false;
+      }
       if (modo === 'todas' && fMias) {
         const es = (e: string | null | undefined) => (e || '').toLowerCase() === yo;
         if (fMias === 'reporte' && !es(i.captured_by)) return false;
@@ -2330,6 +2350,7 @@ function IncidenciasView({
     fReporta,
     fOrigen,
     fSinMaquina,
+    fFueraHorario,
     fEstado,
     fDesde,
     fHasta,
@@ -2356,7 +2377,7 @@ function IncidenciasView({
     !!fHasta ||
     (modo === 'bandeja' && fSla != null) ||
     (modo === 'bandeja' && (!!fOrigen || fSinMaquina)) ||
-    (modo === 'todas' && (!!fMias || !!fPersona)) ||
+    (modo === 'todas' && (!!fMias || !!fPersona || !!fFueraHorario)) ||
     !!q.trim();
 
   /**
@@ -2377,6 +2398,7 @@ function IncidenciasView({
     fReporta,
     fOrigen,
     fSinMaquina,
+    fFueraHorario,
     fEstado,
     fDesde,
     fHasta,
@@ -3284,6 +3306,24 @@ function IncidenciasView({
                 </option>
               ))}
             </select>
+            {/* Lo que entró directo al área fuera de su horario (Erik,
+                18-nov-2026): para que el validador revise qué se prevalidó. */}
+            {(has('validador') || has('manager')) && (
+              <select
+                aria-label="Fuera de horario"
+                className={fFueraHorario ? 'on' : undefined}
+                value={fFueraHorario}
+                onChange={(e) => setFFueraHorario(e.target.value as typeof fFueraHorario)}
+              >
+                <option value="">Fuera de horario: todas</option>
+                <option value="todas">Entraron fuera de horario ({conteoFH.total})</option>
+                {(['prevalidada', 'pendiente', 'descartada'] as const).map((k) => (
+                  <option key={k} value={k}>
+                    {FUERA_HORARIO_LABEL[k]} ({conteoFH[k]})
+                  </option>
+                ))}
+              </select>
+            )}
           </>
         )}
       </div>

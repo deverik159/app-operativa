@@ -33,6 +33,7 @@ import { alFallarMiniatura, esUrlVideo, urlMiniatura } from '../lib/storage';
 import { etiquetaCatorcena } from '../lib/catorcena';
 import { lineasHistorial, type EventoHistorial } from '../lib/historialInc';
 import { esSinMaquina, ORIGEN_LABEL, origenInc } from '../lib/origenInc';
+import { estadoFueraHorario, FUERA_HORARIO_LABEL } from '../lib/fueraHorario';
 import PreviaVideo from './PreviaVideo';
 import DatosUsuarioApp from './DatosUsuarioApp';
 import { colorTono, fondoTono, tonoDe, type Tono } from '../lib/tonos';
@@ -165,6 +166,7 @@ function IncCard({
   const activa = !['cerrada', 'no_reparado'].includes(i.estatus);
   const prevalidacionPend =
     i.requiere_prevalidacion && !i.prevalidada && i.estatus === 'en_proceso';
+  const fueraHorario = estadoFueraHorario(i);
   // Se evalúa contra el área EFECTIVA: si la incidencia se redirigió a
   // Mantenimiento, los técnicos que aplican son los de Mantenimiento, no los
   // del área que dice el catálogo.
@@ -542,6 +544,18 @@ function IncCard({
               grid no encogen por debajo de su min-content). */}
           <span className="pill multilinea" style={chip('azul')}>
             <Ic i={Zap} />Directa a {i.area_responsable || 'tu área'} · prevalidación pendiente
+          </span>
+        </div>
+      )}
+      {/* Entró fuera de horario y el área ya decidió (Erik, 18-nov-2026): el
+          validador ve en qué quedó sin abrirla. */}
+      {!prevalidacionPend && fueraHorario && fueraHorario !== 'pendiente' && (
+        <div className="inc-aviso">
+          <span
+            className="pill multilinea"
+            style={chip(fueraHorario === 'descartada' ? 'ambar' : 'azul')}
+          >
+            <Ic i={Zap} />Entró fuera de horario · {FUERA_HORARIO_LABEL[fueraHorario].toLowerCase()}
           </span>
         </div>
       )}

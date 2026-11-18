@@ -45,5 +45,10 @@ test('Historial: reasignación con áreas y evento desconocido legible', () => {
   assert.equal(l[0].titulo, 'Reasignación aprobada');
   assert.equal(l[0].detalle, 'Digital → Op. Bio Box');
   assert.equal(l[1].titulo, 'Cambió a Por validar');
+  // Prevalidada fuera de horario (18-nov-2026).
+  assert.equal(
+    lineasHistorial([ev('prevalidada', '2026-11-18T01:40:00Z', { por_email: 'perez.ivan@x.com' })])[0].titulo,
+    'Prevalidada por el área'
+  );
   assert.deepEqual(lineasHistorial([]), []);
 });

@@ -34,6 +34,7 @@ const ETIQUETA: Record<string, string> = {
   reasignacion_aprobada: 'Reasignación aprobada',
   reasignacion_rechazada: 'Reasignación rechazada',
   reporte_app_ligado: 'Reporte de la app ligado',
+  prevalidada: 'Prevalidada por el área',
 };
 
 const ESTATUS_LEGIBLE: Record<string, string> = {
