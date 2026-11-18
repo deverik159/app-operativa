@@ -433,6 +433,8 @@ function KpiView({
   slaMap,
   nombres,
   encabezado,
+  pestanas,
+  vista = 'incidencias',
 }: {
   items: Incidencia[];
   slaMap: SlaMap;
@@ -444,6 +446,16 @@ function KpiView({
    * KpiView sigue sin saber de dónde salen los datos.
    */
   encabezado?: React.ReactNode;
+  /** Las pestañas de Indicadores (Incidencias · MKT…), bajo el título. */
+  pestanas?: React.ReactNode;
+  /**
+   * Qué pestaña es (Erik, 18-nov-2026). En «incidencias» NO salen los
+   * correos de los solicitantes de MKT ni la vía de reporte: ensuciaban lo
+   * que ve un reportante que no es de MKT y exponían correos de gente de
+   * fuera. Esas dos tarjetas solo van en «mkt», que ven manager,
+   * coordinadores y el área MKT (IndicadoresView decide quién).
+   */
+  vista?: 'incidencias' | 'mkt';
 }) {
   const [detalle, setDetalle] = useState<Detalle | null>(null);
   const [fUN, setFUN] = useState('Todas');
@@ -850,14 +862,16 @@ function KpiView({
   // (contacto_correo), que el formulario de MKT exige. Es gente de fuera,
   // sin nombre en el padrón: la etiqueta es el correo, en minúsculas para no
   // partir a una persona en dos barras (Erik, 27-sep-2026).
-  const porSolicitante = top(
-    (i) => (i.contacto_correo || '').trim().toLowerCase() || null
-  );
+  // Solo en la pestaña MKT (18-nov-2026): fuera de ella ni se calcula.
+  const esMkt = vista === 'mkt';
+  const porSolicitante = esMkt
+    ? top((i) => (i.contacto_correo || '').trim().toLowerCase() || null)
+    : [];
 
   // Por dónde le llegan a MKT las solicitudes: via_reporte solo lo llena el
   // formulario de MKT (WhatsApp, Instagram, Facebook, Correo). Se pinta solo
   // si hay datos, como el lado: con otros filtros sería ruido permanente.
-  const porVia = top((i) => i.via_reporte || null);
+  const porVia = esMkt ? top((i) => i.via_reporte || null) : [];
 
   /** Contexto de los filtros puestos, para que el popup diga sobre qué es. */
   const contexto = [
@@ -900,8 +914,11 @@ function KpiView({
   return (
     <>
       <h2 className="page">Indicadores</h2>
+      {pestanas}
       <p className="phint">
-        Panel en vivo desde tus incidencias. Filtra y explora la operación.
+        {esMkt
+          ? 'Lo que reporta MKT: quién lo pide, por qué vía llega y cómo se atiende.'
+          : 'Panel en vivo desde tus incidencias. Filtra y explora la operación.'}
       </p>
       {encabezado}
 

@@ -2611,6 +2611,8 @@ function Main({
               {tab === 'dashboard' && (
                 <IndicadoresView
                   puedeConfigurarSla={has('manager')}
+                  // Pestaña MKT: manager, coordinadores y el área MKT (18-nov-2026).
+                  veMkt={has('manager') || has('coordinador') || misDep.some((d) => d.trim().toUpperCase() === 'MKT')}
                   recargarSignal={recargaManual}
                 />
               )}

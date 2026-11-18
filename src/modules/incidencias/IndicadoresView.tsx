@@ -13,7 +13,7 @@
 // filtra en el servidor por fecha de reporte, se pagina hasta traerlo
 // COMPLETO y solo con las columnas que los indicadores leen.
 // ============================================================
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { sb } from '../../lib/supabase';
 import { slaHoras } from '../../lib/helpers';
 import { SLA_VALIDACION_DEFAULT, HORARIO_VALIDADOR_TEXTO } from '../../lib/constants';
@@ -195,9 +195,16 @@ async function contarAbiertasAntes(desdeIso: string | null): Promise<number | nu
 
 function IndicadoresView({
   puedeConfigurarSla = false,
+  veMkt = false,
   recargarSignal,
 }: {
   puedeConfigurarSla?: boolean;
+  /**
+   * ¿Ve la pestaña MKT? (Erik, 18-nov-2026): manager, coordinadores y quien
+   * reporta desde el área MKT. Ahí van los correos de los solicitantes y la
+   * vía de reporte, que salieron de la pestaña Incidencias.
+   */
+  veMkt?: boolean;
   /**
    * Contador del botón ↻ de la barra: al subir, vuelve a bajar el periodo
    * COMPLETO (hasta 30 páginas). OJO: si el contador también sube con cada
@@ -207,6 +214,14 @@ function IndicadoresView({
   recargarSignal?: number;
 }) {
   const [items, setItems] = useState<Incidencia[]>([]);
+  // Pestañas de Indicadores (18-nov-2026). Sin permiso de MKT, siempre
+  // Incidencias aunque el estado dijera otra cosa.
+  const [pestanaElegida, setPestana] = useState<'incidencias' | 'mkt'>('incidencias');
+  const pestana = veMkt ? pestanaElegida : 'incidencias';
+  const itemsMkt = useMemo(
+    () => items.filter((i) => (i.area_reportante || '').trim().toUpperCase() === 'MKT'),
+    [items]
+  );
   const [slaMap, setSlaMap] = useState<SlaMap>({});
   const [nombres, setNombres] = useState<MapaNombres>({});
   /**
@@ -375,6 +390,7 @@ function IndicadoresView({
    * primer corte de los datos y así se lee.
    */
   const nAntes = cargado?.abiertasAntes ?? 0;
+  const nPestana = pestana === 'mkt' ? itemsMkt.length : items.length;
   const encabezado = (
     <div style={{ marginBottom: 14 }}>
       <div className="toolbar" style={{ marginBottom: 6, alignItems: 'center' }}>
@@ -403,14 +419,17 @@ function IndicadoresView({
           incidencias en todo el historial" se leería como dato. */}
       {cargado && (
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-          {`${items.length.toLocaleString('es-MX')} ${
-            items.length === 1 ? 'incidencia reportada' : 'incidencias reportadas'
-          } ${
+          {/* Cuenta lo de la pestaña: en MKT, solo lo que reportó MKT. */}
+          {`${nPestana.toLocaleString('es-MX')} ${
+            nPestana === 1 ? 'incidencia reportada' : 'incidencias reportadas'
+          }${pestana === 'mkt' ? ' por MKT' : ''} ${
             cargado.desde
               ? `desde el ${fechaCorta(cargado.desde)}`
               : 'en todo el historial'
           }.`}
-          {nAntes > 0 && (
+          {/* Las abiertas de antes del periodo se cuentan para todas las
+              áreas: en la pestaña MKT ese número no sería de MKT. */}
+          {nAntes > 0 && pestana === 'incidencias' && (
             <>
               {' Además hay '}
               <b style={{ color: 'var(--warn)' }}>
@@ -510,11 +529,27 @@ function IndicadoresView({
           </span>
         </section>
       )}
+      {/* key: cada pestaña con sus propios filtros (el «Reporta» de una no
+          debe quedarse puesto en la otra). */}
       <KpiView
-        items={items}
+        key={pestana}
+        vista={pestana}
+        items={pestana === 'mkt' ? itemsMkt : items}
         slaMap={slaMap}
         nombres={nombres}
         encabezado={encabezado}
+        pestanas={
+          veMkt && (
+            <div className="segmento" role="group" aria-label="Indicadores de" style={{ marginBottom: 10 }}>
+              <button type="button" aria-pressed={pestana === 'incidencias'} onClick={() => setPestana('incidencias')}>
+                Incidencias
+              </button>
+              <button type="button" aria-pressed={pestana === 'mkt'} onClick={() => setPestana('mkt')}>
+                MKT
+              </button>
+            </div>
+          )
+        }
       />
     </>
   );
