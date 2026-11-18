@@ -452,3 +452,252 @@ export function coincideBusqueda(
   );
   return partes.every((p) => pajar.includes(p));
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Indicadores de la app Biobox (pestaña «App Biobox» de Indicadores, Erik,
+// 18-nov-2026). Solo con columnas de operación: nunca la descripción ni los
+// contactos del usuario.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Lo mínimo de un reporte para los indicadores. */
+export type ReporteIndicador = Pick<
+  ReporteAppBiobox,
+  | 'report_id'
+  | 'unidad_negocio'
+  | 'caso_id'
+  | 'motivo'
+  | 'clave_inventario'
+  | 'codigo_maquina'
+  | 'nombre_maquina'
+  | 'fecha_reporte_core'
+  | 'primera_vez'
+  | 'decision'
+  | 'decidido_por'
+  | 'decidido_en'
+  | 'record_id'
+  | 'atendido_core_en'
+>;
+
+/** Tiempos de la incidencia ligada que usan los indicadores. */
+export type IncTiempos = { record_id: string; repaired_at: string | null; cerrada_en: string | null };
+
+export type ComoSeAtendio =
+  | 'directo'
+  | 'ligado_regla'
+  | 'ligado_validadora'
+  | 'clasificado'
+  | 'descartado'
+  | 'atendido_webadmin'
+  | 'por_clasificar';
+
+export const ETIQUETA_ATENCION: Record<ComoSeAtendio, string> = {
+  directo: 'Directo al área (regla)',
+  ligado_regla: 'Ligado a una abierta (regla)',
+  ligado_validadora: 'Ligado por la validadora',
+  clasificado: 'Clasificado por la validadora',
+  descartado: 'Descartado',
+  atendido_webadmin: 'Atendido en el Webadmin antes',
+  por_clasificar: 'Por clasificar',
+};
+
+/**
+ * Cómo se atendió un reporte. «Ligado» lo hizo la regla automática cuando
+ * no tiene quién decidió (la regla no anota persona); con persona, la
+ * validadora.
+ */
+export function comoSeAtendio(r: Pick<ReporteAppBiobox, 'decision' | 'decidido_por'>): ComoSeAtendio {
+  switch (r.decision) {
+    case 'directo':
+      return 'directo';
+    case 'ligado':
+      return r.decidido_por ? 'ligado_validadora' : 'ligado_regla';
+    case 'clasificado':
+      return 'clasificado';
+    case 'descartado':
+      return 'descartado';
+    case 'atendido_en_webadmin':
+      return 'atendido_webadmin';
+    default:
+      return 'por_clasificar';
+  }
+}
+
+/** Mediana (null sin datos). */
+export function mediana(nums: readonly number[]): number | null {
+  const v = nums.filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
+const horasEntre = (desde: string | null | undefined, hasta: string | null | undefined): number | null => {
+  if (!desde || !hasta) return null;
+  const a = Date.parse(desde);
+  const b = Date.parse(hasta);
+  if (Number.isNaN(a) || Number.isNaN(b) || b < a) return null;
+  return (b - a) / 3600000;
+};
+
+/** ¿El reporte trae máquina que empató con el inventario? */
+export const traeMaquina = (r: Pick<ReporteAppBiobox, 'clave_inventario'>): boolean =>
+  !!(r.clave_inventario || '').trim() && r.clave_inventario !== 'SIN-MAQUINA';
+
+export type ResumenAppBiobox = {
+  total: number;
+  /** Los que llegaron a la bandeja (todo menos lo que el Webadmin ya había atendido). */
+  enBandeja: number;
+  sinMaquina: number;
+  automaticos: number;
+  porValidadora: number;
+  porClasificar: number;
+  descartados: number;
+  atendidosAntes: number;
+  /** Medianas en horas y cuántos reportes se midieron. */
+  aClasificar: { h: number | null; n: number };
+  aReparar: { h: number | null; n: number };
+  aCierre: { h: number | null; n: number };
+  cierreAAtendido: { h: number | null; n: number };
+};
+
+/**
+ * Resumen del periodo. Los tiempos salen de la hora en que reportó el
+ * usuario (Core, UTC) y son MEDIANAS: unos pocos reportes viejos cargados
+ * tarde no deben mover el número.
+ *  · a clasificar: solo lo que decidió la validadora (clasificado o ligado),
+ *    desde que el reporte LLEGÓ a la bandeja (primera_vez): los reportes
+ *    viejos que se cargaron de golpe el 9-nov no deben inflar su tiempo;
+ *  · a reparar y a cierre: de la incidencia ligada (directas incluidas);
+ *  · cierre → Atendido: cuando Biobox lo marcó después de cerrarse aquí.
+ */
+export function resumenAppBiobox(
+  lista: readonly ReporteIndicador[],
+  incs: ReadonlyMap<string, IncTiempos>
+): ResumenAppBiobox {
+  const r: ResumenAppBiobox = {
+    total: lista.length,
+    enBandeja: 0,
+    sinMaquina: 0,
+    automaticos: 0,
+    porValidadora: 0,
+    porClasificar: 0,
+    descartados: 0,
+    atendidosAntes: 0,
+    aClasificar: { h: null, n: 0 },
+    aReparar: { h: null, n: 0 },
+    aCierre: { h: null, n: 0 },
+    cierreAAtendido: { h: null, n: 0 },
+  };
+  const tC: number[] = [];
+  const tR: number[] = [];
+  const tX: number[] = [];
+  const tA: number[] = [];
+  for (const x of lista) {
+    if (!traeMaquina(x)) r.sinMaquina++;
+    const como = comoSeAtendio(x);
+    if (como === 'directo' || como === 'ligado_regla') r.automaticos++;
+    else if (como === 'clasificado' || como === 'ligado_validadora') r.porValidadora++;
+    else if (como === 'por_clasificar') r.porClasificar++;
+    else if (como === 'descartado') r.descartados++;
+    else r.atendidosAntes++;
+    const desde = fechaCoreAIso(x.fecha_reporte_core);
+    if (como === 'clasificado' || como === 'ligado_validadora') {
+      const h = horasEntre(x.primera_vez, x.decidido_en);
+      if (h != null) tC.push(h);
+    }
+    const inc = x.record_id ? incs.get(x.record_id) : undefined;
+    if (inc) {
+      const hr = horasEntre(desde, inc.repaired_at);
+      if (hr != null) tR.push(hr);
+      const hx = horasEntre(desde, inc.cerrada_en);
+      if (hx != null) tX.push(hx);
+      const ha = horasEntre(inc.cerrada_en, x.atendido_core_en);
+      if (ha != null) tA.push(ha);
+    }
+  }
+  r.enBandeja = r.total - r.atendidosAntes;
+  r.aClasificar = { h: mediana(tC), n: tC.length };
+  r.aReparar = { h: mediana(tR), n: tR.length };
+  r.aCierre = { h: mediana(tX), n: tX.length };
+  r.cierreAAtendido = { h: mediana(tA), n: tA.length };
+  return r;
+}
+
+/**
+ * Lunes (AAAA-MM-DD) de la semana en que reportó el usuario, en día de CDMX
+ * (UTC-6, sin horario de verano desde 2022). null si la fecha no se lee.
+ */
+export function lunesDeReporte(fechaCore: string | null | undefined): string | null {
+  const iso = fechaCoreAIso(fechaCore);
+  if (!iso) return null;
+  const d = new Date(Date.parse(iso) - 6 * 3600000);
+  const atras = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - atras);
+  return d.toISOString().slice(0, 10);
+}
+
+export type Conteo<T> = { etiqueta: string; n: number; filas: T[] };
+
+/**
+ * Cómo se nombra una máquina en los indicadores (Erik, 18-nov-2026): solo su
+ * nombre; sin nombre, la clave sin «MX» ni «BB» (MX_CM_BB_MED_0031 →
+ * CM_MED_0031), para que se lea limpio.
+ */
+export function nombreCortoMaquina(clave: string | null | undefined, nombre: string | null | undefined): string {
+  const n = (nombre || '').trim();
+  if (n) return n;
+  const partes = (clave || '').trim().split('_').filter((p) => p && !/^(MX|BB)$/i.test(p));
+  return partes.join('_') || (clave || '').trim() || 'Sin máquina';
+}
+
+/** Agrupa y cuenta, de más a menos (empates por etiqueta). Llave null = fuera. */
+export function contarPor<T>(lista: readonly T[], llave: (x: T) => string | null): Conteo<T>[] {
+  const m = new Map<string, T[]>();
+  for (const x of lista) {
+    const k = llave(x);
+    if (k == null) continue;
+    const a = m.get(k) || [];
+    a.push(x);
+    m.set(k, a);
+  }
+  return [...m.entries()]
+    .map(([etiqueta, filas]) => ({ etiqueta, n: filas.length, filas }))
+    .sort((a, b) => b.n - a.n || a.etiqueta.localeCompare(b.etiqueta));
+}
+
+/** Reportes por semana, de la más vieja a la más reciente. */
+export function porSemanaApp<T extends Pick<ReporteAppBiobox, 'fecha_reporte_core'>>(lista: readonly T[]): Conteo<T>[] {
+  return contarPor(lista, (r) => lunesDeReporte(r.fecha_reporte_core)).sort((a, b) =>
+    a.etiqueta.localeCompare(b.etiqueta)
+  );
+}
+
+/**
+ * Reincidencia dentro del periodo: misma máquina y mismo motivo reportados
+ * dos o más veces con menos de `dias` entre uno y el siguiente (sin contar
+ * descartados). Devuelve cada máquina+motivo con cuántos reportes tiene.
+ */
+export function reincidentesApp<T extends ReporteIndicador>(lista: readonly T[], dias = 30): Conteo<T>[] {
+  const grupos = contarPor(
+    lista.filter((r) => r.decision !== 'descartado'),
+    (r) => llaveReincidencia(r)
+  );
+  const limite = dias * 86400000;
+  const out: Conteo<T>[] = [];
+  for (const g of grupos) {
+    const tiempos = g.filas
+      .map((r) => fechaCoreAIso(r.fecha_reporte_core))
+      .filter((x): x is string => !!x)
+      .map((x) => Date.parse(x))
+      .sort((a, b) => a - b);
+    const hay = tiempos.some((t, i) => i > 0 && t - tiempos[i - 1] <= limite);
+    if (!hay) continue;
+    const r0 = g.filas[0];
+    const maquina = nombreCortoMaquina(r0.clave_inventario || r0.codigo_maquina, r0.nombre_maquina);
+    out.push({
+      etiqueta: `${maquina} — ${r0.motivo || 'Otro'}`,
+      n: g.n,
+      filas: g.filas,
+    });
+  }
+  return out.sort((a, b) => b.n - a.n || a.etiqueta.localeCompare(b.etiqueta));
+}

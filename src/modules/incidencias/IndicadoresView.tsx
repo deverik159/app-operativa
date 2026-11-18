@@ -14,6 +14,7 @@
 // COMPLETO y solo con las columnas que los indicadores leen.
 // ============================================================
 import { useState, useEffect, useMemo, useRef } from 'react';
+import IndicadoresAppBioboxView from './IndicadoresAppBioboxView';
 import { sb } from '../../lib/supabase';
 import { slaHoras } from '../../lib/helpers';
 import { SLA_VALIDACION_DEFAULT, HORARIO_VALIDADOR_TEXTO } from '../../lib/constants';
@@ -196,8 +197,14 @@ async function contarAbiertasAntes(desdeIso: string | null): Promise<number | nu
 function IndicadoresView({
   puedeConfigurarSla = false,
   veMkt = false,
+  unidadesApp = [],
   recargarSignal,
 }: {
+  /**
+   * Unidades de la pestaña «App Biobox» (Erik, 18-nov-2026): las mismas que
+   * la bandeja (unidadesBandeja). Vacío = no ve la pestaña.
+   */
+  unidadesApp?: readonly string[];
   puedeConfigurarSla?: boolean;
   /**
    * ¿Ve la pestaña MKT? (Erik, 18-nov-2026): manager, coordinadores y quien
@@ -216,8 +223,10 @@ function IndicadoresView({
   const [items, setItems] = useState<Incidencia[]>([]);
   // Pestañas de Indicadores (18-nov-2026). Sin permiso de MKT, siempre
   // Incidencias aunque el estado dijera otra cosa.
-  const [pestanaElegida, setPestana] = useState<'incidencias' | 'mkt'>('incidencias');
-  const pestana = veMkt ? pestanaElegida : 'incidencias';
+  const [pestanaElegida, setPestana] = useState<'incidencias' | 'mkt' | 'app'>('incidencias');
+  const veApp = unidadesApp.length > 0;
+  const pestana =
+    (pestanaElegida === 'mkt' && veMkt) || (pestanaElegida === 'app' && veApp) ? pestanaElegida : 'incidencias';
   const itemsMkt = useMemo(
     () => items.filter((i) => (i.area_reportante || '').trim().toUpperCase() === 'MKT'),
     [items]
@@ -461,6 +470,35 @@ function IndicadoresView({
     </div>
   );
 
+  // Pestañas (18-nov-2026): solo si hay más de una que ver.
+  const pestanasUi = (veMkt || veApp) && (
+    <div className="segmento" role="group" aria-label="Indicadores de" style={{ marginBottom: 10 }}>
+      <button type="button" aria-pressed={pestana === 'incidencias'} onClick={() => setPestana('incidencias')}>
+        Incidencias
+      </button>
+      {veMkt && (
+        <button type="button" aria-pressed={pestana === 'mkt'} onClick={() => setPestana('mkt')}>
+          MKT
+        </button>
+      )}
+      {veApp && (
+        <button type="button" aria-pressed={pestana === 'app'} onClick={() => setPestana('app')}>
+          App Biobox
+        </button>
+      )}
+    </div>
+  );
+
+  if (pestana === 'app') {
+    return (
+      <>
+        <h2 className="page">Indicadores</h2>
+        {pestanasUi}
+        <IndicadoresAppBioboxView unidades={unidadesApp} recargarSignal={recargarSignal} />
+      </>
+    );
+  }
+
   return (
     <>
       {/* `err` solo lo pone la carga del periodo (el SLA usa errSla): el botón
@@ -538,18 +576,7 @@ function IndicadoresView({
         slaMap={slaMap}
         nombres={nombres}
         encabezado={encabezado}
-        pestanas={
-          veMkt && (
-            <div className="segmento" role="group" aria-label="Indicadores de" style={{ marginBottom: 10 }}>
-              <button type="button" aria-pressed={pestana === 'incidencias'} onClick={() => setPestana('incidencias')}>
-                Incidencias
-              </button>
-              <button type="button" aria-pressed={pestana === 'mkt'} onClick={() => setPestana('mkt')}>
-                MKT
-              </button>
-            </div>
-          )
-        }
+        pestanas={pestanasUi}
       />
     </>
   );

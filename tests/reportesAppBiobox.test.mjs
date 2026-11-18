@@ -12,6 +12,8 @@ const {
   textoEstatusCore, desfase, equivalenciaDe, leerErrorBandeja, minutosDesde, coincideBusqueda,
   fechaCoreAIso, llaveReincidencia, reincidencias, enlaceWebadmin, maquinaOpcionalAlReparar,
   filtrarMaquinas, pideMaquinaAlClasificar, abiertasPorMaquina,
+  comoSeAtendio, mediana, resumenAppBiobox, lunesDeReporte, contarPor, porSemanaApp, reincidentesApp,
+  nombreCortoMaquina,
 } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
 
 const rep = (x = {}) => ({
@@ -228,4 +230,82 @@ test('Bandeja: incidencias abiertas agrupadas por máquina, la más reciente pri
   assert.deepEqual([...m.keys()].sort(), ['MX_1', 'MX_2']);
   assert.deepEqual(m.get('MX_1').map((x) => x.folio), ['B', 'A']);
   assert.equal(m.get('MX_3'), undefined);
+});
+
+test('Indicadores App Biobox: cómo se atendió y resumen con medianas (18-nov-2026)', () => {
+  assert.equal(comoSeAtendio({ decision: 'directo', decidido_por: null }), 'directo');
+  assert.equal(comoSeAtendio({ decision: 'ligado', decidido_por: null }), 'ligado_regla');
+  assert.equal(comoSeAtendio({ decision: 'ligado', decidido_por: 'dulce@x' }), 'ligado_validadora');
+  assert.equal(comoSeAtendio({ decision: 'atendido_en_webadmin', decidido_por: null }), 'atendido_webadmin');
+  assert.equal(comoSeAtendio({ decision: null, decidido_por: null }), 'por_clasificar');
+  assert.equal(mediana([]), null);
+  assert.equal(mediana([5, 1, 3]), 3);
+  assert.equal(mediana([4, 1, 3, 2]), 2.5);
+
+  const base = { unidad_negocio: 'Biobox', caso_id: 7, motivo: 'Compuerta atorada', codigo_maquina: 'MX_1', nombre_maquina: 'X', atendido_core_en: null, decidido_por: null, decidido_en: null, record_id: null };
+  const lista = [
+    // Directo: reportó 10:00 UTC, reparada 12:00, cerrada 14:00, Atendido 16:00.
+    { ...base, report_id: 1, clave_inventario: 'MX_1', fecha_reporte_core: '2026-11-10 10:00:00', decision: 'directo', record_id: 'a', atendido_core_en: '2026-11-10T16:00:00Z' },
+    // Clasificado por Dulce 4 h después; sin máquina.
+    // Llegó a la bandeja a las 12:00 (no a las 10:00, cuando reportó): cuenta desde ahí.
+    { ...base, report_id: 2, clave_inventario: null, fecha_reporte_core: '2026-11-10 10:00:00', primera_vez: '2026-11-10T12:00:00Z', decision: 'clasificado', decidido_por: 'dulce@x', decidido_en: '2026-11-10T14:00:00Z', record_id: 'b' },
+    { ...base, report_id: 3, clave_inventario: 'MX_1', fecha_reporte_core: '2026-11-11 10:00:00', decision: 'ligado', record_id: 'a' },
+    { ...base, report_id: 4, clave_inventario: null, fecha_reporte_core: '2026-11-11 10:00:00', decision: null },
+    { ...base, report_id: 5, clave_inventario: null, fecha_reporte_core: '2026-11-11 10:00:00', decision: 'descartado', decidido_por: 'dulce@x' },
+    { ...base, report_id: 6, clave_inventario: 'MX_2', fecha_reporte_core: '2026-10-01 10:00:00', decision: 'atendido_en_webadmin' },
+  ];
+  const incs = new Map([
+    ['a', { record_id: 'a', repaired_at: '2026-11-10T12:00:00Z', cerrada_en: '2026-11-10T14:00:00Z' }],
+    ['b', { record_id: 'b', repaired_at: null, cerrada_en: null }],
+  ]);
+  const r = resumenAppBiobox(lista, incs);
+  assert.equal(r.total, 6);
+  assert.equal(r.sinMaquina, 3);
+  assert.equal(r.automaticos, 2); // directo + ligado por regla
+  assert.equal(r.porValidadora, 1);
+  assert.equal(r.porClasificar, 1);
+  assert.equal(r.descartados, 1);
+  assert.equal(r.atendidosAntes, 1);
+  assert.equal(r.enBandeja, 5);
+  assert.deepEqual(r.aClasificar, { h: 2, n: 1 });
+  // El ligado (3) comparte la incidencia «a», pero se reportó DESPUÉS de repararse: no cuenta.
+  assert.deepEqual(r.aReparar, { h: 2, n: 1 });
+  assert.deepEqual(r.aCierre, { h: 4, n: 1 });
+  assert.deepEqual(r.cierreAAtendido, { h: 2, n: 1 });
+});
+
+test('Indicadores App Biobox: semana en día de CDMX y reincidencia en 30 días', () => {
+  // Lunes 9-nov 05:59 UTC = domingo 8-nov 23:59 en CDMX → semana del lunes 2-nov.
+  assert.equal(lunesDeReporte('2026-11-09 05:59:00'), '2026-11-02');
+  assert.equal(lunesDeReporte('2026-11-09 06:00:00'), '2026-11-09');
+  assert.equal(lunesDeReporte('basura'), null);
+  const s = porSemanaApp([
+    { fecha_reporte_core: '2026-11-10 10:00:00' },
+    { fecha_reporte_core: '2026-11-03 10:00:00' },
+    { fecha_reporte_core: '2026-11-11 10:00:00' },
+  ]);
+  assert.deepEqual(s.map((x) => [x.etiqueta, x.n]), [['2026-11-02', 1], ['2026-11-09', 2]]);
+  assert.deepEqual(contarPor([{ m: 'a' }, { m: 'b' }, { m: 'a' }, { m: null }], (x) => x.m).map((x) => [x.etiqueta, x.n]), [['a', 2], ['b', 1]]);
+
+  const r = (id, maq, fecha, extra = {}) => ({ report_id: id, unidad_negocio: 'Biobox', caso_id: 7, motivo: 'Compuerta atorada', clave_inventario: maq, codigo_maquina: maq, nombre_maquina: 'N', fecha_reporte_core: fecha, decision: 'directo', decidido_por: null, decidido_en: null, record_id: null, atendido_core_en: null, ...extra });
+  const rein = reincidentesApp([
+    r(1, 'MX_1', '2026-10-01 10:00:00'),
+    r(2, 'MX_1', '2026-10-20 10:00:00'), // 19 días después: reincide
+    r(3, 'MX_2', '2026-09-01 10:00:00'),
+    r(4, 'MX_2', '2026-11-01 10:00:00'), // 61 días: no
+    r(5, 'MX_3', '2026-11-01 10:00:00'),
+    r(6, 'MX_3', '2026-11-02 10:00:00', { decision: 'descartado' }), // descartado no cuenta
+    r(7, null, '2026-11-01 10:00:00'),
+    r(8, null, '2026-11-02 10:00:00'), // sin máquina no hay reincidencia
+  ]);
+  assert.deepEqual(rein.map((x) => [x.etiqueta, x.n]), [['N — Compuerta atorada', 2]]);
+});
+
+test('Indicadores: la máquina se nombra solo con su nombre o la clave sin MX ni BB (18-nov-2026)', () => {
+  assert.equal(nombreCortoMaquina('MX_CM_BB_MED_0031', 'MIRAMONTES Y LA VIRGEN'), 'MIRAMONTES Y LA VIRGEN');
+  assert.equal(nombreCortoMaquina('MX_CM_BB_MED_0031', '  '), 'CM_MED_0031');
+  assert.equal(nombreCortoMaquina('MX_EM_BB_UCL_0007', null), 'EM_UCL_0007');
+  assert.equal(nombreCortoMaquina('PE_LM_BB_IID_0004', null), 'PE_LM_IID_0004');
+  assert.equal(nombreCortoMaquina('MX_BB', null), 'MX_BB');
+  assert.equal(nombreCortoMaquina(null, null), 'Sin máquina');
 });

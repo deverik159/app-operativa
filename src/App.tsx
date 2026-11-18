@@ -31,7 +31,7 @@ import { Lock, RefreshCw, WifiOff } from 'lucide-react';
 import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
 import { sb } from './lib/supabase';
 import { unidadesAvisoNuc, pendientesNuc } from './lib/avisoNuc';
-import { abreReportesAppBiobox } from './lib/reportesAppBiobox';
+import { abreReportesAppBiobox, unidadesBandeja } from './lib/reportesAppBiobox';
 import { abreMaquinasBiobox } from './lib/maquinasBiobox';
 import { iniciarMarcaActividad } from './lib/marcarActividad';
 import { ROLE_LABEL, ROLE_ICON, ROLE_PRIORITY, UNIDADES, URL_BIOGUARD } from './lib/constants';
@@ -2613,6 +2613,8 @@ function Main({
                   puedeConfigurarSla={has('manager')}
                   // Pestaña MKT: manager, coordinadores y el área MKT (18-nov-2026).
                   veMkt={has('manager') || has('coordinador') || misDep.some((d) => d.trim().toUpperCase() === 'MKT')}
+                  // Pestaña App Biobox: los mismos que la bandeja (18-nov-2026).
+                  unidadesApp={unidadesBandeja(rolesDetalle)}
                   recargarSignal={recargaManual}
                 />
               )}
