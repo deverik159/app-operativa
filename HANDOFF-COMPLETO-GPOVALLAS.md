@@ -606,6 +606,18 @@ selector.
 cualquier sesión podía mandar un PATCH y borrar una anomalía de una revisión
 vieja. La política RLS sola no alcanzaba.
 
+**«Ver incidencias» lleva al reporte completo (19-nov-2026, `8514ba7`).** En
+la lista, cada folio del panel de la máquina (`EstadoMaquinaPanel`, alimentado
+por la RPC `estado_maquina`) trae **«Abrir reporte y chat ›»**: App le pasa
+`enfocarDesdePush`, el mismo camino de una notificación, y abre Incidencias con
+el folio en el buscador y la tarjeta resaltada, desde donde se entra al chat.
+Es un botón por folio y no un salto directo, porque el panel enseña también lo
+de otras áreas (la RPC es `security definer`) y la RLS de `incidencias` no:
+un folio de otra área solo se abre si a la persona la mencionaron o ya escribió
+en el chat y no está cerrado (`inc_sel_participante_chat`); si no, Incidencias
+dice que es de otra área. Dentro de Revisar el panel no lleva el botón (saltar
+de pestaña tiraría el checklist a medio llenar).
+
 ---
 
 ### 4.6. Importación de rutas desde My Maps (KML)
