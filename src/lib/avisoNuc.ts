@@ -115,6 +115,12 @@ export interface MaquinaNuc {
   tipo_mueble: string | null;
   direccion: string | null;
   municipio: string | null;
+  /**
+   * Caras del inventario de este sitio que entran al tablero. Hoy solo
+   * Ecovallas tiene sitios con varias (107 pantallas en 95 sitios, 18-nov-2026):
+   * el aviso es por sitio (Erik, 4-nov-2026) y la tarjeta lo aclara.
+   */
+  pantallas: number;
 }
 
 export const ESTADOS_NUC: readonly EstadoNuc[] = ['fuera_linea', 'apagado', 'en_linea'];
@@ -352,12 +358,17 @@ export function nombreSitioDeCaras(nombres: (string | null | undefined)[]): stri
 export function maquinasDeInventario(filas: FilaInventarioNuc[], nombresCara?: Map<string, string>): MaquinaNuc[] {
   const porSitio = new Map<string, FilaInventarioNuc>();
   const caras = new Map<string, string[]>();
+  // Caras distintas por sitio; una fila sin vendor_face_id cuenta como una.
+  const pantallas = new Map<string, Set<string>>();
   for (const f of filas) {
     if (!f.site_id || !entraEnTablero(f)) continue;
     const previa = porSitio.get(f.site_id);
     if (!previa || (previa.tipo_medio !== 'Digital' && f.tipo_medio === 'Digital')) porSitio.set(f.site_id, f);
     const n = f.vendor_face_id ? nombresCara?.get(f.vendor_face_id) : undefined;
     if (n) caras.set(f.site_id, [...(caras.get(f.site_id) || []), n]);
+    const set = pantallas.get(f.site_id) || new Set<string>();
+    set.add(f.vendor_face_id || `fila-${set.size}`);
+    pantallas.set(f.site_id, set);
   }
   return [...porSitio.values()].map((f) => ({
     site_id: f.site_id as string,
@@ -366,7 +377,33 @@ export function maquinasDeInventario(filas: FilaInventarioNuc[], nombresCara?: M
     tipo_mueble: f.tipo_mueble,
     direccion: f.direccion,
     municipio: f.municipio,
+    pantallas: pantallas.get(f.site_id as string)?.size || 1,
   }));
+}
+
+/**
+ * Unidades donde hay más pantallas que sitios (hoy solo Ecovallas), para
+ * aclarar en el tablero que el aviso es por sitio: «Ecovallas: 95 sitios ·
+ * 107 pantallas» (Erik, 18-nov-2026). En el orden de UNIDADES_AVISO_NUC.
+ */
+export function sitiosConPantallas(
+  maquinas: Pick<MaquinaNuc, 'unidad_negocio' | 'pantallas'>[]
+): { unidad: string; sitios: number; pantallas: number }[] {
+  const n = new Map<string, { sitios: number; pantallas: number }>();
+  for (const m of maquinas) {
+    const t = n.get(m.unidad_negocio) || { sitios: 0, pantallas: 0 };
+    t.sitios++;
+    t.pantallas += m.pantallas || 1;
+    n.set(m.unidad_negocio, t);
+  }
+  const orden = (u: string) => {
+    const i = UNIDADES_AVISO_NUC.findIndex((x) => igual(u, x));
+    return i < 0 ? UNIDADES_AVISO_NUC.length : i;
+  };
+  return [...n.entries()]
+    .filter(([, t]) => t.pantallas > t.sitios)
+    .sort((a, b) => orden(a[0]) - orden(b[0]) || a[0].localeCompare(b[0]))
+    .map(([unidad, t]) => ({ unidad, ...t }));
 }
 
 /**

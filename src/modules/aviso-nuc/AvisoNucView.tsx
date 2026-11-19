@@ -43,6 +43,7 @@ import {
   haceCuanto,
   maquinasDeInventario,
   ordenarTablero,
+  sitiosConPantallas,
   type AvisoNuc,
   type EstadoNuc,
   type EventoNuc,
@@ -226,6 +227,9 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
 
   const conteo = useMemo(() => contarEstados(maquinas, avisos), [maquinas, avisos]);
   const porUnidad = useMemo(() => contarPorUnidad(maquinas, avisos), [maquinas, avisos]);
+  // Ecovallas tiene sitios con varias pantallas y el aviso es por sitio:
+  // se aclara para que 95 no parezca menos que las 107 del inventario.
+  const conPantallas = useMemo(() => sitiosConPantallas(maquinas), [maquinas]);
 
   /** «2 Vía Verde · 1 Ecovallas · 1 Biobox», de mayor a menor. */
   const desglose = (e: EstadoNuc): string =>
@@ -360,6 +364,9 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
               {/* De qué unidad es (Erik, 4-nov-2026): el tablero mezcla Biobox,
                   Ecovallas y Vía Verde. */}
               <span className="tag">{NOMBRE_UNIDAD[m.unidad_negocio] || m.unidad_negocio}</span>
+              {/* Un aviso por sitio (Erik, 4-nov-2026); si el sitio tiene varias
+                  pantallas, se dice cuántas cubre (18-nov-2026). */}
+              {m.pantallas > 1 && <span className="tag">{m.pantallas} pantallas</span>}
             </div>
             {a && e !== 'en_linea' && a.nota_digital && <div style={{ fontSize: 12, marginTop: 6 }}>
               <span style={{ color: 'var(--muted)' }}>Digital:</span> {a.nota_digital}
@@ -445,6 +452,12 @@ function AvisoNucView({ roles, unidades, recargarSignal = 0 }: {
           </button>;
         })}
       </div>
+      {conPantallas.map((t) => (
+        <div key={t.unidad} style={{ fontSize: 12, color: 'var(--muted)', margin: '-6px 0 12px' }}>
+          {NOMBRE_UNIDAD[t.unidad] || t.unidad}: {t.sitios} sitios con {t.pantallas} pantallas. El aviso es por sitio:
+          cubre todas sus pantallas.
+        </div>
+      ))}
 
       <div className="toolbar">
         <input className="search" aria-label="Buscar máquina" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por número, clave o dirección" />

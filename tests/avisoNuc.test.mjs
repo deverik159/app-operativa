@@ -15,7 +15,7 @@ const {
   esDigitalNuc, esTecnicoNuc, unidadesAvisoNuc, maquinasDeInventario, estadoNuc,
   contarEstados, ordenarTablero, haceCuanto, pendientesNuc, coincideMaquina,
   entraEnTablero, recibeNucOtra, contarPorUnidad, diasFueraDeLinea, diaSiguiente, duracionTexto, respuestasPara,
-  nombreSitioDeCaras,
+  nombreSitioDeCaras, sitiosConPantallas,
 } = await import('data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64'));
 
 const rol = (r, unidad = null, dep = null) => ({ rol: r, unidad_negocio: unidad, departamento: dep });
@@ -278,4 +278,23 @@ test('Ecovallas: el nombre del sitio sale de sus pantallas, sin el «1/4» de la
     new Map([['F1', 'Tecamachalco 1/2'], ['F2', 'Tecamachalco 2/2']])
   );
   assert.deepEqual(maq.map((m) => [m.site_id, m.nombre]), [['E1', 'Tecamachalco'], ['E2', 'E2']]);
+  // Un aviso por sitio, pero cada sitio sabe cuántas pantallas tiene (Erik, 18-nov-2026).
+  assert.deepEqual(maq.map((m) => [m.site_id, m.pantallas]), [['E1', 2], ['E2', 1]]);
+});
+
+test('Pantallas por sitio: las caras repetidas no cuentan y el resumen solo sale donde hay más pantallas que sitios', () => {
+  const f = (site, cara, unidad = 'Ecovallas', medio = 'Digital') => ({
+    site_id: site, site_legacy_id: null, vendor_face_id: cara, unidad_negocio: unidad,
+    tipo_medio: medio, tipo_mueble: 'Ecovallas Digital', direccion: null, municipio: null,
+  });
+  const maq = maquinasDeInventario([
+    f('E1', 'A'), f('E1', 'B'), f('E1', 'B'), f('E1', 'C', 'Ecovallas', 'Impreso'),
+    f('E2', null), f('E2', null),
+    f('B1', 'X', 'Biobox'),
+  ]);
+  const p = Object.fromEntries(maq.map((m) => [m.site_id, m.pantallas]));
+  // E1: A y B (la impresa no entra); E2: dos filas sin cara cuentan dos.
+  assert.deepEqual(p, { E1: 2, E2: 2, B1: 1 });
+  assert.deepEqual(sitiosConPantallas(maq), [{ unidad: 'Ecovallas', sitios: 2, pantallas: 4 }]);
+  assert.deepEqual(sitiosConPantallas([{ unidad_negocio: 'Biobox', pantallas: 1 }]), []);
 });
