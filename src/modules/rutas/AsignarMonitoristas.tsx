@@ -246,15 +246,20 @@ export default function AsignarMonitoristas({ ruta, modo = 'monitorista' }: { ru
           // ruta (rutas, 5-oct-2026): su mensaje ya está escrito para el
           // coordinador, se enseña tal cual.
           const deLaGemela = rid !== ruta.id && gemela ? ` (Ruta ${gemela.numero} de ${gemela.tipo_medio})` : '';
+          // 42501 = la RLS lo negó (paquete B3, 18-nov-2026: solo un
+          // coordinador de la unidad de la ruta o el manager); antes salía el
+          // texto de Postgres en inglés.
           setErrAccion(
             pareceSinRed(error, status)
               ? 'Sin señal: no se pudo asignar. Vuelve a intentar.'
-              : `No se asignó a ${p.nombre}${deLaGemela}: ` + (error?.message || 'la base lo rechazó.')
+              : error?.code === '42501'
+                ? `No se asignó a ${p.nombre}${deLaGemela}: no tienes permiso para asignar en rutas de ${ruta.unidad_negocio}.`
+                : `No se asignó a ${p.nombre}${deLaGemela}: ` + (error?.message || 'la base lo rechazó.')
           );
           break;
         }
         if (!data || (data as unknown[]).length === 0) {
-          setErrAccion('La base no aceptó la asignación (¿sin permiso de coordinador?).');
+          setErrAccion(`La base no aceptó la asignación: no tienes permiso para asignar en rutas de ${ruta.unidad_negocio}.`);
           break;
         }
         hechas++;
@@ -305,12 +310,19 @@ export default function AsignarMonitoristas({ ruta, modo = 'monitorista' }: { ru
         setErrAccion(
           pareceSinRed(error, status)
             ? 'Sin señal: no se pudo quitar. Vuelve a intentar.'
-            : 'No se pudo quitar: ' + (error?.message || '')
+            : error?.code === '42501'
+              ? `No se pudo quitar: no tienes permiso para quitar asignaciones en rutas de ${ruta.unidad_negocio}.`
+              : 'No se pudo quitar: ' + (error?.message || '')
         );
         return;
       }
       if (!data || (data as unknown[]).length === 0) {
-        setErrAccion('La base no quitó la asignación (¿sin permiso de coordinador?).');
+        // La RLS niega el borrado sin error: 0 filas. También pasa si alguien
+        // más ya la quitó; se recarga para que la lista quede al día.
+        setErrAccion(
+          `No se quitó: ya no estaba asignada o no tienes permiso para quitar asignaciones en rutas de ${ruta.unidad_negocio}.`
+        );
+        setRecarga((n) => n + 1);
         return;
       }
       setRecarga((n) => n + 1);

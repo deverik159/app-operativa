@@ -578,8 +578,11 @@ function PautaView({
     });
     setAsignando(false);
     if (error) {
-      // 23505 = ya estaba asignada: no es un error para el coordinador.
-      if (!error.message.toLowerCase().includes('duplicate'))
+      // 42501 = la RLS lo negó (paquete B3, 18-nov-2026): las rutas de la
+      // pauta son de Ecovallas. 23505 = ya estaba asignada: no es un error.
+      if (error.code === '42501')
+        alert('No se pudo asignar: solo un coordinador de Ecovallas o el manager asigna rutas de la pauta.');
+      else if (!error.message.toLowerCase().includes('duplicate'))
         alert('No se pudo asignar: ' + error.message);
       return;
     }
@@ -588,14 +591,21 @@ function PautaView({
 
   const quitarAsignacion = async (a: { id: number; usuario_email: string }) => {
     if (!confirm(`¿Quitar la ruta a ${a.usuario_email.split('@')[0]}?`)) return;
-    const { error } = await sb
+    // .select('id'): la RLS niega el borrado sin error (0 filas); sin esto la
+    // pantalla se quedaba callada y la asignación seguía ahí.
+    const { data, error } = await sb
       .from('ruta_asignaciones')
       .delete()
-      .eq('id', a.id);
+      .eq('id', a.id)
+      .select('id');
     if (error) {
       alert('No se pudo quitar: ' + error.message);
       return;
     }
+    if (!data || data.length === 0)
+      alert(
+        'No se quitó: ya no estaba asignada o no tienes permiso (solo un coordinador de Ecovallas o el manager quita rutas de la pauta).'
+      );
     cargarAsignaciones();
   };
 

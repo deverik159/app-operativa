@@ -491,6 +491,12 @@ function RutasView({
           setErr('Ya tienes una ruta con ese número en esta unidad y medio: elige otro.');
         } else if (status === 0 || pareceSinRed(error, status)) {
           setErr('Sin señal o la red tardó demasiado: no se guardó. Vuelve a intentar.');
+        } else if (error?.code === '42501') {
+          // RLS (paquete B2, 18-nov-2026): crear o cambiar una ruta exige ser
+          // coordinador de su unidad. Antes salía el texto de Postgres en inglés.
+          setErr(
+            `No eres coordinador de ${payload.unidad_negocio}: no puedes crear ni cambiar rutas de esa unidad.`
+          );
         } else {
           setErr('No se pudo guardar: ' + (error?.message || ''));
         }
@@ -498,7 +504,9 @@ function RutasView({
       }
       const filas = (data as { id: number }[] | null) || [];
       if (filas.length === 0) {
-        setErr('La base no aceptó el cambio (¿sin permiso de coordinador?).');
+        setErr(
+          `La base no aceptó el cambio: solo el coordinador de ${payload.unidad_negocio} dueño de la ruta, o el manager, puede editarla.`
+        );
         return;
       }
       const eraNueva = !editando.id;
