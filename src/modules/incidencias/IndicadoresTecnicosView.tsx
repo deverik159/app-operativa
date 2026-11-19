@@ -13,7 +13,11 @@
 //
 // Quién ve qué (Erik): el manager y los coordinadores ven a todos los
 // técnicos de su unidad y área (la lista la recorta actividad_equipo en la
-// base); cada técnico ve SOLO lo suyo, sin ranking de compañeros. Cálculos
+// base). Cada técnico ve sus números y, desde el 19-nov-2026 (Erik: «si esto
+// genera competencia»), el ranking de SU área con su fila resaltada; la
+// lista de compañeros la da companeros_de_area (migración
+// 20261119165040_companeros_de_area). Solo abre el detalle de lo suyo y no
+// ve la columna «Rechazadas» de los demás (Erik, 19-nov-2026). Cálculos
 // en lib/indicadoresTecnicos.ts (con pruebas).
 // ============================================================
 import { useEffect, useMemo, useState } from 'react';
@@ -73,25 +77,35 @@ function Tarjeta({ titulo, children, nota }: { titulo: string; children: React.R
   );
 }
 
+/** El renglón del técnico que mira su ranking (19-nov-2026). */
+const RESALTE: React.CSSProperties = { fontWeight: 700, background: 'var(--panel2)', borderRadius: 6, padding: '3px 6px', margin: '-3px -6px' };
+const etiquetaDe = (etiqueta: string, mio: boolean) => (mio ? `${etiqueta} (tú)` : etiqueta);
+
 /** Barras horizontales clicables (una por técnico). */
-function Barras({ data, color, onAbrir }: {
+function Barras({ data, color, onAbrir, resaltar }: {
   data: { clave: string; etiqueta: string; n: number; extra?: string }[]; color: string; onAbrir?: (clave: string) => void;
+  /** Correo del técnico que mira: su barra va resaltada y solo esa se abre. */
+  resaltar?: string;
 }) {
   if (!data.length) return <div style={{ color: 'var(--muted)', fontSize: 12 }}>Sin datos en este periodo.</div>;
   const max = Math.max(...data.map((d) => d.n), 1);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {data.map((d) => (
-        <button type="button" key={d.clave} onClick={onAbrir && d.n ? () => onAbrir(d.clave) : undefined}
+      {data.map((d) => {
+        const mio = resaltar === d.clave;
+        const abre = !!onAbrir && !!d.n && (!resaltar || mio);
+        return (
+        <button type="button" key={d.clave} onClick={abre ? () => onAbrir!(d.clave) : undefined}
           title={`${d.etiqueta}: ${d.n}`}
-          style={{ ...SIN_BOTON, cursor: onAbrir && d.n ? 'pointer' : 'default', display: 'grid', gridTemplateColumns: 'minmax(0, clamp(130px, 40%, 240px)) 1fr auto', alignItems: 'center', gap: 10, fontSize: 13 }}>
-          <span style={{ overflowWrap: 'anywhere', lineHeight: 1.25 }}>{d.etiqueta}</span>
+          style={{ ...SIN_BOTON, ...(mio ? RESALTE : null), cursor: abre ? 'pointer' : 'default', display: 'grid', gridTemplateColumns: 'minmax(0, clamp(130px, 40%, 240px)) 1fr auto', alignItems: 'center', gap: 10, fontSize: 13 }}>
+          <span style={{ overflowWrap: 'anywhere', lineHeight: 1.25 }}>{etiquetaDe(d.etiqueta, mio)}</span>
           <div style={{ background: 'var(--panel2)', borderRadius: 4, height: 9, overflow: 'hidden' }}>
             <div style={{ height: '100%', borderRadius: 4, background: color, width: (d.n / max) * 100 + '%' }} />
           </div>
           <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{d.n}{d.extra && <span style={{ color: 'var(--muted)' }}> {d.extra}</span>}</span>
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -100,18 +114,22 @@ function Barras({ data, color, onAbrir }: {
  * Avance de la ruta por técnico: un medidor por renglón (máquinas visitadas
  * de las de su ruta), contra 100 %.
  */
-function Medidores({ data, onAbrir }: {
+function Medidores({ data, onAbrir, resaltar }: {
   data: { clave: string; etiqueta: string; hechos: number; total: number }[]; onAbrir: (clave: string) => void;
+  /** Correo del técnico que mira: su medidor va resaltado y solo ese se abre. */
+  resaltar?: string;
 }) {
   if (!data.length) return <div style={{ color: 'var(--muted)', fontSize: 12 }}>Ningún técnico de Op. Bio Box tiene ruta asignada.</div>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {data.map((d) => {
         const p = pct(d.hechos, d.total);
+        const mio = resaltar === d.clave;
+        const abre = !resaltar || mio;
         return (
-          <button type="button" key={d.clave} onClick={() => onAbrir(d.clave)} title={`${d.etiqueta}: ${d.hechos} de ${d.total}`}
-            style={{ ...SIN_BOTON, display: 'grid', gridTemplateColumns: 'minmax(0, clamp(130px, 40%, 240px)) 1fr auto', alignItems: 'center', gap: 10, fontSize: 13 }}>
-            <span style={{ overflowWrap: 'anywhere', lineHeight: 1.25 }}>{d.etiqueta}</span>
+          <button type="button" key={d.clave} onClick={abre ? () => onAbrir(d.clave) : undefined} title={`${d.etiqueta}: ${d.hechos} de ${d.total}`}
+            style={{ ...SIN_BOTON, ...(mio ? RESALTE : null), cursor: abre ? 'pointer' : 'default', display: 'grid', gridTemplateColumns: 'minmax(0, clamp(130px, 40%, 240px)) 1fr auto', alignItems: 'center', gap: 10, fontSize: 13 }}>
+            <span style={{ overflowWrap: 'anywhere', lineHeight: 1.25 }}>{etiquetaDe(d.etiqueta, mio)}</span>
             <div style={{ background: 'var(--panel2)', borderRadius: 4, height: 9, overflow: 'hidden' }}>
               <div style={{ height: '100%', borderRadius: 4, background: 'var(--serie2)', width: p + '%' }} />
             </div>
@@ -205,10 +223,16 @@ export default function IndicadoresTecnicosView({ roles, email, recargarSignal }
         if (error) { setErr('No se pudo leer la lista de técnicos: ' + error.message); return; }
         setPersonas(((data || []) as PersonaRoles[]).map((p) => ({ email: p.email, nombre: p.nombre, roles: p.roles })));
       } else {
-        setPersonas([{
+        const soloYo: PersonaRoles[] = [{
           email: yo, nombre: null,
           roles: roles.filter((r) => r.rol === 'reparacion').map((r) => ({ unidad: r.unidad_negocio, area: r.departamento ?? null, rol: r.rol })),
-        }]);
+        }];
+        // Sus compañeros de área (19-nov-2026). Si la base no contesta, sus
+        // números siguen saliendo, solo sin el ranking.
+        const { data, error } = await sb.rpc('companeros_de_area');
+        if (!vivo) return;
+        const lista = (error ? [] : (data || [])) as PersonaRoles[];
+        setPersonas(lista.some((p) => minus(p.email) === yo) ? lista : [...soloYo, ...lista]);
       }
     })();
     return () => { vivo = false; };
@@ -316,7 +340,7 @@ export default function IndicadoresTecnicosView({ roles, email, recargarSignal }
   const selector = (
     <div className="toolbar filtros-pildora" style={{ marginBottom: 14 }}>
       {/* Orden de Erik (18-nov-2026): unidad, semana o mes, el periodo y el área. */}
-      {esJefe && unidades.length > 1 && (
+      {unidades.length > 1 && (
         <select className={fUnidad !== 'Todas' ? 'on' : undefined} value={fUnidad} onChange={(e) => setFUnidad(e.target.value)} aria-label="Unidad">
           <option value="Todas">Unidad: todas</option>
           {unidades.map((u) => <option key={u} value={u}>{u}</option>)}
@@ -329,7 +353,7 @@ export default function IndicadoresTecnicosView({ roles, email, recargarSignal }
       <select className="on" value={periodo.clave} onChange={(e) => setPerSel(e.target.value)} aria-label={tipo === 'semana' ? 'Semana' : 'Mes'}>
         {periodos.map((x) => <option key={x.clave} value={x.clave}>{x.etiqueta}</option>)}
       </select>
-      {esJefe && areas.length > 1 && (
+      {areas.length > 1 && (
         <select className={fArea !== 'Todas' ? 'on' : undefined} value={fArea} onChange={(e) => setFArea(e.target.value)} aria-label="Área">
           <option value="Todas">Área: todas</option>
           {areas.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -357,14 +381,120 @@ export default function IndicadoresTecnicosView({ roles, email, recargarSignal }
     </>
   );
 
-  // ── El técnico: solo lo suyo ──
+  const filas = tecnicos.map((t) => ({ t, r: rep.get(t.email), a: avance.get(t.email), op: deOpBiobox(t) }));
+  const conRuta = filas.filter((f) => f.op && f.a && f.a.sitios.length);
+  const verOp = conRuta.length > 0 || filas.some((f) => f.op);
+
+  /**
+   * El ranking: barras de reparaciones, avance de ruta y la tabla. Con
+   * `resaltar` (el técnico que mira, 19-nov-2026) su renglón va marcado y
+   * solo el suyo abre el detalle.
+   */
+  const ranking = (resaltar?: string) => {
+    const puede = (e: string) => !resaltar || e === resaltar;
+    const tocar = resaltar ? 'Toca tu nombre' : 'Toca un técnico';
+    return (
+      <>
+        <Tarjeta titulo={resaltar ? 'Reparaciones de tu área' : 'Reparaciones por técnico'}
+          nota={`Número de reparaciones y, al lado, su mediana. ${tocar} para ver lo que ${resaltar ? 'reparaste' : 'reparó'}; los que no repararon nada están en la tabla de abajo.`}>
+          <Barras
+            data={filas
+              .map((f) => ({ clave: f.t.email, etiqueta: f.t.nombre, n: f.r?.reparadas.length || 0, extra: f.r?.medianaH != null ? `· ${fmtHoras(f.r.medianaH)}` : undefined }))
+              // Los que no repararon nada van en la tabla, no como barras vacías.
+              .filter((d) => d.n > 0)
+              .sort((a, b) => b.n - a.n || a.etiqueta.localeCompare(b.etiqueta))}
+            color="var(--accent2)" onAbrir={abrirReparadas} resaltar={resaltar}
+          />
+        </Tarjeta>
+
+        {verOp && (
+          <Tarjeta titulo={`Avance de su ruta ${enPeriodo} (Op. Bio Box)`}
+            nota={`Una máquina cuenta como visitada si alguien la visitó ${enPeriodo} (Mis rutas, visita rápida o revisión), como en Rutas › Avance de visitas. ${tocar} para ver ${resaltar ? 'tus' : 'sus'} máquinas.`}>
+            {ruta ? (
+              <Medidores
+                data={conRuta
+                  .map((f) => ({ clave: f.t.email, etiqueta: f.t.nombre, hechos: f.a!.visitados.length, total: f.a!.sitios.length }))
+                  .sort((a, b) => pct(a.hechos, a.total) - pct(b.hechos, b.total))}
+                onAbrir={setDetalleRuta} resaltar={resaltar}
+              />
+            ) : <div className="loading">Cargando rutas…</div>}
+          </Tarjeta>
+        )}
+
+        <Tarjeta titulo={resaltar ? 'Tu área, por técnico' : 'Por técnico'}>
+          <div style={{ overflowX: 'auto' }}>
+            {/* La app parte palabras en cualquier letra (overflow-wrap: anywhere);
+                aquí los títulos solo se cortan en los espacios y, si no caben,
+                la tabla se desplaza de lado. */}
+            <table className="tabla" style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', overflowWrap: 'normal', wordBreak: 'normal' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
+                  <th style={{ padding: '6px 8px' }}>Técnico</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Reparó</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Mediana</th>
+                  {/* Los rechazos de los compañeros no se le enseñan al técnico (Erik, 19-nov-2026). */}
+                  {!resaltar && <th style={{ padding: '6px 8px', textAlign: 'right' }}>Rechazadas</th>}
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Apoyó</th>
+                  {verOp && <>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>Visitas rápidas</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>Revisiones</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>Ruta</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>Sin visita +14 d</th>
+                  </>}
+                </tr>
+              </thead>
+              <tbody>
+                {[...filas].sort((a, b) => (b.r?.reparadas.length || 0) - (a.r?.reparadas.length || 0) || a.t.nombre.localeCompare(b.t.nombre)).map((f) => {
+                  const mio = resaltar === f.t.email;
+                  return (
+                  <tr key={f.t.email} style={{ borderTop: '1px solid var(--line)', ...(mio ? { background: 'var(--panel2)', fontWeight: 700 } : null) }}>
+                    <td style={{ padding: '6px 8px' }}>
+                      {etiquetaDe(f.t.nombre, mio)}
+                      <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>{f.t.areas.join(', ') || '—'}</div>
+                    </td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+                      {f.r?.reparadas.length && puede(f.t.email)
+                        ? <button type="button" className="btn ghost sm" onClick={() => abrirReparadas(f.t.email)}>{f.r.reparadas.length}</button>
+                        : f.r?.reparadas.length || 0}
+                    </td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{f.r?.medianaH == null ? '—' : fmtHoras(f.r.medianaH)}</td>
+                    {!resaltar && <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.r?.rechazadas.length || 0}</td>}
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.r?.apoyos.length || 0}</td>
+                    {verOp && <>
+                      <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.op ? f.a?.rapidas ?? 0 : '—'}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.op ? f.a?.revisiones ?? 0 : '—'}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {f.op && f.a?.sitios.length
+                          ? puede(f.t.email)
+                            ? <button type="button" className="btn ghost sm" onClick={() => setDetalleRuta(f.t.email)}>{f.a.visitados.length} de {f.a.sitios.length}</button>
+                            : `${f.a.visitados.length} de ${f.a.sitios.length}`
+                          : f.op ? 'Sin ruta' : '—'}
+                      </td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.op && f.a?.sitios.length ? f.a.sinVisita.length : '—'}</td>
+                    </>}
+                  </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Tarjeta>
+      </>
+    );
+  };
+
+  // ── El técnico: sus números y el ranking de su área (19-nov-2026) ──
   if (!esJefe) {
     const mio = rep.get(yo);
     const miRuta = avance.get(yo);
-    const soyOp = todosTecnicos.some(deOpBiobox);
+    const soyOp = todosTecnicos.some((t) => t.email === yo && deOpBiobox(t));
+    const hayCompaneros = filas.some((f) => f.t.email !== yo);
     return (
       <div>
-        <p className="phint">Tus números {enPeriodo === 'en la semana' ? 'de la semana' : 'del mes'}. Solo los ves tú, tu coordinador y el manager.</p>
+        <p className="phint">
+          Tus números {enPeriodo === 'en la semana' ? 'de la semana' : 'del mes'}
+          {hayCompaneros ? ' y, abajo, cómo vas frente a los técnicos de tu área.' : '. Solo los ves tú, tu coordinador y el manager.'}
+        </p>
         {selector}
         <div className="cards">
           <Numero n={mio?.reparadas.length ?? 0} l="Reparaste" onAbrir={mio?.reparadas.length ? () => abrirReparadas(yo) : undefined} />
@@ -387,14 +517,14 @@ export default function IndicadoresTecnicosView({ roles, email, recargarSignal }
             <div className="banner">{ruta ? 'No tienes ruta asignada.' : 'Cargando tu ruta…'}</div>
           )
         )}
-        <p className="phint">El tiempo de reparación va desde que la incidencia llegó a tu área hasta que la reparaste.</p>
+        {hayCompaneros && ranking(yo)}
+        <p className="phint" style={hayCompaneros ? { marginTop: 10 } : undefined}>El tiempo de reparación va desde que la incidencia llegó a tu área hasta que la reparaste.</p>
         {detalleModales}
       </div>
     );
   }
 
   // ── Manager y coordinadores ──
-  const filas = tecnicos.map((t) => ({ t, r: rep.get(t.email), a: avance.get(t.email), op: deOpBiobox(t) }));
   const totalRep = filas.reduce((s, f) => s + (f.r?.reparadas.length || 0), 0);
   const todasReparadas = filas.flatMap((f) => f.r?.reparadas || []) as Incidencia[];
   const medTotal = mediana(
@@ -403,15 +533,13 @@ export default function IndicadoresTecnicosView({ roles, email, recargarSignal }
       .filter((h) => Number.isFinite(h) && h >= 0)
   );
   const rechazadas = filas.flatMap((f) => f.r?.rechazadas || []) as Incidencia[];
-  const conRuta = filas.filter((f) => f.op && f.a && f.a.sitios.length);
   const rutaHechos = conRuta.reduce((s, f) => s + f.a!.visitados.length, 0);
   const rutaTotal = conRuta.reduce((s, f) => s + f.a!.sitios.length, 0);
-  const verOp = conRuta.length > 0 || filas.some((f) => f.op);
   const sinActividad = filas.filter((f) => !f.r?.reparadas.length && !f.r?.apoyos.length && !(f.a && (f.a.rapidas || f.a.revisiones))).length;
 
   return (
     <div>
-      <p className="phint">Lo que hizo cada técnico {enPeriodo}. Cada técnico ve solo lo suyo.</p>
+      <p className="phint">Lo que hizo cada técnico {enPeriodo}. Cada técnico ve sus números y el ranking de su área.</p>
       {selector}
       <div className="cards cinco">
         <Numero n={tecnicos.length} l={`Técnicos (${sinActividad} sin actividad)`} />
@@ -424,81 +552,7 @@ export default function IndicadoresTecnicosView({ roles, email, recargarSignal }
           : <Numero n={filas.reduce((s, f) => s + (f.r?.apoyos.length || 0), 0)} l="Apoyos" />}
       </div>
 
-      <Tarjeta titulo="Reparaciones por técnico" nota="Número de reparaciones y, al lado, su mediana. Toca un técnico para ver lo que reparó; los que no repararon nada están en la tabla de abajo.">
-        <Barras
-          data={filas
-            .map((f) => ({ clave: f.t.email, etiqueta: f.t.nombre, n: f.r?.reparadas.length || 0, extra: f.r?.medianaH != null ? `· ${fmtHoras(f.r.medianaH)}` : undefined }))
-            // Los que no repararon nada van en la tabla, no como barras vacías.
-            .filter((d) => d.n > 0)
-            .sort((a, b) => b.n - a.n || a.etiqueta.localeCompare(b.etiqueta))}
-          color="var(--accent2)" onAbrir={abrirReparadas}
-        />
-      </Tarjeta>
-
-      {verOp && (
-        <Tarjeta titulo={`Avance de su ruta ${enPeriodo} (Op. Bio Box)`}
-          nota={`Una máquina cuenta como visitada si alguien la visitó ${enPeriodo} (Mis rutas, visita rápida o revisión), como en Rutas › Avance de visitas. Toca un técnico para ver sus máquinas.`}>
-          {ruta ? (
-            <Medidores
-              data={conRuta
-                .map((f) => ({ clave: f.t.email, etiqueta: f.t.nombre, hechos: f.a!.visitados.length, total: f.a!.sitios.length }))
-                .sort((a, b) => pct(a.hechos, a.total) - pct(b.hechos, b.total))}
-              onAbrir={setDetalleRuta}
-            />
-          ) : <div className="loading">Cargando rutas…</div>}
-        </Tarjeta>
-      )}
-
-      <Tarjeta titulo="Por técnico">
-        <div style={{ overflowX: 'auto' }}>
-          {/* La app parte palabras en cualquier letra (overflow-wrap: anywhere);
-              aquí los títulos solo se cortan en los espacios y, si no caben,
-              la tabla se desplaza de lado. */}
-          <table className="tabla" style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', overflowWrap: 'normal', wordBreak: 'normal' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
-                <th style={{ padding: '6px 8px' }}>Técnico</th>
-                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Reparó</th>
-                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Mediana</th>
-                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Rechazadas</th>
-                <th style={{ padding: '6px 8px', textAlign: 'right' }}>Apoyó</th>
-                {verOp && <>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Visitas rápidas</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Revisiones</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Ruta</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Sin visita +14 d</th>
-                </>}
-              </tr>
-            </thead>
-            <tbody>
-              {[...filas].sort((a, b) => (b.r?.reparadas.length || 0) - (a.r?.reparadas.length || 0) || a.t.nombre.localeCompare(b.t.nombre)).map((f) => (
-                <tr key={f.t.email} style={{ borderTop: '1px solid var(--line)' }}>
-                  <td style={{ padding: '6px 8px' }}>
-                    {f.t.nombre}
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{f.t.areas.join(', ') || '—'}</div>
-                  </td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right' }}>
-                    {f.r?.reparadas.length ? <button type="button" className="btn ghost sm" onClick={() => abrirReparadas(f.t.email)}>{f.r.reparadas.length}</button> : 0}
-                  </td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>{f.r?.medianaH == null ? '—' : fmtHoras(f.r.medianaH)}</td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.r?.rechazadas.length || 0}</td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.r?.apoyos.length || 0}</td>
-                  {verOp && <>
-                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.op ? f.a?.rapidas ?? 0 : '—'}</td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.op ? f.a?.revisiones ?? 0 : '—'}</td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {f.op && f.a?.sitios.length
-                        ? <button type="button" className="btn ghost sm" onClick={() => setDetalleRuta(f.t.email)}>{f.a.visitados.length} de {f.a.sitios.length}</button>
-                        : f.op ? 'Sin ruta' : '—'}
-                    </td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{f.op && f.a?.sitios.length ? f.a.sinVisita.length : '—'}</td>
-                  </>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Tarjeta>
+      {ranking()}
       <p className="phint" style={{ marginTop: 10 }}>
         El tiempo de reparación va desde que la incidencia llegó al área del técnico hasta que la reparó (mediana).
       </p>
