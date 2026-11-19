@@ -1865,3 +1865,54 @@ Commits `d880a9f`, `0c73b5c`, `0f8c2c3`, `897f0c3` y `3ef506c`.
   (30 días tras cerrar o No reparado; 60 desde la subida si sigue abierta;
   vista `vw_chat_adjuntos_purgables`), y un rechazo por permisos (RLS / 42501)
   se muestra en palabras de campo en vez del error de Postgres.
+
+### 12.19. Aviso NUC (29-oct → 18-nov-2026)
+
+Módulo «Aviso NUC» (menú Campo): Digital marca a distancia que el NUC (equipo
+de la máquina o pantalla) está fuera de línea, que el sitio está apagado o que
+ya está en línea, con foto en cada paso; la gente de la unidad recibe el push.
+Va aparte de Incidencias: sin folio ni validación.
+
+- **Alcance:** todas las máquinas de Biobox y Biobox Perú (digitales e
+  impresas), las pantallas digitales de Ecovallas y las columnas y pórticos de
+  Vía Verde. **Un aviso abierto por sitio** (`site_id`), no por cara: Ecovallas
+  tiene 107 pantallas en 95 sitios, y la tarjeta de un sitio con varias dice
+  «N pantallas» (`sitiosConPantallas`, 18-nov-2026, `d64d72b`).
+- **Tablas:** `nuc_avisos` (estado `fuera_linea` · `apagado` · `en_linea`, fotos
+  `foto_abierto`, `foto_apagado` y `foto_cierre` en el bucket `evidencias`
+  bajo `nuc/`) y `nuc_avisos_eventos` (historial). Solo lectura por RLS; todo
+  cambio va por funciones SECURITY DEFINER:
+  - `nuc_aviso_abrir(p_site_id, p_nota, p_foto)`;
+  - `nuc_aviso_apagado(p_id, p_nota, p_foto)`, solo desde fuera de línea;
+  - `nuc_aviso_en_linea(p_id, p_respuesta, p_foto)`, con una respuesta
+    obligatoria (Se reinició el NUC · Se restableció la red · VPN apagada · Se
+    encendió el sitio, esta última solo desde apagado).
+  - Las tres exigen una imagen subida por quien llama; `nuc_foto_en_uso`
+    impide borrar una foto que ya es de un aviso.
+- **Quién marca («Digital», `nuc_es_digital()` y `esDigitalNuc`):** el manager
+  y quien tenga área Digital con rol técnico (`reparacion`) o, desde el
+  10-nov-2026, **coordinador** (`6a9a704`, migración
+  `20261110234051_aviso_nuc_coordinador_digital`). De cualquier unidad, marca
+  en todas.
+- **Quién ve y recibe:** `nuc_puede_ver` y `nuc_avisar_tecnicos` en la base;
+  `unidadesAvisoNuc`, `esTecnicoNuc`, `recibeNucOtra`, `esValidadorNuc` y
+  `pendientesNuc` en `src/lib/avisoNuc.ts`. **Las dos copias se cambian
+  juntas.**
+  - Biobox: técnicos de Op. Bio Box de la unidad, coordinadores de la unidad
+    (sin área o de Op. Bio Box) y el validador de la unidad.
+  - Ecovallas y Vía Verde: coordinadores de la unidad (sin área o de Digital),
+    validador de Digital o de todos los medios, y Digital.
+  - Consulta (viewer) solo ve el tablero, y desde el 10-nov-2026 solo el de su
+    unidad (`652f45b`).
+  - «Quién más recibe»: el manager agrega personas por unidad desde la app
+    (tabla `nuc_avisos_extra`, funciones `nuc_extra_agregar` /
+    `nuc_extra_quitar`), para que sus correos no queden en el repo.
+- **Pantalla:** `src/modules/aviso-nuc/AvisoNucView.tsx` (tablero con contadores
+  por estado y desglose por unidad), `GraficoNuc.tsx` (historial: horas fuera
+  de línea y apagado por día, rango elegible, días de CDMX) y
+  `DestinatariosNuc.tsx`. El estatus del NUC también se ve en Máquinas Biobox.
+  Títulos de los push (`nuc_fuera_linea`, `nuc_apagado`, `nuc_en_linea`) en
+  `supabase/functions/enviar-push` (desde la v23).
+- **Migraciones:** de `20261029234311_aviso_nuc` a
+  `20261110234051_aviso_nuc_coordinador_digital` (las que llevan `aviso_nuc`
+  en el nombre). Pruebas en `tests/avisoNuc.test.mjs`.
