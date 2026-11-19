@@ -78,8 +78,10 @@ const REFRESCO_NUC_MS = 60 * 1000;
 /** Tarjetas por tanda en la lista («Ver N más»). */
 const TANDA_MAQUINAS = 40;
 
-function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloLectura = false }: {
+function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloLectura = false, onAbrirIncidencia }: {
   email: string;
+  /** Lleva a Incidencias con ese folio enfocado: reporte completo y chat (Erik, 19-nov-2026). */
+  onAbrirIncidencia?: (recordId: string) => void;
   misDep: string[];
   /** Unidades cuyo Aviso NUC puede leer (unidadesAvisoNuc); en las demás no se enseña. */
   unidadesNuc?: string[];
@@ -464,7 +466,7 @@ function BioboxView({ email, misDep, unidadesNuc = [], recargarSignal = 0, soloL
           </div>
         </div>
         {maquinaAbierta === panelId && <div style={{ marginTop: 12 }}>
-          <EstadoMaquinaPanel key={u.site_id + '-' + actualizado?.getTime()} siteId={u.site_id} />
+          <EstadoMaquinaPanel key={u.site_id + '-' + actualizado?.getTime()} siteId={u.site_id} onAbrir={onAbrirIncidencia} />
         </div>}
       </div>
     );

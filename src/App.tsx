@@ -2689,6 +2689,7 @@ function Main({
                   unidadesNuc={unidadesNuc}
                   recargarSignal={recargarSignal}
                   soloLectura={consultaBiobox && !veMaquinasBiobox}
+                  onAbrirIncidencia={enfocarDesdePush}
                 />
               )}
               {tab === 'usuarios' && <UsuariosView email={email} />}

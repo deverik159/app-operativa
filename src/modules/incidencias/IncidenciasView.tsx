@@ -2002,8 +2002,8 @@ function IncidenciasView({
         // disponible") no se puede saber: se dice eso (modo sin señal,
         // 24-sep-2026).
         const avisoSinRed =
-          'Sin señal: la incidencia de la notificación no está en la ' +
-          'lista guardada. Ábrela de nuevo al volver la red.';
+          'Sin señal: esa incidencia no está en la lista guardada. ' +
+          'Ábrela de nuevo al volver la red.';
         if (!haySenal() || !(await haySesionReal())) {
           if (cancelado) return;
           setAvisoFoco(avisoSinRed);
@@ -2049,8 +2049,11 @@ function IncidenciasView({
 
         setAvisoFoco(
           error
-            ? 'No se pudo abrir la incidencia de la notificación: ' + error.message
-            : 'La incidencia de esta notificación ya no está disponible.'
+            ? 'No se pudo abrir la incidencia: ' + error.message
+            : // También se llega desde Máquinas Biobox (19-nov-2026), donde se
+              // ven las de otras áreas que la RLS no deja abrir.
+              'Esa incidencia ya no está disponible, o es de otra área y tu ' +
+              'usuario no la puede abrir.'
         );
         onFocoAplicado?.();
       })();

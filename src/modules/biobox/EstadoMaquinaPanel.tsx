@@ -33,9 +33,16 @@ type Props = {
   siteId: string;
   /** Al montarse avisa cuántas encontró, por si el padre quiere reaccionar. */
   onCargado?: (n: number) => void;
+  /**
+   * Abre el folio en Incidencias (reporte completo y chat; Erik, 19-nov-2026).
+   * Sin él (dentro de la revisión) no sale el botón: saltar a otra pestaña
+   * tiraría el checklist a medio llenar. La RLS de `incidencias` decide si
+   * lo puede ver; si no, Incidencias lo dice.
+   */
+  onAbrir?: (recordId: string) => void;
 };
 
-function EstadoMaquinaPanel({ siteId, onCargado }: Props) {
+function EstadoMaquinaPanel({ siteId, onCargado, onAbrir }: Props) {
   const [filas, setFilas] = useState<IncidenciaAbierta[]>([]);
   const [cargando, setCargando] = useState(true);
   const [err, setErr] = useState('');
@@ -240,6 +247,16 @@ function EstadoMaquinaPanel({ siteId, onCargado }: Props) {
                   >
                     “{f.observaciones}”
                   </div>
+                )}
+
+                {onAbrir && (
+                  <button
+                    className="btn ghost sm"
+                    style={{ marginTop: 8 }}
+                    onClick={() => onAbrir(f.record_id)}
+                  >
+                    Abrir reporte y chat ›
+                  </button>
                 )}
               </div>
             );
