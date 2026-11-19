@@ -15,6 +15,7 @@
 // ============================================================
 import { useState, useEffect, useMemo, useRef } from 'react';
 import IndicadoresAppBioboxView from './IndicadoresAppBioboxView';
+import IndicadoresTecnicosView from './IndicadoresTecnicosView';
 import { sb } from '../../lib/supabase';
 import { slaHoras } from '../../lib/helpers';
 import { SLA_VALIDACION_DEFAULT, HORARIO_VALIDADOR_TEXTO } from '../../lib/constants';
@@ -198,8 +199,16 @@ function IndicadoresView({
   puedeConfigurarSla = false,
   veMkt = false,
   unidadesApp = [],
+  roles = [],
+  email = '',
   recargarSignal,
 }: {
+  /**
+   * Para la pestaña «Técnicos» (Erik, 18-nov-2026): la ven el manager, los
+   * coordinadores y los técnicos (cada técnico, solo lo suyo).
+   */
+  roles?: readonly { rol: string; unidad_negocio: string | null; departamento?: string | null }[];
+  email?: string;
   /**
    * Unidades de la pestaña «App Biobox» (Erik, 18-nov-2026): las mismas que
    * la bandeja (unidadesBandeja). Vacío = no ve la pestaña.
@@ -223,10 +232,13 @@ function IndicadoresView({
   const [items, setItems] = useState<Incidencia[]>([]);
   // Pestañas de Indicadores (18-nov-2026). Sin permiso de MKT, siempre
   // Incidencias aunque el estado dijera otra cosa.
-  const [pestanaElegida, setPestana] = useState<'incidencias' | 'mkt' | 'app'>('incidencias');
+  const [pestanaElegida, setPestana] = useState<'incidencias' | 'mkt' | 'app' | 'tec'>('incidencias');
   const veApp = unidadesApp.length > 0;
+  const veTec = roles.some((r) => r.rol === 'manager' || r.rol === 'coordinador' || r.rol === 'reparacion');
   const pestana =
-    (pestanaElegida === 'mkt' && veMkt) || (pestanaElegida === 'app' && veApp) ? pestanaElegida : 'incidencias';
+    (pestanaElegida === 'mkt' && veMkt) || (pestanaElegida === 'app' && veApp) || (pestanaElegida === 'tec' && veTec)
+      ? pestanaElegida
+      : 'incidencias';
   const itemsMkt = useMemo(
     () => items.filter((i) => (i.area_reportante || '').trim().toUpperCase() === 'MKT'),
     [items]
@@ -471,7 +483,7 @@ function IndicadoresView({
   );
 
   // Pestañas (18-nov-2026): solo si hay más de una que ver.
-  const pestanasUi = (veMkt || veApp) && (
+  const pestanasUi = (veMkt || veApp || veTec) && (
     <div className="segmento" role="group" aria-label="Indicadores de" style={{ marginBottom: 10 }}>
       <button type="button" aria-pressed={pestana === 'incidencias'} onClick={() => setPestana('incidencias')}>
         Incidencias
@@ -486,8 +498,23 @@ function IndicadoresView({
           App Biobox
         </button>
       )}
+      {veTec && (
+        <button type="button" aria-pressed={pestana === 'tec'} onClick={() => setPestana('tec')}>
+          Técnicos
+        </button>
+      )}
     </div>
   );
+
+  if (pestana === 'tec') {
+    return (
+      <>
+        <h2 className="page">Indicadores</h2>
+        {pestanasUi}
+        <IndicadoresTecnicosView roles={roles} email={email} recargarSignal={recargarSignal} />
+      </>
+    );
+  }
 
   if (pestana === 'app') {
     return (

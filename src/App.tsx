@@ -2615,6 +2615,9 @@ function Main({
                   veMkt={has('manager') || has('coordinador') || misDep.some((d) => d.trim().toUpperCase() === 'MKT')}
                   // Pestaña App Biobox: los mismos que la bandeja (18-nov-2026).
                   unidadesApp={unidadesBandeja(rolesDetalle)}
+                  // Pestaña Técnicos: manager, coordinadores y técnicos (18-nov-2026).
+                  roles={rolesDetalle}
+                  email={session.user.email || ''}
                   recargarSignal={recargaManual}
                 />
               )}
