@@ -1971,3 +1971,45 @@ viajes (archivo, miniatura y registro en `evidencias`).
   «Reportar» (`CORTOS.nueva` en `src/components/IconoNav.tsx`).
 - **Sin probar con un reporte real** al 20-nov-2026: solo `tsc`, las pruebas y
   la vista de las leyendas en el navegador.
+
+### 12.21. Fallas de SIM en BioBox: catálogo, checklist y app (20-nov-2026)
+
+Erik pidió dos fallas nuevas de TI para BioBox México: «SIM sin datos» y
+«SIM desactivado». Biobox Perú queda fuera.
+
+- **Catálogo** (migración `20261120201121_catalogo_biobox_sim`):
+  - una fila por mueble (M4, M4 URBANA, M4-R2, M5 y M5 OXXO), ids 681–690;
+  - origen Interno · tipo Imponderable · afectación Cliente · impacto Alto ·
+    área TI (`area_resp_code` TI, sin SLA);
+  - unidad escrita «BioBox», como las demás fallas de TI de esa unidad (la
+    app busca la unidad con `ilike`);
+  - `catalogo_incidencias.id` no tiene secuencia: se numera desde `max(id)`.
+  - En la tabla de Erik las columnas se llaman distinto: su «tipo» es
+    `origen`, su «categoría» es `tipo`, su «origen» es `afectacion` y su
+    «nivel» es `impacto`.
+- **Checklist de la revisión** (migración
+  `20261120213251_biobox_sim_palabras_checklist`): las dos son causas del
+  punto «El Teltonika está en línea» (grupo «Energía y conexión», medio
+  Ambas, M4, M4-R2 y M5; la app cuenta M4 URBANA como M4 y M5 OXXO como M5).
+  Levantan la incidencia de TI. La plantilla de Perú usa «El módem está en
+  línea», así que no las ve.
+- **Reportes «Otro» de la app BioBox** (misma migración, `biobox_app_palabras`,
+  solo Biobox México):
+  - «sim»/«sims» → SIM sin datos (prioridad 15);
+  - sim/sims/chip con desactivado, suspendido o «de baja», en cualquier orden
+    → SIM desactivado (prioridad 14);
+  - «chip» a secas no cuenta: sería el chip de la tarjeta o del celular del
+    usuario. Tampoco «chips» («bolsa de chips»);
+  - ganan a «Puntos o aplicación» (20) y pierden con «Máquina llena» (10).
+    Van directo a TI y Atendido lo marca el técnico.
+- **Sin máquina, por la validadora:** `biobox_app_auto` se reemplazó solo en
+  la condición que ya mandaba a la validadora el reciclaje sin máquina
+  (17-nov-2026); ahora incluye las dos fallas de SIM. Hoy todos los reportes
+  «Otro» llegan sin máquina. Candado por md5 de la función.
+- **Pendiente** (Erik, «ahora no»): al clasificar, la máquina solo es
+  obligatoria para reciclaje (`clasificar_reporte_biobox_app` y
+  `pideMaquinaAlClasificar` en `src/lib/reportesAppBiobox.ts`). La validadora
+  todavía puede mandar una SIM a TI sin máquina.
+- Las dos migraciones se revisaron con `revisor-rls` y se aplicaron con el sí
+  de Erik (commit `6adeca6`). Se verificaron con consultas (filas, patrones
+  con textos de ejemplo y md5 de la función), no en pantalla.
