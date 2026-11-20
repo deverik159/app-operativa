@@ -202,8 +202,9 @@ viejo, donde todo vivía en `App`.
 reparada). Ambos inician en 20 minutos y un manager los ajusta desde
 Indicadores. La bandeja avisa de forma discreta cuando una validación está por
 vencer o vencida. El reloj solo consume jornada hábil del validador: lunes a
-viernes, 09:30–18:30 CDMX; se pausa por noche y fin de semana. `sla_validacion.sql`
-crea la tabla, sus datos iniciales y RLS.
+viernes, 8:15–17:00 CDMX desde el 9-nov-2026 (antes 9:30–18:30; `VAL_DESDE` y
+`VAL_HASTA` en `src/lib/constants.ts`); se pausa por noche y fin de semana.
+`sla_validacion.sql` crea la tabla, sus datos iniciales y RLS.
 
 **Columnas de `incidencias` que el frontend NO debe mandar** — las llenan
 triggers: `folio` (`set_folio`), `catorcena`/`semana`/`plaza`/`latitud`/
@@ -388,13 +389,16 @@ estatus y las rutas de Storage se fijan UNA vez al tocar Guardar
 de mandar nada (`lib/envios.ts`). Reintentar no duplica: cada paso consulta
 primero qué ya quedó. Sin red, `crearReporte` devuelve `[]` (el modal se
 cierra y el aviso global `EnviosPendientes` lo manda solo al volver la señal).
+Desde el 20-nov-2026 el modal se cierra en cuanto se crean los folios y las
+fotos siguen subiendo solas, 3 a la vez (ver §12.20).
 
 Las partidas ya agregadas se pueden **editar** (✏️). La partida no se saca de
 la lista mientras se edita, y al guardar se reemplaza en su posición. Si se
 intenta guardar el reporte con una edición abierta, avisa.
 
-**Auto-ruteo:** fuera del horario del validador (Lun–Vie 9:30–18:30 CDMX), las
-áreas de `AREAS_AUTORUTEO` (hoy solo Digital) entran directo a `en_proceso` con
+**Auto-ruteo:** fuera del horario del validador (Lun–Vie 8:15–17:00 CDMX desde el
+9-nov-2026), las áreas de `AREAS_AUTORUTEO` (Digital; Op. Bio Box desde el
+29-oct-2026; TI desde el 18-nov-2026) entran directo a `en_proceso` con
 `requiere_prevalidacion=true`. `fueraHorarioValidador()` evalúa en zona horaria
 de CDMX a propósito: el dispositivo del reportante puede estar en otra.
 
@@ -1928,3 +1932,42 @@ Va aparte de Incidencias: sin folio ni validación.
 - **Migraciones:** de `20261029234311_aviso_nuc` a
   `20261110234051_aviso_nuc_coordinador_digital` (las que llevan `aviso_nuc`
   en el nombre). Pruebas en `tests/avisoNuc.test.mjs`.
+
+### 12.20. Nueva incidencia: guardar sin esperar las fotos (20-nov-2026)
+
+Al hacer varios reportes seguidos, «Guardando…» tardaba (Erik, 20-nov-2026):
+el modal esperaba a que subiera cada foto, una por una, y cada una son tres
+viajes (archivo, miniatura y registro en `evidencias`).
+
+- **Cuándo se suelta el modal** (`2d426fe`):
+  - La regla de duplicados y el insert de las filas siguen con el modal
+    abierto: son lo único que puede pedir corregir algo.
+  - En cuanto las filas existen y faltan archivos, `procesarEnvio` llama
+    `alInsertar(creadas)` (`OpcionesEnvio` en `src/lib/envios.ts`).
+    `crearReporte` corre ese aviso contra el resultado completo
+    (`Promise.race`), devuelve las incidencias creadas y el modal se cierra.
+  - El mismo `procesarEnvio` sigue con los archivos. Vale para Incidencias,
+    Pauta y Mis rutas, porque comparten `crearReporte`.
+- **En segundo plano:** el envío se anota en `enSegundoPlano`. Sigue en
+  `interactivos`, así que el aviso de pendientes no lo pinta como atorado.
+  Lo que antes era `alert` va a `tomarAvisosEnvio`. Al terminar deja un logro
+  (`tomarLogrosEnvio`). Si se queda sin red, sale de ahí y pasa al aviso
+  normal de pendientes con «Reintentar», como antes.
+- **3 archivos a la vez:** `pasoArchivos` reparte `unArchivo` en
+  `SUBIDAS_A_LA_VEZ` trabajadores. Cada archivo sigue siendo repetible; si uno
+  lanza `SinRed`, no se empiezan más, se espera a los que van y se lanza ese
+  error.
+- **Leyendas:**
+  - «Subiendo fotos de BBMM00012 · 3 de 6» (`src/components/SubidasEnCurso.tsx`):
+    flotando abajo (`.aviso-subida`, una fila arriba de `.aviso-breve`) y en
+    línea dentro de Nueva incidencia;
+  - «✓ BBMM00012 guardado con sus 6 fotos», con `AvisoBreve` desde
+    `EnviosPendientes`, más una recarga diferida para que la tarjeta pinte su
+    foto.
+
+  Los textos están en `src/lib/subidaEnvios.ts` (`tests/subidaEnvios.test.mjs`).
+- **Menú** (`a503b26`): «Nueva» pasó a «Nueva incidencia». En la barra del
+  celular, donde no cabe (90 px contra ~71 por botón a 375 px), dice
+  «Reportar» (`CORTOS.nueva` en `src/components/IconoNav.tsx`).
+- **Sin probar con un reporte real** al 20-nov-2026: solo `tsc`, las pruebas y
+  la vista de las leyendas en el navegador.
