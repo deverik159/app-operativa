@@ -91,6 +91,7 @@ export default function IconoNav({ k, emoji }: { k: string; emoji: string }) {
  * El largo se sigue viendo en escritorio y en la hoja "Más".
  */
 const CORTOS: Record<string, string> = {
+  nueva: 'Reportar', // «Nueva incidencia» no cabe en la barra (90 px contra ~71; Erik, 20-nov-2026)
   todas: 'Incidencias',
   dashboard: 'Indicadores',
   rutas: 'Rutas',

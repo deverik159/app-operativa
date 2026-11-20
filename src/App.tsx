@@ -1933,7 +1933,9 @@ function Main({
     has('reportante') && {
       k: 'nueva',
       ic: '➕',
-      t: 'Nueva',
+      // «Nueva» solo confundía (Erik, 20-nov-2026); en la barra del celular
+      // no cabe completo y dice «Reportar» (CORTOS en IconoNav).
+      t: 'Nueva incidencia',
       grupo: 'incidencias',
       action: () => {
         // Si no estamos en una pestaña de incidencias hay que ir a una:
