@@ -87,6 +87,7 @@ import { vigilarRender } from '../../lib/vigia';
 // claro/oscuro, 24-sep-2026).
 import { colorTono, fondoTono, pintar } from '../../lib/tonos';
 import CerrarModal from '../../components/CerrarModal';
+import SubidasEnCurso from '../../components/SubidasEnCurso';
 import Ic from '../../components/Ic';
 import type {
   CatalogoIncidencia,
@@ -1995,6 +1996,9 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
           Elige el sitio una vez y agrega todas las fallas: cada una a las caras
           que apliquen.
         </p>
+        {/* Las fotos del reporte anterior siguen subiendo solas (20-nov-2026):
+            se dice aquí porque la ventana tapa la leyenda de abajo. */}
+        <SubidasEnCurso enLinea />
         {/* Aviso discreto de que algo salió de la copia del teléfono (modo
             sin señal, 24-sep-2026): quien captura sabe con qué fecha trabaja. */}
         {usandoCopia && (

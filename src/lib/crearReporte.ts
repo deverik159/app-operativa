@@ -16,7 +16,9 @@
 // Ahora aquí solo se ARMA el envío —ids, fecha, estatus y rutas fijados una
 // vez— y se entrega a la cola (lib/envios.ts), que lo guarda en el teléfono
 // antes de mandar nada y lo procesa de forma repetible. Con red, el usuario
-// ve EXACTAMENTE lo de siempre: mismos pasos, mismos alerts, mismo orden.
+// ve los mismos pasos y alerts hasta que se crean los folios; desde el
+// 20-nov-2026 ahí se cierra la ventana y las fotos suben solas, con una
+// leyenda de avance y otra de terminado (components/SubidasEnCurso).
 //
 // Contrato con quien llama (Incidencias y Pauta cierran el modal con
 // cualquier arreglo):
@@ -195,8 +197,6 @@ export async function crearReporte(
   // reporte sobrevive y se retoma donde se quedó. Si el teléfono no deja
   // guardarlo, se sigue en memoria — nunca se bloquea el guardado.
   const guardado = await guardarEnvioNuevo(envio, archivos, { interactivo: true });
-  const r = await procesarEnvio(envio, { interactivo: true });
-
   // Con arreglo (vacío o no) el modal se cierra. El borrador ya NO se borra
   // aquí (revisión primer mes, 24-sep-2026): sin red se borraba aunque el
   // envío no hubiera cabido entero en el teléfono —la única copia de ese
@@ -207,6 +207,21 @@ export async function crearReporte(
     if (origen) sellarBorrador(origen.sesion);
     return x;
   };
+
+  // En cuanto los folios existen se suelta la ventana y las fotos siguen
+  // subiendo solas (20-nov-2026, Erik: al hacer varios reportes seguidos,
+  // «Guardando…» tardaba). Lo que puede pedir corregir algo (duplicado,
+  // error de la base) pasa antes de crear los folios, con la ventana
+  // abierta como siempre. Sin fotos, o si todo termina antes, sale normal.
+  let soltar: (creadas: Incidencia[]) => void = () => {};
+  const soltada = new Promise<Incidencia[]>((res) => (soltar = res));
+  const proceso = procesarEnvio(envio, { interactivo: true, alInsertar: (c) => soltar(c) });
+  const primero = await Promise.race([
+    proceso.then((r) => ({ r })),
+    soltada.then((creadas) => ({ creadas })),
+  ]);
+  if ('creadas' in primero) return entregado(primero.creadas);
+  const r = primero.r;
 
   switch (r.tipo) {
     case 'completo':

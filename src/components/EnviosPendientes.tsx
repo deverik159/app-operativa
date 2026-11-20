@@ -60,8 +60,13 @@ import {
   procesarPendientes,
   registrarEmailActivo,
   suscribirEnvios,
+  tomarAvisosEnvio,
+  tomarLogrosEnvio,
+  type LogroEnvio,
   type ResumenPendiente,
 } from '../lib/envios';
+import { textoLogroEnvio } from '../lib/subidaEnvios';
+import SubidasEnCurso from './SubidasEnCurso';
 import {
   descartarAccion,
   listarAccionesAviso,
@@ -107,6 +112,9 @@ import {
 import AvisoBreve from './AvisoBreve';
 import LimiteSilencioso from './LimiteSilencioso';
 
+/** Los logros de los reportes se muestran todos (no hay filtro como en Pauta). */
+const todosLosLogros = (l: LogroEnvio[]): LogroEnvio[] => l;
+
 /** Reintento periódico mientras haya pendientes. */
 const CADA_MS = 2 * 60 * 1000;
 
@@ -147,6 +155,8 @@ function EnviosPendientes({
   /** Visitas de Comprobaciones (5.ª cola; se pintan solo las que piden atención). */
   const [tomasComp, setTomasComp] = useState<ResumenAvisoCola[]>([]);
   const [logrosComp, setLogrosComp] = useState<LogroComp[]>([]);
+  /** Reportes cuyas fotos terminaron de subir solas (20-nov-2026). */
+  const [logrosEnvio, setLogrosEnvio] = useState<LogroEnvio[]>([]);
   const [abierto, setAbierto] = useState(false);
   // Una bandera por cola (verificación de la revisión sin señal,
   // 24-sep-2026): con un video lento en la de acciones, la de reportes se
@@ -267,8 +277,21 @@ function EnviosPendientes({
       // de la misma incidencia antes de la que se acaba de tocar). Solo los
       // de este correo (revisión sin señal, 24-sep-2026: teléfono compartido).
       const deTomas = tomarAvisosTomas(email);
-      const buzon = [...tomarAvisosAcciones(email), ...tomarAvisosVisitas(email), ...deTomas];
+      const buzon = [
+        ...tomarAvisosAcciones(email),
+        ...tomarAvisosVisitas(email),
+        ...deTomas,
+        // Una foto que no subió de un reporte que ya soltó su ventana.
+        ...tomarAvisosEnvio(email),
+      ];
       sumarMensajes(buzon);
+      // Reportes cuyas fotos terminaron de subir solas (20-nov-2026): el
+      // aviso breve y una recarga diferida para que la tarjeta pinte su foto.
+      const deEnvios = tomarLogrosEnvio(email);
+      if (deEnvios.length) {
+        setLogrosEnvio((prev) => [...prev, ...deEnvios]);
+        pedirRecarga(true);
+      }
       // Una toma regresada: la lista se recarga para que la ventana vea el
       // motivo (y no vuelva a chocar con "regresada" al registrar).
       if (deTomas.some(esRegreso)) pedirRecarga(false);
@@ -509,6 +532,7 @@ function EnviosPendientes({
 
   const mostrados = useCallback((k: number) => setLogros((prev) => prev.slice(k)), []);
   const mostradosComp = useCallback((k: number) => setLogrosComp((prev) => prev.slice(k)), []);
+  const mostradosEnvio = useCallback((k: number) => setLogrosEnvio((prev) => prev.slice(k)), []);
   const aviso = (
     <>
       <LimiteSilencioso nombre="aviso-breve">
@@ -521,6 +545,17 @@ function EnviosPendientes({
           porMostrar={logrosPorMostrarComp}
           texto={textoLogroComp}
         />
+      </LimiteSilencioso>
+      <LimiteSilencioso nombre="aviso-breve-envios">
+        <AvisoBreve<LogroEnvio>
+          logros={logrosEnvio}
+          onMostrados={mostradosEnvio}
+          porMostrar={todosLosLogros}
+          texto={textoLogroEnvio}
+        />
+      </LimiteSilencioso>
+      <LimiteSilencioso nombre="subidas-en-curso">
+        <SubidasEnCurso email={email} />
       </LimiteSilencioso>
     </>
   );

@@ -265,6 +265,22 @@ const interactivos = new Set<string>();
 /** Descartados: ninguna escritura tardía debe resucitarlos. */
 const descartados = new Set<string>();
 
+/**
+ * Envíos del Guardar que ya soltaron la ventana (20-nov-2026, Erik: al
+ * hacer varios reportes seguidos, «Guardando…» tardaba): sus folios ya
+ * existen y las fotos siguen subiendo solas. Mientras suben, el aviso
+ * global no los pinta como pendientes (siguen en `interactivos`); se ven
+ * en la leyenda chica de subidasEnCurso. Si se quedan sin red, salen de
+ * aquí y pasan al aviso normal con «Reintentar».
+ */
+const enSegundoPlano = new Map<string, { email: string; folios: string[] }>();
+
+/** Lo que terminó en segundo plano: «✓ BBMM00012 guardado con sus 6 fotos». */
+export type LogroEnvio = { email: string; folios: string[]; archivos: number; fallidos: number };
+const logrosEnvio: LogroEnvio[] = [];
+/** Avisos de un envío soltado (p. ej. una foto que no subió): ya no hay alert. */
+const avisosEnvio: { email: string; texto: string }[] = [];
+
 // Aviso de cambios: EventTarget en la pestaña y BroadcastChannel entre
 // pestañas, así el aviso global se actualiza sin sondear.
 const bus: EventTarget | null = typeof EventTarget !== 'undefined' ? new EventTarget() : null;
@@ -827,6 +843,38 @@ function resumir(e: Envio): ResumenPendiente {
   };
 }
 
+/** Subidas en segundo plano de este correo: folios y cuántos archivos van. */
+export type SubidaEnCurso = { id: string; folios: string[]; hechos: number; total: number };
+
+export function subidasEnCurso(email: string): SubidaEnCurso[] {
+  const em = (email || '').trim().toLowerCase();
+  const res: SubidaEnCurso[] = [];
+  enSegundoPlano.forEach((d, id) => {
+    const e = memoria.get(id);
+    if (!e || (d.email || '').toLowerCase() !== em) return;
+    const todos = e.grupos.flatMap((g) => g.archivos.filter((a) => filasDelArchivo(g, a).length));
+    const fin = new Set([...e.estado.ligados, ...e.estado.fallidos]);
+    res.push({ id, folios: d.folios, hechos: todos.filter((a) => fin.has(a.path)).length, total: todos.length });
+  });
+  return res;
+}
+
+/** Saca los logros de este correo (cada uno se muestra una vez). */
+export function tomarLogrosEnvio(email: string): LogroEnvio[] {
+  const em = (email || '').trim().toLowerCase();
+  const mios = logrosEnvio.filter((l) => l.email === em);
+  if (mios.length) logrosEnvio.splice(0, logrosEnvio.length, ...logrosEnvio.filter((l) => l.email !== em));
+  return mios;
+}
+
+/** Saca los avisos de envíos soltados de este correo. */
+export function tomarAvisosEnvio(email: string): string[] {
+  const em = (email || '').trim().toLowerCase();
+  const mios = avisosEnvio.filter((a) => a.email === em).map((a) => a.texto);
+  if (mios.length) avisosEnvio.splice(0, avisosEnvio.length, ...avisosEnvio.filter((a) => a.email !== em));
+  return mios;
+}
+
 /** Lo que el aviso global pinta: pendientes de este correo, sin los que el usuario está esperando. */
 export async function listarPendientes(email: string): Promise<ResumenPendiente[]> {
   return (await listarEnvios(email)).filter((e) => !interactivos.has(e.id)).map(resumir);
@@ -1060,7 +1108,17 @@ export async function conCandado<T>(
  * false en falso y el reporte ya ni se intentaba. Sin red de verdad cuesta
  * un fetch que falla al instante, y conReintento no espera.
  */
-export function procesarEnvio(e: Envio, op: { interactivo: boolean }): Promise<ResultadoEnvio> {
+export type OpcionesEnvio = {
+  interactivo: boolean;
+  /**
+   * Solo el Guardar (20-nov-2026): se llama en cuanto las filas quedaron
+   * en la base y todavía faltan archivos. Quien llama cierra la ventana y
+   * el envío sigue subiendo solo (ver enSegundoPlano).
+   */
+  alInsertar?: (creadas: Incidencia[]) => void;
+};
+
+export function procesarEnvio(e: Envio, op: OpcionesEnvio): Promise<ResultadoEnvio> {
   const previo = enCurso.get(e.id);
   if (previo) return op.interactivo ? previo : Promise.resolve({ tipo: 'ocupado' });
   const p = conCandado<ResultadoEnvio>(e.id, () => ejecutar(e, op), { tipo: 'ocupado' })
@@ -1589,14 +1647,23 @@ async function ligar(
   return { definitivo: r.error.message };
 }
 
+/** Cuántos archivos suben a la vez (20-nov-2026, Erik: «tarda al guardar»). */
+const SUBIDAS_A_LA_VEZ = 3;
+
 /**
- * Pasos "subir" y "ligar", archivo por archivo, como antes: cada grupo sube
- * SUS archivos y los liga SOLO a sus caras. Un error definitivo en un
- * archivo se avisa y se sigue con el resto (las incidencias ya existen).
- * Lanza SinRed si la red se cae: lo hecho queda persistido.
+ * Pasos "subir" y "ligar": cada grupo sube SUS archivos y los liga SOLO a
+ * sus caras. Un error definitivo en un archivo se avisa y se sigue con el
+ * resto (las incidencias ya existen). Lanza SinRed si la red se cae: lo
+ * hecho queda persistido.
  * Antes de cada subida y de cada registro se vuelve a revisar que la sesión
  * siga siendo del dueño del envío (revisión sin señal, 24-sep-2026): una
  * subida larga da tiempo a que otra cuenta entre en el mismo teléfono.
+ *
+ * Hasta SUBIDAS_A_LA_VEZ archivos a la vez (20-nov-2026): antes iban uno
+ * por uno y cada uno son tres viajes (archivo, miniatura y registro), así
+ * que un reporte con varias fotos tardaba. Cada archivo sigue siendo
+ * repetible por su cuenta; si uno lanza SinRed, ya no se empiezan más,
+ * se espera a los que van en camino y se lanza ese error.
  */
 async function pasoArchivos(
   e: Envio,
@@ -1604,67 +1671,91 @@ async function pasoArchivos(
   verificar: boolean,
   topeSesion: number | undefined
 ): Promise<void> {
-  for (const g of e.grupos) {
-    for (const a of g.archivos) {
-      if (e.estado.ligados.includes(a.path) || e.estado.fallidos.includes(a.path)) continue;
-      // La foto de una cara que se omitió por duplicada: no se sube.
-      if (!filasDelArchivo(g, a).length) {
-        e.estado.ligados.push(a.path);
-        await persistir(e);
-        continue;
+  const tareas = e.grupos.flatMap((g) => g.archivos.map((a) => ({ g, a })));
+  let siguiente = 0;
+  let fallo: { err: unknown } | null = null;
+  const trabajador = async () => {
+    while (!fallo && siguiente < tareas.length) {
+      const { g, a } = tareas[siguiente++];
+      try {
+        await unArchivo(e, g, a, avisar, verificar, topeSesion);
+      } catch (err) {
+        if (!fallo) fallo = { err };
       }
-
-      if (!e.estado.subidos.includes(a.path)) {
-        const f = await archivoDe(e, a);
-        if (!f) {
-          // Solo pasa al retomar tras cerrar la app: el archivo no cupo en
-          // el teléfono, el navegador borró los datos del sitio o no se pudo
-          // leer tres veces seguidas (leerDelTelefono).
-          reportarError('envios.archivoPerdido', new Error('archivo no encontrado'), { path: a.path, bytes: a.bytes }, a.path);
-          avisar(
-            `La incidencia se creó, pero el archivo «${a.nombre}» ya no estaba en el teléfono ` +
-              '(no cupo, se borró o no se pudo leer). Súbelo desde la tarjeta con 📎 Evidencia.'
-          );
-          e.estado.fallidos.push(a.path);
-          await persistir(e);
-          continue;
-        }
-        await exigirSesion(topeSesion, e.email);
-        const res = await conReintento(() => subir(a, f, e.email));
-        if (res !== 'ok') {
-          const up = res.definitivo as { message?: string };
-          // Las incidencias ya existen: se avisa pero no se aborta el resto.
-          // Y queda registrado: con mala señal esto pasa en campo y, sin
-          // telemetría, nadie sabía cuántos reportes quedaban sin foto.
-          reportarError('crearReporte.subida', up, { path: a.path, tipo: a.tipo, bytes: f.size }, a.path);
-          avisar('Se creó, pero falló subir evidencia: ' + (up?.message || mensajeDe(up)));
-          e.estado.fallidos.push(a.path);
-          await persistir(e);
-          continue;
-        }
-        // Se anota ANTES de la miniatura: con un video el cuadro tarda hasta
-        // 8 s, y si en ese rato se cierra la app, al retomar la cola no debe
-        // volver a subir el video entero por 4G.
-        e.estado.subidos.push(a.path);
-        await persistir(e);
-        // La miniatura es la que pintan las tarjetas (de mejor esfuerzo). De
-        // un video, un cuadro suyo: sin él, la tarjeta salía vacía.
-        await subirMiniatura(a.path, f);
-      }
-
-      await exigirSesion(topeSesion, e.email);
-      const lg = await conReintento(() => ligar(e, g, a, verificar));
-      if (lg !== 'ok') {
-        reportarError('crearReporte.ligar', new Error(lg.definitivo), { path: a.path }, a.path);
-        avisar('La incidencia se creó, pero no se pudo registrar una evidencia: ' + lg.definitivo);
-        e.estado.fallidos.push(a.path);
-        await persistir(e);
-        continue;
-      }
-      e.estado.ligados.push(a.path);
-      await persistir(e);
     }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(SUBIDAS_A_LA_VEZ, tareas.length) }, trabajador)
+  );
+  if (fallo) throw (fallo as { err: unknown }).err;
+}
+
+/** Sube y liga UN archivo (lo que antes era una vuelta del ciclo). */
+async function unArchivo(
+  e: Envio,
+  g: GrupoEnvio,
+  a: ArchivoEnvio,
+  avisar: (m: string) => void,
+  verificar: boolean,
+  topeSesion: number | undefined
+): Promise<void> {
+  if (e.estado.ligados.includes(a.path) || e.estado.fallidos.includes(a.path)) return;
+  // La foto de una cara que se omitió por duplicada: no se sube.
+  if (!filasDelArchivo(g, a).length) {
+    e.estado.ligados.push(a.path);
+    await persistir(e);
+    return;
   }
+
+  if (!e.estado.subidos.includes(a.path)) {
+    const f = await archivoDe(e, a);
+    if (!f) {
+      // Solo pasa al retomar tras cerrar la app: el archivo no cupo en
+      // el teléfono, el navegador borró los datos del sitio o no se pudo
+      // leer tres veces seguidas (leerDelTelefono).
+      reportarError('envios.archivoPerdido', new Error('archivo no encontrado'), { path: a.path, bytes: a.bytes }, a.path);
+      avisar(
+        `La incidencia se creó, pero el archivo «${a.nombre}» ya no estaba en el teléfono ` +
+          '(no cupo, se borró o no se pudo leer). Súbelo desde la tarjeta con 📎 Evidencia.'
+      );
+      e.estado.fallidos.push(a.path);
+      await persistir(e);
+      return;
+    }
+    await exigirSesion(topeSesion, e.email);
+    const res = await conReintento(() => subir(a, f, e.email));
+    if (res !== 'ok') {
+      const up = res.definitivo as { message?: string };
+      // Las incidencias ya existen: se avisa pero no se aborta el resto.
+      // Y queda registrado: con mala señal esto pasa en campo y, sin
+      // telemetría, nadie sabía cuántos reportes quedaban sin foto.
+      reportarError('crearReporte.subida', up, { path: a.path, tipo: a.tipo, bytes: f.size }, a.path);
+      avisar('Se creó, pero falló subir evidencia: ' + (up?.message || mensajeDe(up)));
+      e.estado.fallidos.push(a.path);
+      await persistir(e);
+      return;
+    }
+    // Se anota ANTES de la miniatura: con un video el cuadro tarda hasta
+    // 8 s, y si en ese rato se cierra la app, al retomar la cola no debe
+    // volver a subir el video entero por 4G.
+    e.estado.subidos.push(a.path);
+    await persistir(e);
+    // La miniatura es la que pintan las tarjetas (de mejor esfuerzo). De
+    // un video, un cuadro suyo: sin él, la tarjeta salía vacía.
+    await subirMiniatura(a.path, f);
+  }
+
+  await exigirSesion(topeSesion, e.email);
+  const lg = await conReintento(() => ligar(e, g, a, verificar));
+  if (lg !== 'ok') {
+    reportarError('crearReporte.ligar', new Error(lg.definitivo), { path: a.path }, a.path);
+    avisar('La incidencia se creó, pero no se pudo registrar una evidencia: ' + lg.definitivo);
+    e.estado.fallidos.push(a.path);
+    await persistir(e);
+    return;
+  }
+  e.estado.ligados.push(a.path);
+  await persistir(e);
 }
 
 /**
@@ -1704,14 +1795,42 @@ async function anotar(e: Envio, error: string): Promise<void> {
   await persistir(e);
 }
 
-async function ejecutar(e0: Envio, op: { interactivo: boolean }): Promise<ResultadoEnvio> {
+async function ejecutar(e0: Envio, op: OpcionesEnvio): Promise<ResultadoEnvio> {
+  const marca: { soltado: boolean; envio?: Envio } = { soltado: false };
+  const r = await ejecutarEnvio(e0, op, marca);
+  if (!marca.soltado) return r;
+  // Soltado: nadie espera este resultado en pantalla. Lo que terminó va a
+  // la leyenda de logro; los avisos, al aviso global. Si se quedó sin red,
+  // ya no está en segundo plano: el aviso normal lo enseña y lo reintenta.
+  const datos = enSegundoPlano.get(e0.id);
+  enSegundoPlano.delete(e0.id);
+  const email = (e0.email || '').toLowerCase();
+  if ('avisos' in r) r.avisos.forEach((texto) => avisosEnvio.push({ email, texto }));
+  if (r.tipo === 'completo' && datos) {
+    // La versión que se procesó (versionFresca pudo leer otra del teléfono).
+    const e = marca.envio ?? e0;
+    const todos = e.grupos.flatMap((g) => g.archivos.filter((a) => filasDelArchivo(g, a).length));
+    const fallidos = todos.filter((a) => e.estado.fallidos.includes(a.path)).length;
+    logrosEnvio.push({ email, folios: datos.folios, archivos: todos.length - fallidos, fallidos });
+  }
+  emitir();
+  return r;
+}
+
+async function ejecutarEnvio(
+  e0: Envio,
+  op: OpcionesEnvio,
+  marca: { soltado: boolean; envio?: Envio }
+): Promise<ResultadoEnvio> {
   const e = await versionFresca(e0);
   if (!e) return { tipo: 'yaEnviado' };
+  marca.envio = e;
   memoria.set(e.id, e);
 
   const avisos: string[] = [];
+  // Ya soltada la ventana no hay a quién mostrarle un alert: se juntan.
   const avisar = (m: string) => {
-    if (op.interactivo) alert(m);
+    if (op.interactivo && !marca.soltado) alert(m);
     else avisos.push(m);
   };
   const porId = new Map<string, Incidencia>();
@@ -1783,9 +1902,22 @@ async function ejecutar(e0: Envio, op: { interactivo: boolean }): Promise<Result
 
     // ── 2 y 3. SUBIR Y LIGAR ──
     cerrarBorradorSiYaEntro(e);
-    await pasoArchivos(e, avisar, verificar, topeSesion);
+    // Los folios ya existen: si faltan fotos, se suelta la ventana y lo
+    // demás sigue solo (20-nov-2026). La regla de duplicados y los errores
+    // de la base ya pasaron arriba con la ventana abierta.
+    if (op.alInsertar && archivosPendientes(e).length) {
+      const creadas = await construirCreadas(e, porId, true);
+      marca.soltado = true;
+      enSegundoPlano.set(e.id, {
+        email: e.email,
+        folios: creadas.map((c) => c.folio || '').filter(Boolean),
+      });
+      emitir();
+      op.alInsertar(creadas);
+    }
+    await pasoArchivos(e, avisar, verificar, marca.soltado ? undefined : topeSesion);
 
-    const creadas = op.interactivo ? await construirCreadas(e, porId, true) : [];
+    const creadas = op.interactivo && !marca.soltado ? await construirCreadas(e, porId, true) : [];
     // Completo: se cierra también su borrador, sea esta la pestaña del
     // Guardar u otra que lo retomó de la cola (revisión primer mes,
     // 24-sep-2026). Los 'duplicado' y 'error' interactivos de arriba NO lo
