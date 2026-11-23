@@ -31,6 +31,7 @@ import { useState } from 'react';
 import { sb } from '../../lib/supabase';
 import { haySenal } from '../../lib/datosLocales';
 import { ladoAlReclasificar } from '../../lib/catalogo';
+import { duplicadasEnProceso, ErrorConsultaDuplicados } from '../../lib/duplicados';
 import { tieneAreaRedirigida } from '../../lib/helpers';
 import { vigilarRender } from '../../lib/vigia';
 import type { CatalogoIncidencia, Incidencia } from '../../types/db';
@@ -106,6 +107,49 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
       setBusy(false);
       alert(SIN_SENAL);
       return;
+    }
+    // ══ REGLA DE DUPLICIDAD (Erik, 23-nov-2026) ══ La misma que al levantar
+    // una incidencia (lib/duplicados.ts): si con la falla corregida ya hay
+    // otra igual EN PROCESO en la misma cara, no se guarda. Pasó con
+    // EVD00040 y EVD00041: una se corrigió a «Estructura con grafiti» en la
+    // cara donde la otra ya estaba en proceso, y quedaron dos. Si la consulta
+    // falla por red, se pide señal; si falla por otra cosa, no frena (mejor
+    // esfuerzo, igual que al capturar).
+    if (sel.detalle !== inc.nombre_incidencia) {
+      try {
+        const choques = (
+          await duplicadasEnProceso(
+            [
+              {
+                clave_medio: inc.clave_medio,
+                clave_sitio: inc.clave_sitio,
+                lado: ladoNuevo !== undefined ? ladoNuevo : inc.lado,
+                nombre_incidencia: sel.detalle,
+                unidad_negocio: inc.unidad_negocio,
+                medio: inc.medio,
+              },
+            ],
+            { lanzarSiFalla: true }
+          )
+        ).filter((c) => c.folio !== inc.folio);
+        if (choques.length) {
+          setBusy(false);
+          alert(
+            `Ya hay una «${sel.detalle}» en proceso en esta cara: folio ` +
+              `${choques.map((c) => c.folio || '—').join(', ')}.\n\n` +
+              'No se guardó la corrección. Si es el mismo trabajo, usa ' +
+              '«Devolver al reportante» como duplicado.'
+          );
+          return;
+        }
+      } catch (err) {
+        const st = err instanceof ErrorConsultaDuplicados ? err.status : 0;
+        if (!haySenal() || !st || st === 401 || st >= 500) {
+          setBusy(false);
+          alert(SIN_SENAL);
+          return;
+        }
+      }
     }
     // Solo estos (y `lado` si entra o sale del Adicional o la Puerta).
     // `assigned_area` queda fuera a propósito.
