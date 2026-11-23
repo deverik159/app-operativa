@@ -27,6 +27,21 @@ test('el mismo texto aunque el navegador no ponga name', () => {
   assert.match(errorSuscripcionPush(new Error('Registration failed - push service error')), /Servicios de Google Play/);
 });
 
+test('en Windows (Edge) habla de Windows y no de Google Play', () => {
+  const ua =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0';
+  const t = errorSuscripcionPush(domErr('AbortError', 'Registration failed - push service error'), ua);
+  assert.match(t, /servicio de avisos de Windows/);
+  assert.match(t, /InPrivate/);
+  assert.match(t, /Chrome/);
+  assert.doesNotMatch(t, /Google Play/);
+});
+
+test('en Android sigue hablando de Google Play', () => {
+  const ua = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Mobile Safari/537.36';
+  assert.match(errorSuscripcionPush(domErr('AbortError', 'Registration failed - push service error'), ua), /Google Play/);
+});
+
 test('permiso negado', () => {
   assert.match(errorSuscripcionPush(domErr('NotAllowedError', 'Registration failed - permission denied')), /permiso/);
 });

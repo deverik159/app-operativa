@@ -11,8 +11,12 @@
 // rato después, se activó solo. El mensaje en inglés no decía qué hacer.
 // ============================================================
 
-/** Texto para el usuario cuando falla la suscripción del navegador. */
-export function errorSuscripcionPush(e: unknown): string {
+/**
+ * Texto para el usuario cuando falla la suscripción del navegador.
+ * @param ua navigator.userAgent: en Windows el error viene del servicio de
+ *   avisos de Windows (WNS, en Edge) y no del de Google, y los pasos son otros.
+ */
+export function errorSuscripcionPush(e: unknown, ua = ''): string {
   const nombre = (e as { name?: unknown } | null)?.name;
   const msg = String((e as { message?: unknown } | null)?.message ?? e ?? '');
 
@@ -21,7 +25,23 @@ export function errorSuscripcionPush(e: unknown): string {
   if (nombre === 'NotAllowedError' || /permission denied|not allowed/i.test(msg))
     return 'No se concedió el permiso de notificaciones. Puedes activarlo desde los ajustes del navegador.';
 
-  if (/push service error|registration failed|push service not available/i.test(msg) || nombre === 'AbortError')
+  const servicioNoRespondio =
+    /push service error|registration failed|push service not available/i.test(msg) || nombre === 'AbortError';
+
+  // Edge en Windows registra con WNS (23-nov-2026: a un usuario le fallaba en
+  // su computadora mientras otros sí los activaban en Edge 157). Pasa con las
+  // notificaciones de Windows apagadas, en ventana InPrivate, con el servicio
+  // de notificaciones de inserción de Windows detenido o con la red bloqueando
+  // *.notify.windows.com.
+  if (servicioNoRespondio && /Windows NT/i.test(ua))
+    return (
+      'No se pudo activar: el servicio de avisos de Windows no respondió en esta computadora. ' +
+      'Revisa que en Configuración de Windows › Sistema › Notificaciones estén activadas (también para el navegador) ' +
+      'y que no estés en una ventana InPrivate o de incógnito, y vuelve a tocar Activar. ' +
+      'Si sigue fallando, abre la app en Chrome en esta computadora y actívalos ahí.'
+    );
+
+  if (servicioNoRespondio)
     return (
       'No se pudo activar: el servicio de avisos de Google no respondió en este celular ' +
       '(pasa seguido en un celular recién configurado o con mala señal). ' +

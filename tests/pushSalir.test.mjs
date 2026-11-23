@@ -38,9 +38,16 @@ const { outputFiles } = await build({
     {
       name: 'simulados',
       setup(b) {
-        b.onResolve({ filter: /^\.\/(supabase|plataforma)$/ }, (a) => ({ path: a.path, namespace: 'sim' }));
+        // reportarError (23-nov-2026) se simula: el real arrastra versionApp,
+        // que usa __APP_BUILD_ID__ (lo pone Vite) y no existe en node.
+        b.onResolve({ filter: /^\.\/(supabase|plataforma|reportarError)$/ }, (a) => ({ path: a.path, namespace: 'sim' }));
         b.onLoad({ filter: /.*/, namespace: 'sim' }, (a) => ({
-          contents: a.path === './supabase' ? SB : 'export const esIOS = () => false;',
+          contents:
+            a.path === './supabase'
+              ? SB
+              : a.path === './reportarError'
+                ? 'export const reportarError = () => {};'
+                : 'export const esIOS = () => false;',
           loader: 'js',
         }));
       },

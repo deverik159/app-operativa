@@ -231,7 +231,7 @@ export async function activarPush(email: string, renovar = false): Promise<strin
     // service error» en un celular recién cambiado). Se registra para verlo
     // en errores_cliente sin esperar a que alguien mande captura.
     reportarError('push.suscribir', e);
-    return errorSuscripcionPush(e);
+    return errorSuscripcionPush(e, navigator.userAgent);
   }
 
   const j = sus.toJSON() as {
