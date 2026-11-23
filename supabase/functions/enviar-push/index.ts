@@ -80,6 +80,8 @@ const TITULOS: Record<string, string> = {
   // Técnico de Op. Bio Box por ruta (30-oct-2026).
   ruta_tecnico: 'Cambio en tu ruta',
   maquina_incidencia: 'Incidencia en tu máquina',
+  // Descartar como duplicada (23-nov-2026): al reportante.
+  duplicada: 'Tu incidencia quedó como duplicada',
 };
 
 type Cuerpo = {

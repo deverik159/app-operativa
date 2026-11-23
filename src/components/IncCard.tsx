@@ -7,6 +7,7 @@ import {
   Check,
   Clock,
   Compass,
+  Copy,
   Cpu,
   Hourglass,
   MapPin,
@@ -27,6 +28,7 @@ import {
   EST_COLOR,
   EST_LABEL,
   NIVEL_COLOR,
+  esTerminal,
 } from '../lib/constants';
 import { slaInfo, slaInfoValidador, caraIncidencia, areaEfectiva, tieneAreaRedirigida } from '../lib/helpers';
 import { alFallarMiniatura, esUrlVideo, urlMiniatura } from '../lib/storage';
@@ -101,6 +103,8 @@ type IncCardProps = {
   onDescartar: (i: Incidencia) => void;
   /** ↩ Devolver al reportante un reporte mal hecho (abre el motivo). */
   onDevolver: (i: Incidencia) => void;
+  /** Descartar como duplicada de otra en proceso (23-nov-2026). */
+  onDuplicada?: (i: Incidencia) => void;
   slaMap: SlaMap;
   /** Minutos configurados para validar captura y reparación. */
   slaValidacion: { reporte: number; reparacion: number };
@@ -151,6 +155,7 @@ function IncCard({
   onPrevalidar,
   onDescartar,
   onDevolver,
+  onDuplicada,
   slaMap,
   slaValidacion,
   nChat,
@@ -163,7 +168,7 @@ function IncCard({
   // va directo al servidor.
   const bloqueada = ocupada;
   const bloqueadaRed = enCola || ocupada;
-  const activa = !['cerrada', 'no_reparado'].includes(i.estatus);
+  const activa = !esTerminal(i.estatus);
   const prevalidacionPend =
     i.requiere_prevalidacion && !i.prevalidada && i.estatus === 'en_proceso';
   const fueraHorario = estadoFueraHorario(i);
@@ -486,6 +491,16 @@ function IncCard({
           )}
         </div>
       )}
+      {i.estatus === 'duplicada' && (
+        // Descartada como duplicada (23-nov-2026): no hay nada que hacer con
+        // ella; la que se trabaja es la original.
+        <div className="obs">
+          <Ic i={Copy} />Duplicada de <b>{i.duplicada_folio || 'otra incidencia'}</b>
+          {i.duplicada_por ? ` · la descartó ${i.duplicada_por.split('@')[0]}` : ''}
+          {i.duplicada_en ? ` el ${new Date(i.duplicada_en).toLocaleDateString('es-MX')}` : ''}. No cuenta en
+          los indicadores.
+        </div>
+      )}
       {i.estatus === 'rechazada' && i.motivo_rechazo_reparacion && (
         // Devuelta (o descartada): el reportante ve en la tarjeta qué debe
         // corregir, sin abrir ✏️ Editar (13-oct-2026). Texto neutro: igual
@@ -534,6 +549,18 @@ function IncCard({
             <Undo2 {...IC} />
             Devolver al reportante
           </button>
+          {/* Ya hay otra igual en proceso (23-nov-2026): la busca sola con la
+              regla de duplicados. Necesita señal (va directo al servidor). */}
+          {onDuplicada && (
+            <button
+              className="btn ghost sm"
+              onClick={() => onDuplicada(i)}
+              disabled={bloqueadaRed}
+            >
+              <Copy {...IC} />
+              Duplicada…
+            </button>
+          )}
         </div>
       )}
 

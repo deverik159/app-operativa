@@ -31,7 +31,9 @@ import { useState } from 'react';
 import { sb } from '../../lib/supabase';
 import { haySenal } from '../../lib/datosLocales';
 import { ladoAlReclasificar } from '../../lib/catalogo';
-import { duplicadasEnProceso, ErrorConsultaDuplicados } from '../../lib/duplicados';
+import { descartarDuplicada, duplicadasEnProceso, ErrorConsultaDuplicados } from '../../lib/duplicados';
+import { tope } from '../../lib/envios';
+import { pareceSinRed } from '../../lib/enLinea';
 import { tieneAreaRedirigida } from '../../lib/helpers';
 import { vigilarRender } from '../../lib/vigia';
 import type { CatalogoIncidencia, Incidencia } from '../../types/db';
@@ -71,6 +73,41 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
   const [sel, setSel] = useState<CatalogoIncidencia | null>(null);
   const [observaciones, setObservaciones] = useState(inc.observaciones || '');
   const [busy, setBusy] = useState(false);
+  /**
+   * La corrección chocó con otra igual en proceso (23-nov-2026): en vez de
+   * guardar, se ofrece «Descartar como duplicada de <folio>».
+   */
+  const [choque, setChoque] = useState<{ detalle: string; folios: string[] } | null>(null);
+  const [errDup, setErrDup] = useState('');
+  // Solo se descarta una por validar, en proceso o devuelta (lo revisa la base).
+  const puedeDescartar = ['por_validar', 'en_proceso', 'rechazada'].includes(inc.estatus);
+
+  const descartar = async (folio: string) => {
+    if (!choque) return;
+    if (!haySenal()) {
+      setErrDup(SIN_SENAL);
+      return;
+    }
+    setBusy(true);
+    setErrDup('');
+    if (!(await haySesionReal())) {
+      setBusy(false);
+      setErrDup(SIN_SENAL);
+      return;
+    }
+    try {
+      const patch = await descartarDuplicada(inc.record_id, folio, choque.detalle, tope(30000));
+      setBusy(false);
+      onDone(inc.record_id, patch);
+    } catch (e) {
+      setBusy(false);
+      setErrDup(
+        pareceSinRed(e)
+          ? 'La red no respondió. Revisa la incidencia antes de volver a intentarlo: pudo haberse guardado.'
+          : (e as { message?: string })?.message || String(e)
+      );
+    }
+  };
 
   // `impacto` en el catálogo viene con espacios de sobra; `nivel` no.
   const nivelNuevo = (sel?.impacto || '').trim();
@@ -133,13 +170,12 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
           )
         ).filter((c) => c.folio !== inc.folio);
         if (choques.length) {
+          // No se guarda: se ofrece descartarla como duplicada (abajo).
           setBusy(false);
-          alert(
-            `Ya hay una «${sel.detalle}» en proceso en esta cara: folio ` +
-              `${choques.map((c) => c.folio || '—').join(', ')}.\n\n` +
-              'No se guardó la corrección. Si es el mismo trabajo, usa ' +
-              '«Devolver al reportante» como duplicado.'
-          );
+          setChoque({
+            detalle: sel.detalle,
+            folios: [...new Set(choques.map((c) => c.folio).filter((f): f is string => !!f))],
+          });
           return;
         }
       } catch (err) {
@@ -213,7 +249,12 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
           unidad={inc.unidad_negocio}
           mueble={inc.tipo_mueble}
           actual={inc.nombre_incidencia}
-          onElegir={setSel}
+          onElegir={(c) => {
+            setSel(c);
+            // Otra falla: el choque anterior ya no aplica.
+            setChoque(null);
+            setErrDup('');
+          }}
         />
 
         {/* Origen y tipo se siguen recalculando y guardando con el patch;
@@ -296,6 +337,50 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
             onChange={(e) => setObservaciones(e.target.value)}
           />
         </div>
+
+        {choque && (
+          // Regla de duplicidad (23-nov-2026): no se guardó la corrección.
+          <div
+            role="alert"
+            style={{
+              background: 'var(--aviso-fondo)',
+              border: '1px solid var(--aviso-borde)',
+              borderRadius: 10,
+              padding: '10px 12px',
+              margin: '4px 0 12px',
+              fontSize: 13,
+              color: 'var(--aviso-txt)',
+            }}
+          >
+            Ya hay una «{choque.detalle}» en proceso en esta cara:{' '}
+            <b>{choque.folios.join(', ') || '—'}</b>. No se guardó la corrección.
+            {puedeDescartar && choque.folios.length > 0 ? (
+              <>
+                <br />
+                Si es el mismo trabajo, descártala como duplicada: no cuenta en los
+                indicadores y al reportante le llega un aviso (no le queda pendiente).
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                  {choque.folios.map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      className="btn sm"
+                      disabled={busy}
+                      onClick={() => void descartar(f)}
+                    >
+                      {busy ? 'Guardando…' : `Descartar como duplicada de ${f}`}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
+            {errDup && (
+              <div className="err" style={{ marginTop: 8 }}>
+                {errDup}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="modal-actions pie-fijo">
           <button className="btn ghost" onClick={onClose}>

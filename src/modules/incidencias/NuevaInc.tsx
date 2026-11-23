@@ -79,8 +79,14 @@ import {
   llaveCatalogo,
   filtrarCatalogo,
 } from '../../lib/catalogo';
-import { unaFotoPorCara } from '../../lib/fotoPorCara';
-import SubirArchivos from '../../components/SubirArchivos';
+import {
+  ajustarCarasDeFotos,
+  faltaCaraDeFoto,
+  indicesDeFotos,
+  pideCaraPorFoto,
+  unaFotoPorCara,
+} from '../../lib/fotoPorCara';
+import SubirArchivos, { MiniFile } from '../../components/SubirArchivos';
 import { vigilarRender } from '../../lib/vigia';
 // Colores de estatus y el naranja como TEXTO van con su tono, legibles en
 // los dos temas: --accent en claro solo sirve de fondo de botón (tema
@@ -139,6 +145,12 @@ type Linea = {
   obs: string;
   files: File[];
   /**
+   * A qué cara(s) va cada foto, alineado con `files` (Erik, 23-nov-2026):
+   * solo cuando hay varias caras y un número de fotos distinto
+   * (lib/fotoPorCara.ts, pideCaraPorFoto). Sin esto, cada foto va a todas.
+   */
+  fotoCaras?: string[][];
+  /**
    * Incidencia del Adicional o de la Puerta (Erik, 6-oct-2026): no se eligen
    * caras y se guarda UNA fila con este valor en `lado`. En un sitio de una
    * cara la fila conserva su clave de medio (así la regla de duplicados la
@@ -187,6 +199,11 @@ export type GrupoReporte = {
    */
   etiquetas?: string[];
   /**
+   * Las filas (índices, en el orden de `filas`) a las que va cada archivo,
+   * cuando quien captura eligió la cara de cada foto (23-nov-2026).
+   */
+  paraFilas?: number[][];
+  /**
    * Borrador del formulario del que salió el reporte (auditoría primer
    * mes, 24-sep-2026). La cola lo anota en el envío, reusa sus archivos y
    * lo cierra cuando el envío queda completo o se descarta; mientras tanto
@@ -224,6 +241,8 @@ type DatosBorrador = {
     campPorCara: Record<string, string>;
     campLibrePorCara: Record<string, boolean>;
     obs: string;
+    /** Ver Linea.fotoCaras (23-nov-2026); los borradores de antes no lo traen. */
+    fotoCaras?: string[][];
     archivos: string[];
     editandoId: number | null;
   };
@@ -332,6 +351,10 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
   // Fotos de la partida que se está editando ahora. Al agregarla al reporte
   // se guardan dentro de la línea y este arreglo se vacía para la siguiente.
   const [filesLinea, setFilesLinea] = useState<File[]>([]);
+  // A qué cara(s) va cada foto de la partida en edición, alineado con
+  // filesLinea (23-nov-2026; ver Linea.fotoCaras). Se lee siempre ajustado
+  // (ajustarCarasDeFotos): las fotos o caras pudieron cambiar después.
+  const [fotoCarasLinea, setFotoCarasLinea] = useState<string[][]>([]);
   const [busy, setBusy] = useState(false);
   const [loadingSites, setLoadingSites] = useState(false);
   const [nearOpts, setNearOpts] = useState<SitioCercano[]>([]);
@@ -1234,6 +1257,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     setCampLibrePorCara({});
     setObs('');
     setFilesLinea([]);
+    setFotoCarasLinea([]);
     setEditandoId(null);
   };
 
@@ -1266,6 +1290,18 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       alert('Adjunta al menos una foto o video de esta incidencia.');
       return;
     }
+    // Menos (o más) fotos que caras: cada foto con su cara (23-nov-2026).
+    const eligeCaras = !elementoSel && pideCaraPorFoto(selCaras.length, filesLinea.length);
+    const fotoCaras = eligeCaras
+      ? ajustarCarasDeFotos(fotoCarasLinea, filesLinea.length, selCaras)
+      : undefined;
+    if (fotoCaras) {
+      const falta = faltaCaraDeFoto(fotoCaras, selCaras, caraLabel);
+      if (falta) {
+        alert(falta);
+        return;
+      }
+    }
     const datos = {
       cat: catSel,
       // Del Adicional o de la Puerta: sin caras (ver Linea.elemento).
@@ -1281,6 +1317,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         : null,
       obs,
       files: filesLinea,
+      fotoCaras,
     };
     if (editandoId != null) {
       // Se reemplaza EN SU POSICIÓN: el orden del reporte no debe cambiar
@@ -1305,6 +1342,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     setCampLibrePorCara({});
     setObs(l.obs);
     setFilesLinea([...l.files]);
+    setFotoCarasLinea((l.fotoCaras || []).map((a) => [...a]));
     setEditandoId(l.id);
   };
 
@@ -1331,10 +1369,13 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     setContactoTelefono(d.contactoTelefono || '');
     setViaReporte(d.viaReporte || '');
     setLado(d.lado || '');
-    const ls: Linea[] = (d.lineas || []).map(({ archivos: ks, ...l }) => ({
-      ...l,
-      files: deClaves(ks),
-    }));
+    const ls: Linea[] = (d.lineas || []).map(({ archivos: ks, ...l }) => {
+      const files = deClaves(ks);
+      // Si alguna foto no cupo en el teléfono, la elección de caras ya no
+      // cuadra con las fotos: se descarta y esas fotos van a todas.
+      const fotoCaras = l.fotoCaras && files.length === (ks || []).length ? l.fotoCaras : undefined;
+      return { ...l, files, fotoCaras };
+    });
     setLineas(ls);
     const ed = d.editor;
     setCatSel(ed?.catSel || null);
@@ -1344,7 +1385,11 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     setCampPorCara(ed?.campPorCara || {});
     setCampLibrePorCara(ed?.campLibrePorCara || {});
     setObs(ed?.obs || '');
-    setFilesLinea(deClaves(ed?.archivos));
+    const filesEd = deClaves(ed?.archivos);
+    setFilesLinea(filesEd);
+    setFotoCarasLinea(
+      ed?.fotoCaras && filesEd.length === (ed.archivos || []).length ? ed.fotoCaras : []
+    );
     setEditandoId(
       ed?.editandoId != null && ls.some((l) => l.id === ed.editandoId) ? ed.editandoId : null
     );
@@ -1684,12 +1729,17 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
       : undefined;
     // Un grupo por partida. Dentro de cada grupo, producto partida × cara →
     // una fila de incidencias por cara. Las fotos van a todas sus caras,
-    // salvo que haya una por cara: entonces cada una a la suya (12-nov-2026).
+    // salvo que haya una por cara: entonces cada una a la suya (12-nov-2026),
+    // o que se haya elegido la cara de cada foto (23-nov-2026).
     const grupos: GrupoReporte[] = partidas.map((l) => ({
       files: l.files,
       borrador: origen,
       carasLabel: l.elemento || l.caras.map(caraLabel).join(', '),
       etiquetas: l.elemento && !l.caras.length ? undefined : l.caras.map(caraLabel),
+      paraFilas:
+        !l.elemento && l.fotoCaras && l.fotoCaras.length === l.files.length
+          ? indicesDeFotos(l.fotoCaras, l.caras)
+          : undefined,
       // Del Adicional o de la Puerta en un sitio de varias caras: UNA fila
       // sin cara (vf null).
       filas: (l.elemento && !l.caras.length ? [null] : l.caras).map((vf) => {
@@ -1787,6 +1837,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
         campLibrePorCara,
         obs,
         archivos: filesLinea.map(clave),
+        fotoCaras: fotoCarasLinea,
         editandoId,
       },
     };
@@ -1839,6 +1890,7 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
     campLibrePorCara,
     obs,
     filesLinea,
+    fotoCarasLinea,
     editandoId,
   ]);
 
@@ -2350,7 +2402,9 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                             ? 'el adicional'
                             : unaFotoPorCara(l.caras.length, l.files.length)
                               ? 'estas caras, uno por cara'
-                              : l.caras.length > 1
+                              : l.fotoCaras?.length === l.files.length
+                                ? 'estas caras, cada uno a la cara elegida'
+                                : l.caras.length > 1
                                 ? 'estas caras'
                                 : 'esta cara'}
                       </span>
@@ -2882,9 +2936,11 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
               <SubirArchivos
                 archivos={filesLinea}
                 onFiles={(nuevos) => setFilesLinea((f) => [...f, ...nuevos])}
-                onQuitar={(i) =>
-                  setFilesLinea((f) => f.filter((_, idx) => idx !== i))
-                }
+                onQuitar={(i) => {
+                  setFilesLinea((f) => f.filter((_, idx) => idx !== i));
+                  // Su elección de caras se va con ella.
+                  setFotoCarasLinea((a) => a.filter((_, idx) => idx !== i));
+                }}
                 // Encerrar la falla en la foto (17-nov-2026): la marcada
                 // reemplaza a la original en su mismo lugar (el orden decide
                 // a qué cara va con «una por cara»).
@@ -2912,29 +2968,83 @@ function NuevaInc({ onClose, onSave, preset, unidades, esMKT = false }: Props) {
                     Una por cara, en orden:{' '}
                     {selCaras.map((vf, k) => `${k + 1}ª → ${caraLabel(vf)}`).join(' · ')}
                   </span>
+                ) : filesLinea.length > 0 && pideCaraPorFoto(selCaras.length, filesLinea.length) ? (
+                  // Elegir la cara de cada foto (23-nov-2026): abajo.
+                  <>
+                    {filesLinea.length} archivo(s) para {selCaras.length} caras:{' '}
+                    <span style={{ color: colorTono('acento'), fontWeight: 600 }}>
+                      elige abajo a qué cara va cada foto
+                    </span>{' '}
+                    (o sube {selCaras.length}, una por cara en el orden en que las marcaste)
+                  </>
                 ) : filesLinea.length > 0 ? (
                   <>
                     {filesLinea.length} archivo(s) ·{' '}
                     {selCaras.length > 0 ? (
                       <span style={{ color: 'var(--ok)' }}>
-                        {selCaras.length > 1 ? 'cada uno se ligará a ' : 'se ligarán a '}
-                        {selCaras.map(caraLabel).join(', ')}
+                        se ligarán a {selCaras.map(caraLabel).join(', ')}
                       </span>
                     ) : (
                       'marca las caras afectadas'
                     )}
-                    {selCaras.length > 1 && (
-                      <>
-                        {' '}· con {selCaras.length} fotos, una va a cada cara en el orden en que las marcaste
-                      </>
-                    )}
                   </>
                 ) : selCaras.length > 1 ? (
-                  `Sube ${selCaras.length} fotos (una por cara, en el orden en que marcaste las caras) o las que necesites para todas.`
+                  `Sube ${selCaras.length} fotos (una por cara, en el orden en que marcaste las caras) o las que tengas y elige la cara de cada una.`
                 ) : (
                   'Estas fotos quedan ligadas solo a las caras que marques arriba.'
                 )}
               </div>
+              {!elementoSel && pideCaraPorFoto(selCaras.length, filesLinea.length) && (
+                // Elegir la cara de cada foto (Erik, 23-nov-2026; caso
+                // EV00038–EV00043): cada foto se liga solo a los folios de
+                // las caras que se toquen aquí.
+                <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                  {ajustarCarasDeFotos(fotoCarasLinea, filesLinea.length, selCaras).map(
+                    (elegidas, k) => (
+                      <div
+                        key={k}
+                        style={{
+                          display: 'flex',
+                          gap: 10,
+                          alignItems: 'center',
+                          border: '1px solid var(--line)',
+                          borderRadius: 10,
+                          padding: 6,
+                        }}
+                      >
+                        <MiniFile file={filesLinea[k]} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
+                            Foto {k + 1} va a:
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {selCaras.map((vf) => {
+                              const on = elegidas.includes(vf);
+                              return (
+                                <button
+                                  key={vf}
+                                  type="button"
+                                  className={on ? 'btn sm' : 'btn ghost sm'}
+                                  aria-pressed={on}
+                                  onClick={() =>
+                                    setFotoCarasLinea((prev) => {
+                                      const a = ajustarCarasDeFotos(prev, filesLinea.length, selCaras);
+                                      a[k] = on ? a[k].filter((c) => c !== vf) : [...a[k], vf];
+                                      return ajustarCarasDeFotos(a, filesLinea.length, selCaras);
+                                    })
+                                  }
+                                >
+                                  {caraLabel(vf)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
             </div>
 
             {caras.length > 1 && (

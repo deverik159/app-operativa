@@ -100,6 +100,14 @@ export function armarEnvio(
     const ge: GrupoEnvio = { filas, archivos: [], carasLabel: g.carasLabel };
     // Tantos archivos como caras: uno por cara, en orden (12-nov-2026).
     const porCara = unaFotoPorCara(filas.length, g.files.length);
+    // Cara(s) elegida(s) para cada foto (23-nov-2026): solo con índices
+    // válidos y al menos uno por foto; si no, la regla de siempre.
+    const elegidas =
+      !porCara &&
+      g.paraFilas?.length === g.files.length &&
+      g.paraFilas.every((ix) => ix.length > 0 && ix.every((i) => i >= 0 && i < filas.length))
+        ? g.paraFilas
+        : null;
     ge.archivos = g.files.map((f, k): ArchivoEnvio => {
       const tipo: TipoEvidencia = f.type.startsWith('video') ? 'video' : 'foto';
       const ext = (
@@ -108,15 +116,19 @@ export function armarEnvio(
       const delBorrador = origen ? claveYaGuardada(origen.sesion, f) : null;
       const clave = delBorrador ?? claveArchivoEnvio(id, n);
       archivos.set(clave, f);
-      const cara = porCara ? g.etiquetas?.[k] || filas[k].clave_medio || '' : '';
+      const suyas = porCara ? [k] : elegidas ? elegidas[k] : null;
+      const cara = suyas
+        ? suyas.map((i) => g.etiquetas?.[i] || filas[i].clave_medio || '').join(', ')
+        : '';
       const a: ArchivoEnvio = {
         // La cara va en el NOMBRE del archivo (rutaArchivo): así se
-        // identifica en Storage sin abrir la app. Con una foto por cara, la
-        // carpeta y el nombre son los de SU folio y SU cara.
-        path: porCara
-          ? rutaArchivo({ filas: [filas[k]], carasLabel: cara }, marca, n, ext)
+        // identifica en Storage sin abrir la app. Con una foto por cara (o
+        // con su cara elegida), la carpeta y el nombre son los de SUS folios
+        // y SUS caras.
+        path: suyas
+          ? rutaArchivo({ filas: suyas.map((i) => filas[i]), carasLabel: cara }, marca, n, ext)
           : rutaArchivo(ge, marca, n, ext),
-        ...(porCara ? { para: [filas[k].record_id], cara } : {}),
+        ...(suyas ? { para: suyas.map((i) => filas[i].record_id), cara } : {}),
         clave,
         n,
         ext,

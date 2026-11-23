@@ -35,6 +35,7 @@ const ETIQUETA: Record<string, string> = {
   reasignacion_rechazada: 'Reasignación rechazada',
   reporte_app_ligado: 'Reporte de la app ligado',
   prevalidada: 'Prevalidada por el área',
+  duplicada: 'Descartada como duplicada',
 };
 
 const ESTATUS_LEGIBLE: Record<string, string> = {
@@ -45,6 +46,7 @@ const ESTATUS_LEGIBLE: Record<string, string> = {
   reparado: 'Reparado',
   cerrada: 'Cerrada',
   no_reparado: 'No reparado',
+  duplicada: 'Duplicada',
 };
 
 /** Una línea lista para la tarjeta. */
@@ -72,9 +74,13 @@ export function lineasHistorial(eventos: readonly EventoHistorial[]): LineaHisto
       titulo:
         e.evento === 'reporte_app_ligado' && e.detalle?.trim()
           ? `Reporte de la app ${e.detalle.trim()} ligado`
-          : ETIQUETA[e.evento] ||
-            `Cambió a ${ESTATUS_LEGIBLE[e.estatus_nuevo || ''] || e.estatus_nuevo || 'otro estatus'}`,
-      detalle: e.evento === 'reporte_app_ligado' ? null : e.detalle?.trim() || null,
+          : // «Descartada como duplicada de EVD00040» (23-nov-2026).
+            e.evento === 'duplicada' && e.detalle?.trim()
+            ? `Descartada como duplicada de ${e.detalle.trim()}`
+            : ETIQUETA[e.evento] ||
+              `Cambió a ${ESTATUS_LEGIBLE[e.estatus_nuevo || ''] || e.estatus_nuevo || 'otro estatus'}`,
+      detalle:
+        e.evento === 'reporte_app_ligado' || e.evento === 'duplicada' ? null : e.detalle?.trim() || null,
       en: e.en,
       por: e.por_email ? e.por_email.split('@')[0] : null,
     }));

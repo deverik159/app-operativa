@@ -163,11 +163,13 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
    * null = aún no se sabe o no hubo señal: se deja escribir y la base decide.
    */
   const [puedeEscribir, setPuedeEscribir] = useState<boolean | null>(null);
+  /** Cerrada o duplicada (23-nov-2026): la base ya no acepta mensajes. */
+  const chatCerrado = inc.estatus === 'cerrada' || inc.estatus === 'duplicada';
   const nMsgs = msgs.length;
   useEffect(() => {
     // Ya puede: no se vuelve a preguntar. Si no podía, se pregunta otra vez
     // cuando llega un mensaje (pudieron mencionarlo).
-    if (puedeEscribir === true || inc.estatus === 'cerrada') return;
+    if (puedeEscribir === true || chatCerrado) return;
     let vivo = true;
     void sb
       .rpc('puede_escribir_chat', { p_record_id: inc.record_id })
@@ -1200,7 +1202,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
    * un ✏️ que la base rechazaría; la base es la que manda.
    */
   const puedeEditar = (m: Mensaje) =>
-    inc.estatus !== 'cerrada' &&
+    !chatCerrado &&
     esMio(m) &&
     Date.now() - new Date(m.creado_en).getTime() < 15 * 60 * 1000;
 
@@ -2033,7 +2035,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                               {vistos.length ? '✓✓' : '✓'}
                             </button>
                           )}
-                          {inc.estatus !== 'cerrada' && !enEdicion && (
+                          {!chatCerrado && !enEdicion && (
                             <button
                               type="button"
                               className={mio ? 'btn-icono sobre-acento' : 'btn-icono'}
@@ -2123,9 +2125,12 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
           )}
         </div>
 
-        {inc.estatus === 'cerrada' ? (
+        {chatCerrado ? (
           <div className="banner">
-            <Ic i={Lock} />Incidencia cerrada — el chat es de solo lectura.
+            <Ic i={Lock} />
+            {inc.estatus === 'duplicada'
+              ? `Duplicada de ${inc.duplicada_folio || 'otra incidencia'} — el chat es de solo lectura.`
+              : 'Incidencia cerrada — el chat es de solo lectura.'}
           </div>
         ) : puedeEscribir === false ? (
           // Antes de escribir, no al enviar (17-nov-2026).

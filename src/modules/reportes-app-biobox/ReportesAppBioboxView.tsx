@@ -90,6 +90,7 @@ const ESTATUS_INC: Record<string, string> = {
   reparado: 'Reparado',
   cerrada: 'Cerrada',
   no_reparado: 'No reparado',
+  duplicada: 'Duplicada',
 };
 const ABIERTOS = ['por_validar', 'en_proceso', 'reparado', 'rechazada'];
 const COLS_INC = 'record_id,folio,estatus,nombre_incidencia,area_responsable,assigned_area,repaired_by_email';

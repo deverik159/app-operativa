@@ -6,7 +6,7 @@
 // Etapa según el estatus:
 //   por_validar / rechazada → 'reporte'
 //   en_proceso              → 'reparacion'
-//   cerrada / no_reparado   → ninguna (solo lectura, salvo validador)
+//   cerrada / no_reparado / duplicada → ninguna (solo lectura, salvo validador)
 // Estas reglas espejean la RLS ev_del, para no ofrecer un 🗑 que la base
 // va a rechazar.
 //
@@ -215,7 +215,7 @@ function EvidenciaModal({
   /** Espeja la política ev_del: validador/manager, o el dueño en su ventana. */
   const puedeBorrar = (f: Evidencia) =>
     esValidador ||
-    (inc.estatus !== 'cerrada' &&
+    (inc.estatus !== 'cerrada' && inc.estatus !== 'duplicada' &&
       (f.subido_por || '').toLowerCase() === (email || '').toLowerCase() &&
       ((f.etapa === 'reporte' &&
         ['por_validar', 'rechazada'].includes(inc.estatus)) ||
@@ -418,9 +418,10 @@ function EvidenciaModal({
           {inc.clave_medio ? ` · ${inc.clave_medio}` : ''}
         </p>
 
-        {inc.estatus === 'cerrada' && !puedeSubir && (
+        {(inc.estatus === 'cerrada' || inc.estatus === 'duplicada') && !puedeSubir && (
           <div className="banner" style={{ marginBottom: 12 }}>
-            <Ic i={Lock} />Incidencia cerrada — evidencia en solo lectura.
+            <Ic i={Lock} />
+            {inc.estatus === 'duplicada' ? 'Duplicada' : 'Incidencia cerrada'} — evidencia en solo lectura.
           </div>
         )}
 

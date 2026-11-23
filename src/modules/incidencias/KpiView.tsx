@@ -963,7 +963,8 @@ function KpiView({
         </select>
         <select aria-label="Estatus" className={fEst !== 'Todos' ? 'on' : undefined} value={fEst} onChange={(e) => setFEst(e.target.value)}>
           <option value="Todos">Estatus: todos</option>
-          {Object.entries(EST_LABEL).map(([k, v]) => (
+          {/* Sin «Duplicada»: los indicadores no las cargan (23-nov-2026). */}
+          {Object.entries(EST_LABEL).filter(([k]) => k !== 'duplicada').map(([k, v]) => (
             <option key={k} value={k}>
               {v}
             </option>

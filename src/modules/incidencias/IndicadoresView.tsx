@@ -20,7 +20,7 @@ import { sb } from '../../lib/supabase';
 import { tope } from '../../lib/envios';
 import { pareceSinRed } from '../../lib/enLinea';
 import { slaHoras } from '../../lib/helpers';
-import { SLA_VALIDACION_DEFAULT, HORARIO_VALIDADOR_TEXTO } from '../../lib/constants';
+import { SLA_VALIDACION_DEFAULT, HORARIO_VALIDADOR_TEXTO, TERMINALES_LISTA } from '../../lib/constants';
 import { cargarNombres } from '../../lib/nombres';
 import type { MapaNombres } from '../../lib/nombres';
 import KpiView from './KpiView';
@@ -92,8 +92,7 @@ const COLUMNAS_KPI = [
   'cerrada_en', // "Tiempo por etapa": reparación → cierre (trigger inc_marca_cierre)
 ].join(',');
 
-/** Lista de estatus terminales, en la sintaxis de `.not('estatus','in',…)`. */
-const TERMINALES_LISTA = '(cerrada,no_reparado)';
+// TERMINALES_LISTA vive en lib/constants.ts (entró 'duplicada', 23-nov-2026).
 
 type Periodo = '30d' | '90d' | '12m' | 'todo';
 
@@ -164,7 +163,9 @@ async function cargarPeriodo(
   let filas: Incidencia[] = [];
   for (let n = 0; n < TOPE_PAGINAS; n++) {
     const desde = n * PAGINA;
-    let consulta = sb.from('incidencias').select(columnasKpi);
+    // Las duplicadas no cuentan en ningún indicador (Erik, 23-nov-2026): la
+    // que cuenta es la original.
+    let consulta = sb.from('incidencias').select(columnasKpi).neq('estatus', 'duplicada');
     if (desdeIso) consulta = consulta.gte('fecha_reporte', desdeIso);
     const { data, error } = await consulta
       .order('fecha_reporte', { ascending: false })

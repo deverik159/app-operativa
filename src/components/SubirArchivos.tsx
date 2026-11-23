@@ -64,7 +64,7 @@ function usaTactil(): boolean {
 }
 
 /** Miniatura de un File. Crea y libera su objectURL. */
-function MiniFile({
+export function MiniFile({
   file,
   onQuitar,
   onVer,

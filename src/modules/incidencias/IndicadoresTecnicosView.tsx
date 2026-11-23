@@ -255,6 +255,8 @@ export default function IndicadoresTecnicosView({ roles, email, recargarSignal }
     void (async () => {
       const { data, error } = await sb.from('incidencias').select('*')
         .gte('repaired_at', desdeIso).lt('repaired_at', hastaIso).not('repaired_by_email', 'is', null)
+        // Una duplicada no cuenta como reparación (23-nov-2026).
+        .neq('estatus', 'duplicada')
         .order('repaired_at', { ascending: false }).range(0, 4999);
       if (!vivo) return;
       if (error) { setErr('No se pudieron leer las reparaciones: ' + error.message); return; }

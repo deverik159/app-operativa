@@ -52,3 +52,14 @@ test('Historial: reasignación con áreas y evento desconocido legible', () => {
   );
   assert.deepEqual(lineasHistorial([]), []);
 });
+
+test('Descartada como duplicada lleva el folio en el título (23-nov-2026)', () => {
+  const [l] = lineasHistorial([
+    ev('duplicada', '2026-11-23T20:00:00Z', { detalle: 'EVD00040', estatus_nuevo: 'duplicada', por_email: 'val@x.com' }),
+  ]);
+  assert.equal(l.titulo, 'Descartada como duplicada de EVD00040');
+  assert.equal(l.detalle, null);
+  assert.equal(l.por, 'val');
+  // Sin folio, el nombre genérico.
+  assert.equal(lineasHistorial([ev('duplicada', '2026-11-23T20:00:00Z')])[0].titulo, 'Descartada como duplicada');
+});

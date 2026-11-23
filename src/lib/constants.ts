@@ -16,6 +16,7 @@ export const EST_LABEL: Record<string, string> = {
   reparado: 'Reparado',
   cerrada: 'Cerrada',
   no_reparado: 'No reparado',
+  duplicada: 'Duplicada',
 };
 
 export const EST_COLOR: Record<string, string> = {
@@ -26,7 +27,19 @@ export const EST_COLOR: Record<string, string> = {
   reparado: '#a78bfa',
   cerrada: '#22c55e',
   no_reparado: '#6b7280',
+  duplicada: '#6b7280',
 };
+
+/**
+ * Estatus en los que la incidencia ya terminó: no se trabaja, su chat es de
+ * solo lectura y no cuenta como abierta. «duplicada» desde el 23-nov-2026.
+ */
+export const ESTATUS_TERMINALES = ['cerrada', 'no_reparado', 'duplicada'] as const;
+/** Los mismos, en el formato de `.not('estatus', 'in', …)` de PostgREST. */
+export const TERMINALES_LISTA = `(${ESTATUS_TERMINALES.join(',')})`;
+export function esTerminal(estatus: string | null | undefined): boolean {
+  return (ESTATUS_TERMINALES as readonly string[]).includes(estatus || '');
+}
 
 export const NIVEL_COLOR: Record<string, string> = {
   Alto: '#ef4444',

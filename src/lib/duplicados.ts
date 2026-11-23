@@ -150,6 +150,31 @@ export async function duplicadasEnProceso<T extends FilaDuplicable>(
 }
 
 /**
+ * «Descartar como duplicada» (Erik, 23-nov-2026; caso EVD00040/EVD00041).
+ * La base (inc_descartar_duplicada, migración 20261124000001) revisa quién
+ * llama y la MISMA regla de arriba contra la original en proceso; con
+ * `nombre` corrige la falla y descarta en un paso (Corrección del
+ * validador). Devuelve lo que cambió para parchar la tarjeta, o lanza el
+ * error de la base. Necesita señal: no se encola.
+ */
+export async function descartarDuplicada(
+  recordId: string,
+  folioOriginal: string,
+  nombre?: string | null,
+  signal?: AbortSignal
+): Promise<Partial<import('../types/db').Incidencia>> {
+  let q = sb.rpc('inc_descartar_duplicada', {
+    p_record_id: recordId,
+    p_folio_original: folioOriginal,
+    p_nombre_incidencia: nombre ?? null,
+  });
+  if (signal) q = q.abortSignal(signal);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data || {}) as Partial<import('../types/db').Incidencia>;
+}
+
+/**
  * La MISMA regla, pero para un sitio/máquina y a través de la RPC
  * `estado_maquina` (security definer).
  *

@@ -37,6 +37,8 @@ import {
   AREAS_RESP,
   EST_LABEL,
   SLA_VALIDACION_DEFAULT,
+  ESTATUS_TERMINALES,
+  TERMINALES_LISTA,
 } from '../../lib/constants';
 import {
   slaHoras,
@@ -78,6 +80,7 @@ import PasarOpBioboxModal from './PasarOpBioboxModal';
 import type { ModoReasign } from './ReasignModal';
 import EditModal from './EditModal';
 import CorreccionModal from './CorreccionModal';
+import DuplicadaModal from './DuplicadaModal';
 import AsignarMaquinaModal from './AsignarMaquinaModal';
 import TablaIncidencias from './TablaIncidencias';
 import MotivoModal from './MotivoModal';
@@ -125,9 +128,8 @@ const TOPE_PAGINAS_HISTORIAL = 10;
  * Estatus TERMINALES: ya nadie tiene que hacer nada con ellas. Todo lo demás
  * es "abierto" (rechazada incluida: le toca corregir al reportante).
  */
-const TERMINALES = ['cerrada', 'no_reparado'];
-/** Lo mismo, en la sintaxis de lista que espera `.not('estatus','in',…)`. */
-const TERMINALES_LISTA = '(cerrada,no_reparado)';
+// En lib/constants.ts desde el 23-nov-2026 (entró 'duplicada').
+const TERMINALES = [...ESTATUS_TERMINALES];
 
 /**
  * Fotos de tarjeta: cuántos record_id van en cada llamada a la RPC y
@@ -1002,6 +1004,8 @@ function IncidenciasView({
   } | null>(null);
   const [editOf, setEditOf] = useState<Incidencia | null>(null);
   const [corrigiendo, setCorrigiendo] = useState<Incidencia | null>(null);
+  /** «Descartar como duplicada» desde la tarjeta por validar (23-nov-2026). */
+  const [duplicando, setDuplicando] = useState<Incidencia | null>(null);
   /** Reportada sin máquina a la que el validador o el manager le ponen máquina. */
   const [asignandoMaq, setAsignandoMaq] = useState<Incidencia | null>(null);
   const [motivoOf, setMotivoOf] = useState<MotivoPend | null>(null);
@@ -3454,6 +3458,7 @@ function IncidenciasView({
               onPrevalidar={alPrevalidar}
               onDescartar={alDescartar}
               onDevolver={alDevolver}
+              onDuplicada={setDuplicando}
               minuto={minuto}
               slaMap={slaMap}
               slaValidacion={slaValidacion}
@@ -3560,6 +3565,20 @@ function IncidenciasView({
           onDone={(rid, patch) => {
             patchInc(rid, patch);
             setCorrigiendo(null);
+            // Si se descartó como duplicada, ya no le toca a nadie.
+            if (patch.estatus === 'duplicada') onNotifAtendida(rid);
+            setTimeout(onRecargarNotifs, 400);
+          }}
+        />
+      )}
+      {duplicando && (
+        <DuplicadaModal
+          inc={duplicando}
+          onClose={() => setDuplicando(null)}
+          onDone={(rid, patch) => {
+            patchInc(rid, patch);
+            setDuplicando(null);
+            onNotifAtendida(rid);
             setTimeout(onRecargarNotifs, 400);
           }}
         />

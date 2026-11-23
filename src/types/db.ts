@@ -39,7 +39,9 @@ export type EstatusInc =
   | 'en_proceso'
   | 'reparado'
   | 'cerrada'
-  | 'no_reparado';
+  | 'no_reparado'
+  /** Descartada como duplicada de otra en proceso (23-nov-2026). */
+  | 'duplicada';
 
 export type Nivel = 'Alto' | 'Medio' | 'Bajo';
 
@@ -182,6 +184,14 @@ export interface Incidencia {
   cerrada_en?: string | null;
   /** Cuándo pasó a 'no_reparado'. Lo pone el mismo trigger (31-oct-2026, retención del chat). */
   no_reparado_en?: string | null;
+  /**
+   * «Descartar como duplicada» (23-nov-2026, inc_descartar_duplicada): la
+   * original (record_id y folio), quién y cuándo. Solo con estatus 'duplicada'.
+   */
+  duplicada_de?: string | null;
+  duplicada_folio?: string | null;
+  duplicada_por?: string | null;
+  duplicada_en?: string | null;
   /** Equipo que salió y que entró en la reparación de Digital (lib/equipos.ts). */
   cambio_equipo?: import('../lib/equipos').CambioEquipo | null;
   /** Técnico de Op. Bio Box que apoyó la reparación (lib/apoyoReparacion.ts, 29-oct-2026). */
