@@ -13,6 +13,8 @@
 // ============================================================
 import { sb } from './supabase';
 import { esIOS } from './plataforma';
+import { errorSuscripcionPush } from './erroresPush';
+import { reportarError } from './reportarError';
 
 export type EstadoPush =
   | 'no-soportado'      // el navegador no tiene Web Push
@@ -225,7 +227,11 @@ export async function activarPush(email: string, renovar = false): Promise<strin
         'el servicio de notificaciones no respondió. Intenta de nuevo con mejor señal.'
       );
   } catch (e) {
-    return 'No se pudo suscribir: ' + (e as Error).message;
+    // En español y con qué hacer (23-nov-2026: «Registration failed - push
+    // service error» en un celular recién cambiado). Se registra para verlo
+    // en errores_cliente sin esperar a que alguien mande captura.
+    reportarError('push.suscribir', e);
+    return errorSuscripcionPush(e);
   }
 
   const j = sus.toJSON() as {

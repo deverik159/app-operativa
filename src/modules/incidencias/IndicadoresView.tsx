@@ -17,6 +17,8 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import IndicadoresAppBioboxView from './IndicadoresAppBioboxView';
 import IndicadoresTecnicosView from './IndicadoresTecnicosView';
 import { sb } from '../../lib/supabase';
+import { tope } from '../../lib/envios';
+import { pareceSinRed } from '../../lib/enLinea';
 import { slaHoras } from '../../lib/helpers';
 import { SLA_VALIDACION_DEFAULT, HORARIO_VALIDADOR_TEXTO } from '../../lib/constants';
 import { cargarNombres } from '../../lib/nombres';
@@ -135,6 +137,19 @@ function fechaCorta(d: Date): string {
  */
 let columnasKpi = COLUMNAS_KPI;
 
+/**
+ * Tope por consulta (23-nov-2026). Antes no había ninguno: con la conexión
+ * colgada (señal que se ve pero no pasa datos), «Cargando indicadores…» se
+ * quedaba para siempre en el celular de un técnico. Una página de 1000 tarda
+ * menos de 1 s con buena red; 20 s deja margen a una red lenta pero viva.
+ */
+const TOPE_CONSULTA_MS = 20_000;
+
+/** Texto del error de una consulta: «sin señal» si fue la red o el tope. */
+function textoError(e: { message: string }): string {
+  return pareceSinRed(e) ? 'sin señal o la red tardó demasiado' : e.message;
+}
+
 type SlaConfiguracion = { reporte: number; reparacion: number };
 
 /**
@@ -154,7 +169,8 @@ async function cargarPeriodo(
     const { data, error } = await consulta
       .order('fecha_reporte', { ascending: false })
       .order('record_id', { ascending: true })
-      .range(desde, desde + PAGINA - 1);
+      .range(desde, desde + PAGINA - 1)
+      .abortSignal(tope(TOPE_CONSULTA_MS));
     if (error) {
       if (error.code === '42703' && columnasKpi !== '*') {
         console.warn(
@@ -165,7 +181,7 @@ async function cargarPeriodo(
         columnasKpi = '*';
         return cargarPeriodo(desdeIso, vigente);
       }
-      return { filas, error: error.message, topado: false };
+      return { filas, error: textoError(error), topado: false };
     }
     const lote = (data as unknown as Incidencia[] | null) || [];
     filas = filas.concat(lote);
@@ -190,7 +206,8 @@ async function contarAbiertasAntes(desdeIso: string | null): Promise<number | nu
     .select('record_id', { count: 'exact', head: true })
     .not('estatus', 'in', TERMINALES_LISTA)
     // Entre comillas: la fecha ISO trae ':' y '.', reservados en `or`.
-    .or(`fecha_reporte.lt."${desdeIso}",fecha_reporte.is.null`);
+    .or(`fecha_reporte.lt."${desdeIso}",fecha_reporte.is.null`)
+    .abortSignal(tope(TOPE_CONSULTA_MS));
   if (error) return null;
   return count ?? null;
 }
@@ -327,17 +344,36 @@ function IndicadoresView({
     })();
   }, [periodo, intento, recargarSignal]);
 
-  // Configuración que no depende del periodo: una sola vez.
+  // Configuración que no depende del periodo: una sola vez. Si falla (sin
+  // señal), «Reintentar» la vuelve a pedir (23-nov-2026: antes no tenía tope
+  // ni manejo de error y el «Cargando indicadores…» podía quedarse fijo).
+  const configLista = useRef(false);
+  const [errConfig, setErrConfig] = useState('');
   useEffect(() => {
+    if (configLista.current) return;
+    let vivo = true;
     (async () => {
-      const [{ data: slas }, { data: validaciones }, mapaNombres] = await Promise.all([
-        sb.from('sla_areas').select('area,sla_horas'),
-        sb.from('sla_validacion').select('etapa,minutos'),
-        // Nunca falla: si la RLS corta las tablas de personas, vuelve vacío y
-        // los rankings caen al usuario del correo.
-        cargarNombres(),
-      ]);
+      const [{ data: slas, error: eSlas }, { data: validaciones, error: eVal }, mapaNombres] =
+        await Promise.all([
+          sb.from('sla_areas').select('area,sla_horas').abortSignal(tope(TOPE_CONSULTA_MS)),
+          sb.from('sla_validacion').select('etapa,minutos').abortSignal(tope(TOPE_CONSULTA_MS)),
+          // Nunca falla: si la RLS corta las tablas de personas, vuelve vacío y
+          // los rankings caen al usuario del correo.
+          cargarNombres(),
+        ]);
+      if (!vivo) return;
       setNombres(mapaNombres);
+      const eConfig = eSlas || eVal;
+      if (eConfig) {
+        // Sin la configuración de SLA los % saldrían mal: se avisa y se
+        // muestra lo demás; «Reintentar» la vuelve a pedir.
+        setErrConfig(
+          'configuración de SLA: ' + textoError(eConfig) + ' — los % de SLA pueden no ser exactos.'
+        );
+      } else {
+        configLista.current = true;
+        setErrConfig('');
+      }
 
       // Horas de SLA por área, en minúsculas: así se cruza con
       // area_responsable sin importar cómo esté capitalizado.
@@ -364,7 +400,10 @@ function IndicadoresView({
       setSlaEdicion(siguiente);
       setCargandoConfig(false);
     })();
-  }, []);
+    return () => {
+      vivo = false;
+    };
+  }, [intento]);
 
   const guardarSlaValidacion = async () => {
     const reporte = Number(slaEdicion.reporte);
@@ -528,11 +567,12 @@ function IndicadoresView({
 
   return (
     <>
-      {/* `err` solo lo pone la carga del periodo (el SLA usa errSla): el botón
-          vuelve a pedir el MISMO periodo, también si falló la primera carga. */}
-      {err && (
+      {/* `err` lo pone la carga del periodo y `errConfig` la configuración de
+          SLA (guardar el SLA usa errSla): el botón vuelve a pedir el MISMO
+          periodo y, si había fallado, la configuración. */}
+      {(err || errConfig) && (
         <div className="err">
-          {err}{' '}
+          {[err, errConfig].filter(Boolean).join(' · ')}{' '}
           <button
             type="button"
             className="btn sm"

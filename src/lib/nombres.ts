@@ -20,6 +20,9 @@
 // que se mostraba antes. Peor caso: sigue igual que hoy. Nunca peor.
 // ============================================================
 import { sb } from './supabase';
+import { tope } from './envios';
+
+const TOPE_NOMBRES_MS = 15_000;
 
 /** correo en minúsculas → nombre para mostrar. */
 export type MapaNombres = Record<string, string>;
@@ -51,9 +54,12 @@ export function nombreDe(mapa: MapaNombres, correo: string | null): string {
 export async function cargarNombres(): Promise<MapaNombres> {
   const mapa: MapaNombres = {};
   try {
+    // Con tope (23-nov-2026): sin él, una conexión colgada dejaba esperando
+    // para siempre a quien la llama (Indicadores se quedaba en «Cargando…»).
+    // Al vencer, vuelve el mapa vacío y los nombres caen al correo.
     const [{ data: tec }, { data: usr }] = await Promise.all([
-      sb.from('tecnicos').select('nombre,email'),
-      sb.from('usuarios').select('nombre,email'),
+      sb.from('tecnicos').select('nombre,email').abortSignal(tope(TOPE_NOMBRES_MS)),
+      sb.from('usuarios').select('nombre,email').abortSignal(tope(TOPE_NOMBRES_MS)),
     ]);
     // Primero técnicos, luego usuarios: así `usuarios` pisa y gana.
     (tec as { nombre: string | null; email: string | null }[] | null)?.forEach(
