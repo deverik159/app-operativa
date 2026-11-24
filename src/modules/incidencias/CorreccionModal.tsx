@@ -25,6 +25,9 @@
 //
 // La elección del catálogo vive en SelectorFalla, que comparte con la
 // corrección del reportante (EditModal, 13-oct-2026).
+//
+// CAMPAÑA (Erik, 24-nov-2026): el validador también la corrige aquí, con el
+// mismo campo que el reportante (CampoCampania).
 // ============================================================
 import { Clock, Wrench } from 'lucide-react';
 import { useState } from 'react';
@@ -40,6 +43,7 @@ import type { CatalogoIncidencia, Incidencia } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 import SelectorFalla, { Derivado } from './SelectorFalla';
+import CampoCampania from './CampoCampania';
 
 type Props = {
   inc: Incidencia;
@@ -72,6 +76,7 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
   /** La entrada del catálogo elegida (SelectorFalla). */
   const [sel, setSel] = useState<CatalogoIncidencia | null>(null);
   const [observaciones, setObservaciones] = useState(inc.observaciones || '');
+  const [campania, setCampania] = useState(inc.campania || '');
   const [busy, setBusy] = useState(false);
   /**
    * La corrección chocó con otra igual en proceso (23-nov-2026): en vez de
@@ -196,6 +201,7 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
       tipo: (sel.tipo || '').trim() || null,
       area_responsable: areaNueva || null,
       observaciones: observaciones.trim() || null,
+      campania: campania.trim() || null,
       ...(ladoNuevo !== undefined ? { lado: ladoNuevo } : {}),
     };
     // Se CUENTA lo afectado (modo sin señal, 24-sep-2026): la RLS que no deja
@@ -328,6 +334,14 @@ function CorreccionModal({ inc, onClose, onDone }: Props) {
             solicite la reasignación.
           </div>
         )}
+
+        <CampoCampania
+          valor={campania}
+          onCambio={setCampania}
+          unidad={inc.unidad_negocio}
+          cara={inc.clave_medio}
+          fechaReporte={inc.fecha_reporte}
+        />
 
         <div className="field">
           <label>Observaciones</label>

@@ -16,6 +16,8 @@
 //                 13-oct-2026, QUÉ falla es, con el mismo selector del
 //                 catálogo que el validador (SelectorFalla): elige la entrada
 //                 y nivel, origen, tipo y área los pone el catálogo.
+//                 Desde el 24-nov-2026 también la CAMPAÑA (Erik), con la pauta
+//                 de QTM de la cara como sugerencia, igual que en el alta.
 //
 // LA EVIDENCIA NO SE EDITA AQUÍ, a propósito. `EvidenciaModal` ya deja al
 // reportante subir y borrar LO SUYO mientras la incidencia esté en
@@ -87,6 +89,7 @@ import type { CatalogoIncidencia, Incidencia, InventarioItem } from '../../types
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 import SelectorFalla, { Derivado } from './SelectorFalla';
+import CampoCampania from './CampoCampania';
 import { useAtrasCierra } from '../../lib/atrasVentana';
 
 type Sitio = { site_id: string; direccion: string | null; nombre?: string | null };
@@ -130,6 +133,8 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
   // sin señal, 24-sep-2026; ver lib/vigia.ts).
   vigilarRender('EditModal');
   const [observaciones, setObservaciones] = useState(inc.observaciones || '');
+  // Campaña (Erik, 24-nov-2026): texto libre, como en el alta sin pauta.
+  const [campania, setCampania] = useState(inc.campania || '');
   const [lado, setLado] = useState(inc.lado || '');
   const pideLado = UNIDADES_CON_LADO.includes(inc.unidad_negocio || '');
   /**
@@ -498,6 +503,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
 
     const patch: Partial<Incidencia> = {
       observaciones: observaciones.trim() || null,
+      campania: campania.trim() || null,
       clave_sitio: sitio,
       // Del Adicional o de la Puerta: con varias caras va sin ninguna; con
       // una sola conserva la suya, igual que en el alta.
@@ -559,6 +565,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
   /** ¿Hay cambios sin guardar respecto a lo que trae la incidencia? */
   const hayCambios =
     observaciones !== (inc.observaciones || '') ||
+    campania !== (inc.campania || '') ||
     lado !== (inc.lado || '') ||
     sitio !== (inc.clave_sitio || '') ||
     cara !== (inc.clave_medio || '') ||
@@ -900,6 +907,15 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
             )}
           </>
         )}
+
+        {/* --- Campaña (24-nov-2026) --- */}
+        <CampoCampania
+          valor={campania}
+          onCambio={setCampania}
+          unidad={inc.unidad_negocio}
+          cara={cara}
+          fechaReporte={inc.fecha_reporte}
+        />
 
         {/* --- Observaciones --- */}
         <div className="field">
