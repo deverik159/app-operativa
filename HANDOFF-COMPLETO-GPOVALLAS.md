@@ -2081,3 +2081,94 @@ Erik pidió dos fallas nuevas de TI para BioBox México: «SIM sin datos» y
 - Todo se revisó con `revisor-rls` y se aplicó con el sí de Erik. Duplicada se
   probó en la base con rollback y las fotos en la vista previa sin guardar.
   El botón de la tarjeta no se vio en pantalla: no había ninguna por validar.
+
+### 12.23. Incidencias a Google Sheets: base general y botón «Actualizar» (24-nov-2026)
+
+Cada folio de Ecovallas y Vía Verde llega a la hoja de trabajo de su equipo en
+dos pasos (commit `adf40f4`; migración
+`20261124171724_incidencias_sheets_sincronizacion`):
+
+1. **La app escribe sola**, cada 5 min, en la pestaña «App» de la base general
+   de su unidad: «Incidencias EV Gral» (Ecovallas, impresas y digitales) e
+   «Incidencias VV Gral». Biobox todavía no tiene destino.
+2. **Cada equipo trae sus folios** a su hoja con el botón «Incidencias app →
+   Actualizar» (Apps Script): «1ER TRIMESTRE 2026» (Vía Verde), «Ecovallas
+   Fijas 2026» y «Ecovallas Digitales 2026».
+
+- **Base de datos:**
+  - `sheets_cola`: un renglón por folio y unidad, con `version` (solo se quita
+    lo que no volvió a cambiar) y arriendo `tomado_hasta` de 10 min.
+    - La llenan los triggers `trg_sheets_encolar` y `trg_sheets_encolar_upd`
+      de `incidencias`: alta, borrado, cambio de unidad y cambio, este último
+      con `to_jsonb(old) is distinct from to_jsonb(new)`, porque `old.*` falla
+      con columnas sin igualdad.
+    - También la llenan los de `biobox_app_reportes` y `biobox_app_contactos`
+      (Correo y Teléfono).
+    - Ningún trigger frena la operación: si fallan, dejan un aviso en el log.
+  - `vw_incidencias_sheets`, con `security_invoker` y solo para
+    `service_role`:
+    - por folio, `texto` y `dato`, cuyas llaves son los encabezados
+      normalizados (sin acentos, espacios ni signos);
+    - la afectación sale del catálogo;
+    - el estatus va con las palabras de las hojas Gral;
+    - fechas y horas en CDMX.
+  - Funciones, solo para `service_role`:
+    - `sheets_tomar_lote`;
+    - `sheets_confirmar`, por versión;
+    - `sheets_fallo`, con espera de 5 a 60 min;
+    - `sheets_recargar(unidad)`.
+  - `disparar_sync_sheets()` sigue el patrón de la limpieza del chat: usa el
+    secreto `push_secret` del Vault y la URL de `app_config.sheets_url`, que
+    sale de `push_url`. Cron:
+    - `sync-sheets`, cada 5 min;
+    - `sync-sheets-semanal`, los domingos a las 3:00 UTC, para conciliar;
+    - `purgar-historial-sync-sheets`, que guarda su historial 7 días.
+- **Función `sync-sheets`** (`supabase/functions/sync-sheets/`, `index.ts` y
+  `logica.ts`; `verify_jwt` igual que `limpiar-chat`):
+  - Secretos:
+    - `GOOGLE_SA_JSON`: la llave de una cuenta de servicio de Google con
+      permiso de Editor en los archivos base;
+    - `SHEETS_DESTINOS`: `{"Ecovallas":"<id>","Vía Verde":"<id>"}`; una unidad
+      que no esté ahí se descarta de la cola;
+    - `PUSH_SECRET`.
+  - En cada archivo hace:
+    - una lectura, de los encabezados y la columna Folio;
+    - un `values:batchUpdate` para las filas que ya estaban;
+    - un `append` para las nuevas;
+    - un `deleteDimension` para las borradas.
+  - Escribe por NOMBRE de encabezado (`ENCABEZADOS_BASE`, que incluye
+    «Actualizado (UTC)»), con `USER_ENTERED` y el texto con apóstrofo al
+    frente. Si falta la pestaña «App», la crea, protegida solo con aviso.
+- **Botón** (`scripts/sheets/ActualizarIncidenciasApp.gs`): se pega en
+  Extensiones → Apps Script de cada archivo de trabajo, con `BASE_ID` = el
+  enlace del archivo Gral de su unidad, nunca el del mismo archivo.
+  - `CONFIGS` por pestaña: qué encabezado de la hoja sale de qué llave de la
+    base, los valores fijos y los mapas de palabras (`null` = no tocar).
+  - El folio del equipo va en FOLIO (el consecutivo o el de una fila
+    preparada) y el de la app, en la columna «Folio App».
+  - Liga lo que el equipo ya copió a mano: por el folio de la app escrito en
+    la fila (con la misma clave o la misma falla) o, si no lo escribió, por
+    la misma falla con la misma valla, pantalla o sitio y la fecha a un día o
+    menos. Lo dudoso sale en «Revisar a mano».
+  - No toca fórmulas (las copia a las filas nuevas) ni las columnas
+    manuales, y respeta las listas desplegables.
+  - Escribe fecha y hora como número, con el formato de su columna, porque
+    con una fecha de 1899 Apps Script recorre las horas 36 min en la zona de
+    México. Llena la semana ISO y hace `flush()` después de cada tramo.
+  - «Actualizar» trae solo lo que cambió (por «Actualizado (UTC)»);
+    «Actualizar todo» revisa todo.
+- **Operación:**
+  - recargar una unidad: `select sheets_recargar('Biobox');`;
+  - ver errores: `sheets_cola.ultimo_error`;
+  - agregar Biobox: su destino en `SHEETS_DESTINOS`, su hoja en `CONFIGS` y
+    `sheets_recargar('Biobox')`.
+- **Pruebas:**
+  - `tests/syncSheets.test.mjs`: la lógica de la función y que cada
+    encabezado tenga su llave en la vista;
+  - `tests/botonSheets.test.mjs`: la lógica del botón con los encabezados
+    reales de las tres hojas.
+- **Estreno (24-nov-2026):**
+  - Ecovallas Digital: 8 nuevas y 31 ligadas;
+  - Ecovallas Fijas: 34 nuevas y 23 ligadas, después de quitar 56 filas de
+    una primera corrida que duplicó lo copiado a mano sin el folio de la app;
+  - Vía Verde: 6 nuevas y 2 ligadas.
