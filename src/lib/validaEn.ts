@@ -12,15 +12,27 @@
 // Operaciones en CUALQUIER unidad. Mis pendientes contaba como suya la
 // reasignación pendiente de una de Biobox (BBMM00044) solo por tener el rol
 // de validador; la base no la hubiera dejado resolverla.
+//
+// ZONA (24-nov-2026): si el rol trae zona (Metro/Foránea), solo las de esa
+// zona, como la base (lib/zona.ts). Sin zona, las dos.
 // ============================================================
+
+import { zonaCubre } from './zona';
 
 type FilaRol = {
   rol: string;
   unidad_negocio: string | null;
   medio?: string | null;
+  zona?: string | null;
 };
 
-type IncMin = { unidad_negocio?: string | null; medio?: string | null };
+type IncMin = {
+  unidad_negocio?: string | null;
+  medio?: string | null;
+  zona?: string | null;
+  clave_medio?: string | null;
+  plaza?: string | null;
+};
 
 const minus = (s: string | null | undefined) => (s ?? '').toLowerCase();
 
@@ -32,6 +44,7 @@ export function validaEnIncidencia(roles: readonly FilaRol[], inc: IncMin): bool
       r.unidad_negocio != null &&
       inc.unidad_negocio != null &&
       minus(r.unidad_negocio) === minus(inc.unidad_negocio) &&
-      (r.medio == null || (inc.medio != null && minus(r.medio) === minus(inc.medio)))
+      (r.medio == null || (inc.medio != null && minus(r.medio) === minus(inc.medio))) &&
+      zonaCubre(r.zona, inc)
   );
 }

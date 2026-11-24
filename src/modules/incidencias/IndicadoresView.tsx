@@ -89,6 +89,7 @@ const COLUMNAS_KPI = [
   'municipio',
   'nombre_biobox', // "Sitios con más incidencias": nombre de la máquina o pantalla
   'plaza', // "Por plaza"
+  'zona', // filtro Metro / Foránea (24-nov-2026)
   'cerrada_en', // "Tiempo por etapa": reparación → cierre (trigger inc_marca_cierre)
 ].join(',');
 

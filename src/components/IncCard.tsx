@@ -41,6 +41,7 @@ import DatosUsuarioApp from './DatosUsuarioApp';
 import { colorTono, fondoTono, tonoDe, type Tono } from '../lib/tonos';
 import type { CanInc, EstatusInc, Incidencia, SlaMap } from '../types/db';
 import Ic from './Ic';
+import { zonaDe } from '../lib/zona';
 
 /**
  * Colores de un chip (tema claro/oscuro, 24-sep-2026): el texto y el tinte
@@ -242,6 +243,9 @@ function IncCard({
         <div>
           <div className="folio">
             {i.folio || '(sin folio)'} · {i.unidad_negocio}
+            {/* Foránea: fuera de CDMX y Edomex (24-nov-2026). Metro no se
+                dice: es casi todo y solo sería ruido. */}
+            {zonaDe(i) === 'foranea' && (i.plaza ? ` · Foránea (${i.plaza})` : ' · Foránea')}
           </div>
           <div className="titulo">{i.nombre_incidencia}</div>
           {i.incidencia_srd && (

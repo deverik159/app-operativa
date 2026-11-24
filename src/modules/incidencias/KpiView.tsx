@@ -26,6 +26,7 @@ import { nombreDe } from '../../lib/nombres';
 import { diaCdmx } from '../../lib/fechasCdmx';
 import { claveCatorcena, etiquetaCatorcena, leerClaveCatorcena } from '../../lib/catorcena';
 import { nombreSitio, nombrePlaza } from '../../lib/claveSitio';
+import { ZONA_LABEL, zonaDe, type Zona } from '../../lib/zona';
 import type { MapaNombres } from '../../lib/nombres';
 import { colorTono, pintarTexto } from '../../lib/tonos';
 import KpiDetalleModal from './KpiDetalleModal';
@@ -459,6 +460,8 @@ function KpiView({
 }) {
   const [detalle, setDetalle] = useState<Detalle | null>(null);
   const [fUN, setFUN] = useState('Todas');
+  /** Metro (CM, EM) o Foránea (24-nov-2026). */
+  const [fZona, setFZona] = useState<'Todas' | Zona>('Todas');
   const [fArea, setFArea] = useState('Todas');
   const [fEst, setFEst] = useState('Todos');
   const [fNivel, setFNivel] = useState('Todos');
@@ -518,6 +521,7 @@ function KpiView({
     () =>
       items.filter((i) => {
         if (fUN !== 'Todas' && i.unidad_negocio !== fUN) return false;
+        if (fZona !== 'Todas' && zonaDe(i) !== fZona) return false;
         if (fArea !== 'Todas' && i.area_responsable !== fArea) return false;
         if (fReporta !== 'Todas' && (i.area_reportante || '') !== fReporta)
           return false;
@@ -528,7 +532,7 @@ function KpiView({
           return false;
         return true;
       }),
-    [items, fUN, fArea, fReporta, fEst, fNivel, fCat, fSem]
+    [items, fUN, fZona, fArea, fReporta, fEst, fNivel, fCat, fSem]
   );
 
   const total = f.length;
@@ -876,6 +880,7 @@ function KpiView({
   /** Contexto de los filtros puestos, para que el popup diga sobre qué es. */
   const contexto = [
     fUN !== 'Todas' ? fUN : '',
+    fZona !== 'Todas' ? ZONA_LABEL[fZona] : '',
     fArea !== 'Todas' ? fArea : '',
     fReporta !== 'Todas' ? `Reporta ${fReporta}` : '',
     fEst !== 'Todos' ? EST_LABEL[fEst] || fEst : '',
@@ -930,6 +935,16 @@ function KpiView({
           {UNIDADES.map((u) => (
             <option key={u}>{u}</option>
           ))}
+        </select>
+        <select
+          aria-label="Zona"
+          className={fZona !== 'Todas' ? 'on' : undefined}
+          value={fZona}
+          onChange={(e) => setFZona(e.target.value as 'Todas' | Zona)}
+        >
+          <option value="Todas">Zona: todas</option>
+          <option value="metro">Metro (CDMX y Edomex)</option>
+          <option value="foranea">Foránea</option>
         </select>
         {/* Las opciones de área, reporta, catorcena y semana salen de los
             datos. Al cambiar de periodo (IndicadoresView recarga SIN

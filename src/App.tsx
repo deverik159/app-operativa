@@ -496,7 +496,8 @@ function mismosRoles(a: UsuarioRol[] | null, b: UsuarioRol[]): boolean {
       r.rol === b[i].rol &&
       (r.unidad_negocio ?? null) === (b[i].unidad_negocio ?? null) &&
       (r.departamento ?? null) === (b[i].departamento ?? null) &&
-      (r.medio ?? null) === (b[i].medio ?? null)
+      (r.medio ?? null) === (b[i].medio ?? null) &&
+      (r.zona ?? null) === (b[i].zona ?? null)
   );
 }
 
@@ -1460,7 +1461,8 @@ function Main({
       // ver abreModuloEcovallasImpreso).
       const q = sb
         .from('usuario_roles')
-        .select('rol,unidad_negocio,departamento,medio')
+        // `zona` (Metro/Foránea, 24-nov-2026) acota validador y técnicos.
+        .select('rol,unidad_negocio,departamento,medio,zona')
         .ilike('usuario_email', email);
       const { data, error, status } =
         hayCopia || !enLineaAhora()

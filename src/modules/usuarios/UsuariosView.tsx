@@ -9,6 +9,8 @@
 //   - unidad_negocio vacío  → todas las unidades
 //   - departamento vacío    → todas las áreas
 //   - medio (solo validador) vacío → Impreso y Digital
+//   - zona (validador y técnicos, Ecovallas y Biobox) vacía → Metro y
+//     Foránea (24-nov-2026; ver lib/zona.ts)
 // ============================================================
 import { Copy, Plus, Trash } from 'lucide-react';
 import { useState, useEffect } from 'react';
@@ -23,6 +25,14 @@ import { colorTono, fondoTono } from '../../lib/tonos';
 import type { AppRole, Usuario, UsuarioRol } from '../../types/db';
 import Ic from '../../components/Ic';
 import ActividadView from './ActividadView';
+import { ZONA_LABEL, unidadConZona, type Zona } from '../../lib/zona';
+
+/** Roles que se acotan por zona: los que validan y los que reparan. */
+const ROLES_CON_ZONA = ['validador', 'reparacion'];
+
+/** ¿Este borrador de rol lleva zona? Sin unidad (todas) también. */
+const llevaZona = (rol: string, unidad: string) =>
+  ROLES_CON_ZONA.includes(rol) && (!unidad || unidadConZona(unidad));
 
 /** Borrador del alta de usuario. */
 type NuevoUsuario = { nombre: string; email: string; telefono: string };
@@ -33,6 +43,8 @@ type NuevoRol = {
   unidad: string;
   depto: string;
   medio: string;
+  /** '' = Metro y Foránea. */
+  zona: string;
 };
 
 const ROL_VACIO: NuevoRol = {
@@ -40,6 +52,7 @@ const ROL_VACIO: NuevoRol = {
   unidad: '',
   depto: '',
   medio: '',
+  zona: '',
 };
 
 const USUARIO_VACIO: NuevoUsuario = { nombre: '', email: '', telefono: '' };
@@ -235,6 +248,8 @@ function UsuariosView({ email = '' }: { email?: string }) {
       // `medio` solo aplica al validador; en cualquier otro rol se ignora
       // para no dejar un filtro colgado que después confunda.
       medio: nr.rol === 'validador' ? nr.medio || null : null,
+      // `zona` igual: solo validador y técnicos de Ecovallas y Biobox.
+      zona: llevaZona(nr.rol, nr.unidad) ? nr.zona || null : null,
     });
     // Duplicado = el rol ya existía: no es un error que valga reportar.
     if (error && !String(error.message).includes('duplicate')) {
@@ -441,6 +456,7 @@ function UsuariosView({ email = '' }: { email?: string }) {
                       {ROLE_LABEL[r.rol] || r.rol}
                       {r.unidad_negocio ? ` · ${r.unidad_negocio}` : ''}
                       {r.medio ? ` · ${r.medio}` : ''}
+                      {r.zona ? ` · ${ZONA_LABEL[r.zona as Zona] ?? r.zona}` : ''}
                       {r.departamento ? ` · ${r.departamento}` : ''}
                     </span>
                     <button
@@ -542,6 +558,26 @@ function UsuariosView({ email = '' }: { email?: string }) {
                         <option>Impreso</option>
                         <option>Digital</option>
                       </select>
+                    </div>
+                  )}
+
+                  {llevaZona(nr.rol, nr.unidad) && (
+                    <div className="field">
+                      <label>Zona</label>
+                      <select
+                        value={nr.zona}
+                        onChange={(e) => setNr({ ...nr, zona: e.target.value })}
+                      >
+                        <option value="">Metro y Foránea</option>
+                        <option value="metro">Solo Metro (CDMX y Edomex)</option>
+                        <option value="foranea">Solo Foránea (el resto de las plazas)</option>
+                      </select>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                        Con zona, solo ve y recibe avisos de las incidencias de esa zona. Sin
+                        zona ve las dos: para que no se mezclen, ponle zona también a quien
+                        atiende Metro. En un técnico, la zona vale para todas sus áreas de
+                        esa unidad.
+                      </div>
                     </div>
                   )}
 

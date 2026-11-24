@@ -86,6 +86,7 @@ import TablaIncidencias from './TablaIncidencias';
 import MotivoModal from './MotivoModal';
 import { diaCdmx, inicioDiaCdmx } from '../../lib/fechasCdmx';
 import { validaEnIncidencia } from '../../lib/validaEn';
+import { zonaCubre } from '../../lib/zona';
 import type { EventoHistorial } from '../../lib/historialInc';
 import { traerHistorial } from '../../lib/historialIncApi';
 import { foliosApp } from '../../lib/folioApp';
@@ -1098,7 +1099,9 @@ function IncidenciasView({
           r.departamento.trim().toLowerCase() === area &&
           (!r.unidad_negocio ||
             !unidad ||
-            r.unidad_negocio.trim().toLowerCase() === unidad)
+            r.unidad_negocio.trim().toLowerCase() === unidad) &&
+          // Zona del rol (Metro/Foránea, 24-nov-2026), como la base.
+          zonaCubre(r.zona, i)
       );
     },
     [misRoles, rolesDetalle]

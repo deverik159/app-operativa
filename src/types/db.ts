@@ -104,6 +104,12 @@ export interface Incidencia {
   municipio: string | null;
   /** Estado/plaza. Lo deriva el trigger set_derivados. */
   plaza: string | null;
+  /**
+   * 'metro' (CM, EM) o 'foranea' (24-nov-2026). La calcula el trigger
+   * inc_set_zona en cada alta y cambio; nunca mandarla. Opcional porque
+   * las copias guardadas de antes no la traen: leerla con zonaDe().
+   */
+  zona?: 'metro' | 'foranea' | null;
   tipo_medio: string | null;
   medio: string | null;
   tipo_mueble: string | null;
@@ -496,6 +502,8 @@ export interface UsuarioRol {
   unidad_negocio: string | null;
   departamento: string | null;
   medio: string | null;
+  /** Zona que cubre (validador y técnicos): 'metro', 'foranea' o null = las dos (24-nov-2026). */
+  zona?: string | null;
 }
 
 // --- Inventario / cuadrillas ---
