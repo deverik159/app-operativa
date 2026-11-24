@@ -2013,3 +2013,71 @@ Erik pidió dos fallas nuevas de TI para BioBox México: «SIM sin datos» y
 - Las dos migraciones se revisaron con `revisor-rls` y se aplicaron con el sí
   de Erik (commit `6adeca6`). Se verificaron con consultas (filas, patrones
   con textos de ejemplo y md5 de la función), no en pantalla.
+
+### 12.22. Duplicadas, fotos por cara y catálogo de Biobox (23-nov-2026)
+
+- **Catálogo de BioBox México** (las 5 filas de cada falla: M4, M4 URBANA,
+  M4-R2, M5 y M5 OXXO):
+  - «Chapa dañada» pasa de Op. Bio Box a **TI** (migración
+    `20261123193021_chapa_danada_a_ti`). También la levanta en TI el checklist
+    («Llave frontal inferior» y «Llave de gabinete»). La que estaba abierta se
+    quedó en Op. Bio Box.
+  - Falla nueva **«Falla en mecanismo»** de TI: Externo · Imponderable ·
+    Usuario · Alto (`20261123193058_catalogo_biobox_falla_mecanismo`).
+  - Falla nueva **«Falla física en proceso de reciclaje»** de Op. Bio Box
+    (OPB), mismos valores (`20261123200644_catalogo_biobox_falla_fisica_reciclaje`).
+    Convive con «Falla en el proceso de reciclaje» (Digital). No tiene la regla
+    de «sin máquina pasa por la validadora» (Erik la descartó).
+  - Las tres solo se eligen a mano: no tienen palabras de la app BioBox ni
+    causa del checklist.
+- **Corrección del validador con regla de duplicados** (commit `184b960`):
+  si con la falla corregida ya hay otra igual en proceso en la misma cara
+  (`duplicadasEnProceso`, lib/duplicados.ts), no guarda. Caso EVD00040/EVD00041.
+- **Borrado de EVD00041 y EV00010** con su chat, avisos, evidencias e
+  historial (migración `20261123221110_borrar_evd00041_ev00010`, con candado).
+  Los contadores no se regresaron (EVD 42, EV 44). Los archivos de Storage se
+  borran aparte: `storage.protect_delete` no deja hacerlo con SQL.
+- **Estatus `duplicada`** (commit `e9af0fa`; migraciones
+  `20261123230003_estatus_duplicada`, solo el valor del enum, y
+  `20261123230145_descartar_duplicada`):
+  - `inc_descartar_duplicada(record_id, folio_original, falla)`, security
+    definer:
+    - permisos: validador de la unidad y medio, o manager;
+    - qué descarta: una por validar, en proceso o devuelta contra otra EN
+      PROCESO, con la misma regla de `lib/duplicados.ts`;
+    - con la falla, corrige y descarta en un paso;
+    - guarda `duplicada_de`, `duplicada_folio`, `duplicada_por` y
+      `duplicada_en`;
+    - los reportes de la app BioBox pasan a la original cambiando solo
+      `record_id`;
+    - avisa solo al reportante (evento `duplicada`; título propio en
+      `enviar-push` v29).
+  - Guardián `inc_guarda_duplicada`: solo se entra a `duplicada` con la bandera
+    `app.descarte_duplicada`, que pone la función, y solo un manager la saca.
+  - Terminal como cerrada: `estado_maquina(s)`, `puede_escribir_chat`,
+    `msg_upd_autor`, `chat_adj_ins`, `inc_sel_participante_chat`,
+    `datos_usuario_app_incidencia` y `ligar_reporte_biobox_app`. El historial
+    registra el evento `duplicada` con el folio. La purga de adjuntos del chat
+    es a 30 días de `duplicada_en`.
+    `notificar_incidencia` no tiene rama para `duplicada`, así que no avisa.
+  - En pantalla:
+    - `ESTATUS_TERMINALES`, `TERMINALES_LISTA` y `esTerminal` en
+      lib/constants.ts;
+    - Indicadores (y con ellos KPI) y Técnicos excluyen `duplicada`;
+    - tarjeta «Duplicada de <folio>»;
+    - botón «Duplicada…» en la tarjeta por validar (`DuplicadaModal.tsx`) y
+      «Descartar como duplicada de <folio>» en `CorreccionModal.tsx`;
+    - chat y evidencia en solo lectura.
+  - Se eligió estatus propio y no «cerrada + marca» porque `cerrada` significa
+    «reparación aprobada» en el historial, los avisos, la pauta, el KPI y el
+    Webadmin.
+- **Elegir la cara de cada foto** (commit `e9af0fa`): en Nueva incidencia, con
+  varias caras y un número de fotos distinto al de caras, quien captura toca
+  debajo de cada foto sus caras.
+  - `Linea.fotoCaras` se convierte en `GrupoReporte.paraFilas`, y `armarEnvio`
+    la vuelve `ArchivoEnvio.para` (lib/fotoPorCara.ts: `pideCaraPorFoto`,
+    `ajustarCarasDeFotos`, `faltaCaraDeFoto`, `indicesDeFotos`).
+  - Caso EV00038–EV00043: 6 caras con 4 fotos.
+- Todo se revisó con `revisor-rls` y se aplicó con el sí de Erik. Duplicada se
+  probó en la base con rollback y las fotos en la vista previa sin guardar.
+  El botón de la tarjeta no se vio en pantalla: no había ninguna por validar.
