@@ -34,6 +34,7 @@ import {
 } from '../../lib/adjuntosChat';
 import { comprimirImagen, textoRestante } from '../../lib/comprimirImagen';
 import { imagenDePegado, leerImagenDelPortapapeles, puedePegarConBoton } from '../../lib/portapapeles';
+import { enviaConTecla, esComputadora, teclaDe } from '../../lib/teclaEnviar';
 import {
   COMPRIMIR_VIDEO_DESDE,
   compresionInterrumpida,
@@ -1154,6 +1155,8 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
   };
   // Botón «Pegar imagen»: solo en computadora (ver portapapeles.ts).
   const conBotonPegar = puedePegarConBoton();
+  // Intro envía solo en computadora (25-nov-2026; ver lib/teclaEnviar.ts).
+  const enComputadora = esComputadora();
   const pegarConBoton = async () => {
     setErrAdj('');
     const r = await leerImagenDelPortapapeles();
@@ -1792,12 +1795,15 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                                   e.preventDefault();
                                   cancelarEdicion();
                                 } else if (
-                                  e.key === 'Enter' &&
-                                  (e.ctrlKey || e.metaKey) &&
-                                  !e.nativeEvent.isComposing
+                                  enviaConTecla(
+                                    teclaDe(e),
+                                    enComputadora
+                                  )
                                 ) {
-                                  // Igual que el campo de abajo: Enter salta
-                                  // de renglón; Ctrl/⌘+Enter guarda.
+                                  // Igual que el campo de abajo: en
+                                  // computadora Intro guarda y Shift+Intro
+                                  // salta de renglón; en el teléfono, Intro
+                                  // salta de renglón (lib/teclaEnviar.ts).
                                   e.preventDefault();
                                   guardarEdicion();
                                 }
@@ -2310,9 +2316,11 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
               </div>
             )}
 
-            {/* Como WhatsApp (13-nov-2026, pedido de Erik): Intro (o «Ir»
-                en Android) salta de renglón y solo el botón redondo envía.
-                En computadora, Ctrl/⌘+Intro también envía. */}
+            {/* Como WhatsApp (13-nov-2026, pedido de Erik): en el teléfono
+                Intro (o «Ir» en Android) salta de renglón y solo el botón
+                redondo envía. En computadora, como WhatsApp Web (25-nov-2026):
+                Intro envía y Shift+Intro salta de renglón. Ctrl/⌘+Intro envía
+                en los dos (lib/teclaEnviar.ts). */}
             <form
               ref={formRef}
               onSubmit={enviar}
@@ -2361,11 +2369,15 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                     e.stopPropagation();
                     setTokenAt(null);
                   } else if (
-                    e.key === 'Enter' &&
-                    (e.ctrlKey || e.metaKey) &&
-                    !e.nativeEvent.isComposing
+                    enviaConTecla(teclaDe(e), enComputadora)
                   ) {
                     e.preventDefault();
+                    // Con la lista del @ abierta, Intro elige a la primera
+                    // persona en vez de mandar el mensaje a medias.
+                    if (tokenAt && sugerencias.length > 0 && !e.ctrlKey && !e.metaKey) {
+                      elegirMencion(sugerencias[0]);
+                      return;
+                    }
                     formRef.current?.requestSubmit();
                   }
                 }}
