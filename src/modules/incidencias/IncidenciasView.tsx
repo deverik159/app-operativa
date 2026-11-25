@@ -1005,6 +1005,8 @@ function IncidenciasView({
   } | null>(null);
   const [editOf, setEditOf] = useState<Incidencia | null>(null);
   const [corrigiendo, setCorrigiendo] = useState<Incidencia | null>(null);
+  /** El validador cambia sitio o cara (EditModal en modo validador, 25-nov-2026). */
+  const [ubicacionOf, setUbicacionOf] = useState<Incidencia | null>(null);
   /** «Descartar como duplicada» desde la tarjeta por validar (23-nov-2026). */
   const [duplicando, setDuplicando] = useState<Incidencia | null>(null);
   /** Reportada sin máquina a la que el validador o el manager le ponen máquina. */
@@ -3455,6 +3457,7 @@ function IncidenciasView({
               onChat={alChat}
               onReassign={alReasignar}
               onCorregir={setCorrigiendo}
+              onUbicacion={setUbicacionOf}
               onAsignarMaquina={setAsignandoMaq}
               onEdit={setEditOf}
               onRechazarRep={alRechazarRep}
@@ -3583,6 +3586,18 @@ function IncidenciasView({
             setDuplicando(null);
             onNotifAtendida(rid);
             setTimeout(onRecargarNotifs, 400);
+          }}
+        />
+      )}
+      {ubicacionOf && (
+        <EditModal
+          inc={ubicacionOf}
+          modo="validador"
+          onAbrirEvidencia={setEvidenceOf}
+          onClose={() => setUbicacionOf(null)}
+          onDone={(rid, patch) => {
+            patchInc(rid, patch);
+            setUbicacionOf(null);
           }}
         />
       )}

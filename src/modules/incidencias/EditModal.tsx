@@ -18,6 +18,15 @@
 //                 y nivel, origen, tipo y área los pone el catálogo.
 //                 Desde el 24-nov-2026 también la CAMPAÑA (Erik), con la pauta
 //                 de QTM de la cara como sugerencia, igual que en el alta.
+//   Validador   → este mismo modal con `modo="validador"` (Erik, 25-nov-2026):
+//                 SOLO sitio, cara y lado, por validar o en proceso (botón
+//                 «Sitio o cara» de la tarjeta). No cambia el estatus, ni la
+//                 falla (eso es la Corrección), ni observaciones, campaña o
+//                 evidencia.
+//
+// REGLA DE DUPLICADOS (25-nov-2026): al cambiar sitio, cara o falla se
+// revisa, como al capturar y en la Corrección, que no quede otra igual EN
+// PROCESO en esa cara (lib/duplicados.ts). Si choca, no se guarda.
 //
 // LA EVIDENCIA NO SE EDITA AQUÍ, a propósito. `EvidenciaModal` ya deja al
 // reportante subir y borrar LO SUYO mientras la incidencia esté en
@@ -90,6 +99,7 @@ import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
 import SelectorFalla, { Derivado } from './SelectorFalla';
 import CampoCampania from './CampoCampania';
+import { duplicadasEnProceso, ErrorConsultaDuplicados } from '../../lib/duplicados';
 import { useAtrasCierra } from '../../lib/atrasVentana';
 
 type Sitio = { site_id: string; direccion: string | null; nombre?: string | null };
@@ -126,9 +136,12 @@ type EditModalProps = {
   onAbrirEvidencia: (i: Incidencia) => void;
   onClose: () => void;
   onDone: (recordId: string, patch: Partial<Incidencia>) => void;
+  /** 'validador': solo sitio, cara y lado, sin tocar el estatus (25-nov-2026). */
+  modo?: 'reportante' | 'validador';
 };
 
-function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
+function EditModal({ inc, onAbrirEvidencia, onClose, onDone, modo = 'reportante' }: EditModalProps) {
+  const esValidador = modo === 'validador';
   // Ciclo de renders que no suelta el hilo → error del módulo (app pasmada
   // sin señal, 24-sep-2026; ver lib/vigia.ts).
   vigilarRender('EditModal');
@@ -474,7 +487,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
       alert('Este sitio tiene varias caras: elige a cuál corresponde.');
       return;
     }
-    const faltaObs = faltaObsElemento(elemento, observaciones);
+    const faltaObs = esValidador ? null : faltaObsElemento(elemento, observaciones);
     if (faltaObs) {
       alert(faltaObs);
       return;
@@ -502,8 +515,15 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     }
 
     const patch: Partial<Incidencia> = {
-      observaciones: observaciones.trim() || null,
-      campania: campania.trim() || null,
+      // El validador solo mueve la ubicación: lo demás es del reportante.
+      ...(esValidador
+        ? {}
+        : {
+            observaciones: observaciones.trim() || null,
+            campania: campania.trim() || null,
+            // Vuelve a la cola del validador. Si ya estaba ahí, no cambia nada.
+            estatus: 'por_validar' as const,
+          }),
       clave_sitio: sitio,
       // Del Adicional o de la Puerta: con varias caras va sin ninguna; con
       // una sola conserva la suya, igual que en el alta.
@@ -516,15 +536,13 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
         : pideLado && !(ELEMENTOS_SIN_CARA as readonly string[]).includes(lado)
           ? lado || null
           : null,
-      // Vuelve a la cola del validador. Si ya estaba ahí, no cambia nada.
-      estatus: 'por_validar',
     };
     // Si se movió el sitio o la cara, se rederiva la ubicación completa. Ver
     // la nota de la cabecera: aquí no hay trigger que lo haga por nosotros.
     if (cambioSitio || cambioCara || cambioElemento) Object.assign(patch, derivarUbicacion());
     // Otra falla: solo se manda la entrada del catálogo y lo que ella deriva,
     // igual que la corrección del validador. `assigned_area` no se toca.
-    if (cambioFalla && falla) {
+    if (!esValidador && cambioFalla && falla) {
       Object.assign(patch, {
         nombre_incidencia: falla.detalle,
         nivel: (falla.impacto || '').trim() || null,
@@ -532,6 +550,50 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
         tipo: (falla.tipo || '').trim() || null,
         area_responsable: areaFalla || null,
       });
+    }
+
+    // Regla de duplicados (25-nov-2026): con la cara, el sitio o la falla
+    // nuevos, ¿ya hay otra igual EN PROCESO? Misma regla que al capturar y que
+    // la Corrección. Si la consulta falla por red se pide señal; por otra
+    // cosa no frena (mejor esfuerzo, igual que al capturar).
+    if (cambioSitio || cambioCara || cambioElemento || (!esValidador && cambioFalla)) {
+      const nueva = { ...inc, ...patch };
+      try {
+        const choques = (
+          await duplicadasEnProceso(
+            [
+              {
+                clave_medio: nueva.clave_medio,
+                clave_sitio: nueva.clave_sitio,
+                lado: nueva.lado,
+                nombre_incidencia: nueva.nombre_incidencia,
+                unidad_negocio: nueva.unidad_negocio,
+                medio: nueva.medio,
+              },
+            ],
+            { lanzarSiFalla: true }
+          )
+        ).filter((c) => c.folio !== inc.folio);
+        if (choques.length) {
+          setBusy(false);
+          const folios = [...new Set(choques.map((c) => c.folio).filter(Boolean))].join(', ');
+          alert(
+            `Ya hay una «${nueva.nombre_incidencia || ''}» en proceso ahí: ${folios || '—'}. ` +
+              'No se guardó.' +
+              (esValidador
+                ? ' Si es el mismo trabajo, descártala con «Duplicada…» o desde la Corrección.'
+                : ' Si es el mismo trabajo, avísale al validador.')
+          );
+          return;
+        }
+      } catch (err) {
+        const st = err instanceof ErrorConsultaDuplicados ? err.status : 0;
+        if (!haySenal() || !st || st === 401 || st >= 500) {
+          setBusy(false);
+          alert(SIN_SENAL_GUARDAR);
+          return;
+        }
+      }
     }
 
     const { data, error, status } = await sb
@@ -553,9 +615,12 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     // este modal estaba abierto: el validador la aprobó en ese rato.
     if (!((data as Incidencia[] | null) || []).length) {
       alert(
-        'No se guardó ningún cambio. Lo más probable es que el validador ya ' +
-          'haya movido esta incidencia mientras la editabas. Refresca con ↻ (Recargar) y ' +
-          'revisa cómo quedó antes de volver a capturar.'
+        esValidador
+          ? 'No se guardó el cambio: tu rol o la zona no permiten cambiar esta incidencia, ' +
+              'o ya cambió de estatus. Refresca con ↻ (Recargar) y revisa cómo quedó.'
+          : 'No se guardó ningún cambio. Lo más probable es que el validador ya ' +
+              'haya movido esta incidencia mientras la editabas. Refresca con ↻ (Recargar) y ' +
+              'revisa cómo quedó antes de volver a capturar.'
       );
       return;
     }
@@ -564,12 +629,12 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
 
   /** ¿Hay cambios sin guardar respecto a lo que trae la incidencia? */
   const hayCambios =
-    observaciones !== (inc.observaciones || '') ||
-    campania !== (inc.campania || '') ||
+    (!esValidador && observaciones !== (inc.observaciones || '')) ||
+    (!esValidador && campania !== (inc.campania || '')) ||
     lado !== (inc.lado || '') ||
     sitio !== (inc.clave_sitio || '') ||
     cara !== (inc.clave_medio || '') ||
-    cambioFalla;
+    (!esValidador && cambioFalla);
 
   /**
    * En celular quedan franjas de overlay a los lados del modal: un roce ahí
@@ -610,7 +675,7 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
     >
       <div className="modal">
         <CerrarModal onClick={() => cerrarSeguro()} />
-        <h2 style={{ margin: '0 0 3px' }}>Corregir mi reporte</h2>
+        <h2 style={{ margin: '0 0 3px' }}>{esValidador ? 'Cambiar sitio o cara' : 'Corregir mi reporte'}</h2>
         <p className="phint">
           {inc.folio} · {inc.nombre_incidencia}
         </p>
@@ -631,6 +696,13 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
           </div>
         )}
 
+        {esValidador ? (
+          <div className="banner" style={{ marginBottom: 14 }}>
+            Solo cambia la ubicación. La incidencia sigue{' '}
+            <b>{inc.estatus === 'en_proceso' ? 'en proceso' : 'por validar'}</b> y con la
+            misma falla (la falla se cambia en «Corrección»).
+          </div>
+        ) : (
         <div className="banner" style={{ marginBottom: 14 }}>
           Al guardar, la incidencia vuelve a la cola del validador.
           {inc.estatus === 'rechazada' && (
@@ -640,8 +712,9 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
             </>
           )}
         </div>
+        )}
 
-        {inc.estatus === 'rechazada' && inc.motivo_rechazo_reparacion && (
+        {!esValidador && inc.estatus === 'rechazada' && inc.motivo_rechazo_reparacion && (
           // Los colores de la caja .err, con su pareja del tema claro
           // (tema claro/oscuro, 24-sep-2026).
           <div
@@ -885,6 +958,8 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
           </div>
         )}
 
+        {!esValidador && (
+          <>
         {/* --- Falla (13-oct-2026): la misma elección que el validador --- */}
         <SelectorFalla
           unidad={inc.unidad_negocio}
@@ -965,12 +1040,15 @@ function EditModal({ inc, onAbrirEvidencia, onClose, onDone }: EditModalProps) {
           </div>
         </div>
 
+          </>
+        )}
+
         <div className="modal-actions pie-fijo">
           <button className="btn ghost" onClick={() => cerrarSeguro()}>
             Cancelar
           </button>
           <button className="btn" onClick={guardar} disabled={busy}>
-            {busy ? 'Guardando…' : 'Guardar y enviar a validar'}
+            {busy ? 'Guardando…' : esValidador ? 'Guardar ubicación' : 'Guardar y enviar a validar'}
           </button>
         </div>
       </div>

@@ -106,6 +106,11 @@ type IncCardProps = {
   onDevolver: (i: Incidencia) => void;
   /** Descartar como duplicada de otra en proceso (23-nov-2026). */
   onDuplicada?: (i: Incidencia) => void;
+  /**
+   * El validador cambia el sitio o la cara, por validar o en proceso
+   * (Erik, 25-nov-2026). Abre EditModal en modo validador.
+   */
+  onUbicacion?: (i: Incidencia) => void;
   slaMap: SlaMap;
   /** Minutos configurados para validar captura y reparación. */
   slaValidacion: { reporte: number; reparacion: number };
@@ -157,6 +162,7 @@ function IncCard({
   onDescartar,
   onDevolver,
   onDuplicada,
+  onUbicacion,
   slaMap,
   slaValidacion,
   nChat,
@@ -747,6 +753,19 @@ function IncCard({
         )}
         {/* Reportada sin máquina: el validador de la unidad o el manager se
             la ponen antes de que la reparen (Erik, 17-nov-2026). */}
+        {onUbicacion &&
+          puedeValidar &&
+          (i.estatus === 'por_validar' || i.estatus === 'en_proceso') &&
+          !esSinMaquina(i) && (
+            <button
+              className="btn ghost sm"
+              onClick={() => onUbicacion(i)}
+              disabled={bloqueadaRed}
+            >
+              <MapPin {...IC} />
+              Sitio o cara
+            </button>
+          )}
         {onAsignarMaquina && puedeValidar && activa && esSinMaquina(i) && (
           <button
             className="btn ghost sm"
