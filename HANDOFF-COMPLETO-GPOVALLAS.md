@@ -2222,3 +2222,61 @@ dos pasos (commit `adf40f4`; migración
   envía con el botón. Ctrl/⌘+Intro envía en los dos. Con la lista del @
   abierta, Intro elige a la primera persona. Lógica en `lib/teclaEnviar.ts`
   (`enviaConTecla`, `esComputadora`, `teclaDe`) con su prueba.
+
+### 12.25. Permisos por unidad, rendimiento de la RLS, red colgada y sesión (12 → 25-nov-2026)
+
+- **Auditoría de funciones SECURITY DEFINER** (asesor de Supabase: 122 que
+  cualquiera con sesión podía llamar). Cuatro paquetes, cada uno con
+  revisor-rls y el sí de Erik:
+  - **A** (`20261112220553`): sin EXECUTE para `authenticated` en 30 funciones
+    que la app no llama (23 triggers, auxiliares, sincronizaciones de Biobox
+    que corre la tarea con service_role). Comprobaciones: una campaña sin
+    analista ya no deja pasar a cualquier analista (`coalesce(…, false)`).
+  - **B** (`20261119010031`), decisiones de Erik del 18-nov:
+    - ayudantes invoker `rol_en_unidad(roles[], unidad)` (rol sin unidad =
+      todas, manager siempre), `unidades_que_veo()` y `nombre_de_sesion()`;
+    - tomas y fotos de pauta (`registrar_toma`, `pev_ins`): solo monitorista,
+      fijador o coordinador de Ecovallas (o sin unidad), o manager, y solo
+      caras de la pauta de esa catorcena;
+    - importar la pauta y sincronizar rutas: coordinador de Ecovallas;
+      importar rutas (Excel y KML) y paradas: coordinador de esa unidad;
+      `origen='pauta'` solo con la marca `app.sync_pauta`;
+    - incidencias por sitio (`estado_maquina(s)`, `incidencias_de_sitios`,
+      duplicados): solo de las unidades de quien consulta;
+    - `guardar_revision` toma unidad, nombre y dirección del inventario;
+    - chat y lista de usuarios se quedan legibles con sesión (decisión).
+  - **B2** (`20261119013616`): el nombre del chat sale de la identidad de
+    Google (`auth.identities`), porque `user_metadata` lo cambia el propio
+    usuario; `rutas_monitoreo` (insert, update y delete), `guardar_paradas_ruta`
+    y `eliminar_ruta` exigen la unidad; las paradas, además, el dueño; la
+    unidad de una ruta solo acepta Ecovallas, Biobox o Vía Verde.
+  - **B3** (`20261119022851`): asignar o quitar monitoristas, cualquier
+    coordinador de la unidad de la ruta (no hace falta ser el dueño).
+  - En la app (`8f6a19d`): Rutas, Asignar monitoristas y Pauta dicen en
+    español qué permiso falta cuando la base lo niega.
+  - Las funciones largas se reescribieron desde su texto de producción
+    (md5 de `prosrc`) con cabecera de `pg_get_functiondef` y anclas exactas;
+    después de aplicar se comparó por md5 contra el archivo.
+- **Rendimiento de la RLS** (`9d13f17`; `20261123154915` y `20261123155117`):
+  `qtm_pautas` sin tres políticas de lectura que sobraban; en `incidencias`,
+  `mis_areas_por_unidad()` y `mis_unidades_viewer()` se calculan una vez por
+  consulta (un técnico de Digital/SRD pasó de ~255 ms a 33 ms por lista).
+  No cambia quién ve qué (prueba en PGlite con 9,600 incidencias).
+- **Red colgada en Indicadores** (`bb16f0a`): sus consultas no tenían tope y,
+  con señal que se ve pero no pasa datos, «Cargando indicadores…» se quedaba
+  fijo. Ahora 20 s por consulta (15 s la carga de nombres en `lib/nombres.ts`)
+  y error con «Reintentar».
+- **Avisos que no se activan** (`bb16f0a`, `1db9c15`): «Registration failed -
+  push service error» lo da el navegador cuando su servicio de avisos no
+  responde (FCM en Android, WNS en Edge/Windows). `lib/erroresPush.ts` lo
+  traduce con pasos propios de Android o de Windows y `push.ts` lo registra
+  en `errores_cliente` como `push.suscribir`. Edge sí funciona (otros 4
+  usuarios lo usan); cuando falla es esa computadora.
+- **Consultas sin sesión** (`a6b6f70`): si la renovación de la sesión falla,
+  las consultas de segundo plano salían como `anon` y dejaban «permission
+  denied for table …» (42501) en los registros de Postgres. El `fetch`
+  global de `lib/supabase.ts` ahora retiene toda petición a `/rest/v1/`
+  cuyo `Authorization` sea la llave pública y contesta el mismo 401 sin
+  mandarla (`lib/sinSesion.ts`, con prueba). No toca `/auth/v1/`, Storage,
+  funciones ni realtime. `anon` no tiene GRANT en ninguna tabla: si algún
+  día se abre algo a `anon` por PostgREST, hay que ajustar esta retención.
