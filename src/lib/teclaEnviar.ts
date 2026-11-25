@@ -11,7 +11,6 @@
 // Mientras se compone texto con el teclado (acentos, IME) Intro nunca envía.
 // ============================================================
 
-import { esCelular } from './plataforma';
 
 export type TeclaChat = {
   key: string;
@@ -48,11 +47,5 @@ export function enviaConTecla(e: TeclaChat, computadora: boolean): boolean {
   return computadora && !e.shiftKey && !e.altKey;
 }
 
-/**
- * Computadora = ni teléfono ni tableta, y con mouse o trackpad. Un teléfono
- * o una tableta con teclado conectado se quedan como teléfono.
- */
-export function esComputadora(): boolean {
-  if (typeof window === 'undefined') return false;
-  return !esCelular() && !!window.matchMedia?.('(hover: hover) and (pointer: fine)').matches;
-}
+// Vive en plataforma.ts (también la usa el visor de fotos, 25-nov-2026).
+export { esComputadora } from './plataforma';

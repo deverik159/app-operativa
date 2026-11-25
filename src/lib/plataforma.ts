@@ -30,6 +30,37 @@ export function esCelular(): boolean {
 }
 
 /**
+ * Computadora = ni teléfono ni tableta, y con mouse o trackpad. Un teléfono
+ * o una tableta con teclado conectado se quedan como teléfono. La usan el
+ * Intro del chat (lib/teclaEnviar.ts) y el visor de fotos (EnlaceFoto).
+ */
+export function esComputadora(): boolean {
+  if (typeof window === 'undefined') return false;
+  return !esCelular() && !!window.matchMedia?.('(hover: hover) and (pointer: fine)').matches;
+}
+
+/**
+ * ¿La app corre instalada (ventana propia) y no en una pestaña? Mismo
+ * criterio que `estaInstalada` de lib/push.ts, sin cargar lo de push.
+ */
+export function enAppInstalada(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    !!window.matchMedia?.('(display-mode: standalone)').matches ||
+    (window.navigator as { standalone?: boolean }).standalone === true
+  );
+}
+
+/**
+ * ¿Las fotos se abren dentro de la app? Solo instalada en computadora
+ * (Erik, 25-nov-2026): ahí una pestaña nueva saca a la persona a Chrome o
+ * Edge. En el navegador, y en el teléfono, siguen abriendo aparte.
+ */
+export function fotosDentroDeLaApp(): boolean {
+  return enAppInstalada() && esComputadora();
+}
+
+/**
  * Traduce el error de geolocalización a instrucciones ACCIONABLES.
  *
  * El caso que lo motivó (Brayan, 11-sep-2026): el GPS del teléfono estaba

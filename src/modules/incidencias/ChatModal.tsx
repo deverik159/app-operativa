@@ -68,6 +68,7 @@ import { vigilarRender } from '../../lib/vigia';
 import PreviaVideo from '../../components/PreviaVideo';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
+import EnlaceFoto from '../../components/EnlaceFoto';
 import { ROLE_LABEL } from '../../lib/constants';
 import { useAtrasCierra } from '../../lib/atrasVentana';
 
@@ -1943,11 +1944,9 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                             // al volver la red o la app, y el enlace se queda:
                             // tocarla la abre (con "señal fantasma" el evento
                             // online nunca llega).
-                            <a
+                            <EnlaceFoto
                               key={a.id}
                               href={a.url}
-                              target="_blank"
-                              rel="noreferrer"
                               style={{
                                 ...cajaMedio(a),
                                 background: 'var(--panel2)',
@@ -1966,14 +1965,9 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                               {enLinea
                                 ? 'No se pudo cargar la foto: tócala para abrirla'
                                 : 'La foto se verá cuando vuelva la señal'}
-                            </a>
+                            </EnlaceFoto>
                           ) : (
-                            <a
-                              key={a.id}
-                              href={a.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
+                            <EnlaceFoto key={a.id} href={a.url}>
                               <img
                                 src={a.url}
                                 alt={a.nombre || 'foto'}
@@ -1987,7 +1981,7 @@ function ChatModal({ inc, email, nombre, onClose }: Props) {
                                   background: 'var(--panel2)',
                                 }}
                               />
-                            </a>
+                            </EnlaceFoto>
                           )
                         )}
 

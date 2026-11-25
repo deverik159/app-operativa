@@ -42,6 +42,7 @@ import { vigilarRender } from '../../lib/vigia';
 import { colorTono } from '../../lib/tonos';
 import type { Incidencia, Reasignacion } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
+import EnlaceFoto from '../../components/EnlaceFoto';
 
 /** 'op_biobox' lo abre PasarOpBioboxModal, no este (30-oct-2026). */
 export type ModoReasign = 'solicitar' | 'aprobar' | 'op_biobox';
@@ -609,10 +610,8 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
               </div>
               <div style={{ marginTop: 6 }}>Motivo: “{req.motivo || '—'}”</div>
               {req.evidencia && (
-                <a
+                <EnlaceFoto
                   href={req.evidencia}
-                  target="_blank"
-                  rel="noreferrer"
                   style={{ display: 'inline-block', marginTop: 8 }}
                 >
                   <img
@@ -629,7 +628,7 @@ function ReasignModal({ inc, mode, email, onClose, onDone }: Props) {
                       border: '1px solid var(--line)',
                     }}
                   />
-                </a>
+                </EnlaceFoto>
               )}
             </div>
             <div className="field">

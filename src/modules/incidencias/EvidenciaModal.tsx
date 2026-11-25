@@ -34,6 +34,7 @@ import { vigilarRender } from '../../lib/vigia';
 import SubirArchivos from '../../components/SubirArchivos';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
+import EnlaceFoto from '../../components/EnlaceFoto';
 import type {
   Evidencia,
   EtapaEvidencia,
@@ -395,6 +396,8 @@ function EvidenciaModal({
   };
 
   const fotos = items.filter((x) => x.tipo === 'foto');
+  /** Para pasar entre las fotos en el visor de la app instalada. */
+  const galeriaFotos = fotos.map((f) => ({ url: f.url, titulo: f.referencia || undefined }));
   const videos = items.filter((x) => x.tipo === 'video');
 
   // Atrás con la ventana abierta la cierra con este mismo cierre seguro, en vez
@@ -530,13 +533,15 @@ function EvidenciaModal({
                     marginBottom: 14,
                   }}
                 >
-                  {fotos.map((f) => (
+                  {fotos.map((f, idx) => (
                     <div key={f.id}>
-                      <a
+                      {/* En la app instalada en computadora abre en el visor,
+                          con flechas entre estas fotos (25-nov-2026). */}
+                      <EnlaceFoto
                         href={f.url}
-                        target="_blank"
-                        rel="noreferrer"
                         title={f.etapa}
+                        galeria={galeriaFotos}
+                        indice={idx}
                       >
                         <img
                           src={f.url}
@@ -549,7 +554,7 @@ function EvidenciaModal({
                             border: '1px solid var(--line)',
                           }}
                         />
-                      </a>
+                      </EnlaceFoto>
                       <PieEvidencia
                         ev={f}
                         onBorrar={puedeBorrar(f) ? () => borrar(f) : undefined}

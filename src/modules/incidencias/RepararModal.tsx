@@ -81,6 +81,7 @@ import PreviaVideo from '../../components/PreviaVideo';
 import type { ArbolDigital, Evidencia, Incidencia } from '../../types/db';
 import CerrarModal from '../../components/CerrarModal';
 import Ic from '../../components/Ic';
+import EnlaceFoto from '../../components/EnlaceFoto';
 import { useAtrasCierra } from '../../lib/atrasVentana';
 
 /**
@@ -233,7 +234,7 @@ function Miniatura({
 }) {
   const visual =
     e.tipo === 'foto' ? (
-      <a href={e.url} target="_blank" rel="noreferrer" title={e.referencia || ''}>
+      <EnlaceFoto href={e.url} title={e.referencia || ''}>
         <img
           // Miniatura de 56-64 px: bajar el original de 1600 px aquí era
           // puro egress. Las fotos viejas sin miniatura caen al original.
@@ -249,11 +250,11 @@ function Miniatura({
             display: 'block',
           }}
         />
-      </a>
+      </EnlaceFoto>
     ) : (
       // Su cuadro con ▶ (o el recuadro 🎬 si es un video viejo), del mismo
       // tamaño que las fotos: el texto "🎥 video" parecía otra cosa.
-      <a href={e.url} target="_blank" rel="noreferrer" title={e.referencia || ''}>
+      <EnlaceFoto href={e.url} tipo="video" title={e.referencia || ''}>
         <PreviaVideo
           url={e.url}
           alt={e.referencia || `Video de ${e.etapa}`}
@@ -265,7 +266,7 @@ function Miniatura({
             border: '1px solid var(--line)',
           }}
         />
-      </a>
+      </EnlaceFoto>
     );
   if (!onBorrar) return visual;
   return (
