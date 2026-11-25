@@ -2172,3 +2172,53 @@ dos pasos (commit `adf40f4`; migración
   - Ecovallas Fijas: 34 nuevas y 23 ligadas, después de quitar 56 filas de
     una primera corrida que duplicó lo copiado a mano sin el folio de la app;
   - Vía Verde: 6 nuevas y 2 ligadas.
+
+### 12.24. Zonas Metro y Foránea, campaña al corregir e Intro del chat (24 y 25-nov-2026)
+
+- **Zonas Metro y Foránea** (commit `dfc3c2a`; migración
+  `20261124164247_zonas_metro_foranea`, pasó por revisor-rls). Lo pidió Erik:
+  lo que se reporta fuera de CDMX y Edomex va a un validador y técnicos
+  propios, sin mezclarse con la ciudad, pero viéndose todo junto.
+  - Metro = claves `MX_CM_…` y `MX_EM_…`; Foránea = cualquier otra plaza.
+    Solo Ecovallas y Biobox (Vía Verde es solo CDMX; Biobox Perú es otra
+    unidad). Dos zonas, no plaza por plaza.
+  - `incidencias.zona` (`metro` | `foranea`): la calcula el trigger
+    `inc_set_zona` en cada alta y cambio con `zona_de_clave(unidad, clave,
+    plaza)` (sin clave, la plaza; sin las dos, metro). Espejo en
+    `src/lib/zona.ts` (`zonaDeClave`, `zonaDe`, `zonaCubre`).
+  - `usuario_roles.zona` (null = las dos, como `medio`). En Usuarios, campo
+    «Zona» dentro de «Asignar rol» para validador y técnico de Ecovallas o
+    Biobox. Para cambiar la zona de un rol hay que quitarlo y darlo de nuevo.
+  - La zona del rol filtra:
+    - RLS `inc_sel/upd_validador` (en la misma fila que unidad y medio) e
+      `inc_sel/upd_reparacion` (con `mi_zona_cubre`: por persona y unidad,
+      no por área);
+    - avisos: `destinatarios_notif` recibe `p_zona`; si nadie cubre la zona,
+      la cascada de siempre (coordinadores → managers);
+    - chat (`notificar_chat`: técnicos del área, validador y @área;
+      `puede_escribir_chat`), `inc_descartar_duplicada` e
+      `inc_pasar_a_op_biobox`;
+    - bandeja de la app Biobox: `biobox_app_ve_bandeja` y
+      `biobox_app_exige_validador` pasan a 2 argumentos con la zona de la
+      máquina del reporte (`clave_inventario`; sin máquina = metro).
+  - De paso (hallazgo de revisor-rls): `reasign_upd_manager` ya solo deja a
+    un validador resolver reasignaciones de incidencias que puede ver; antes,
+    cualquier validador resolvía las de cualquier unidad.
+  - Manager, coordinador, viewer y reportante no cambian.
+  - Pantalla: `validaEn` y `reparaEn` respetan la zona; filtro «Zona» en
+    Indicadores (KpiView); la tarjeta dice «Foránea (plaza)»; la carga de
+    roles en App.tsx trae `zona`.
+  - La migración parcha las funciones vivas por texto (`pg_get_functiondef`
+    con fragmentos y conteo exacto) y aborta completa si algo cambió.
+- **Campaña al corregir** (commit `ef75eb5`): el reportante en ✏️ Editar
+  (`EditModal.tsx`) y el validador en Corrección (`CorreccionModal.tsx`)
+  cambian la campaña con el campo compartido `CampoCampania.tsx`: texto
+  libre, precargado; en Ecovallas sugiere las campañas de `qtm_pautas` de la
+  cara dos semanas antes y después del reporte. Sin cambio de base.
+- **Chat: en computadora Intro envía** (commit `a2ce63e`, 25-nov-2026): en
+  computadora o navegador con mouse, Intro envía y Shift+Intro salta de
+  renglón, como WhatsApp Web; también al corregir un mensaje propio. En
+  teléfono o tableta sigue lo del 13-nov-2026: Intro salta de renglón y se
+  envía con el botón. Ctrl/⌘+Intro envía en los dos. Con la lista del @
+  abierta, Intro elige a la primera persona. Lógica en `lib/teclaEnviar.ts`
+  (`enviaConTecla`, `esComputadora`, `teclaDe`) con su prueba.
