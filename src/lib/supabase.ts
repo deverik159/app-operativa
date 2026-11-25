@@ -5,6 +5,7 @@
 // NO hardcodeadas como en el HTML original.
 // ============================================================
 import { createClient } from '@supabase/supabase-js';
+import { esConsultaSinSesion, respuestaSinSesion } from './sinSesion';
 
 const url = import.meta.env.VITE_SUPABASE_URL as string;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -57,6 +58,21 @@ let ultimoTopeToken = 0;
 const conTopeAuth: typeof fetch = (entrada, init) => {
   const destino =
     typeof entrada === 'string' ? entrada : entrada instanceof URL ? entrada.href : entrada.url;
+  // Sin sesión, una consulta a la base solo puede fallar (anon no tiene
+  // permisos): no se manda y se contesta el mismo 401 (25-nov-2026; ver
+  // lib/sinSesion.ts).
+  if (destino.includes('/rest/v1/')) {
+    let autorizacion: string | null = null;
+    try {
+      autorizacion = new Headers(
+        init?.headers ?? (entrada instanceof Request ? entrada.headers : undefined)
+      ).get('Authorization');
+    } catch {
+      /* cabeceras raras: se deja pasar como antes */
+    }
+    if (esConsultaSinSesion(destino, autorizacion, anonKey))
+      return Promise.resolve(respuestaSinSesion());
+  }
   if (!destino.split('?')[0].endsWith('/auth/v1/token')) return fetch(entrada, init);
   const TOPE_AUTH_MS =
     Date.now() - ultimoTopeToken < VENTANA_TOPE_LARGO_MS ? TOPE_TOKEN_LARGO_MS : TOPE_TOKEN_MS;
