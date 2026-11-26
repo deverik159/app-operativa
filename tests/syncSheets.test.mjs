@@ -29,7 +29,7 @@ const {
 test('cada encabezado de la base sale de una llave de vw_incidencias_sheets', async () => {
   const { readFileSync } = await import('node:fs');
   const sql = readFileSync(
-    fileURLToPath(new URL('../supabase/migrations/20261124171724_incidencias_sheets_sincronizacion.sql', import.meta.url)),
+    fileURLToPath(new URL('../supabase/migrations/20261126160022_sheets_incidencia_digital.sql', import.meta.url)),
     'utf8'
   );
   const vista = sql.slice(sql.indexOf('create or replace view public.vw_incidencias_sheets'), sql.indexOf(') app on true;'));

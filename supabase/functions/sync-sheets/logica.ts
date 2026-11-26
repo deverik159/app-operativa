@@ -45,7 +45,7 @@ export const ENCABEZADOS_BASE = [
   'Fecha Reporte', 'Hora Reporte', 'Semana', 'Catorcena', 'FechaMes', 'Trimestre',
   'Clave de sitio', 'Clave de medio', 'Cara', 'ID', 'Nombre', 'Dirección', 'Alcaldía',
   'Plaza', 'Lado', 'Tipo de máquina', 'Área Reportante', 'Vía de reporte',
-  'Incidencia', 'Detalle de Incidencia', 'Campaña', 'Afectación', 'Nivel de Incidencia',
+  'Incidencia', 'Incidencia Digital', 'Detalle de Incidencia', 'Campaña', 'Afectación', 'Nivel de Incidencia',
   'Origen de Incidencia', 'Causa', 'Área Responsable', 'Fecha de Reparación',
   'Hora de Reparación', 'Detalle de Reparación', 'Tiempo', 'TiempoHoras',
   'Correo', 'Teléfono', 'Actualizado (UTC)',

@@ -11,9 +11,15 @@
  *   - Cada folio de la app ocupa una fila con el folio del equipo en la
  *     columna FOLIO (el siguiente consecutivo, o el de una fila que ya
  *     estaba preparada) y el de la app en la columna «Folio App».
- *   - Las que el equipo ya había copiado a mano (folio de la app escrito
- *     en comentarios o tickets, desde el 11-nov-2026) se ligan: no se
- *     duplican.
+ *   - La primera vez pregunta desde qué fecha de reporte traer folios
+ *     (menú «Cambiar fecha de inicio» para cambiarla). Lo anterior a esa
+ *     fecha no se agrega ni se toca.
+ *   - Las que el equipo ya había capturado a mano se ligan: solo se anota
+ *     el folio de la app en su fila, para no duplicarlas. Nada más de esa
+ *     fila se cambia.
+ *   - NUNCA sobrescribe una celda con algo escrito (Erik, 26-nov-2026). En
+ *     las filas que ya existen solo llena las celdas vacías: la fecha de
+ *     reparación o el estatus cuando la app los cierre, si siguen vacíos.
  *   - Solo escribe las columnas que trae la app. NUNCA toca las columnas
  *     con fórmula ni las que se llenan a mano (evidencias, comentarios,
  *     tickets, seguimiento, ruta, medio…). Un dato vacío en la app no
@@ -21,8 +27,7 @@
  *   - Los estatus van con las palabras de la hoja: Reparado, No reparado
  *     y En proceso (por validar, devuelta y reparado por aprobar). Las
  *     duplicadas no se copian.
- *   - «Actualizar» trae solo lo que cambió desde la última vez; «Actualizar
- *     todo» revisa todos los folios.
+ *   - «Actualizar» trae solo lo que cambió desde la última vez.
  *
  * INSTALACIÓN (una vez por archivo)
  *   1. Extensiones → Apps Script. Borra lo que haya en Código.gs y pega
@@ -86,6 +91,154 @@ function estatusEquipo(noReparado) {
     Reportado: 'En proceso',
   };
 }
+
+/**
+ * Biobox (Erik, 24-nov-2026): «1er Trimestre 2025 M» es para incidencias
+ * del medio publicitario (su «Tipo de incidencia» = Mueble) y «…MMA» para
+ * las del mecanismo o la aplicación. La pestaña la decide la falla, igual
+ * que la escribe el equipo (tabla sacada de sus 2,600 filas de 2026; «NUC
+ * fuera de línea» va a MMA desde abril). Una falla que no está aquí va por
+ * su área: TI o Digital → Mecanismo; las demás → Mueble.
+ */
+const TIPO_FALLA_BIOBOX = {
+  'Fallas con la aplicación': 'Aplicación',
+  'Error de registro en la aplicación': 'Aplicación',
+  // Erik, 26-nov-2026 (las agregó al Catalogo con este tipo).
+  'Falla en el sensor de mano': 'Mecanismo',
+  'Falla en el proceso de reciclaje': 'Mecanismo',
+  'Falla física en proceso de reciclaje': 'Mecanismo',
+  'Error en el abono de puntos': 'Mecanismo',
+  'Falla en apertura de Biobox': 'Mueble',
+  'Chapa dañada': 'Mueble',
+  'Falla en mecanismo': 'Mecanismo',
+  'QR dañado': 'Mecanismo',
+  'Falta de QR': 'Mecanismo',
+  'Modem con fallas': 'Mecanismo',
+  'Internet fuera de línea': 'Mecanismo',
+  'SIM sin datos': 'Mecanismo',
+  'SIM desactivado': 'Mecanismo',
+  'NUC fuera de línea': 'Mecanismo',
+  'NUC con fallas': 'Mecanismo',
+  'Recolección de reciclaje': 'Mueble',
+  'Daños estructurales': 'Mueble',
+  'Soldadura dañada': 'Mueble',
+  'Robo parcial estructura': 'Mueble',
+  'Obstrucción al mueble': 'Mueble',
+  'Pantallas en negro': 'Mueble',
+  'Pantalla con fallas': 'Mueble',
+  'Módulos con fallas': 'Mueble',
+  'Falla en el brillo': 'Mueble',
+  'Apagado': 'Mueble',
+  'Arte no proyectado': 'Mueble',
+  'Arte mal proyectado': 'Mueble',
+  'Arte dañado': 'Mueble',
+  'Brandeo dañado': 'Mueble',
+  'Programación de campaña': 'Mueble',
+};
+
+/** Mueble / Mecanismo / Aplicación de una falla de Biobox. */
+function tipoFallaBiobox(b) {
+  const buscada = normalizar(b.incidencia);
+  for (const k of Object.keys(TIPO_FALLA_BIOBOX)) if (normalizar(k) === buscada) return TIPO_FALLA_BIOBOX[k];
+  return /^(ti|digital)$/i.test(String(b.arearesponsable || '').trim()) ? 'Mecanismo' : 'Mueble';
+}
+
+/** «MX_CM_BB_MED_0089» → «MED»; '' si no hay clave de máquina. */
+function segmentoClave(clave) {
+  const p = String(clave == null ? '' : clave).trim().split('_');
+  return p.length >= 5 ? p[3].toUpperCase() : '';
+}
+
+/**
+ * ID de la máquina como lo escribe «Inventario BBX» (de ahí salen Nombre,
+ * Municipio y Tipo de medio por fórmula): se busca por la clave. Si no
+ * está, MED/MEC/MIC usan «BB 089» y las demás, la clave completa.
+ */
+function idBiobox(b, ctx) {
+  const clave = String(b.clavedesitio == null ? '' : b.clavedesitio).trim();
+  if (!segmentoClave(clave)) return null;
+  const inv = ctx && ctx.idPorClave ? ctx.idPorClave[normalizar(clave)] : null;
+  if (inv) return { valor: inv, tipo: 'texto' };
+  if (/^(MED|MEC|MIC)$/.test(segmentoClave(clave))) {
+    const n = Number((/_(\d+)$/.exec(clave) || [])[1]);
+    return { valor: 'BB ' + relleno(n, 3), tipo: 'texto' };
+  }
+  return { valor: clave, tipo: 'texto' };
+}
+
+/** Vía de reporte con las palabras de Biobox. */
+function viaBiobox(b) {
+  if (b.areareportante === 'App Biobox') return { valor: 'APP BioBox', tipo: 'texto' };
+  const via = String(b.viadereporte || '').trim();
+  return { valor: !via || via === 'App' ? 'APP' : via, tipo: 'texto' };
+}
+
+/** Las mismas columnas en las cuatro pestañas de Biobox (las de fórmula se saltan solas). */
+const COLUMNAS_BIOBOX = {
+  id: { calc: idBiobox },
+  nombre: 'nombre',
+  municipiolocalidad: 'alcaldia',
+  semana: { semanaIso: 'fechareporte' },
+  // Su «Fecha de reporte» lleva fecha y hora; la hora de al lado es fórmula.
+  fechadereporte: { fechaHora: ['fechareporte', 'horareporte'] },
+  horadereporte: 'horareporte',
+  // Erik, 24-nov-2026: provisional, se ajusta si sus listas piden otra cosa.
+  areareportante: { base: 'areareportante', mapa: { 'App Biobox': 'Usuario', Operaciones: 'Op. BioBox', MKT: 'Usuario' } },
+  viadereporte: { calc: viaBiobox },
+  incidencia: {
+    base: 'incidencia',
+    mapa: {
+      'Error en el abono de puntos': 'Error en el abono de punto',
+      'Robo parcial estructura': 'Robo parcial',
+      'Pantalla en negro': 'Pantallas en negro',
+    },
+  },
+  detalledeincidencias: 'detalledeincidencia',
+  detalledeincidencia: 'detalledeincidencia',
+  tipodeincidencia: { calc: (b) => ({ valor: tipoFallaBiobox(b), tipo: 'texto' }) },
+  estatusincial: { fijo: 'Reportado' },
+  estatusinicial: { fijo: 'Reportado' },
+  departamentoresponsablereparacion: { base: 'arearesponsable', mapa: { 'Op. Bio Box': 'Op. BioBox' } },
+  detalledereparacion: 'detalledereparacion',
+  estatus: { base: 'estatusfinal', mapa: estatusEquipo('No reparado') },
+  estatusfinal: { base: 'estatusfinal', mapa: estatusEquipo('No reparado') },
+  fechadereparacionconcluida: { fechaHora: ['fechadereparacion', 'horadereparacion'] },
+  horadereparacionconcluida: 'horadereparacion',
+  origendeincidencia: 'origendeincidencia',
+  nomenclarutasquantum: 'clavedesitio',
+  tipodemaquina: 'tipodemaquina',
+  // Contacto de quien reportó (Erik, 25-nov-2026). Si la pestaña no tiene
+  // estas columnas, se crean al final (crearColumnas).
+  correo: 'correo',
+  telefono: 'telefono',
+};
+
+/** Lo común de las pestañas de Biobox. */
+function configBiobox(nombre, pestana, folioEquipo, incluye, extra) {
+  return Object.assign(
+    {
+      nombre,
+      pestana,
+      grupo: 'Biobox',
+      filaEncabezados: 1,
+      folioApp: /^BB(MM|M5|M|OXXO)?\d{5}$/,
+      buscarEnTexto: /\bBB(?:MM|M5|M|OXXO)?\d{5}\b/,
+      // Su «FOLIO APP» es de tickets del Webadmin: el nuestro va aparte.
+      encabezadoFolioApp: 'Folio Incidencias App',
+      // Los folios de Biobox volvieron a empezar con la limpieza del piloto.
+      ligarDesde: new Date(2026, 9, 14),
+      folioEquipo,
+      fecha: 'fechadereporte',
+      incluye,
+      columnasOpcionales: true,
+      crearColumnas: ['Correo', 'Teléfono'],
+      columnas: COLUMNAS_BIOBOX,
+    },
+    extra || {}
+  );
+}
+
+const MAQUINA_GRANDE = /^(MED|MEC|UCL|MIC)$/;
 
 /**
  * Una configuración por hoja de trabajo. `columnas`: encabezado de la hoja
@@ -178,6 +331,7 @@ const CONFIGS = [
     folioApp: /^EVD\d{5}$/,
     buscarEnTexto: /\bEVD\d{5}\b/,
     folioEquipo: { columna: 1, prefijo: 'EVD', digitos: 4 },
+    crearColumnas: ['Incidencia Digital'],
     fecha: 'fechadereporte',
     columnas: {
       clavedesitio: 'clavedesitio',
@@ -191,13 +345,18 @@ const CONFIGS = [
       // Erik, 24-nov-2026: SRD y Operaciones → Digital.
       areareportante: { base: 'areareportante', mapa: { SRD: 'Digital', Operaciones: 'Digital' } },
       viadereporte: 'viadereporte',
-      // En esta hoja «Tipo de incidencia» guarda el nombre de la falla. Erik,
-      // 24-nov-2026: las dos fallas de la app que no están en su lista se
-      // quedan como las escribió el equipo (en fila nueva, vacías).
+      // En esta hoja «Tipo de incidencia» guarda el nombre de la falla del
+      // usuario: su lista (Catalogo!C4:C170) tiene 12 de las 16 del árbol y
+      // solo 2 de las 73 técnicas (revisado el 26-nov-2026). Erik, 24-nov-2026:
+      // las dos fallas de la app que no están en su lista se quedan como las
+      // escribe el equipo (en fila nueva, vacías).
       tipodeincidencia: {
         base: 'incidencia',
-        mapa: { 'Estructura con grafiti': null, 'Estructura dañada': null },
+        mapa: { 'Estructura con grafiti': null, 'Estructura dañada': null, 'Cámara obstruída': 'Obstrucción cámara' },
       },
+      // La que el técnico eligió del árbol (arbol_digital), en su propia
+      // columna al final (Erik, 26-nov-2026). Vacía hasta que la elija.
+      incidenciadigital: 'incidenciadigital',
       campana: { base: 'campana', vacio: 'N/A' },
       arearesponsablederespuesta: { fijo: 'Digital' },
       detalledelaincidencia: 'detalledeincidencia',
@@ -215,6 +374,34 @@ const CONFIGS = [
       semana: { semanaIso: 'fechareporte' },
     },
   },
+  // Biobox: un archivo, cuatro pestañas. El botón llena todas las de su grupo.
+  configBiobox(
+    'Biobox publicitarias (M)',
+    '1er Trimestre 2025 M',
+    { columna: 1, prefijo: 'BM', digitos: 4 },
+    (b) => MAQUINA_GRANDE.test(segmentoClave(b.clavedesitio)) && tipoFallaBiobox(b) === 'Mueble'
+  ),
+  configBiobox(
+    'Biobox mecanismo (MMA)',
+    '1er Trimestre 2025 MMA',
+    { columna: 1, prefijo: 'BMM', digitos: 4 },
+    (b) => MAQUINA_GRANDE.test(segmentoClave(b.clavedesitio)) && tipoFallaBiobox(b) !== 'Mueble'
+  ),
+  configBiobox(
+    'Biobox OXXO',
+    'Incidencias M5 OXXO',
+    { columna: 1, prefijo: 'BBOX', digitos: 3 },
+    (b) => segmentoClave(b.clavedesitio) === 'OXD'
+  ),
+  // M5 (IID) y los reportes de la app Biobox sin máquina (Erik, 24-nov-2026).
+  // Pestaña nueva: no tiene consecutivo propio, el folio es el de la app.
+  configBiobox(
+    'Biobox M5 y sin máquina',
+    'App Biobox',
+    { columna: 1, usarFolioApp: true },
+    (b) => !MAQUINA_GRANDE.test(segmentoClave(b.clavedesitio)) && segmentoClave(b.clavedesitio) !== 'OXD',
+    { crearComo: '1er Trimestre 2025 MMA' }
+  ),
 ];
 
 // ------------------------------------------------------------
@@ -238,6 +425,21 @@ function vacio(v) {
 function elegirConfig(nombresPestanas) {
   for (const c of CONFIGS) if (nombresPestanas.indexOf(c.pestana) >= 0) return c;
   return null;
+}
+
+/**
+ * Las configuraciones que llena este archivo: la de su pestaña o, si es de
+ * un grupo (Biobox), todas las del grupo (las que faltan se crean).
+ */
+function elegirGrupo(nombresPestanas) {
+  const c = elegirConfig(nombresPestanas);
+  if (!c) return [];
+  return c.grupo ? CONFIGS.filter((x) => x.grupo === c.grupo) : [c];
+}
+
+/** ¿Este folio de la base va a esta pestaña? */
+function esDeLaHoja(cfg, b) {
+  return cfg.folioApp.test(b.folio) && (!cfg.incluye || cfg.incluye(b));
 }
 
 /**
@@ -272,9 +474,21 @@ function tipoDe(llave, valor) {
  * Qué escribir en una celda. null = no tocarla (la app no trae nada y no es
  * fila nueva con valor por omisión).
  */
-function valorDe(fuente, b, esNueva) {
+function valorDe(fuente, b, esNueva, ctx) {
   if (fuente && typeof fuente === 'object' && 'fijo' in fuente) {
     return { valor: fuente.fijo, tipo: typeof fuente.fijo === 'number' ? 'numero' : 'texto' };
+  }
+  // Calculado (ID de Biobox, tipo de incidencia, vía): devuelve {valor, tipo} o null.
+  if (fuente && typeof fuente === 'object' && typeof fuente.calc === 'function') {
+    const r = fuente.calc(b, ctx || {});
+    return r && !vacio(r.valor) ? r : null;
+  }
+  // Fecha y hora en una sola celda ('AAAA-MM-DD HH:mm'); sin hora, solo la fecha.
+  if (fuente && typeof fuente === 'object' && fuente.fechaHora) {
+    const f = b[fuente.fechaHora[0]];
+    if (vacio(f)) return null;
+    const h = horaDeTexto(b[fuente.fechaHora[1]]);
+    return h ? { valor: `${f} ${h}`, tipo: 'fechahora' } : { valor: f, tipo: 'fecha' };
   }
   if (fuente && typeof fuente === 'object' && fuente.semanaIso) {
     const s = semanaIso(b[fuente.semanaIso]);
@@ -389,7 +603,10 @@ function planear(p) {
   const colFecha = claves.indexOf(cfg.fecha);
   if (colFecha < 0) throw new Error('No encontré la columna de fecha de reporte en la fila de encabezados.');
 
-  let colFolioApp = claves.indexOf('folioapp');
+  // Biobox ya usa «FOLIO APP» para tickets del Webadmin: allá la nuestra se llama distinto.
+  const encFolioApp = cfg.encabezadoFolioApp || 'Folio App';
+  const ligarDesde = cfg.ligarDesde || LIGAR_DESDE;
+  let colFolioApp = claves.indexOf(normalizar(encFolioApp));
   const crearFolioApp = colFolioApp < 0;
   if (crearFolioApp) {
     let ult = claves.length - 1;
@@ -398,19 +615,37 @@ function planear(p) {
   }
   const filaHoja = (i) => p.filaEncabezados + 1 + i;
 
+  // Columnas que la app agrega al final si la hoja no las tiene (Biobox:
+  // Correo y Teléfono; Erik, 25-nov-2026). Van después de la del folio.
+  const columnasNuevas = [];
+  if (crearFolioApp) columnasNuevas.push({ col: colFolioApp, encabezado: encFolioApp });
+  const colDeClave = {};
+  // Última columna ocupada (contando la del folio que se va a crear).
+  let libre = claves.length - 1;
+  while (libre >= 0 && vacio(p.encabezados[libre])) libre--;
+  if (crearFolioApp) libre = colFolioApp;
+  (cfg.crearColumnas || []).forEach((enc) => {
+    if (claves.indexOf(normalizar(enc)) >= 0) return;
+    libre++;
+    colDeClave[normalizar(enc)] = libre;
+    columnasNuevas.push({ col: libre, encabezado: enc });
+  });
+
   // Columnas que llena la app (las de fórmula se respetan).
   const mapeo = [];
   const sinColumna = [];
   const calculadas = [];
   Object.keys(cfg.columnas).forEach((clave) => {
-    const col = claves.indexOf(clave);
-    if (col < 0) sinColumna.push(clave);
+    const col = claves.indexOf(clave) >= 0 ? claves.indexOf(clave) : clave in colDeClave ? colDeClave[clave] : -1;
+    if (col < 0) {
+      if (!cfg.columnasOpcionales) sinColumna.push(clave);
+    }
     else if (p.formulasCols[col]) calculadas.push(String(p.encabezados[col]).trim());
     else mapeo.push({ col, fuente: cfg.columnas[clave] });
   });
 
   // Lo que ya hay en la hoja.
-  const reFolioEq = new RegExp('^' + cfg.folioEquipo.prefijo + '(\\d+)$');
+  const reFolioEq = cfg.folioEquipo.prefijo ? new RegExp('^' + cfg.folioEquipo.prefijo + '(\\d+)$') : /^$/;
   const porFolioApp = {};
   let ultimaReal = -1;
   let maxFolio = 0;
@@ -435,7 +670,7 @@ function planear(p) {
   p.datos.forEach((fila, i) => {
     if (!crearFolioApp && !vacio(fila[colFolioApp])) return;
     const f = fila[colFecha];
-    if (!(f instanceof Date) || f.getTime() < LIGAR_DESDE.getTime()) return;
+    if (!(f instanceof Date) || f.getTime() < ligarDesde.getTime()) return;
     for (let j = 0; j < fila.length; j++) {
       if (j === colFolioEq || j === colFolioApp || fila[j] instanceof Date) continue;
       const re = new RegExp(cfg.buscarEnTexto.source, 'g');
@@ -454,8 +689,12 @@ function planear(p) {
   for (let i = ultimaReal + 1; i < p.datos.length; i++) if (vacio(p.datos[i][colFecha])) libres.push(i);
 
   const enBase = {};
-  const procesar = p.base
-    .filter((b) => cfg.folioApp.test(b.folio))
+  const deLaHoja = p.base.filter((b) => esDeLaHoja(cfg, b));
+  deLaHoja.forEach((b) => (enBase[b.folio] = true));
+  // Fecha de inicio que eligió el equipo (Erik, 26-nov-2026): lo anterior
+  // ni se agrega ni se liga; esa parte del archivo queda como está.
+  const procesar = deLaHoja
+    .filter((b) => !p.fechaInicio || String(b.fechareporte || '') >= p.fechaInicio)
     .sort((a, b) => String(a.fechareporte || '').localeCompare(String(b.fechareporte || '')) || a.folio.localeCompare(b.folio));
 
   const escrituras = [];
@@ -490,11 +729,21 @@ function planear(p) {
   let siguiente = 0;
   let masAlla = p.datos.length;
 
+  // En una fila que ya existe solo se llenan las celdas vacías: lo que el
+  // equipo escribió o corrigió nunca se sobrescribe (Erik, 26-nov-2026: «les
+  // mueve todo, no les respeta las fechas, las observaciones o detalles»).
+  // Devuelve cuántas celdas se van a escribir.
   const escribirFila = (i, b, esNueva) => {
+    let n = 0;
     mapeo.forEach((m) => {
-      const v = valorDe(m.fuente, b, esNueva);
-      if (v) escrituras.push({ fila: filaHoja(i), col: m.col, valor: v.valor, tipo: v.tipo });
+      if (!esNueva && p.datos[i] && !vacio(p.datos[i][m.col])) return;
+      const v = valorDe(m.fuente, b, esNueva, p.contexto);
+      if (v) {
+        escrituras.push({ fila: filaHoja(i), col: m.col, valor: v.valor, tipo: v.tipo });
+        n++;
+      }
     });
+    return n;
   };
 
   // A qué fila va cada folio, en pasadas, para que una forma de ligar no le
@@ -536,7 +785,7 @@ function planear(p) {
   const colSitio = colDe('clavedesitio');
   const diaDe = (f) =>
     f instanceof Date ? Math.round((Date.UTC(f.getFullYear(), f.getMonth(), f.getDate()) - Date.UTC(1899, 11, 30)) / 86400000) : null;
-  const diaDesde = diaDe(LIGAR_DESDE);
+  const diaDesde = diaDe(ligarDesde);
   const conMencion = {};
   Object.keys(porTexto).forEach((f) => porTexto[f].forEach((k) => (conMencion[k] = true)));
   const elegibles = [];
@@ -568,7 +817,6 @@ function planear(p) {
   });
 
   procesar.forEach((b) => {
-    enBase[b.folio] = true;
     const duplicada = b.estatusfinal === 'Duplicada';
     const dest = destino[b.folio];
     if (dest && dest.revisar) return;
@@ -587,14 +835,16 @@ function planear(p) {
         cuenta.iguales++;
         return;
       }
+      // Capturada a mano por el equipo: solo se anota el folio de la app,
+      // para no duplicarla. Lo demás de esa fila es del equipo.
       if (ligada) {
         escrituras.push({ fila: filaHoja(i), col: colFolioApp, valor: b.folio, tipo: 'texto' });
         (dest.modo === 'mencion' ? ligadasLista : coincidencias).push(folioEqDe(i) + ' = ' + b.folio);
         cuenta.ligadas++;
-      } else {
-        cuenta.actualizadas++;
+        return;
       }
-      escribirFila(i, b, false);
+      if (escribirFila(i, b, false)) cuenta.actualizadas++;
+      else cuenta.iguales++;
       return;
     }
 
@@ -609,7 +859,10 @@ function planear(p) {
     let folioEquipo = actual;
     if (!actual) {
       maxFolio++;
-      folioEquipo = cfg.folioEquipo.prefijo + relleno(maxFolio, cfg.folioEquipo.digitos);
+      // Pestaña sin consecutivo propio («App Biobox»): el folio es el de la app.
+      folioEquipo = cfg.folioEquipo.usarFolioApp
+        ? b.folio
+        : cfg.folioEquipo.prefijo + relleno(maxFolio, cfg.folioEquipo.digitos);
       escrituras.push({ fila: filaHoja(idx), col: colFolioEq, valor: folioEquipo, tipo: 'texto' });
     }
     escrituras.push({ fila: filaHoja(idx), col: colFolioApp, valor: b.folio, tipo: 'texto' });
@@ -631,7 +884,9 @@ function planear(p) {
     enLaBase: p.base.length,
     deEstaHoja: procesar.length,
     crearFolioApp,
+    encFolioApp,
     colFolioApp,
+    columnasNuevas,
     ultimaReal: ultimaReal >= 0 ? filaHoja(ultimaReal) : null,
     cuenta,
     sinColumna,
@@ -702,9 +957,10 @@ function revisarBase(cfg, base, nombreBase) {
   if (!base.some((b) => cfg.folioApp.test(b.folio))) {
     const ejemplo = base[0].folio;
     return (
-      `«${nombreBase}» no tiene folios de ${cfg.nombre} (trae, por ejemplo, ${ejemplo}).\n` +
+      `«${nombreBase}» no tiene folios de ${cfg.grupo || cfg.nombre} (trae, por ejemplo, ${ejemplo}).\n` +
       'Revisa BASE_ID en Extensiones → Apps Script: Vía Verde lee «Incidencias VV Gral»; ' +
-      'Ecovallas Fijas y Digital leen «Incidencias EV Gral». No se cambió nada en esta hoja.'
+      'Ecovallas Fijas y Digital leen «Incidencias EV Gral»; Biobox lee «Incidencias BB Gral». ' +
+      'No se cambió nada en esta hoja.'
     );
   }
   return null;
@@ -770,7 +1026,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Incidencias app')
     .addItem('Actualizar', 'actualizarIncidencias')
-    .addItem('Actualizar todo (revisa todas)', 'actualizarTodo')
+    .addItem('Cambiar fecha de inicio', 'cambiarFechaInicio')
     .addToUi();
 }
 
@@ -778,8 +1034,54 @@ function actualizarIncidencias() {
   correr_(false);
 }
 
-function actualizarTodo() {
-  correr_(true);
+/** 'dd/mm/aaaa' (o d/m/aaaa) → 'AAAA-MM-DD'; null si no es una fecha válida. */
+function fechaInicioDeTexto(s) {
+  const m = /^\s*(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\s*$/.exec(String(s == null ? '' : s));
+  if (!m) return null;
+  const d = Number(m[1]);
+  const mes = Number(m[2]);
+  const a = Number(m[3]);
+  const f = new Date(a, mes - 1, d);
+  if (f.getFullYear() !== a || f.getMonth() !== mes - 1 || f.getDate() !== d) return null;
+  return `${a}-${String(mes).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/** 'AAAA-MM-DD' → 'dd/mm/aaaa', para mostrarla. */
+function fechaInicioATexto(iso) {
+  const [a, m, d] = String(iso).split('-');
+  return `${d}/${m}/${a}`;
+}
+
+/**
+ * Pregunta desde qué fecha de reporte se traen folios. Lo anterior no se
+ * toca. Devuelve 'AAAA-MM-DD' o null si se canceló.
+ */
+function pedirFechaInicio_(ui, props) {
+  const actual = props.getProperty('fechaInicio');
+  for (;;) {
+    const r = ui.prompt(
+      'Fecha de inicio',
+      '¿Desde qué fecha de reporte traigo folios de la app? (dd/mm/aaaa)\n' +
+        'Lo reportado antes de esa fecha no se agrega ni se toca.' +
+        (actual ? `\nHoy está en ${fechaInicioATexto(actual)}.` : ''),
+      ui.ButtonSet.OK_CANCEL
+    );
+    if (r.getSelectedButton() !== ui.Button.OK) return null;
+    const iso = fechaInicioDeTexto(r.getResponseText());
+    if (iso) {
+      props.setProperty('fechaInicio', iso);
+      // Con otra fecha se revisa todo otra vez (sin sobrescribir nada).
+      props.deleteProperty('ultimaActualizacion');
+      return iso;
+    }
+    ui.alert('No entendí la fecha. Escríbela como dd/mm/aaaa, por ejemplo 01/11/2026.');
+  }
+}
+
+function cambiarFechaInicio() {
+  const ui = SpreadsheetApp.getUi();
+  const iso = pedirFechaInicio_(ui, PropertiesService.getDocumentProperties());
+  if (iso) ui.alert(`Listo: desde el ${fechaInicioATexto(iso)}. Aprieta «Actualizar».`);
 }
 
 /**
@@ -802,23 +1104,30 @@ function convertirBase_(clave, v, tz, mostrado) {
 
 /** Los valores que acepta una regla de lista desplegable; null si la regla es de otro tipo. */
 function listaDe_(regla, cache) {
-  const C = SpreadsheetApp.DataValidationCriteria;
-  const tipo = regla.getCriteriaType();
-  const valores = regla.getCriteriaValues();
-  if (tipo === C.VALUE_IN_LIST) return (valores[0] || []).map(String);
-  if (tipo === C.VALUE_IN_RANGE) {
-    const r = valores[0];
-    const clave = r.getSheet().getName() + '!' + r.getA1Notation();
-    if (!cache[clave]) {
-      cache[clave] = r
-        .getValues()
-        .reduce((a, fila) => a.concat(fila), [])
-        .filter((x) => !vacio(x))
-        .map(String);
+  // Una lista que apunta a un rango borrado (#REF!) lanza «No se encontró el
+  // intervalo» desde getCriteriaValues(). Caso real (25-nov-2026): columna K
+  // de Bio Box 2026. Se trata como si no hubiera lista.
+  try {
+    const C = SpreadsheetApp.DataValidationCriteria;
+    const tipo = regla.getCriteriaType();
+    const valores = regla.getCriteriaValues();
+    if (tipo === C.VALUE_IN_LIST) return (valores[0] || []).map(String);
+    if (tipo === C.VALUE_IN_RANGE) {
+      const r = valores[0];
+      const clave = r.getSheet().getName() + '!' + r.getA1Notation();
+      if (!cache[clave]) {
+        cache[clave] = r
+          .getValues()
+          .reduce((a, fila) => a.concat(fila), [])
+          .filter((x) => !vacio(x))
+          .map(String);
+      }
+      return cache[clave];
     }
-    return cache[clave];
+    return null;
+  } catch (err) {
+    return null;
   }
-  return null;
 }
 
 /**
@@ -835,6 +1144,12 @@ function celda(e) {
     const n = fraccionHora(e.valor);
     if (n !== null) return n;
   }
+  if (e.tipo === 'fechahora') {
+    const [f, h] = String(e.valor).split(' ');
+    const d = serialFecha(f);
+    const fr = fraccionHora(h);
+    if (d !== null && fr !== null) return d + fr;
+  }
   if (e.tipo === 'numero') return e.valor;
   const s = String(e.valor == null ? '' : e.valor);
   return s === '' ? '' : "'" + s;
@@ -848,6 +1163,7 @@ function formatoPara(tipo, formatoModelo) {
   const f = String(formatoModelo || '').trim();
   const sinFormato = !f || f === 'General' || f === '@' || f === '0' || /^0(\.0+)?$/.test(f);
   if (!sinFormato) return f;
+  if (tipo === 'fechahora') return 'd/M/yyyy H:mm';
   return tipo === 'hora' ? 'H:mm' : 'd/M/yyyy';
 }
 
@@ -864,19 +1180,22 @@ function correr_(todo) {
   }
   try {
     const ss = SpreadsheetApp.getActive();
-    const cfg = elegirConfig(ss.getSheets().map((s) => s.getName()));
-    if (!cfg) {
+    const configs = elegirGrupo(ss.getSheets().map((s) => s.getName()));
+    if (!configs.length) {
       ui.alert('Este archivo no tiene ninguna de las pestañas configuradas: ' + CONFIGS.map((c) => c.pestana).join(', ') + '.');
       return;
     }
-    const hoja = ss.getSheetByName(cfg.pestana);
+    const cfg0 = configs[0];
     const inicio = Date.now();
     const props = PropertiesService.getDocumentProperties();
+    // La primera vez, el equipo elige desde qué fecha se traen folios.
+    const fechaInicio = props.getProperty('fechaInicio') || pedirFechaInicio_(ui, props);
+    if (!fechaInicio) return;
     const ultima = Number(props.getProperty('ultimaActualizacion') || 0);
     const desde = todo || !ultima ? null : ultima - MARGEN_MS;
 
     const idBase = idDeBase(BASE_ID);
-    const mismo = revisarMismoArchivo(cfg, idBase, ss.getId(), ss.getName());
+    const mismo = revisarMismoArchivo(cfg0, idBase, ss.getId(), ss.getName());
     if (mismo) {
       ui.alert(mismo);
       return;
@@ -888,7 +1207,7 @@ function correr_(todo) {
     if (!hojaBase) {
       ui.alert(
         `«${libroBase.getName()}» no tiene la pestaña «${PESTANA_BASE}». BASE_ID debe ser el de ` +
-          '«Incidencias VV Gral» (Vía Verde) o «Incidencias EV Gral» (Ecovallas).'
+          '«Incidencias VV Gral» (Vía Verde), «Incidencias EV Gral» (Ecovallas) o «Incidencias BB Gral» (Biobox).'
       );
       return;
     }
@@ -901,139 +1220,200 @@ function correr_(todo) {
       rangoBase.getDisplayValues()
     );
 
-    // Antes de tocar nada: que la base sea la de esta hoja.
-    const problemaBase = revisarBase(cfg, base, nombreBase);
+    // Antes de tocar nada: que la base sea la de este archivo.
+    const problemaBase = revisarBase(cfg0, base, nombreBase);
     if (problemaBase) {
       ui.alert(problemaBase);
       return;
     }
 
-    const filaEnc = cfg.filaEncabezados;
-    const ultimaFila = hoja.getLastRow();
-    const ultimaCol = Math.max(hoja.getLastColumn(), 1);
-    const encabezados = hoja.getRange(filaEnc, 1, 1, ultimaCol).getValues()[0];
-    const datos = ultimaFila > filaEnc ? hoja.getRange(filaEnc + 1, 1, ultimaFila - filaEnc, ultimaCol).getValues() : [];
-
-    const colFecha = encabezados.map(normalizar).indexOf(cfg.fecha);
-    const ultimaReal = ultimaFilaReal(datos, colFecha);
-    const formulasCols = {};
-    let formulasModelo = [];
-    // El formato de número de cada columna en la última fila real: las
-    // fechas y horas nuevas se ven igual que las de arriba.
-    let formatosModelo = [];
-    if (ultimaReal >= 0) {
-      formatosModelo = hoja.getRange(filaEnc + 1 + ultimaReal, 1, 1, ultimaCol).getNumberFormats()[0];
-      formulasModelo = hoja.getRange(filaEnc + 1 + ultimaReal, 1, 1, ultimaCol).getFormulas()[0];
-      formulasModelo.forEach((f, j) => {
-        if (f) formulasCols[j] = true;
-      });
-    }
-
-    const plan = planear({ cfg, encabezados, datos, formulasCols, base, desde, filaEncabezados: filaEnc });
-
-    // Columna «Folio App».
-    if (plan.crearFolioApp) {
-      if (plan.colFolioApp + 1 > hoja.getMaxColumns()) hoja.insertColumnsAfter(hoja.getMaxColumns(), plan.colFolioApp + 1 - hoja.getMaxColumns());
-      const celdaEnc = hoja.getRange(filaEnc, plan.colFolioApp + 1);
-      if (plan.colFolioApp > 0) hoja.getRange(filaEnc, plan.colFolioApp).copyTo(celdaEnc, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-      celdaEnc.setValue('Folio App');
-    }
-
-    // Filas nuevas: que existan, con el formato y las fórmulas de la última fila real.
-    if (plan.nuevas.length) {
-      const maxFila = Math.max(...plan.nuevas.map((n) => n.fila));
-      if (maxFila > hoja.getMaxRows()) hoja.insertRowsAfter(hoja.getMaxRows(), maxFila - hoja.getMaxRows());
-      if (plan.ultimaReal) {
-        const modelo = hoja.getRange(plan.ultimaReal, 1, 1, ultimaCol);
-        const grupos = bloques(formulasCols);
-        plan.nuevas.forEach((n) => {
-          const destino = hoja.getRange(n.fila, 1, 1, ultimaCol);
-          if (n.masAllaDeLosDatos) modelo.copyTo(destino, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-          // Las preparadas ya traen sus fórmulas; si les falta alguna, se copian todas.
-          const actuales = n.masAllaDeLosDatos ? [] : destino.getFormulas()[0];
-          const falta = Object.keys(formulasCols).some((j) => !actuales[j]);
-          if (!falta) return;
-          grupos.forEach(([desde, cuantas]) => {
-            hoja
-              .getRange(plan.ultimaReal, desde + 1, 1, cuantas)
-              .copyTo(hoja.getRange(n.fila, desde + 1, 1, cuantas), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
-          });
+    // Biobox: el ID de cada máquina como lo tiene «Inventario BBX» (de ahí
+    // salen Nombre, Municipio y Tipo de medio por fórmula).
+    const contexto = { idPorClave: {}, fechaInicio };
+    const inventario = ss.getSheetByName('Inventario BBX');
+    if (inventario && inventario.getLastRow() > 1) {
+      inventario
+        .getRange(2, 2, inventario.getLastRow() - 1, 3)
+        .getValues()
+        .forEach(([id, , clave]) => {
+          if (!vacio(id) && !vacio(clave)) contexto.idPorClave[normalizar(clave)] = String(id).trim();
         });
-      }
     }
 
-    const fallas = [];
-    const nombreCol = (col) => (col === plan.colFolioApp ? 'Folio App' : String(encabezados[col] || '').trim() || 'columna ' + (col + 1));
-
-    // Antes de escribir: las celdas con lista desplegable. Si el valor de
-    // la app está en la lista (sin importar mayúsculas ni acentos) se
-    // escribe como lo dice la lista; si no está y la lista rechaza otros
-    // valores, esa celda no se escribe y se avisa. Caso real (24-nov-2026):
-    // «SRD» en «ÁREA QUE REPORTA» de Vía Verde.
-    const listas = {};
-    const aEscribir = [];
-    tramos(plan.escrituras).forEach((t) => {
-      let reglas = [];
-      try {
-        reglas = hoja.getRange(t.desde, t.col + 1, t.celdas.length, 1).getDataValidations();
-      } catch (err) {
-        reglas = [];
-      }
-      t.celdas.forEach((e, k) => {
-        const regla = reglas[k] && reglas[k][0];
-        const lista = regla && (e.tipo === 'texto' || e.tipo === 'numero') ? listaDe_(regla, listas) : null;
-        if (!lista) {
-          aEscribir.push(e);
+    const avisos = [];
+    let conFallas = false;
+    configs.forEach((cfg) => {
+      ss.toast(`Actualizando «${cfg.pestana}»…`, 'Incidencias app', 10);
+      let hoja = ss.getSheetByName(cfg.pestana);
+      if (!hoja) {
+        if (!cfg.crearComo || !ss.getSheetByName(cfg.crearComo)) {
+          avisos.push(`${cfg.nombre}: no existe la pestaña «${cfg.pestana}».`);
           return;
         }
-        const ajustado = ajustarALista(e.valor, lista);
-        if (ajustado !== null) aEscribir.push({ ...e, valor: ajustado, tipo: 'texto' });
-        else if (regla.getAllowInvalid()) aEscribir.push(e);
-        else {
-          fallas.push({
-            columna: nombreCol(e.col),
-            fila: e.fila,
-            // Sin la lista entera: en Digital son ~150 opciones y tapaban el aviso.
-            mensaje: `«${e.valor}» no está en su lista desplegable (${lista.length} opciones)`,
-          });
-        }
-      });
-    });
-
-    // Escrituras, por tramos de filas seguidas. Sheets guarda los cambios y
-    // los aplica después: sin flush(), un error saldría hasta el final del
-    // script, fuera de este try. Si un tramo falla, se intenta celda por celda.
-    tramos(aEscribir).forEach((t) => {
-      const valores = t.celdas.map((e) => [celda(e)]);
-      const tipo = t.celdas[0].tipo;
-      // Fecha y hora van como número: sin su formato se verían como 46350
-      // o 0.7069 (pasó en «HORAS DE REPARACIÓN» de Fijas). Se pone el
-      // formato después de escribir, también en el camino celda por celda.
-      const formato = tipo === 'fecha' || tipo === 'hora' ? formatoPara(tipo, formatosModelo[t.col]) : null;
+        hoja = crearPestanaComo_(ss, cfg);
+      }
+      // Un error en una pestaña no detiene las demás; se avisa cuál fue.
       try {
-        const rango = hoja.getRange(t.desde, t.col + 1, t.celdas.length, 1);
-        rango.setValues(valores);
-        if (formato) rango.setNumberFormat(formato);
-        SpreadsheetApp.flush();
+        const r = procesarHoja_(hoja, cfg, base, desde, contexto);
+        if (r.fallas.length) conFallas = true;
+        avisos.push(resumenTexto(cfg, r.plan, { nombreBase, fallas: r.fallas }));
       } catch (err) {
-        valores.forEach((v, k) => {
-          try {
-            const una = hoja.getRange(t.desde + k, t.col + 1);
-            una.setValue(v[0]);
-            if (formato) una.setNumberFormat(formato);
-            SpreadsheetApp.flush();
-          } catch (err2) {
-            fallas.push({ columna: nombreCol(t.col), fila: t.desde + k, mensaje: String((err2 && err2.message) || err2) });
-          }
-        });
+        conFallas = true;
+        avisos.push(`${cfg.nombre} («${cfg.pestana}»): se detuvo por un error y quedó a medias: ${(err && err.message) || err}. Vuelve a apretar «Actualizar»; lo ya escrito no se duplica.`);
       }
     });
 
     // Con celdas que no entraron no se marca la hora: el siguiente
     // «Actualizar» vuelve a intentarlas.
-    if (!fallas.length) props.setProperty('ultimaActualizacion', String(inicio));
-    ui.alert(resumenTexto(cfg, plan, { nombreBase, fallas }));
+    if (!conFallas) props.setProperty('ultimaActualizacion', String(inicio));
+    avisos.unshift(`Folios reportados desde el ${fechaInicioATexto(fechaInicio)} (menú «Incidencias app» → «Cambiar fecha de inicio»).`);
+    ui.alert(avisos.join('\n\n'));
   } finally {
     candado.releaseLock();
   }
+}
+
+/** Pestaña nueva con la fila de encabezados (y su formato) de otra, fila 1 fija. */
+function crearPestanaComo_(ss, cfg) {
+  const modelo = ss.getSheetByName(cfg.crearComo);
+  const hoja = ss.insertSheet(cfg.pestana);
+  const ancho = modelo.getLastColumn();
+  if (hoja.getMaxColumns() < ancho) hoja.insertColumnsAfter(hoja.getMaxColumns(), ancho - hoja.getMaxColumns());
+  modelo.getRange(cfg.filaEncabezados, 1, 1, ancho).copyTo(hoja.getRange(cfg.filaEncabezados, 1, 1, ancho));
+  hoja.setFrozenRows(cfg.filaEncabezados);
+  return hoja;
+}
+
+/** Una pestaña: planear y escribir. Devuelve { plan, fallas }. */
+function procesarHoja_(hoja, cfg, base, desde, contexto) {
+  const filaEnc = cfg.filaEncabezados;
+  const ultimaFila = hoja.getLastRow();
+  const ultimaCol = Math.max(hoja.getLastColumn(), 1);
+  const encabezados = hoja.getRange(filaEnc, 1, 1, ultimaCol).getValues()[0];
+  const datos = ultimaFila > filaEnc ? hoja.getRange(filaEnc + 1, 1, ultimaFila - filaEnc, ultimaCol).getValues() : [];
+
+  const colFecha = encabezados.map(normalizar).indexOf(cfg.fecha);
+  const ultimaReal = ultimaFilaReal(datos, colFecha);
+  const formulasCols = {};
+  // El formato de número de cada columna en la última fila real: las
+  // fechas y horas nuevas se ven igual que las de arriba.
+  let formatosModelo = [];
+  if (ultimaReal >= 0) {
+    formatosModelo = hoja.getRange(filaEnc + 1 + ultimaReal, 1, 1, ultimaCol).getNumberFormats()[0];
+    hoja
+      .getRange(filaEnc + 1 + ultimaReal, 1, 1, ultimaCol)
+      .getFormulas()[0]
+      .forEach((f, j) => {
+        if (f) formulasCols[j] = true;
+      });
+  }
+
+  const plan = planear({
+    cfg, encabezados, datos, formulasCols, base, desde, filaEncabezados: filaEnc, contexto,
+    fechaInicio: contexto && contexto.fechaInicio,
+  });
+
+  // Columnas que la app agrega al final: la del folio de la app («Folio
+  // App»; en Biobox, «Folio Incidencias App») y, en Biobox, Correo y Teléfono.
+  plan.columnasNuevas.forEach(({ col, encabezado }) => {
+    if (col + 1 > hoja.getMaxColumns()) hoja.insertColumnsAfter(hoja.getMaxColumns(), col + 1 - hoja.getMaxColumns());
+    const celdaEnc = hoja.getRange(filaEnc, col + 1);
+    if (col > 0) hoja.getRange(filaEnc, col).copyTo(celdaEnc, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    celdaEnc.setValue(encabezado);
+  });
+
+  // Filas nuevas: que existan, con el formato y las fórmulas de la última fila real.
+  if (plan.nuevas.length) {
+    const maxFila = Math.max(...plan.nuevas.map((n) => n.fila));
+    if (maxFila > hoja.getMaxRows()) hoja.insertRowsAfter(hoja.getMaxRows(), maxFila - hoja.getMaxRows());
+    if (plan.ultimaReal) {
+      const modelo = hoja.getRange(plan.ultimaReal, 1, 1, ultimaCol);
+      const grupos = bloques(formulasCols);
+      plan.nuevas.forEach((n) => {
+        const destino = hoja.getRange(n.fila, 1, 1, ultimaCol);
+        if (n.masAllaDeLosDatos) modelo.copyTo(destino, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+        // Las preparadas ya traen sus fórmulas; si les falta alguna, se copian todas.
+        const actuales = n.masAllaDeLosDatos ? [] : destino.getFormulas()[0];
+        const falta = Object.keys(formulasCols).some((j) => !actuales[j]);
+        if (!falta) return;
+        grupos.forEach(([desdeCol, cuantas]) => {
+          hoja
+            .getRange(plan.ultimaReal, desdeCol + 1, 1, cuantas)
+            .copyTo(hoja.getRange(n.fila, desdeCol + 1, 1, cuantas), SpreadsheetApp.CopyPasteType.PASTE_FORMULA, false);
+        });
+      });
+    }
+  }
+
+  const fallas = [];
+  const nombreCol = (col) => {
+    const nueva = plan.columnasNuevas.find((c) => c.col === col);
+    if (nueva) return nueva.encabezado;
+    return col === plan.colFolioApp ? plan.encFolioApp : String(encabezados[col] || '').trim() || 'columna ' + (col + 1);
+  };
+
+  // Antes de escribir: las celdas con lista desplegable. Si el valor de
+  // la app está en la lista (sin importar mayúsculas ni acentos) se
+  // escribe como lo dice la lista; si no está y la lista rechaza otros
+  // valores, esa celda no se escribe y se avisa. Caso real (24-nov-2026):
+  // «SRD» en «ÁREA QUE REPORTA» de Vía Verde.
+  const listas = {};
+  const aEscribir = [];
+  tramos(plan.escrituras).forEach((t) => {
+    let reglas = [];
+    try {
+      reglas = hoja.getRange(t.desde, t.col + 1, t.celdas.length, 1).getDataValidations();
+    } catch (err) {
+      reglas = [];
+    }
+    t.celdas.forEach((e, k) => {
+      const regla = reglas[k] && reglas[k][0];
+      const lista = regla && (e.tipo === 'texto' || e.tipo === 'numero') ? listaDe_(regla, listas) : null;
+      if (!lista) {
+        aEscribir.push(e);
+        return;
+      }
+      const ajustado = ajustarALista(e.valor, lista);
+      if (ajustado !== null) aEscribir.push({ ...e, valor: ajustado, tipo: 'texto' });
+      else if (regla.getAllowInvalid()) aEscribir.push(e);
+      else {
+        fallas.push({
+          columna: nombreCol(e.col),
+          fila: e.fila,
+          // Sin la lista entera: en Digital son ~150 opciones y tapaban el aviso.
+          mensaje: `«${e.valor}» no está en su lista desplegable (${lista.length} opciones)`,
+        });
+      }
+    });
+  });
+
+  // Escrituras, por tramos de filas seguidas. Sheets guarda los cambios y
+  // los aplica después: sin flush(), un error saldría hasta el final del
+  // script, fuera de este try. Si un tramo falla, se intenta celda por celda.
+  tramos(aEscribir).forEach((t) => {
+    const valores = t.celdas.map((e) => [celda(e)]);
+    const tipo = t.celdas[0].tipo;
+    // Fecha y hora van como número: sin su formato se verían como 46350
+    // o 0.7069 (pasó en «HORAS DE REPARACIÓN» de Fijas). Se pone el
+    // formato después de escribir, también en el camino celda por celda.
+    const formato = tipo === 'fecha' || tipo === 'hora' || tipo === 'fechahora' ? formatoPara(tipo, formatosModelo[t.col]) : null;
+    try {
+      const rango = hoja.getRange(t.desde, t.col + 1, t.celdas.length, 1);
+      rango.setValues(valores);
+      if (formato) rango.setNumberFormat(formato);
+      SpreadsheetApp.flush();
+    } catch (err) {
+      valores.forEach((v, k) => {
+        try {
+          const una = hoja.getRange(t.desde + k, t.col + 1);
+          una.setValue(v[0]);
+          if (formato) una.setNumberFormat(formato);
+          SpreadsheetApp.flush();
+        } catch (err2) {
+          fallas.push({ columna: nombreCol(t.col), fila: t.desde + k, mensaje: String((err2 && err2.message) || err2) });
+        }
+      });
+    }
+  });
+  return { plan, fallas };
 }
