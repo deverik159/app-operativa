@@ -8,6 +8,14 @@
 // a 720p (lado mayor 1280 px) y ~2.5 Mbps, esos 30 s quedan en ~10 MB: sube
 // rápido por datos móviles y gasta poco almacenamiento y transferencia.
 //
+// 26-nov-2026 (Erik): Supabase avisó que se pasó del almacenamiento del plan
+// gratuito (2.4 GB contra 1 GB; los videos eran el 68 %, ~9 MB cada uno, y la
+// mayoría subía SIN comprimir porque solo se comprimía arriba de 20 MB).
+// Ahora: 480p (lado mayor 854 px) y ~1 Mbps (~7.5 MB por minuto; 30 s quedan
+// en ~4 MB), y se comprime todo video de más de 5 MB. Para ver una falla en
+// una pantalla o una máquina, 480p alcanza; codificar menos píxeles además
+// tarda menos en el teléfono.
+//
 // Cómo: WebCodecs (decodifica y vuelve a codificar con el hardware del
 // teléfono) con Mediabunny, que lee el MOV/MP4 del teléfono y escribe el MP4.
 // Mediabunny se carga solo cuando hace falta (import dinámico): no pesa en
@@ -21,13 +29,16 @@
 
 import { guardarArchivo, idbDelete, leerArchivo } from './idb';
 
-/** Por debajo de esto no vale la pena: el video sube como está. */
-export const COMPRIMIR_VIDEO_DESDE = 20 * 1024 * 1024;
+/**
+ * Por debajo de esto el video sube como está (un clip de pocos segundos).
+ * Era 20 MB hasta el 26-nov-2026: casi todos los videos quedaban debajo.
+ */
+export const COMPRIMIR_VIDEO_DESDE = 5 * 1024 * 1024;
 
-/** Lado mayor del video recomprimido (720p). */
-const LADO_MAX = 1280;
-/** Bitrate del video recomprimido: ~19 MB por minuto, sobra para evidencia. */
-const BITRATE = 2_500_000;
+/** Lado mayor del video recomprimido (480p; era 1280 = 720p hasta el 26-nov-2026). */
+const LADO_MAX = 854;
+/** Bitrate del video recomprimido: ~7.5 MB por minuto (era 2.5 Mbps hasta el 26-nov-2026). */
+const BITRATE = 1_000_000;
 /**
  * Tope de cuadros por segundo: muchos Android graban a 60 y codificar la
  * mitad de cuadros casi duplica la velocidad; para evidencia 30 se ve igual.
@@ -187,7 +198,7 @@ export function puedeComprimirVideo(): boolean {
 const par = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
 /**
- * Recomprime `file` a MP4 H.264 de 720p. `onProgreso` recibe de 0 a 1.
+ * Recomprime `file` a MP4 H.264 de 480p. `onProgreso` recibe de 0 a 1.
  * `originalCabe` = el original ya cabe en el tope: si el recomprimido
  * perdiera el audio, se prefiere el original.
  */
